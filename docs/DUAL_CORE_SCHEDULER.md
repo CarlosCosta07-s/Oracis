@@ -29,7 +29,7 @@ Se o core estiver em HALT, ou se a execução devolver a fatia antes de alcança
 
 A máquina verifica interrupções no início e no fim de cada round. Quando a linha IRQ está ativa e `CPSR.I` está limpo, ela consulta `NdsMachineIrqContextProvider`.
 
-O provider deve calcular, com base no estado real do executor, o LR arquitetural correto para o ponto exato em que a execução foi interrompida. A seleção da base vetorial pertence à máquina: ARM9 consulta o bit `V` de CP15 Control (`c1,c0,0`), e ARM7 usa a base baixa `0x00000000`. O parâmetro `vector_base` legado do callback é ignorado pela integração de rounds.
+O provider deve calcular, com base no estado real do executor, o LR arquitetural correto para o ponto exato em que a execução foi interrompida. A seleção da base vetorial pertence à máquina: ARM9 consulta o bit `V` de CP15 Control (`c1,c0,0`) e começa com `V=1` no estado inicial do Nintendo DS, enquanto ARM7 usa a base baixa `0x00000000`. O ARM9 pode alterar a seleção por MCR CP15 Control. O parâmetro `vector_base` legado do callback é ignorado pela integração de rounds.
 
 A máquina não calcula LR a partir de `R[15]`. Se um IRQ elegível existir sem provider, o round retorna `IrqContextUnavailable`; se o provider não conseguir fornecer o LR, retorna `IrqContextFailed`.
 
