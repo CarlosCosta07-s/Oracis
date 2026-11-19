@@ -50,7 +50,7 @@ O backing principal começa em `0x02000000`, tem 4 MB e é compartilhado pelos d
 
 ### ARM7 private WRAM
 
-A região `0x03800000–0x0380FFFF` só é acessível por ARM7. ARM9 recebe `CpuAccessDenied` ao tentar acessá-la.
+O backing físico `0x03800000–0x0380FFFF` pertence ao ARM7. Como os barramentos dos dois processadores têm visões distintas, no modo 0 o ARM9 pode enxergar Shared WRAM através de sua janela de 16 MB sobre o mesmo intervalo numérico; essa visão ARM9 aponta para os bancos compartilhados, nunca para os bytes privados do ARM7. Os testes verificam que escritas de cada CPU nesse endereço permanecem isoladas.
 
 ### Shared WRAM e WRAMCNT
 
