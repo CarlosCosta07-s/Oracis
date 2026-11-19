@@ -129,6 +129,10 @@ private:
     std::vector<Bank> arm7_banks_;
 };
 
+
+/* Shared registry used by the machine-facing C ABI. */
+StaticDispatchRegistry &global_static_dispatch_registry() noexcept;
+
 } // namespace oracis::recomp
 
 #endif /* ORACIS_RECOMP_STATIC_DISPATCH_HPP */
