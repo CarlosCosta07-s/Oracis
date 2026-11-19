@@ -149,6 +149,10 @@ if(ORACIS_LOCAL_BANK_DIR)
         $<TARGET_OBJECTS:oracis_platinum_arm7_bank>)
     target_compile_definitions(oracis_machine PRIVATE
         ORACIS_WITH_PLATINUM_STATIC_BANKS=1)
+    if(ORACIS_BUILD_HOST)
+        target_compile_definitions(${ORACIS_RUNTIME_TARGET} PRIVATE
+            ORACIS_WITH_PLATINUM_STATIC_BANKS=1)
+    endif()
 endif()
 
 # The SDL host consumes the independent machine/runtime libraries.
