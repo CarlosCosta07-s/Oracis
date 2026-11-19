@@ -181,6 +181,70 @@ def validate_extraction(extracted_dir: Path) -> tuple[dict, dict[str, dict]]:
     return manifest, by_cpu
 
 
+def validate_output_destination(extracted_dir: Path, output_dir: Path) -> None:
+    """Reject unsafe or overlapping destinations before running the compiler."""
+    if output_dir.is_symlink():
+        raise ValueError(f"Generated output directory must not be a symlink: {output_dir}")
+
+    extracted_resolved = extracted_dir.resolve()
+    output_resolved = output_dir.resolve()
+    if (output_resolved == extracted_resolved or
+            output_resolved in extracted_resolved.parents or
+            extracted_resolved in output_resolved.parents):
+        raise ValueError(
+            "Generated output directory must be separate from the extraction directory"
+        )
+
+    if output_resolved.exists():
+        if not output_resolved.is_dir():
+            raise ValueError(
+                f"Generated output destination is not a directory: {output_resolved}"
+            )
+
+        # Replacing the directory is necessary to remove stale output files.
+        # Never remove unrelated user data or descend through a nested/symlinked
+        # entry merely because the caller selected an unsafe destination.
+        allowed_names = {"oracis_banks.json"}
+        for cpu in CPUS:
+            bank = f"{BANK_PREFIX}_{cpu}"
+            allowed_names.update({
+                f"{bank}.c",
+                f"{bank}.h",
+                f"{bank}_dispatch.c",
+            })
+        for entry in output_resolved.iterdir():
+            if entry.is_symlink() or not entry.is_file() or entry.name not in allowed_names:
+                raise ValueError(
+                    "Generated output directory contains unrelated or unsafe content: "
+                    f"{entry}. Choose a dedicated empty Oracis output directory."
+                )
+
+
+def publish_output_directory(staging_dir: Path, output_dir: Path) -> None:
+    """Replace the generated bank set as a unit, restoring the old set on failure."""
+    backup_dir: Path | None = None
+    if output_dir.exists():
+        # Reserve a unique sibling name, then move the previous generated set
+        # there. A sibling keeps the rename on the same filesystem.
+        backup_dir = Path(tempfile.mkdtemp(
+            prefix=f".{output_dir.name}.backup-",
+            dir=output_dir.parent,
+        ))
+        backup_dir.rmdir()
+        output_dir.replace(backup_dir)
+
+    try:
+        staging_dir.replace(output_dir)
+    except OSError:
+        if backup_dir is not None and backup_dir.exists():
+            # Roll back the previous complete set if publication did not finish.
+            backup_dir.replace(output_dir)
+        raise
+    else:
+        if backup_dir is not None:
+            shutil.rmtree(backup_dir)
+
+
 def emit_banks(
     recompiler: Path,
     extracted_dir: Path,
@@ -191,6 +255,8 @@ def emit_banks(
         raise FileNotFoundError(f"NDSRecomp executable not found: {recompiler}")
 
     manifest, segments = validate_extraction(extracted_dir)
+    validate_output_destination(extracted_dir, output_dir)
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
     identity_output = runner([str(recompiler), "--codegen-identity"])
     actual_identity = identity_output.strip()
     if actual_identity != EXPECTED_CODEGEN_IDENTITY:
@@ -199,8 +265,6 @@ def emit_banks(
             f"expected {EXPECTED_CODEGEN_IDENTITY}, received {actual_identity or '<empty>'}"
         )
 
-    output_dir.parent.mkdir(parents=True, exist_ok=True)
-
     emitted: dict[str, dict] = {}
     # Generate both CPUs in a sibling staging directory. A failed ARM7 run
     # must not leave an ARM9-only output looking like a complete bank set.
@@ -208,7 +272,9 @@ def emit_banks(
         prefix=f".{output_dir.name}.staging-",
         dir=output_dir.parent,
     ) as staging_name:
-        staging_dir = Path(staging_name)
+        staging_root = Path(staging_name)
+        staging_dir = staging_root / "complete"
+        staging_dir.mkdir()
         for cpu in CPUS:
             segment = segments[cpu]
             bank_name = f"{BANK_PREFIX}_{cpu}"
@@ -275,10 +341,7 @@ def emit_banks(
             json.dumps(result, indent=2) + "\n", encoding="utf-8"
         )
 
-        output_dir.mkdir(parents=True, exist_ok=True)
-        for generated in staging_dir.iterdir():
-            if generated.is_file():
-                generated.replace(output_dir / generated.name)
+        publish_output_directory(staging_dir, output_dir)
 
     return result
 
