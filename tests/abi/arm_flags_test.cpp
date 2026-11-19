@@ -62,7 +62,7 @@ int main()
     }
 
     ArmCpuState state{};
-    state.cpsr = ORACIS_ARM_MODE_IRQ | CPSR_T_BIT |
+    state.cpsr = UINT32_C(0x12) | CPSR_T_BIT |
                  CPSR_I_BIT | CPSR_F_BIT | CPSR_V_BIT | CPSR_C_BIT;
     const uint32_t preserved = state.cpsr &
         ~(CPSR_N_BIT | CPSR_Z_BIT | CPSR_C_BIT | CPSR_V_BIT);
