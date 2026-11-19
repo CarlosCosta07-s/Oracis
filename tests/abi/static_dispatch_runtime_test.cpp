@@ -136,6 +136,18 @@ int main()
         return fail("unregistered validated row remained searchable");
     }
 
+    /* Clearing bank rows must preserve the still-bound memory validator. */
+    oracis_static_dispatch_clear();
+    if (oracis_static_dispatch_register_bank(
+            NDS_ARM9, validated_table, 1u, "validated-after-clear") !=
+        static_cast<int>(oracis::recomp::RegisterBankStatus::Ok)) {
+        return fail("bank registration after registry clear failed");
+    }
+    runtime_dispatch(0x02001000u);
+    if (validated_calls != 2u) {
+        return fail("registry clear unexpectedly removed the memory validator");
+    }
+
     oracis_static_dispatch_clear();
     oracis_static_dispatch_set_validation_callback(nullptr, nullptr);
 
