@@ -36,6 +36,14 @@ bool GuestMemory::valid_cpu_access(uint8_t cpu_access) noexcept
     return (cpu_access & ~kKnownCpuAccess) == 0u;
 }
 
+bool GuestMemory::has_region_name(const std::string &name) const noexcept
+{
+    return std::find_if(
+        regions_.begin(), regions_.end(),
+        [&name](const Region &region) { return region.name == name; }) !=
+        regions_.end();
+}
+
 bool GuestMemory::valid_range(uint32_t base, uint32_t size) noexcept
 {
     if (size == 0u) return false;
@@ -153,6 +161,7 @@ Status GuestMemory::map_ram(uint32_t base,
         !valid_cpu_access(cpu_access)) {
         return Status::InvalidRegion;
     }
+    if (has_region_name(name)) return Status::InvalidRegion;
     if (overlaps(base, size, cpu_access)) return Status::Overlap;
 
     try {
@@ -183,6 +192,7 @@ Status GuestMemory::map_image(uint32_t base,
         !valid_cpu_access(cpu_access)) {
         return Status::InvalidRegion;
     }
+    if (has_region_name(name)) return Status::InvalidRegion;
     if (overlaps(base, size, cpu_access)) return Status::Overlap;
 
     try {
@@ -215,6 +225,7 @@ Status GuestMemory::map_alias(uint32_t alias_base,
         (cpu_access != CpuAccessInherit && !valid_cpu_access(cpu_access))) {
         return Status::InvalidRegion;
     }
+    if (has_region_name(name)) return Status::InvalidRegion;
 
     const Resolution target = resolve_any(canonical_base, size);
     if (target.status != Status::Ok || target.region == nullptr) {
@@ -255,6 +266,7 @@ Status GuestMemory::map_mirror(uint32_t alias_base,
         !valid_cpu_access(cpu_access)) {
         return Status::InvalidRegion;
     }
+    if (has_region_name(name)) return Status::InvalidRegion;
 
     const Resolution target = resolve_any(canonical_base, period);
     if (target.status != Status::Ok || target.region == nullptr) {
