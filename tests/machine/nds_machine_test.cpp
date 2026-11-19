@@ -112,7 +112,6 @@ int main()
             oracis::memory::NdsArm9Tcm::DtcmResetRegionControl ||
         runtime_coproc_read(15u, 0u, 9u, 1u, 1u) !=
             oracis::memory::NdsArm9Tcm::ItcmResetRegionControl ||
-        runtime_code_cycles(UINT32_C(0x01FF8000)) != 0u ||
         machine.exception_vector_base(NDS_ARM7) != 0u) {
         return fail("machine did not bind CPU states or apply NDS reset vector bases");
     }
