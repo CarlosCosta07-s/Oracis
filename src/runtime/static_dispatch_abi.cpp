@@ -85,9 +85,9 @@ extern "C" int oracis_static_dispatch_unregister_bank(
 
 extern "C" void oracis_static_dispatch_clear(void)
 {
+    /* Clearing bank rows does not change the lifetime of the memory validator.
+       The owner removes that callback explicitly when it unbinds GuestMemory. */
     registry().clear();
-    g_validation_callback = nullptr;
-    g_validation_user = nullptr;
 }
 
 extern "C" void oracis_static_dispatch_set_validation_callback(
