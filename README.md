@@ -38,6 +38,7 @@ O Oracis já contém:
 - wrappers C bus_read_*/bus_write_* que encaminham para RAM guest mapeada e falham com diagnóstico em endereços inválidos;
 - operações CPSR/SPSR e entrada/retorno de exceções;
 - avaliação de condições e atualização de flags NZCV;
+- helpers de acesso aos registradores do User bank e instrução `CLZ` na ABI C;
 - ponte ABI C para selecionar o estado ARM9 ou ARM7 via `g_cpu`, wrappers de flags/PSR e especialização `NDS_STATIC_CPU`;
 - asserts do layout de `NdsStaticValidation`, `NdsDispatchEntry` e `NdsLinkSlot`;
 - registro/remoção de bancos estáticos por ARM9/ARM7, lookup ARM/Thumb e `runtime_dispatch` com falha fechada;
@@ -45,7 +46,7 @@ O Oracis já contém:
 - pilha de retorno guest separada por CPU, com chave PC+ARM/Thumb e desenrolamento de retornos não locais;
 - entradas `runtime_link_*` encaminhadas ao dispatcher normal; otimização de slots e folhas inline ainda desabilitada.
 
-O CMake registra dezesseis testes CTest, incluindo a tabela de dispatch, sua ponte C/C++, pilha de retorno guest, identidade de bytes e proveniência de RAM. **A execução desses quinze testes para o estado atual ainda não foi confirmada**; a consulta aos status checks do último commit não retornou verificações. Os wrappers C bus_* atendem RAM explicitamente mapeada, e o dispatch já chama funções registradas, mas ainda não há mapa físico DS, MMIO, scheduler, ciclos, IRQ/SWI/CP15 ou serviços NitroSDK suficientes para executar bancos reais.
+O CMake registra dezessete testes CTest, incluindo a tabela de dispatch, sua ponte C/C++, pilha de retorno guest, acesso ao User bank, `CLZ`, identidade de bytes e proveniência de RAM. **A execução desses quinze testes para o estado atual ainda não foi confirmada**; a consulta aos status checks do último commit não retornou verificações. Os wrappers C bus_* atendem RAM explicitamente mapeada, e o dispatch já chama funções registradas, mas ainda não há mapa físico DS, MMIO, scheduler, ciclos, IRQ/SWI/CP15 ou serviços NitroSDK suficientes para executar bancos reais.
 
 A extração local da USA Rev 1 teve offsets, limites e hashes ARM9/ARM7 verificados. A execução integral do extrator versionado e a emissão de bancos continuam pendentes.
 
