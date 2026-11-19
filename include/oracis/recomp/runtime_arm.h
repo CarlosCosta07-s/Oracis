@@ -116,8 +116,8 @@ typedef struct NdsLinkSlot {
     const void *guard;
 } NdsLinkSlot;
 
-uint32_t bus_read_u8(uint32_t addr);
-uint32_t bus_read_u16(uint32_t addr);
+uint8_t bus_read_u8(uint32_t addr);
+uint16_t bus_read_u16(uint32_t addr);
 uint32_t bus_read_u32(uint32_t addr);
 void bus_write_u8(uint32_t addr, uint8_t value);
 void bus_write_u16(uint32_t addr, uint16_t value);
@@ -137,6 +137,8 @@ void runtime_dispatch_literal_branch(uint32_t target_pc);
 void runtime_dispatch_literal_call(uint32_t target_pc);
 void runtime_dispatch_literal_fallthrough(uint32_t target_pc);
 void runtime_dispatch_with_exchange(uint32_t target_pc);
+void runtime_dispatch_miss(uint32_t target_pc);
+void runtime_dispatch_bad_entry(uint32_t target_pc);
 void runtime_link_call(NdsLinkSlot *slot);
 void runtime_link_branch(NdsLinkSlot *slot);
 void runtime_link_fallthrough(NdsLinkSlot *slot);
