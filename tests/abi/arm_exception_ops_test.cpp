@@ -115,7 +115,7 @@ int main()
     misaligned.banked_spsr[ARM_BANK_IRQ] =
         ORACIS_ARM_MODE_SYSTEM | CPSR_T_BIT;
     const ArmCpuState before_misaligned = misaligned;
-    if (oracis_arm_cpu_return_from_exception(&misaligned, 0x102u) ||
+    if (oracis_arm_cpu_return_from_exception(&misaligned, 0x103u) ||
         std::memcmp(&misaligned, &before_misaligned, sizeof(misaligned)) != 0) {
         return fail("misaligned Thumb return must fail without mutation");
     }
