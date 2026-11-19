@@ -74,6 +74,7 @@ add_library(oracis_arm_state STATIC
     src/runtime/recomp_abi.cpp
     src/runtime/static_dispatch.cpp
     src/runtime/static_dispatch_abi.cpp
+    src/runtime/call_return_stack.cpp
 )
 target_link_libraries(oracis_arm_state PUBLIC oracis_generated_bank_abi)
 target_compile_features(oracis_arm_state PUBLIC cxx_std_20)
@@ -150,6 +151,12 @@ if(BUILD_TESTING)
     )
     target_link_libraries(oracis_arm_flags_test PRIVATE oracis_arm_state)
     add_test(NAME oracis_arm_flags_test COMMAND oracis_arm_flags_test)
+
+    add_executable(oracis_call_return_stack_test
+        tests/abi/call_return_stack_test.cpp
+    )
+    target_link_libraries(oracis_call_return_stack_test PRIVATE oracis_arm_state)
+    add_test(NAME oracis_call_return_stack_test COMMAND oracis_call_return_stack_test)
 
     add_executable(oracis_static_dispatch_test
         tests/abi/static_dispatch_test.cpp
