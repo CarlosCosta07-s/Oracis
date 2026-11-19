@@ -11,6 +11,8 @@
 - `.gitignore`: checkout, extrações e bancos ficam em `.oracis/` ou `generated/`, fora do Git.
 - `tools/ndsrecomp/extract_nds_programs.py`: valida a revisão USA Rev 1, extrai ARM9/ARM7, calcula hashes e gera TOMLs locais.
 - `docs/NDSRECOMP_INTEGRATION.md`: separação de licenças, componentes permitidos, hashes dos segmentos e runtime próprio.
+- `include/oracis/recomp/arm_cpu_state.h`: layout POD de registradores/flags compartilhável entre C99 e C++20.
+- `tests/abi/`: testes C e C++ do layout do estado ARM, registrados no CTest.
 
 O checkout externo não materializa `runner/` nem `oracle/`: o sparse checkout limita a árvore aos diretórios necessários para o compilador e seu núcleo ARM MIT. O checkout não é submódulo e não é distribuído junto do Oracis.
 
@@ -34,7 +36,7 @@ A execução local conferiu o SHA-1 da ROM e gerou configurações TOML válidas
 
 ## Host SDL3
 
-O host SDL3 e as duas áreas lógicas de 256 × 192 permanecem como frontend experimental. Ainda não há runtime ARM/DS integrado. O host não deve ser tratado como evidência de que o jogo já está sendo recompilado ou executado.
+O host SDL3 e as duas áreas lógicas de 256 × 192 permanecem como frontend experimental. O layout de armazenamento ARM passou nos testes C99/C++20, mas ainda não há ABI de funções, dispatch, scheduler ou runtime ARM/DS integrado. O host não deve ser tratado como evidência de que o jogo já está sendo recompilado ou executado.
 
 ## Exclusões
 
