@@ -132,4 +132,18 @@ if(BUILD_TESTING)
     target_compile_features(oracis_runtime_abi_bridge_c_test PRIVATE c_std_99)
     set_target_properties(oracis_runtime_abi_bridge_c_test PROPERTIES LINKER_LANGUAGE CXX)
     add_test(NAME oracis_runtime_abi_bridge_c_test COMMAND oracis_runtime_abi_bridge_c_test)
+
+    add_executable(oracis_static_arm9_abi_test
+        tests/abi/runtime_abi_static_cpu_test.c
+    )
+    target_link_libraries(oracis_static_arm9_abi_test PRIVATE oracis_generated_bank_abi)
+    target_compile_definitions(oracis_static_arm9_abi_test PRIVATE NDS_STATIC_CPU=0)
+    add_test(NAME oracis_static_arm9_abi_test COMMAND oracis_static_arm9_abi_test)
+
+    add_executable(oracis_static_arm7_abi_test
+        tests/abi/runtime_abi_static_cpu_test.c
+    )
+    target_link_libraries(oracis_static_arm7_abi_test PRIVATE oracis_generated_bank_abi)
+    target_compile_definitions(oracis_static_arm7_abi_test PRIVATE NDS_STATIC_CPU=1)
+    add_test(NAME oracis_static_arm7_abi_test COMMAND oracis_static_arm7_abi_test)
 endif()
