@@ -1,4 +1,5 @@
 #include "oracis/recomp/static_dispatch_abi.h"
+#include "oracis/recomp/static_dispatch.hpp"
 
 #include <cstdint>
 #include <cstdio>
