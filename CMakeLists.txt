@@ -103,6 +103,7 @@ target_compile_features(oracis_memory PUBLIC cxx_std_20)
 add_library(oracis_machine STATIC
     src/machine/nds_machine.cpp
     src/machine/host_runtime_bridge.cpp
+    src/machine/sha1.cpp
 )
 target_link_libraries(oracis_machine PUBLIC oracis_memory oracis_arm_state)
 target_compile_features(oracis_machine PUBLIC cxx_std_20)
@@ -250,6 +251,12 @@ if(BUILD_TESTING)
         NAME oracis_local_program_loader_test
         COMMAND oracis_local_program_loader_test
     )
+
+    add_executable(oracis_sha1_test
+        tests/host/sha1_test.cpp
+    )
+    target_link_libraries(oracis_sha1_test PRIVATE oracis_machine)
+    add_test(NAME oracis_sha1_test COMMAND oracis_sha1_test)
 
     if(ORACIS_LOCAL_BANK_DIR)
         add_executable(oracis_compiled_bank_link_smoke
