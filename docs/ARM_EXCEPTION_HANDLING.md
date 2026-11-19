@@ -33,11 +33,11 @@ A rotina faz:
 6. limpar CPSR.T, definir o modo de destino e aplicar I/F;
 7. colocar em R15 o endereço do vetor.
 
-A implementação atual não modela Reset, vetores de interrupção acelerados por periférico (vectored interrupt), estado de CP15, prioridades, latência nem a decisão temporal de aceitar IRQ/FIQ. Essas responsabilidades ficam para o scheduler e para o controlador de interrupções.
+A implementação atual não modela Reset, vectores de interrupção acelerados por periférico (vectored interrupt), prioridades, latência nem a decisão temporal de aceitar IRQ/FIQ. O suporte CP15 ainda é parcial: a máquina modela somente ARM9 CP15 Control (`MRC/MCR p15,0,Rd,c1,c0,0`) e o bit 13 `V`; operações CP15 restantes, incluindo MPU, caches e TCM, continuam sem implementação e falham explicitamente. A ARM7 não possui essa seleção por CP15 no modelo e usa a base baixa.
 
 ## 3. Vetores normais e altos
 
-O chamador fornece `vector_base`. Isso permite usar a tabela normal `0x00000000` ou uma base alta, por exemplo `0xFFFF0000`, quando a configuração/CPU a suportar. O helper não lê CP15 nem decide se o remapeamento alto está habilitado.
+A primitiva de baixo nível `oracis_arm_cpu_enter_exception` continua recebendo `vector_base` explicitamente. Já `NdsMachine::run_dual_core_round()` seleciona a base antes da entrada: ARM9 lê o bit `V` (bit 13) de CP15 Control (`c1,c0,0`), usando `0x00000000` quando limpo e `0xFFFF0000` quando definido; ARM7 usa `0x00000000`. O provider externo permanece responsável pelo LR exato da fronteira, não pela seleção do vetor. Referência: [ARM946E-S Technical Reference Manual, CP15 Control Register](https://documentation-service.arm.com/static/5f032835cafe527e86f5b8ad).
 
 Os testes cobrem:
 - todos os seis tipos implementados contra a base alta;
@@ -72,7 +72,7 @@ Código: `src/runtime/arm_exception_ops.cpp`. Teste: `tests/abi/arm_exception_op
 1. O scheduler deve gerar o return link correto para cada fronteira de instrução.
 2. O controlador IRQ/FIQ deve consultar I/F e a prioridade/estado de interrupção.
 3. Os caminhos SWI e undefined devem chamar a mesma primitiva, mas com links derivados da instrução atual.
-4. CP15 deve selecionar a base vetorial da ARM9; a configuração de vetor da ARM7 deve permanecer independente.
+4. A seleção de vetores ARM9 via CP15 Control.V está implementada; completar os demais registradores CP15/MPU/cache/TCM e manter a base baixa da ARM7.
 5. O código de exceção recompilado deve ser resolvido pelo dispatch estático; miss continua sendo falha explícita.
 
 ## Referência arquitetural
