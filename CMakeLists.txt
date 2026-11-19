@@ -75,6 +75,7 @@ add_library(oracis_arm_state STATIC
     src/runtime/static_dispatch.cpp
     src/runtime/static_dispatch_abi.cpp
     src/runtime/call_return_stack.cpp
+    src/runtime/scheduler_core.cpp
 )
 target_link_libraries(oracis_arm_state PUBLIC oracis_generated_bank_abi)
 target_compile_features(oracis_arm_state PUBLIC cxx_std_20)
@@ -163,6 +164,12 @@ if(BUILD_TESTING)
     )
     target_link_libraries(oracis_user_register_abi_test PRIVATE oracis_arm_state)
     add_test(NAME oracis_user_register_abi_test COMMAND oracis_user_register_abi_test)
+
+    add_executable(oracis_runtime_scheduler_test
+        tests/abi/runtime_scheduler_test.cpp
+    )
+    target_link_libraries(oracis_runtime_scheduler_test PRIVATE oracis_arm_state)
+    add_test(NAME oracis_runtime_scheduler_test COMMAND oracis_runtime_scheduler_test)
 
     add_executable(oracis_static_dispatch_test
         tests/abi/static_dispatch_test.cpp
