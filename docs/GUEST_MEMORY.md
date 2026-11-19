@@ -1,6 +1,6 @@
 # GuestMemory e mapa de RAM do Nintendo DS
 
-**Estado:** armazenamento guest configurável, visibilidade por CPU, aliases, mirrors periódicos e mapa inicial de RAM do NDS retail implementados. A camada MMIO e a reconfiguração dinâmica de WRAMCNT ainda não existem. Os testes estão registrados no CMake, mas a execução da versão atual ainda não foi confirmada.
+**Estado:** armazenamento guest configurável, visibilidade por CPU, aliases, mirrors periódicos e mapa de RAM do NDS retail implementados. A API `set_shared_wram_mode()` reconfigura os quatro modos de Shared WRAM preservando os bytes físicos. O handler MMIO de `WRAMCNT`/`WRAMSTAT` ainda não existe. Os testes estão registrados no CMake, mas a execução da versão atual ainda não foi confirmada.
 
 ## 1. Responsabilidades
 
@@ -65,7 +65,7 @@ A API recebe explicitamente um valor de `SharedWramMode`, correspondente aos bit
 
 Os bancos de 16 KB são espelhados pelas janelas de endereço documentadas: janela ARM9 de 16 MB e janela ARM7 de 8 MB, com a faixa privada ARM7 começando em `0x03800000`. Os modos 1 e 2 são modelados com regiões sobrepostas no mesmo endereço virtual e máscaras de CPU disjuntas.
 
-No modo 0, o mapa não deixa o espaço ARM7 vazio: conforme o comportamento documentado de desalocação, a janela ARM7 espelha a WRAM privada de 64 KB em `0x03800000`. A instalação é estática: o builder configura o modo inicial escolhido pelo chamador. **Ainda não há handler MMIO para reconfigurar o mapa quando o guest escreve em WRAMCNT**, nem implementação de WRAMSTAT. Uma futura camada de dispositivos deverá atualizar essas regiões mantendo os bytes físicos dos dois bancos.
+No modo 0, o mapa não deixa o espaço ARM7 vazio: conforme o comportamento documentado de desalocação, a janela ARM7 espelha a WRAM privada de 64 KB em `0x03800000`. A instalação inicial recebe o modo explicitamente. `NdsRetailRamMap::set_shared_wram_mode()` pode depois substituir as janelas ARM9/ARM7 sem remover o backing dos dois bancos de 16 KB nem perder seu conteúdo. Essa API é chamada pelo host/runtime, não por MMIO: **ainda não há handler para que uma escrita guest em `WRAMCNT` (0x04000247) provoque a mudança**, nem implementação de `WRAMSTAT`.
 
 Os bytes físicos das duas banks são armazenados em um backing interno com `CpuAccessNone`; os processadores acessam somente os mirrors que o modo WRAMCNT lhes atribui.
 
@@ -78,6 +78,8 @@ Implementação: `src/memory/guest_memory.cpp`
 - `map_image(base, contents, size, permissions, name, cpu_access)`: copia bytes fornecidos pelo carregador e marca a faixa como materializada.
 - `map_alias(alias_base, canonical_base, size, name, cpu_access)`: cria uma janela linear para o mesmo backing.
 - `map_mirror(alias_base, canonical_base, period, window_size, name, cpu_access)`: cria uma janela maior que repete um backing físico de período menor.
+- `unmap_region(name)`: remove uma janela guest pelo nome, mantendo vivos backings ainda referenciados por outros aliases.
+- `NdsRetailRamMap::set_shared_wram_mode(memory, mode)`: recria somente as janelas Shared WRAM e preserva os dois bancos físicos.
 - `read(cpu, address, width)`: leitura little-endian de 1, 2 ou 4 bytes.
 - `write(cpu, address, width, value)`: escrita little-endian de 1, 2 ou 4 bytes.
 - `validate_execute(cpu, address, size)`: verifica mapeamento e permissão de execução.
@@ -129,6 +131,7 @@ O CMake registra testes separados para:
 - wrappers C do barramento;
 - Main RAM compartilhada e seus três espelhos;
 - WRAM ARM7 privada;
-- todos os quatro modos de Shared WRAM, incluindo regiões sobrepostas com visibilidade diferente por CPU e o espelho da WRAM privada ARM7 no modo 0.
+- todos os quatro modos de Shared WRAM, incluindo regiões sobrepostas com visibilidade diferente por CPU e o espelho da WRAM privada ARM7 no modo 0;
+- transições dinâmicas entre modos, preservação de conteúdo dos dois bancos e rejeição de modo inválido sem alterar a janela corrente.
 
 **Os testes da revisão atual estão registrados, mas não há confirmação de que tenham sido executados ou aprovados.**
