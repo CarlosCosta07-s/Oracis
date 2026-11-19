@@ -35,12 +35,25 @@ enum {
 typedef int (*OracisArmRuntimePowerHandler)(
     void *context, NdsCpu cpu, uint32_t operation, uint32_t value);
 
+/* Dispatches implemented ARM9 CP15 transfers to the owning NdsMachine. */
+typedef int (*OracisArmRuntimeCoprocessorHandler)(
+    void *context, NdsCpu cpu, uint32_t is_write,
+    uint32_t cp_num, uint32_t op1, uint32_t crn,
+    uint32_t crm, uint32_t op2, uint32_t *value);
+
 int oracis_arm_runtime_bind_cpus(ArmCpuState *arm9, ArmCpuState *arm7);
 int oracis_arm_runtime_unbind_cpus(ArmCpuState *arm9, ArmCpuState *arm7);
 int oracis_arm_runtime_bind_power_handler(
     void *context, OracisArmRuntimePowerHandler handler);
 int oracis_arm_runtime_unbind_power_handler(
     void *context, OracisArmRuntimePowerHandler handler);
+int oracis_arm_runtime_bind_coprocessor_handler(
+    void *context, OracisArmRuntimeCoprocessorHandler handler);
+int oracis_arm_runtime_unbind_coprocessor_handler(
+    void *context, OracisArmRuntimeCoprocessorHandler handler);
+int oracis_arm_runtime_coprocessor_transfer(
+    uint32_t is_write, uint32_t cp_num, uint32_t op1,
+    uint32_t crn, uint32_t crm, uint32_t op2, uint32_t *value);
 int oracis_arm_runtime_request_halt(NdsCpu cpu);
 int oracis_arm_runtime_write_arm7_halt_control(uint8_t value);
 int oracis_arm_runtime_select_cpu(NdsCpu cpu);
