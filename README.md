@@ -44,9 +44,10 @@ O Oracis já contém:
 - registro/remoção de bancos estáticos por ARM9/ARM7, lookup ARM/Thumb e `runtime_dispatch` com falha fechada;
 - callback de identidade que compara bytes do banco e dependências contra `GuestMemory`, exigindo proveniência para RAM gravável;
 - pilha de retorno guest separada por CPU, com chave PC+ARM/Thumb e desenrolamento de retornos não locais;
+- contadores de ciclos e controle cooperativo de fatias ARM9/ARM7 por orçamento, yield e unwind;
 - entradas `runtime_link_*` encaminhadas ao dispatcher normal; otimização de slots e folhas inline ainda desabilitada.
 
-O CMake registra dezessete testes CTest, incluindo a tabela de dispatch, sua ponte C/C++, pilha de retorno guest, acesso ao User bank, `CLZ`, identidade de bytes e proveniência de RAM. **A execução desses quinze testes para o estado atual ainda não foi confirmada**; a consulta aos status checks do último commit não retornou verificações. Os wrappers C bus_* atendem RAM explicitamente mapeada, e o dispatch já chama funções registradas, mas ainda não há mapa físico DS, MMIO, scheduler, ciclos, IRQ/SWI/CP15 ou serviços NitroSDK suficientes para executar bancos reais.
+O CMake registra dezoito testes CTest, incluindo dispatch, pilha de retorno guest, User bank, `CLZ`, controle de fatias, identidade de bytes e proveniência de RAM. **A execução desses quinze testes para o estado atual ainda não foi confirmada**; a consulta aos status checks do último commit não retornou verificações. Os wrappers C bus_* atendem RAM explicitamente mapeada, e o dispatch já chama funções registradas, mas ainda não há mapa físico DS, MMIO, scheduler, ciclos, IRQ/SWI/CP15 ou serviços NitroSDK suficientes para executar bancos reais.
 
 A extração local da USA Rev 1 teve offsets, limites e hashes ARM9/ARM7 verificados. A execução integral do extrator versionado e a emissão de bancos continuam pendentes.
 
