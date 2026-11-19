@@ -23,8 +23,17 @@ int main()
     if (!oracis_arm_runtime_bind_cpus(&arm9, &arm7))
         return fail("CPU bind failed");
 
+    g_insn_count[NDS_ARM9] = UINT64_C(123);
+    g_insn_count[NDS_ARM7] = UINT64_C(456);
     oracis_scheduler_reset(NDS_ARM9);
+    if (g_insn_count[NDS_ARM9] != 0u ||
+        g_insn_count[NDS_ARM7] != UINT64_C(456)) {
+        return fail("ARM9 scheduler reset did not clear only its instruction counter");
+    }
     oracis_scheduler_reset(NDS_ARM7);
+    if (g_insn_count[NDS_ARM7] != 0u || g_insn_hook_armed != 0u) {
+        return fail("ARM7 scheduler reset or default hook state is incorrect");
+    }
 
     if (!oracis_scheduler_begin_slice(NDS_ARM9, 10u))
         return fail("ARM9 slice configuration failed");
