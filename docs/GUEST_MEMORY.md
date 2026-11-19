@@ -1,6 +1,6 @@
 # GuestMemory e mapa de RAM do Nintendo DS
 
-**Estado:** armazenamento guest configurável, visibilidade por CPU, aliases, mirrors periódicos e mapa de RAM do NDS retail implementados. `set_shared_wram_mode()` reconfigura os quatro modos preservando os bytes físicos, e `NdsWramControl` liga a escrita/leitura de 8 bits em `WRAMCNT` ao barramento C para ARM9. `WRAMSTAT` e os demais handlers MMIO ainda não estão implementados. Os testes estão registrados no CMake, mas a execução da versão atual ainda não foi confirmada.
+**Estado:** armazenamento guest configurável, visibilidade por CPU, aliases, mirrors periódicos e mapa de RAM do NDS retail implementados. `set_shared_wram_mode()` reconfigura os quatro modos preservando os bytes físicos, e `NdsWramControl` liga a escrita/leitura de 8 bits em `WRAMCNT` ao barramento C para ARM9. `WRAMSTAT` e os demais handlers MMIO ainda não estão implementados. O bloco de interrupções `IME`/`IE`/`IF` já possui estado independente ARM9/ARM7, MMIO de 32 bits e semântica W1C para IF; a entrada real de IRQ ainda depende do scheduler de eventos.
 
 ## 1. Responsabilidades
 
@@ -68,6 +68,18 @@ Os bancos de 16 KB são espelhados pelas janelas de endereço documentadas: jane
 No modo 0, o mapa não deixa o espaço ARM7 vazio: conforme o comportamento documentado de desalocação, a janela ARM7 espelha a WRAM privada de 64 KB em `0x03800000`. A instalação inicial recebe o modo explicitamente. `NdsRetailRamMap::install()` pré-mapeia as sete visões possíveis. `set_shared_wram_mode()` substitui em uma única operação validada as máscaras de CPU dessas regiões preexistentes; nenhuma janela é desalocada ou recriada, e os backings dos dois bancos de 16 KB permanecem intactos. `NdsWramControl` conecta essa API ao endereço `0x04000247`: o ARM9 pode ler e escrever apenas 8 bits; a escrita usa os bits 0–1 e ignora os bits reservados 2–7. A escrita ARM7 é rejeitada. `WRAMSTAT` em `0x04000241` é um registrador distinto, somente leitura no ARM7; sua semântica de valor ainda não está implementada. No mapa ARM9, `0x04000241` pertence a `VRAMCNT_B`, não a `WRAMSTAT`.
 
 Os bytes físicos das duas banks são armazenados em um backing interno com `CpuAccessNone`; os processadores acessam somente os mirrors que o modo WRAMCNT lhes atribui.
+
+### Controlador de interrupções
+
+`NdsInterruptControl` mantém registradores separados para ARM9 e ARM7:
+
+| Endereço | Registrador | Semântica |
+|---|---|---|
+| `0x04000208` | `IME` | Bit 0 habilita interrupções globalmente para aquela CPU |
+| `0x04000210` | `IE` | Máscara de fontes habilitadas |
+| `0x04000214` | `IF` | Flags de solicitação; escrever 1 limpa somente os bits correspondentes |
+
+O dispositivo aceita transferências alinhadas de 32 bits nesses endereços e falha de forma explícita para larguras não suportadas. Os dispositivos de hardware chamam `request_irq(cpu, mask)` para latchear uma fonte em IF. `irq_asserted(cpu)` calcula `IME.bit0 && (IE & IF) != 0`. A classe ainda não injeta a exceção ARM IRQ por conta própria: o scheduler/event loop deverá consultar a linha pendente e chamar o caminho de exceção no limite arquitetural correto.
 
 ## 4. API principal do GuestMemory
 
@@ -139,4 +151,4 @@ O CMake registra testes separados para:
 - transições dinâmicas entre modos, preservação de conteúdo dos dois bancos e rejeição de modo inválido sem alterar a janela corrente;
 - leitura/escrita de `WRAMCNT` pelo ARM9 via `bus_read_u8`/`bus_write_u8`, rejeição de acesso pelo ARM7 e ligação/desligamento do dispositivo.
 
-**Os testes da revisão atual estão registrados, mas não há confirmação de que tenham sido executados ou aprovados.**
+**Na revisão d7e9e23, a CI confirmou os 20 testes existentes e todos passaram.** O novo teste do controlador de interrupções é o 21º alvo e aguarda a primeira execução da revisão que o introduziu.
