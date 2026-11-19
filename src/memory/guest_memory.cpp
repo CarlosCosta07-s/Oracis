@@ -79,16 +79,40 @@ GuestMemory::Resolution GuestMemory::resolve_any(
         return {Status::AddressOverflow, nullptr, 0u};
     }
 
-    const Region *selected = nullptr;
+    const Region *direct = nullptr;
+    const Region *periodic = nullptr;
+    bool crosses_region = false;
+
     for (const Region &region : regions_) {
         const uint64_t begin = region.base;
         const uint64_t end = begin + region.size;
         if (address < begin || address >= end) continue;
-        if (access_end > end) return {Status::CrossesRegion, nullptr, 0u};
-        if (selected != nullptr) return {Status::Overlap, nullptr, 0u};
-        selected = &region;
+        if (access_end > end) {
+            crosses_region = true;
+            continue;
+        }
+
+        /*
+         * A direct mapping names its canonical backing interval. A periodic
+         * mirror may cover that same guest address numerically, but must not
+         * shadow the backing when another mirror is constructed from it.
+         */
+        const Region **selected =
+            region.backing_period == 0u ? &direct : &periodic;
+        if (*selected != nullptr) {
+            return {Status::Overlap, nullptr, 0u};
+        }
+        *selected = &region;
     }
-    if (selected == nullptr) return {Status::Unmapped, nullptr, 0u};
+
+    const Region *selected = direct != nullptr ? direct : periodic;
+    if (selected == nullptr) {
+        return {
+            crosses_region ? Status::CrossesRegion : Status::Unmapped,
+            nullptr,
+            0u
+        };
+    }
 
     const uint32_t offset = address - selected->base;
     const uint32_t backing_offset = backing_index(*selected, offset);
