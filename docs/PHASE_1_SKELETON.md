@@ -6,7 +6,7 @@
 
 ## Entrega desta etapa
 
-- `tools/ndsrecomp/build_recompiler.py`: sparse checkout externo fixado contendo somente `recompiler/`, `cmake/` e `external/arm-recomp-core/`; inicializa o submódulo MIT necessário e compila apenas `nds_recompile`.
+- `tools/ndsrecomp/build_recompiler.py`: sparse checkout externo fixado contendo somente `recompiler/`, `cmake/` e `external/arm-recomp-core/`; inicializa o submódulo MIT necessário e compila `nds_recompile` e os testes standalone do recompilador/núcleo ARM.
 - `CMakeLists.txt`: linguagens C e C++ habilitadas, com C99 e C++20.
 - `.gitignore`: checkout, extrações e bancos ficam em `.oracis/` ou `generated/`, fora do Git.
 - `tools/ndsrecomp/extract_nds_programs.py`: valida a revisão USA Rev 1, extrai ARM9/ARM7, calcula hashes e gera TOMLs locais.
@@ -52,8 +52,8 @@ O host SDL3 e as duas áreas lógicas de 256 × 192 permanecem como frontend exp
 ## Critérios para concluir a Fase 1
 
 1. Bootstrap executa em ambiente limpo e confirma a revisão fixada.
-2. O alvo `nds_recompile` compila; nenhum alvo runner/oracle é construído.
-3. Testes do decodificador ARMv5TE e do ciclo do núcleo ARM passam.
+2. O alvo `nds_recompile` e os alvos standalone de teste compilam; nenhum alvo runner/oracle é construído.
+3. Testes do decodificador ARMv5TE, ciclo do núcleo, relocação, manifesto HLE e emissão passam.
 4. Os segmentos ARM9/ARM7 foram extraídos localmente e passaram na validação de offset, tamanho e SHA-1 para a cópia USA Rev 1.
 5. O recompilador emite pelo menos um banco de teste por CPU.
 6. O código emitido compila com o contrato C ABI ainda em desenvolvimento.
