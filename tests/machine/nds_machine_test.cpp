@@ -116,6 +116,54 @@ int main()
         return fail("retail main RAM was not installed as shared memory");
     }
 
+    /* Load pre-extracted segments only after both CPU destinations pass preflight. */
+    const uint8_t arm9_program[] = {0x00u, 0x00u, 0xA0u, 0xE1u};
+    const uint8_t arm7_program[] = {0x70u, 0x47u};
+    const oracis::machine::NdsProgramSegment arm9_image = {
+        NDS_ARM9, UINT32_C(0x02006000),
+        static_cast<uint32_t>(sizeof(arm9_program)),
+        UINT32_C(0x02006000), false, arm9_program
+    };
+    const oracis::machine::NdsProgramSegment invalid_arm7_image = {
+        NDS_ARM7, UINT32_C(0x05000000),
+        static_cast<uint32_t>(sizeof(arm7_program)),
+        UINT32_C(0x05000000), true, arm7_program
+    };
+    if (machine.load_program_segments(
+            arm9_image, invalid_arm7_image) !=
+            NdsMachineStatus::ProgramMemoryUnavailable ||
+        machine.program_loaded() ||
+        machine.guest_memory().validate_identity(
+            NDS_ARM9, arm9_image.load_address, arm9_image.size,
+            arm9_program) != oracis::memory::Status::MissingWriteProvenance) {
+        return fail("invalid ARM7 destination partially installed ARM9 program bytes");
+    }
+
+    const oracis::machine::NdsProgramSegment arm7_image = {
+        NDS_ARM7, UINT32_C(0x02381000),
+        static_cast<uint32_t>(sizeof(arm7_program)),
+        UINT32_C(0x02381000), true, arm7_program
+    };
+    if (machine.load_program_segments(arm9_image, arm7_image) !=
+            NdsMachineStatus::Ok ||
+        !machine.program_loaded() ||
+        machine.cpu_state(NDS_ARM9)->R[15] != arm9_image.entry_pc ||
+        machine.cpu_state(NDS_ARM7)->R[15] != arm7_image.entry_pc ||
+        (machine.cpu_state(NDS_ARM9)->cpsr & CPSR_T_BIT) != 0u ||
+        (machine.cpu_state(NDS_ARM7)->cpsr & CPSR_T_BIT) == 0u ||
+        machine.guest_memory().validate_identity(
+            NDS_ARM9, arm9_image.load_address, arm9_image.size,
+            arm9_program) != oracis::memory::Status::Ok ||
+        machine.guest_memory().validate_identity(
+            NDS_ARM7, arm7_image.load_address, arm7_image.size,
+            arm7_program) != oracis::memory::Status::Ok) {
+        return fail("valid ARM9/ARM7 segments were not loaded with correct entry modes");
+    }
+    if (machine.load_program_segments(arm9_image, arm7_image) !=
+        NdsMachineStatus::ProgramAlreadyLoaded) {
+        return fail("machine accepted a second program load without reset");
+    }
+
     constexpr uint32_t timer_irq = UINT32_C(1) << 3u;
     constexpr uint32_t timer_start_irq = UINT32_C(0x00C00000);
     constexpr uint32_t timer_reload = UINT32_C(0x0000FFFE);
