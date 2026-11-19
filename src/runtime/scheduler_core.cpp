@@ -55,6 +55,20 @@ bool should_yield(const CpuSliceState &state) noexcept
            (state.slice_active && state.cycles >= state.deadline);
 }
 
+bool poll_yield_and_begin_unwind(CpuSliceState &state) noexcept
+{
+    const bool yield = should_yield(state);
+    if (yield) {
+        /*
+         * Generated C frames unwind back to the host after a cooperative
+         * preemption. The guest call/return stack must therefore preserve
+         * pending call frames until the host closes this slice.
+         */
+        state.unwinding = true;
+    }
+    return yield;
+}
+
 } // namespace
 
 extern "C" int oracis_scheduler_begin_slice(
@@ -82,6 +96,8 @@ extern "C" void oracis_scheduler_end_slice(NdsCpu cpu)
     CpuSliceState &state = g_cpu_slice[cpu_index(cpu)];
     state.slice_active = false;
     state.yield_requested = false;
+    /* The generated C stack has returned to the host; unwind is over. */
+    state.unwinding = false;
 }
 
 extern "C" int oracis_scheduler_request_yield(NdsCpu cpu)
@@ -129,12 +145,14 @@ extern "C" void runtime_tick(uint32_t cycles)
 
 extern "C" bool runtime_should_yield(void)
 {
-    return should_yield(active_slice_state("runtime_should_yield"));
+    return poll_yield_and_begin_unwind(
+        active_slice_state("runtime_should_yield"));
 }
 
 extern "C" bool runtime_slice_yield(void)
 {
-    return should_yield(active_slice_state("runtime_slice_yield"));
+    return poll_yield_and_begin_unwind(
+        active_slice_state("runtime_slice_yield"));
 }
 
 extern "C" bool runtime_unwinding(void)
