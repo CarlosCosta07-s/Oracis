@@ -24,7 +24,10 @@ typedef enum OracisHostRuntimeStatus {
     ORACIS_HOST_RUNTIME_NO_PROGRAM_LOADED = 5,
     ORACIS_HOST_RUNTIME_NO_COMPILED_BANKS = 6,
     ORACIS_HOST_RUNTIME_BANK_REGISTRATION_FAILED = 7,
-    ORACIS_HOST_RUNTIME_BANKS_ALREADY_REGISTERED = 8
+    ORACIS_HOST_RUNTIME_BANKS_ALREADY_REGISTERED = 8,
+    ORACIS_HOST_RUNTIME_LOCAL_IMAGE_MISSING = 9,
+    ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR = 10,
+    ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID = 11
 } OracisHostRuntimeStatus;
 
 /* Initializes the process-wide NDS machine and binds its base devices. */
@@ -61,6 +64,14 @@ int oracis_host_runtime_load_program_segments(
     const OracisHostProgramSegment *arm9,
     const OracisHostProgramSegment *arm7);
 int oracis_host_runtime_program_loaded(void);
+
+/*
+ * Load the locally extracted Platinum USA Rev 1 ARM9/ARM7 images.
+ * directory may be NULL to use .oracis/local/pokemon-platinum-usa-rev1.
+ * Both files are read and checked against fixed sizes/SHA-1 values before
+ * any guest memory is modified. This does not perform BIOS boot setup.
+ */
+int oracis_host_runtime_load_local_platinum_segments(const char *directory);
 
 /*
  * Register the locally linked Platinum ARM9/ARM7 dispatch tables. Returns
