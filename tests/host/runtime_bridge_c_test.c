@@ -22,7 +22,7 @@ int main(void)
     }
 
     if (bus_read_u16(UINT32_C(0x04000130)) != UINT16_C(0x03FE)) {
-        fprintf(stderr, "pre-bind host key state did not reach KEYINPUT\\n");
+        fprintf(stderr, "pre-bind host key state did not reach KEYINPUT\n");
         return 1;
     }
 
