@@ -77,7 +77,7 @@ int main()
             state.R[13] != UINT32_C(0x0207FFFC) ||
             state.R[14] != UINT32_C(0x02001000) ||
             state.R[15] != return_link ||
-            state.banked_sp[exception_bank] == 0u) {
+            state.banked_spsr[exception_bank] != original_cpsr) {
             return fail("exception return did not restore original CPU context");
         }
     }
@@ -108,6 +108,16 @@ int main()
     }
     if (oracis_arm_cpu_return_from_exception(&invalid, 0x44u)) {
         return fail("User/System mode must not return through an SPSR");
+    }
+
+    ArmCpuState misaligned{};
+    misaligned.cpsr = ORACIS_ARM_MODE_IRQ | CPSR_T_BIT;
+    misaligned.banked_spsr[ARM_BANK_IRQ] =
+        ORACIS_ARM_MODE_SYSTEM | CPSR_T_BIT;
+    const ArmCpuState before_misaligned = misaligned;
+    if (oracis_arm_cpu_return_from_exception(&misaligned, 0x102u) ||
+        std::memcmp(&misaligned, &before_misaligned, sizeof(misaligned)) != 0) {
+        return fail("misaligned Thumb return must fail without mutation");
     }
 
     std::puts("ARM exception entry/return tests passed");
