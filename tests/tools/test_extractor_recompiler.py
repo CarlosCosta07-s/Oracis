@@ -93,6 +93,7 @@ def compile_bank(recompiler: Path, c_compiler: list[str], config: Path,
         command = [
             *c_compiler,
             "-std=c99",
+            "-I", str(ROOT / "include"),
             "-I", str(include_dir),
             "-I", str(output),
             "-c", str(source),
