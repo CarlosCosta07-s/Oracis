@@ -28,6 +28,7 @@ enum class Status : uint8_t {
     Unmapped,
     CrossesRegion,
     PermissionDenied,
+    CpuAccessDenied,
     IdentityMismatch,
     MissingWriteProvenance
 };
@@ -36,6 +37,14 @@ enum Permission : uint8_t {
     Readable   = 1u << 0u,
     Writable   = 1u << 1u,
     Executable = 1u << 2u
+};
+
+enum CpuAccess : uint8_t {
+    CpuAccessNone = 0u,
+    CpuAccessArm9 = 1u << 0u,
+    CpuAccessArm7 = 1u << 1u,
+    CpuAccessBoth = CpuAccessArm9 | CpuAccessArm7,
+    CpuAccessInherit = 0xFFu
 };
 
 struct ReadResult {
@@ -62,7 +71,8 @@ public:
     Status map_ram(uint32_t base,
                    uint32_t size,
                    uint8_t permissions,
-                   std::string name);
+                   std::string name,
+                   uint8_t cpu_access = CpuAccessBoth);
 
     /*
      * Map a host-provided image (for example, bytes loaded from the user's
@@ -73,7 +83,8 @@ public:
                      const uint8_t *contents,
                      uint32_t size,
                      uint8_t permissions,
-                     std::string name);
+                     std::string name,
+                     uint8_t cpu_access = CpuAccessBoth);
 
     /*
      * Map a guest alias onto a previously mapped canonical range. Reads and
@@ -83,7 +94,21 @@ public:
     Status map_alias(uint32_t alias_base,
                      uint32_t canonical_base,
                      uint32_t size,
-                     std::string name);
+                     std::string name,
+                     uint8_t cpu_access = CpuAccessInherit);
+
+    /*
+     * Map a repeating mirror of a canonical backing interval. The visible
+     * window may be larger than the backing period; each byte wraps within
+     * the period. cpu_access may create CPU-disjoint mappings at the same
+     * guest address (for example, two distinct Shared WRAM banks).
+     */
+    Status map_mirror(uint32_t alias_base,
+                      uint32_t canonical_base,
+                      uint32_t period,
+                      uint32_t window_size,
+                      std::string name,
+                      uint8_t cpu_access);
 
     ReadResult read(NdsCpu cpu, uint32_t address, uint32_t width) const noexcept;
     Status write(NdsCpu cpu, uint32_t address, uint32_t width,
@@ -110,6 +135,8 @@ private:
         uint32_t size = 0u;
         uint32_t backing_offset = 0u;
         uint8_t permissions = 0u;
+        uint8_t cpu_access = CpuAccessBoth;
+        uint32_t backing_period = 0u;
         std::string name;
         std::shared_ptr<Backing> backing;
     };
@@ -128,10 +155,17 @@ private:
 
     static bool valid_cpu(NdsCpu cpu) noexcept;
     static bool valid_range(uint32_t base, uint32_t size) noexcept;
-    bool overlaps(uint32_t base, uint32_t size) const noexcept;
-    Resolution resolve(uint32_t address, uint32_t size) const noexcept;
-    MutableResolution resolve_mutable(uint32_t address,
+    static uint8_t cpu_access_bit(NdsCpu cpu) noexcept;
+    static bool valid_cpu_access(uint8_t cpu_access) noexcept;
+    bool overlaps(uint32_t base, uint32_t size,
+                  uint8_t cpu_access) const noexcept;
+    Resolution resolve_any(uint32_t address, uint32_t size) const noexcept;
+    Resolution resolve(NdsCpu cpu, uint32_t address, uint32_t size) const noexcept;
+    MutableResolution resolve_mutable(NdsCpu cpu,
+                                      uint32_t address,
                                       uint32_t size) noexcept;
+    static uint32_t backing_index(const Region &region,
+                                  uint32_t address_offset) noexcept;
 
     std::vector<Region> regions_;
 };
