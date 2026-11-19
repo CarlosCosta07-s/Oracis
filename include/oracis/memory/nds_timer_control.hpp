@@ -46,6 +46,10 @@ public:
      */
     void advance_bus_cycles(NdsCpu cpu, uint64_t cycles) noexcept;
 
+    /* Convert native CPU cycles to peripheral ticks. ARM9 is 2:1 with
+       retained half-cycle; ARM7 is 1:1. */
+    void advance_core_cycles(NdsCpu cpu, uint64_t cycles) noexcept;
+
     GuestMemory &backing_memory() const noexcept { return memory_; }
     NdsInterruptControl &interrupt_control() const noexcept { return interrupts_; }
 
@@ -73,6 +77,7 @@ private:
     GuestMemory &memory_;
     NdsInterruptControl &interrupts_;
     std::array<std::array<TimerState, TimerCount>, 2> timers_{};
+    uint8_t arm9_core_cycle_remainder_ = 0u;
 };
 
 } // namespace oracis::memory

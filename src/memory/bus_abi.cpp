@@ -5,6 +5,7 @@
 #include "oracis/memory/nds_interrupt_control.hpp"
 #include "oracis/memory/nds_timer_control.hpp"
 #include "oracis/recomp/runtime_arm.h"
+#include "oracis/recomp/runtime_scheduler.h"
 #include "oracis/recomp/static_dispatch_abi.h"
 
 #include <cstdio>
@@ -121,6 +122,13 @@ void write_bus(uint32_t address,
 
 } // namespace
 
+extern "C" void oracis_bus_timer_cycle_observer(
+    NdsCpu cpu, uint32_t cycles, void *user)
+{
+    auto *timers = static_cast<oracis::memory::NdsTimerControl *>(user);
+    if (timers != nullptr) timers->advance_core_cycles(cpu, cycles);
+}
+
 extern "C" int oracis_bus_bind_memory(void *memory)
 {
     if (memory == nullptr) return 0;
@@ -207,6 +215,8 @@ extern "C" int oracis_bus_bind_timer_control(void *control)
         g_timer_control != nullptr) {
         return 0;
     }
+    if (!oracis_scheduler_bind_cycle_observer(
+            oracis_bus_timer_cycle_observer, device)) return 0;
     g_timer_control = device;
     return 1;
 }
@@ -217,6 +227,8 @@ extern "C" int oracis_bus_unbind_timer_control(void *control)
             static_cast<oracis::memory::NdsTimerControl *>(control)) {
         return 0;
     }
+    if (!oracis_scheduler_unbind_cycle_observer(
+            oracis_bus_timer_cycle_observer, control)) return 0;
     g_timer_control = nullptr;
     return 1;
 }

@@ -2,6 +2,7 @@
 #include "oracis/memory/nds_interrupt_control.hpp"
 #include "oracis/memory/nds_timer_control.hpp"
 #include "oracis/recomp/runtime_arm.h"
+#include "oracis/recomp/runtime_scheduler.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -182,35 +183,39 @@ int main()
         return fail("duplicate or premature timer-related unbind was accepted");
     }
 
+    oracis_scheduler_reset(NDS_ARM9);
+    oracis_scheduler_reset(NDS_ARM7);
+
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9))
         return fail("ARM9 select failed for timer bus test");
     bus_write_u16(timer0_high, 0x0040u);
     bus_write_u32(timer0_low, UINT32_C(0x00C0FFFF));
     bus_write_u32(NdsInterruptControl::IfAddress, UINT32_MAX);
-    if (bus_read_u32(timer0_low) != UINT32_C(0x00C0FFFF)) {
+    if (bus_read_u32(timer0_low) != UINT32_C(0x00C0FFFF))
         return fail("combined reload/control 32-bit MMIO access failed");
-    }
     bus_write_u32(NdsInterruptControl::ImeAddress, 1u);
     bus_write_u32(NdsInterruptControl::IeAddress, timer0_irq);
-    timers.advance_bus_cycles(NDS_ARM9, 1u);
+
+    runtime_tick(1u);
+    if (bus_read_u16(timer0_low) != 0xFFFFu ||
+        bus_read_u32(NdsInterruptControl::IfAddress) != 0u)
+        return fail("one ARM9 core cycle incorrectly advanced the bus timer");
+    runtime_tick(1u);
     if (bus_read_u16(timer0_low) != 0xFFFFu ||
         (bus_read_u32(NdsInterruptControl::IfAddress) & timer0_irq) == 0u ||
-        !interrupts.irq_asserted(NDS_ARM9)) {
-        return fail("timer overflow was not observable through the C bus");
-    }
+        !interrupts.irq_asserted(NDS_ARM9))
+        return fail("two ARM9 core cycles did not advance a peripheral tick");
 
     if (!oracis_arm_runtime_select_cpu(NDS_ARM7))
         return fail("ARM7 select failed for timer bus test");
     bus_write_u16(timer0_high, 0u);
     bus_write_u32(timer0_low, UINT32_C(0x0080BEE0));
-    if (bus_read_u16(timer0_low) != 0xBEE0u) {
+    if (bus_read_u16(timer0_low) != 0xBEE0u)
         return fail("ARM7 timer C bus state was not independent");
-    }
-    timers.advance_bus_cycles(NDS_ARM7, 1u);
+    runtime_tick(1u);
     if (bus_read_u16(timer0_low) != 0xBEE1u ||
-        bus_read_u32(NdsInterruptControl::IfAddress) != 0u) {
-        return fail("ARM7 timer update leaked into ARM9 interrupt state");
-    }
+        bus_read_u32(NdsInterruptControl::IfAddress) != 0u)
+        return fail("one ARM7 core cycle did not advance a timer tick");
 
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9) ||
         bus_read_u16(timer0_low) != 0xFFFFu) {
