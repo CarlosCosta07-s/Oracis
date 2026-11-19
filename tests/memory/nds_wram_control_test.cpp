@@ -27,7 +27,7 @@ int main()
     NdsWramControl control(memory, SharedWramMode::Arm9All32K);
     const Status install_status = control.install();
     if (install_status != Status::Ok) {
-        std::fprintf(stderr, "initial install status: %s\\n",
+        std::fprintf(stderr, "initial install status: %s\n",
                      GuestMemory::status_name(install_status));
         return fail("initial retail RAM install failed");
     }
