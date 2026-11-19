@@ -39,6 +39,17 @@ public:
     /* True when IME is enabled and at least one enabled IF bit is pending. */
     bool irq_asserted(NdsCpu cpu) const noexcept;
 
+    /*
+     * Enter IRQ for the supplied CPU state if its IRQ line is asserted and
+     * CPSR.I is clear. The scheduler supplies the architectural return address
+     * and selected exception vector base; IF remains pending until guest code
+     * acknowledges it through IF.
+     */
+    bool try_enter_irq(NdsCpu cpu,
+                       ArmCpuState &state,
+                       uint32_t return_address,
+                       uint32_t vector_base) const noexcept;
+
     uint32_t pending_enabled(NdsCpu cpu) const noexcept;
 
     GuestMemory &backing_memory() const noexcept { return memory_; }
