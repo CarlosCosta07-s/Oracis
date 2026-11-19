@@ -49,6 +49,15 @@ public:
      * operation; this builder does not guess the firmware's initial value.
      */
     static Status install(GuestMemory &memory, SharedWramMode shared_wram_mode);
+
+    /*
+     * Reconfigure the guest visibility of the existing two physical Shared
+     * WRAM banks. Their bytes are preserved; only the CPU-visible mirrors
+     * change. The WRAMCNT MMIO handler will call this when it is implemented.
+     */
+    static Status set_shared_wram_mode(
+        GuestMemory &memory,
+        SharedWramMode shared_wram_mode);
 };
 
 } // namespace oracis::memory
