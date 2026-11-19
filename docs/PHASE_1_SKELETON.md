@@ -14,10 +14,11 @@
 - `src/runtime/arm_exception_ops.cpp`: entrada/retorno de Undefined, SWI, prefetch/data abort, IRQ e FIQ; o chamador fornece o link e a base vetorial.
 - `src/runtime/arm_flags.cpp`: condições ARM e atualização NZ/NZC/NZCV.
 - `src/runtime/recomp_abi.cpp`: acesso aos registradores User e `runtime_clz` para o codegen.
+- `include/oracis/recomp/runtime_scheduler.h` e `src/runtime/scheduler_core.cpp`: contadores de ciclos e controle de fatias/yield/unwind cooperativo por CPU.
 - `include/oracis/recomp/runtime_arm.h` e `src/runtime/recomp_abi.cpp`: ponte parcial para o C gerado, estado ativo ARM9/ARM7, wrappers de flags/PSR/exceção e falhas fail-closed.
 - `include/oracis/memory/guest_memory.hpp` e `src/memory/guest_memory.cpp`: regiões guest configuráveis, aliases e acessos little-endian com permissões e limites.
 - `src/memory/bus_abi.cpp`: wrappers C bus_read_*/bus_write_* ligados ao estado ARM9/ARM7 ativo e ao backing GuestMemory.
-- `tests/abi/` e `tests/memory/`: dezessete alvos CTest registrados, incluindo ABI, dispatch, pilha de retorno, User bank, CLZ, identidade da memória e especialização ARM9/ARM7. A execução da versão atual ainda não foi confirmada.
+- `tests/abi/` e `tests/memory/`: dezoito alvos CTest registrados, incluindo ABI, dispatch, pilha de retorno, User bank, CLZ, identidade da memória e especialização ARM9/ARM7. A execução da versão atual ainda não foi confirmada.
 
 O runtime usa um ponteiro global para o estado ativo. A futura execução será serial/cooperativa nesta primeira versão: o scheduler deve selecionar ARM9 ou ARM7 antes de chamar um banco. Execução concorrente dos dois bancos em threads ainda não é suportada. GuestMemory ainda não é o mapa físico do DS e não implementa MMIO, DMA, timing ou alinhamento ARM. Os wrappers bus_* operam apenas sobre regiões RAM explicitamente mapeadas e falham quando o endereço não existe.
 
@@ -42,7 +43,7 @@ A validação local da cópia conferiu SHA-1, offsets, limites e hashes dos dois
 ## Limites atuais
 
 - GuestMemory e os wrappers C bus_* oferecem RAM/aliases genéricos com identidade de bytes; ainda não são o mapa DS e não implementam MMIO.
-- O registry/runtime_dispatch e a pilha de retorno guest estão implementados para tabelas registradas. Os link slots permanecem sem cache/resolução direta; não há carregador de bancos reais nem scheduler.
+- O registry/runtime_dispatch e a pilha de retorno guest estão implementados para tabelas registradas. Os link slots permanecem sem cache/resolução direta; o controle de fatias existe, mas o scheduler DS com eventos, timers e sincronização ainda não existe.
 - Ciclos, timers, DMA, IPC, IRQ/SWI/CP15 e serviços NitroSDK continuam pendentes.
 - O código gerado ainda não foi emitido nem ligado.
 - O host SDL3 continua um frontend experimental sem runtime de jogo conectado.
