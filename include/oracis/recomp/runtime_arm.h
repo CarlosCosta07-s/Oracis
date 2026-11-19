@@ -187,6 +187,60 @@ uint32_t runtime_mem_cycles(uint32_t addr, uint32_t width, uint32_t sequential);
 uint32_t runtime_mul_cycles(uint32_t rs_value, uint32_t signed_variant, uint32_t extra);
 uint32_t runtime_clz(uint32_t value);
 
+/*
+ * NDSRecomp-generated instruction prologues use these retired-instruction
+ * counters and the optional slow hook. Counters are independent per CPU.
+ * The hook remains disarmed until Oracis provides a concrete tracing client.
+ */
+extern uint64_t g_insn_count[2];
+extern uint32_t g_insn_hook_armed;
+void runtime_insn_slow(void);
+
+/*
+ * Static-bank timing ABI.
+ *
+ * The fast packed ARM9 code-fetch table is deliberately disabled for now:
+ * NDS_ARM9_CODE_K returns the zero sentinel and nds_code_numc falls back to
+ * the Oracis timing provider. This keeps generated code compilable without
+ * importing an upstream timing cache or pretending that device timing is
+ * already implemented.
+ */
+#define NDS_ARM9_CODE_K(pc, thumb) (UINT32_C(0))
+
+static inline uint32_t nds_code_numc(uint32_t pc, uint32_t packed_cost)
+{
+    (void)packed_cost;
+    return runtime_code_cycles(pc);
+}
+
+uint32_t arm7_refill_cycles(uint32_t target);
+uint32_t arm9_refill_cycles(uint32_t target);
+
+/*
+ * ARM9 instruction-cycle combination is a pure overlap calculation:
+ * memory cycles overlap up to six fetch cycles; non-memory internal cycles
+ * are added to the instruction's own fetch cost.
+ */
+static inline uint32_t arm9_cycle_combine(
+    uint32_t num_code, uint32_t num_data,
+    uint32_t num_internal, uint32_t has_data)
+{
+    if (has_data != 0u) {
+        const uint32_t floor_cost =
+            num_code > num_data ? num_code : num_data;
+        const uint32_t combined = num_code + num_data;
+        const uint32_t overlap = combined > 6u ? combined - 6u : 0u;
+        return overlap > floor_cost ? overlap : floor_cost;
+    }
+    return num_internal != 0u
+        ? num_code + num_internal
+        : num_code;
+}
+
+uint32_t arm7_cycle_combine(
+    uint32_t flat_cycles, uint32_t num_data,
+    uint32_t is_load, uint32_t has_internal);
+
 void runtime_dispatch(uint32_t target_pc);
 void runtime_dispatch_literal_branch(uint32_t target_pc);
 void runtime_dispatch_literal_call(uint32_t target_pc);
