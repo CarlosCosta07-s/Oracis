@@ -360,7 +360,6 @@ extern "C" int oracis_bus_validate_dispatch(
         return 0;
     }
 
-    const NdsCpu cpu = g_nds_active;
     if (memory->validate_execute(
             cpu, validation->addr, validation->size) !=
         oracis::memory::Status::Ok) {
