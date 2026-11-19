@@ -1,6 +1,6 @@
 # GuestMemory — contrato de regiões de memória
 
-**Estado:** RAM guest configurável e wrappers C bus_read_*/bus_write_* implementados/testados. Ainda não é o mapa físico de memória do Nintendo DS e não possui MMIO.
+**Estado:** RAM guest configurável, wrappers C bus_read_*/bus_write_* e validação de identidade implementados. Ainda não é o mapa físico de memória do Nintendo DS e não possui MMIO. A execução dos testes atuais ainda não foi confirmada.
 
 ## 1. Objetivo
 
@@ -21,11 +21,13 @@ Implementação: src/memory/guest_memory.cpp
 
 ABI C: include/oracis/memory/guest_memory_abi.h e src/memory/bus_abi.cpp
 
-- map_ram(base, size, permissions, name): aloca armazenamento próprio e mapeia uma região.
+- map_ram(base, size, permissions, name): aloca armazenamento próprio, inicialmente vazio, e mapeia uma região.
+- map_image(base, contents, size, permissions, name): copia bytes fornecidos pelo carregador e marca a faixa como materializada.
 - map_alias(alias_base, canonical_base, size, name): cria outra faixa guest que compartilha exatamente os bytes de uma região já mapeada.
 - read(cpu, address, width): leitura de 1, 2 ou 4 bytes.
 - write(cpu, address, width, value): escrita de 1, 2 ou 4 bytes.
 - validate_execute(cpu, address, size): verifica mapeamento contínuo e permissão de execução.
+- validate_identity(cpu, address, size, expected): exige bytes materializados e compara a faixa com os bytes esperados.
 
 As regiões são half-open: [base, base + size). O limite superior pode alcançar 0x1_0000_0000, mas nunca ultrapassá-lo. Aliases herdam as permissões do intervalo canônico.
 
@@ -54,7 +56,19 @@ A ligação global é serial/cooperativa nesta etapa. O scheduler deverá seleci
 - CrossesRegion: o acesso começa em uma região, mas termina fora dela.
 - PermissionDenied: leitura, escrita ou execução não permitida.
 
-## 5. Semântica deliberadamente fora desta camada
+## 5. Proveniência e identidade de código
+
+Cada backing mantém um marcador de proveniência por byte.
+- \`map_ram\` cria bytes vazios com proveniência zero.
+- \`write\` (incluindo os wrappers C \`bus_write_*\`) marca os bytes atingidos como materializados.
+- \`map_image\` copia os bytes fonte e marca toda a faixa como materializada.
+- \`validate_identity\` recusa qualquer byte sem proveniência e só então compara o conteúdo.
+
+Isso evita que uma região recém-alocada, preenchida inicialmente com zero, seja confundida com um banco compilado que também espera zeros. Para código, o callback do dispatcher ainda exige \`Executable\` na faixa principal; depois valida conteúdo e dependências. O callback é instalado pelo bind do objeto GuestMemory na ABI do barramento e removido no unbind.
+
+O marcador de proveniência ainda é simples: não representa gerações de páginas, DMA, escrita por dispositivo, mapeamentos por CPU ou invalidação de cache de instruções. Esses casos precisarão de um modelo de proveniência/timing mais completo no barramento DS.
+
+## 6. Semântica deliberadamente fora desta camada
 
 O barramento de hardware deve permanecer responsável por:
 - MMIO e efeitos colaterais de registradores;
@@ -68,7 +82,7 @@ GuestMemory não aplica automaticamente rotação ARM a leituras desalinhadas. A
 
 O parâmetro CPU valida que a chamada pertence a ARM9 ou ARM7, mas as regiões mapeadas são atualmente compartilhadas. Mapas separados por processador, privilégios e overlays executáveis ainda não existem.
 
-## 6. Testes
+## 7. Testes
 
 O teste tests/memory/guest_memory_test.cpp verifica:
 1. leitura/escrita little-endian de 8/16/32 bits;
@@ -82,13 +96,14 @@ O teste tests/memory/guest_memory_test.cpp verifica:
 
 O teste tests/memory/guest_memory_bus_abi_test.cpp verifica o bind/unbind do backing, chamadas C bus_* e compartilhamento de RAM quando o seletor muda entre ARM9 e ARM7.
 
-A biblioteca é construída como oracis_memory mesmo com BUILD_TESTING=OFF; ela depende de oracis_arm_state e o host SDL3 a linka. A validação local foi feita em harness CMake/Ninja com Clang, não no build completo com SDL3.
+A biblioteca é construída como oracis_memory mesmo com BUILD_TESTING=OFF; ela depende de oracis_arm_state e o host SDL3 a linka. O CMake registra testes da memória, barramento e validação de identidade, mas não há confirmação de execução para os commits mais recentes.
 
-## 7. Próxima integração
+## 8. Próxima integração
 
 1. Definir o mapa de regiões DS usado pela revisão USA Rev 1, com fontes verificáveis para cada mirror/alias.
 2. Adicionar regiões backing compartilhadas para main RAM e WRAM e regiões independentes para ITCM/DTCM/VRAM conforme o modelo escolhido.
 3. Implementar uma camada MMIO por intervalo com handlers específicos, sem tratar registradores como RAM comum.
-4. Adicionar MMIO e handlers de dispositivo por faixa, mantendo RAM e I/O separados.
-5. Modelar latência/ciclos e efeitos colaterais dos acessos por CPU.
-6. Adicionar testes de mirrors reais, alinhamento, timing e I/O antes de ligar o dispatch.
+4. Completar proveniência para DMA/dispositivos e gerações de página.
+5. Adicionar MMIO e handlers de dispositivo por faixa, mantendo RAM e I/O separados.
+6. Modelar latência/ciclos e efeitos colaterais dos acessos por CPU.
+7. Adicionar testes de mirrors reais, alinhamento, timing e I/O antes de ligar os bancos reais.
