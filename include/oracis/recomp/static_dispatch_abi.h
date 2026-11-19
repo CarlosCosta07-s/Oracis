@@ -15,6 +15,7 @@ extern "C" {
 #endif
 
 typedef int (*OracisDispatchValidationFn)(
+    NdsCpu cpu,
     const NdsStaticValidation *validation,
     uint32_t pc,
     uint32_t thumb,
