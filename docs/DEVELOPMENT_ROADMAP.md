@@ -17,10 +17,10 @@ Cada fase deve produzir uma entrega pequena, compilável, executável e verific�
 | Fase | Área | Entrega principal | Estado |
 |---:|---|---|---|
 | 0 | Baseline | Revisão/região e direitos avaliados | USA Rev 1 identificada; licença geral de pret/pokeplatinum não confirmada |
-| 1 | NDSRecomp | Checkout fixado e compilação isolada | Bootstrap/CI configurados; build do upstream pendente de execução |
+| 1 | NDSRecomp | Checkout fixado e compilação isolada | Bootstrap validado em CI; alvo nds_recompile compilou isoladamente; emissão de bancos reais pendente |
 | 2 | Extração e bancos | Extrair ARM9/ARM7 e emitir bancos C | Metadados e hashes dos segmentos verificados localmente; emissão pendente |
-| 3 | ABI e estado ARM | Estado ARM, CPSR/SPSR, exceções, flags e ponte C ABI | Estado/flags, User-bank helpers e CLZ implementados; testes registrados, execução recente não confirmada |
-| 4 | Memória e serviços base | Barramento, MMIO, IRQ, timers, DMA, IPC, CP15 e NitroSDK | Mapa inicial NDS retail: Main RAM 4MB/mirrors, WRAM ARM7 e modos WRAMCNT 0–3 (incluindo mirror ARM7 privado no modo 0); WRAMCNT ARM9 MMIO e troca transacional, sem alocação, das máscaras das sete janelas Shared WRAM, com validação integral antes da aplicação nos quatro modos implementados; WRAMSTAT, demais MMIO, CP15/TCM, VRAM e timing pendentes |
+| 3 | ABI e estado ARM | Estado ARM, CPSR/SPSR, exceções, flags e ponte C ABI | Estado/flags, User-bank helpers e CLZ implementados; 20/20 testes de runtime confirmados na CI da revisão d7e9e23 |
+| 4 | Memória e serviços base | Barramento, MMIO, IRQ, timers, DMA, IPC, CP15 e NitroSDK | Mapa inicial NDS retail: Main RAM 4MB/mirrors, WRAM ARM7 e modos WRAMCNT 0–3 (incluindo mirror ARM7 privado no modo 0); WRAMCNT ARM9 MMIO e troca transacional, sem alocação, das máscaras das sete janelas Shared WRAM, com validação integral antes da aplicação nos quatro modos implementados; IME/IE/IF com IRQ pending consultável por CPU implementados; WRAMSTAT, entrada de exceção IRQ pelo scheduler, demais MMIO, CP15/TCM, VRAM e timing pendentes |
 | 5 | Dispatch e scheduler | Tabelas por CPU, validação de conteúdo, interworking e scheduler dual-core cooperativo | Registry, validação de bytes, pilha de retorno e orçamento/yield por CPU implementados; carregador de bancos, cache de links e eventos DS pendentes |
 | 6 | Boot visível e vídeo 2D | Primeiro quadro, VRAM, BGs, sprites, OAM e blending | Não iniciada |
 | 7 | Vídeo 3D | Geometry Engine, transformações, iluminação, texturas e fog | Não iniciada |
