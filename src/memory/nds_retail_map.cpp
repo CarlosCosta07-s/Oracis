@@ -1,5 +1,7 @@
 #include "oracis/memory/nds_retail_map.hpp"
 
+#include <array>
+
 namespace oracis::memory {
 namespace {
 
@@ -22,99 +24,97 @@ bool valid_shared_wram_mode(SharedWramMode mode) noexcept
     return false;
 }
 
-bool remove_shared_wram_views(GuestMemory &memory) noexcept
+std::array<GuestMemory::CpuAccessUpdate, 7>
+shared_wram_access_updates(SharedWramMode mode) noexcept
 {
-    bool removed = false;
-    const char *const names[] = {
-        "ARM9 Shared WRAM 32KB window",
-        "ARM9 Shared WRAM bank 1 window",
-        "ARM9 Shared WRAM bank 0 window",
-        "ARM7 Shared WRAM bank 0 window",
-        "ARM7 Shared WRAM bank 1 window",
-        "ARM7 Shared WRAM 32KB window",
-        "ARM7 private WRAM mirror in deallocated Shared WRAM window"
+    const auto access = [](bool enabled, uint8_t cpu) noexcept {
+        return static_cast<uint8_t>(enabled ? cpu : CpuAccessNone);
     };
 
-    for (const char *name : names) {
-        removed = memory.unmap_region(name) || removed;
-    }
-    return removed;
+    return {{
+        {"ARM9 Shared WRAM 32KB window",
+         access(mode == SharedWramMode::Arm9All32K, CpuAccessArm9)},
+        {"ARM9 Shared WRAM bank 1 window",
+         access(mode == SharedWramMode::Arm9Bank1Arm7Bank0, CpuAccessArm9)},
+        {"ARM9 Shared WRAM bank 0 window",
+         access(mode == SharedWramMode::Arm9Bank0Arm7Bank1, CpuAccessArm9)},
+        {"ARM7 Shared WRAM bank 0 window",
+         access(mode == SharedWramMode::Arm9Bank1Arm7Bank0, CpuAccessArm7)},
+        {"ARM7 Shared WRAM bank 1 window",
+         access(mode == SharedWramMode::Arm9Bank0Arm7Bank1, CpuAccessArm7)},
+        {"ARM7 Shared WRAM 32KB window",
+         access(mode == SharedWramMode::Arm7All32K, CpuAccessArm7)},
+        {"ARM7 private WRAM mirror in deallocated Shared WRAM window",
+         access(mode == SharedWramMode::Arm9All32K, CpuAccessArm7)}
+    }};
 }
 
 Status map_shared_wram_views(GuestMemory &memory, SharedWramMode mode)
 {
-    Status status = Status::Ok;
+    struct View {
+        uint32_t alias_base;
+        uint32_t canonical_base;
+        uint32_t period;
+        uint32_t window_size;
+        const char *name;
+        uint8_t cpu_access;
+    };
 
-    switch (mode) {
-    case SharedWramMode::Arm9All32K:
-        status = memory.map_mirror(
-            NdsRetailRamMap::SharedWramBase,
-            kSharedWramBackingBase,
-            NdsRetailRamMap::SharedWramSize,
-            NdsRetailRamMap::Arm9SharedWramWindow,
-            "ARM9 Shared WRAM 32KB window",
-            CpuAccessArm9);
+    const auto updates = shared_wram_access_updates(mode);
+    const View views[] = {
+        {NdsRetailRamMap::SharedWramBase,
+         kSharedWramBackingBase,
+         NdsRetailRamMap::SharedWramSize,
+         NdsRetailRamMap::Arm9SharedWramWindow,
+         updates[0].name, updates[0].cpu_access},
+        {NdsRetailRamMap::SharedWramBase,
+         kSharedWramBackingBase + NdsRetailRamMap::SharedWramBankSize,
+         NdsRetailRamMap::SharedWramBankSize,
+         NdsRetailRamMap::Arm9SharedWramWindow,
+         updates[1].name, updates[1].cpu_access},
+        {NdsRetailRamMap::SharedWramBase,
+         kSharedWramBackingBase,
+         NdsRetailRamMap::SharedWramBankSize,
+         NdsRetailRamMap::Arm9SharedWramWindow,
+         updates[2].name, updates[2].cpu_access},
+        {NdsRetailRamMap::SharedWramBase,
+         kSharedWramBackingBase,
+         NdsRetailRamMap::SharedWramBankSize,
+         NdsRetailRamMap::Arm7SharedWramWindow,
+         updates[3].name, updates[3].cpu_access},
+        {NdsRetailRamMap::SharedWramBase,
+         kSharedWramBackingBase + NdsRetailRamMap::SharedWramBankSize,
+         NdsRetailRamMap::SharedWramBankSize,
+         NdsRetailRamMap::Arm7SharedWramWindow,
+         updates[4].name, updates[4].cpu_access},
+        {NdsRetailRamMap::SharedWramBase,
+         kSharedWramBackingBase,
+         NdsRetailRamMap::SharedWramSize,
+         NdsRetailRamMap::Arm7SharedWramWindow,
+         updates[5].name, updates[5].cpu_access},
+        {NdsRetailRamMap::SharedWramBase,
+         NdsRetailRamMap::Arm7WramBase,
+         NdsRetailRamMap::Arm7WramSize,
+         NdsRetailRamMap::Arm7SharedWramWindow,
+         updates[6].name, updates[6].cpu_access}
+    };
+
+    /*
+     * Install every possible view once. Inactive mappings use CpuAccessNone;
+     * later WRAMCNT writes only switch masks, never allocate or remove views.
+     */
+    for (const View &view : views) {
+        const Status status = memory.map_mirror(
+            view.alias_base,
+            view.canonical_base,
+            view.period,
+            view.window_size,
+            view.name,
+            view.cpu_access);
         if (status != Status::Ok) return status;
-
-        /*
-         * WRAMCNT mode 0 allocates no Shared WRAM to ARM7. Its window mirrors
-         * ARM7-private WRAM at 0x03800000 instead.
-         */
-        return memory.map_mirror(
-            NdsRetailRamMap::SharedWramBase,
-            NdsRetailRamMap::Arm7WramBase,
-            NdsRetailRamMap::Arm7WramSize,
-            NdsRetailRamMap::Arm7SharedWramWindow,
-            "ARM7 private WRAM mirror in deallocated Shared WRAM window",
-            CpuAccessArm7);
-
-    case SharedWramMode::Arm9Bank1Arm7Bank0:
-        status = memory.map_mirror(
-            NdsRetailRamMap::SharedWramBase,
-            kSharedWramBackingBase + NdsRetailRamMap::SharedWramBankSize,
-            NdsRetailRamMap::SharedWramBankSize,
-            NdsRetailRamMap::Arm9SharedWramWindow,
-            "ARM9 Shared WRAM bank 1 window",
-            CpuAccessArm9);
-        if (status != Status::Ok) return status;
-
-        return memory.map_mirror(
-            NdsRetailRamMap::SharedWramBase,
-            kSharedWramBackingBase,
-            NdsRetailRamMap::SharedWramBankSize,
-            NdsRetailRamMap::Arm7SharedWramWindow,
-            "ARM7 Shared WRAM bank 0 window",
-            CpuAccessArm7);
-
-    case SharedWramMode::Arm9Bank0Arm7Bank1:
-        status = memory.map_mirror(
-            NdsRetailRamMap::SharedWramBase,
-            kSharedWramBackingBase,
-            NdsRetailRamMap::SharedWramBankSize,
-            NdsRetailRamMap::Arm9SharedWramWindow,
-            "ARM9 Shared WRAM bank 0 window",
-            CpuAccessArm9);
-        if (status != Status::Ok) return status;
-
-        return memory.map_mirror(
-            NdsRetailRamMap::SharedWramBase,
-            kSharedWramBackingBase + NdsRetailRamMap::SharedWramBankSize,
-            NdsRetailRamMap::SharedWramBankSize,
-            NdsRetailRamMap::Arm7SharedWramWindow,
-            "ARM7 Shared WRAM bank 1 window",
-            CpuAccessArm7);
-
-    case SharedWramMode::Arm7All32K:
-        return memory.map_mirror(
-            NdsRetailRamMap::SharedWramBase,
-            kSharedWramBackingBase,
-            NdsRetailRamMap::SharedWramSize,
-            NdsRetailRamMap::Arm7SharedWramWindow,
-            "ARM7 Shared WRAM 32KB window",
-            CpuAccessArm7);
     }
 
-    return Status::InvalidRegion;
+    return Status::Ok;
 }
 
 Status create_shared_wram_backing(GuestMemory &memory)
@@ -184,13 +184,11 @@ Status NdsRetailRamMap::set_shared_wram_mode(
     }
 
     /*
-     * Only the guest-visible windows are removed. The two physical banks at
-     * kSharedWramBackingBase and ARM7-private WRAM remain mapped and retain
-     * their bytes while access windows are rebuilt for the new WRAMCNT mode.
+     * All possible views were allocated during install. Validate the full
+     * resulting CPU map, then switch every visibility mask without allocation.
      */
-    if (!remove_shared_wram_views(memory)) return Status::Unmapped;
-
-    return map_shared_wram_views(memory, shared_wram_mode);
+    const auto updates = shared_wram_access_updates(shared_wram_mode);
+    return memory.update_cpu_access(updates.data(), updates.size());
 }
 
 } // namespace oracis::memory
