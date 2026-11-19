@@ -111,20 +111,33 @@ O runtime também implementa \`runtime_call_push_return\`, \`runtime_call_should
 
 Os símbolos \`runtime_link_call/branch/fallthrough\` já existem, mas não resolvem nem armazenam links: encaminham o alvo ao dispatcher estático normal. \`runtime_inline_leaf_admit\` retorna falso. Sem cache com epoch e validação de conteúdo, nenhuma cópia inline é admitida.
 
-## 7. Declarações ainda sem implementação
+## 7. Controle cooperativo de fatias
+
+\`src/runtime/scheduler_core.cpp\` fornece o primeiro núcleo de contabilização de ciclos e yield por CPU:
+
+- \`runtime_tick(cycles)\` incrementa o contador de ciclos da CPU ativa.
+- \`runtime_should_yield()\` e \`runtime_slice_yield()\` verificam pedido de yield ou vencimento do orçamento da fatia.
+- \`runtime_unwinding()\` consulta o estado de unwind explícito da CPU ativa.
+- \`oracis_scheduler_begin_slice/end_slice\`, \`request_yield\`, \`set_unwinding\`, \`cycle_count\` e \`reset\` permitem ao host controlar cada CPU.
+
+Os contadores e deadlines ARM9/ARM7 são independentes. O runtime não executa automaticamente a outra CPU: o host ainda precisa selecionar a CPU e iniciar a próxima fatia.
+
+**Limite desta etapa:** isto não é o scheduler Nintendo DS completo. Não processa timers, DMA, IRQ, IPC, PPU, wait states, custos por região de memória nem eventos periféricos. \`runtime_code_cycles\`, \`runtime_mem_cycles\` e \`runtime_mul_cycles\` ainda não possuem modelos de hardware e continuam pendentes.
+
+## 8. Declarações ainda sem implementação
 
 O header também declara os serviços que o código gerado precisa, mas não fornece stubs vazios. Os seguintes grupos ainda precisam de implementações reais:
 
-- ciclos: `runtime_tick`, `runtime_should_yield`, `runtime_code_cycles`, `runtime_mem_cycles`, `runtime_mul_cycles`;
-- transferências encadeadas: `runtime_link_*`, `runtime_inline_leaf_admit` e slots de link direto;
-- transferências/retornos: `runtime_call_*`, `runtime_live_transfer`;
+- custos de hardware: `runtime_code_cycles`, `runtime_mem_cycles`, `runtime_mul_cycles`;
+- otimização de transferências: resolução/cache de link slots e admissão de folhas inline (os símbolos atuais fazem dispatch conservador e não usam cache);
+- observabilidade de transferências: `runtime_live_transfer`;
 - exceções geradas: `runtime_swi`, `runtime_irq`;
 - coprocessador: `runtime_coproc_*` e serviços CP15;
 - observabilidade: `runtime_trace_event`, `runtime_insn_slow`.
 
 Um banco pode incluir o header e compilar sintaticamente, mas continuará sem poder ligar enquanto todos os símbolos efetivamente referenciados não tiverem uma implementação. Não fornecemos no-op stubs para simular progresso.
 
-## 8. Opção de geração excluída
+## 9. Opção de geração excluída
 
 O parâmetro `--flat-execution` altera os corpos gerados para usar `NdsExecRegion`, `execution_region.h` e serviços do runtime upstream. **Oracis não usa essa opção.** Usaremos emissão padrão por função.
 
@@ -137,11 +150,11 @@ Também ficam fora da integração:
 ## 10. Testes registrados
 
 O CMake registra dezessete testes C99/C++20 para o runtime e ABI. A lista inclui memória, identidade/proveniência, layout ARM, CPSR/SPSR, exceções, flags, registry ranking/misses, ponte de dispatch C/C++ e especialização estática ARM9/ARM7. A execução de todos os quinze testes para o estado atual ainda não foi confirmada:
-Os dezessete alvos registrados são: RAM guest; ponte C bus_* e validação por GuestMemory; layouts ABI C99/C++20; bancos ARM e modos; CPSR/SPSR; exceções; flags; acesso ao User bank e CLZ; registry de dispatch; runtime dispatch C++ e ABI dispatch C99; pilha de retorno guest; ponte ARM9/ARM7 C/C++; especialização estática ARM9 e ARM7.
+Os dezoito alvos registrados são: RAM guest; ponte C bus_* e validação por GuestMemory; layouts ABI C99/C++20; bancos ARM e modos; CPSR/SPSR; exceções; flags; acesso ao User bank e CLZ; pilha de retorno guest; controle de fatias; registry de dispatch; runtime dispatch C++ e ABI dispatch C99; ponte ARM9/ARM7 C/C++; especialização estática ARM9 e ARM7.
 
 Não há status check atual confirmado para o último commit; portanto, não declarar esses quinze testes como aprovados. O CMake também inclui as bibliotecas de produto independentemente de `BUILD_TESTING`, mas o build completo com SDL3 e a ligação de bancos NDSRecomp continuam pendentes.
 
-## 10. Prova de integração ainda exigida
+## 11. Prova de integração ainda exigida
 
 1. Compilar o executável `nds_recompile` na revisão fixada.
 2. Emitir os bancos C ARM9 e ARM7 da cópia USA Rev 1, sem `--flat-execution`.
