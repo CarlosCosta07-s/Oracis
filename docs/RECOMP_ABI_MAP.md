@@ -100,4 +100,4 @@ A ABI não será considerada concluída com base apenas na leitura do header. El
 5. executar testes unitários de estado/flags, memória, dispatch e transferências ARM/Thumb;
 6. provar que um endereço sem banco gera falha explícita, sem execução guest interpretada.
 
-A estrutura `ArmCpuState` já compila em C99 e C++20 e seus testes de layout passam. Até a emissão/compilação de bancos reais existir, esta página continua sendo um mapa técnico preliminar e a ABI de funções Oracis permanece em implementação.
+A estrutura `ArmCpuState` já compila em C99 e C++20 e seus testes de layout passam. O runtime também contém `oracis_arm_cpu_mode_bank` e `oracis_arm_cpu_switch_mode`, com testes para os seis bancos ARM, preservação de CPSR/SPSR e transições FIQ/IRQ/System. Até a emissão/compilação de bancos reais existir, esta página continua sendo um mapa técnico preliminar e a ABI completa de funções Oracis permanece em implementação.
