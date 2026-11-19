@@ -49,7 +49,11 @@ int main()
 
     bus_write_u32(0x03000000u, bank0);
     bus_write_u32(0x03004000u, bank1);
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM7))
+        return fail("ARM7 initial private-WRAM selection failed");
     bus_write_u32(NdsRetailRamMap::Arm7WramBase, private_value);
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9))
+        return fail("ARM9 selection after private-WRAM seed failed");
 
     /* Mode 1: ARM9 bank 1, ARM7 bank 0, same guest base per CPU. */
     bus_write_u8(NdsWramControl::WramCntAddress, 1u);
@@ -88,6 +92,8 @@ int main()
         return fail("ARM7 did not receive physical bank 1 in mode 2");
 
     /* Mode 3 gives both physical banks to ARM7, contiguous and mirrored. */
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9))
+        return fail("ARM9 selection before mode 3 write failed");
     bus_write_u8(NdsWramControl::WramCntAddress, 3u);
     if (bus_read_u32(0x03000000u) != bank0 ||
         bus_read_u32(0x03004000u) != bank1) {
@@ -113,12 +119,10 @@ int main()
         return fail("WRAMCNT mode 0 did not mirror ARM7 private WRAM");
     }
 
+    if (oracis_bus_unbind_memory(&memory))
+        return fail("memory unbind must be rejected while the device is bound");
     if (!oracis_bus_unbind_wram_control(&control))
         return fail("WRAM control unbind failed");
-    if (oracis_bus_unbind_memory(&memory))
-        return fail("memory must not unbind while device still owns its mapping");
-
-    /* Rebind order checked; now unbind memory after device detach. */
     if (!oracis_bus_unbind_memory(&memory))
         return fail("GuestMemory unbind failed");
 
