@@ -112,6 +112,7 @@ int main()
             oracis::memory::NdsArm9Tcm::DtcmResetRegionControl ||
         runtime_coproc_read(15u, 0u, 9u, 1u, 1u) !=
             oracis::memory::NdsArm9Tcm::ItcmResetRegionControl ||
+        runtime_code_cycles(UINT32_C(0x01FF8000)) != 0u ||
         machine.exception_vector_base(NDS_ARM7) != 0u) {
         return fail("machine did not bind CPU states or apply NDS reset vector bases");
     }
@@ -145,7 +146,8 @@ int main()
     runtime_coproc_write(15u, 0u, 1u, 0u, 0u, tcm_control);
     if (runtime_coproc_read(15u, 0u, 9u, 1u, 1u) != UINT32_C(0x20) ||
         runtime_coproc_read(15u, 0u, 9u, 1u, 0u) != UINT32_C(0x027C000A) ||
-        runtime_coproc_read(15u, 0u, 1u, 0u, 0u) != tcm_control) {
+        runtime_coproc_read(15u, 0u, 1u, 0u, 0u) != tcm_control ||
+        runtime_code_cycles(UINT32_C(0x01FF8000)) != 1u) {
         return fail("CP15 did not preserve the supported ARM9 TCM registers");
     }
 

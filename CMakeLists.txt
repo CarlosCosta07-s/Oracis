@@ -329,6 +329,12 @@ if(BUILD_TESTING)
     target_link_libraries(oracis_runtime_scheduler_test PRIVATE oracis_arm_state)
     add_test(NAME oracis_runtime_scheduler_test COMMAND oracis_runtime_scheduler_test)
 
+    add_executable(oracis_runtime_code_cycles_test
+        tests/abi/runtime_code_cycles_test.cpp
+    )
+    target_link_libraries(oracis_runtime_code_cycles_test PRIVATE oracis_arm_state)
+    add_test(NAME oracis_runtime_code_cycles_test COMMAND oracis_runtime_code_cycles_test)
+
     add_executable(oracis_runtime_event_trace_test
         tests/abi/runtime_event_trace_test.cpp
     )

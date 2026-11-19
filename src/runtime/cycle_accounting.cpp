@@ -34,9 +34,71 @@ namespace {
 
 } // namespace
 
+namespace {
+
+uint32_t g_arm9_itcm_code_window_size = 0u;
+
+uint32_t arm9_uncached_code_fetch_cycles(uint32_t pc)
+{
+    /*
+     * These costs are in ARM9 core cycles (66 MHz). The documented DS bus
+     * costs are in 33 MHz units: Main RAM N32=9 -> 18 core cycles, and
+     * WRAM/BIOS/I/O/OAM N32=4 -> 8 core cycles. ITCM is 0.5 bus cycles -> 1.
+     *
+     * This first pass deliberately excludes cache, VRAM/Palette executable
+     * mappings, gamecard windows and arbitrary unmapped addresses.
+     */
+    if (pc < g_arm9_itcm_code_window_size) return 1u;
+    if ((pc - UINT32_C(0x02000000)) < UINT32_C(0x01000000)) {
+        return 18u; /* uncached Main RAM code fetch */
+    }
+    if ((pc - UINT32_C(0x03000000)) < UINT32_C(0x01000000) ||
+        (pc - UINT32_C(0x04000000)) < UINT32_C(0x01000000) ||
+        (pc - UINT32_C(0x07000000)) < UINT32_C(0x00004000) ||
+        (pc - UINT32_C(0xFFFF0000)) < UINT32_C(0x00008000)) {
+        return 8u; /* WRAM, BIOS, I/O or OAM code fetch */
+    }
+
+    timing_unavailable("runtime_code_cycles unsupported ARM9 code region",
+                       pc, g_arm9_itcm_code_window_size, 0u, 0u);
+}
+
+} // namespace
+
+extern "C" void oracis_runtime_set_arm9_itcm_code_window(uint32_t size)
+{
+    if (size != 0u &&
+        (size < UINT32_C(0x00008000) ||
+         size > UINT32_C(0x02000000) ||
+         (size & (size - 1u)) != 0u)) {
+        timing_unavailable(
+            "invalid ARM9 ITCM code window", 0u, size, 0u, 0u);
+    }
+    g_arm9_itcm_code_window_size = size;
+}
+
 extern "C" uint32_t runtime_code_cycles(uint32_t pc)
 {
-    timing_unavailable("runtime_code_cycles", pc, 0u, 0u, 0u);
+    if (oracis_active_cpu_state == nullptr ||
+        (g_nds_active != NDS_ARM9 && g_nds_active != NDS_ARM7)) {
+        timing_unavailable("runtime_code_cycles without active CPU",
+                           pc, 0u, 0u, 0u);
+    }
+
+    /* The ARM7 generated instruction base already includes its fetch cost. */
+    if (g_nds_active == NDS_ARM7) return 0u;
+
+    const bool thumb = (g_cpu.cpsr & CPSR_T_BIT) != 0u;
+    /*
+     * The NDS9 fetches two Thumb halfwords per 32-bit bus fetch. The second
+     * halfword has no additional fetch cost; taken branches are charged by
+     * the separate pipeline-refill provider (still fail-closed).
+     */
+    if (thumb && (pc & 2u) != 0u) return 0u;
+
+    const uint32_t word_fetch_cycles =
+        arm9_uncached_code_fetch_cycles(pc);
+    return thumb ? word_fetch_cycles / 2u : word_fetch_cycles;
 }
 
 extern "C" uint32_t runtime_mem_cycles(

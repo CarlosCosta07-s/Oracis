@@ -85,7 +85,10 @@ int NdsMachine::runtime_coprocessor_handler(
 
     if (crn == 1u && crm == 0u && op2 == 0u) {
         if (is_write != 0u) {
-            return machine->arm9_tcm_.set_control(*value) ? 1 : 0;
+            if (!machine->arm9_tcm_.set_control(*value)) return 0;
+            oracis_runtime_set_arm9_itcm_code_window(
+                machine->arm9_tcm_.itcm_code_window_size());
+            return 1;
         }
         *value = machine->arm9_tcm_.control();
         return 1;
@@ -94,7 +97,12 @@ int NdsMachine::runtime_coprocessor_handler(
     if (crn == 9u && crm == 1u && (op2 == 0u || op2 == 1u)) {
         const bool instruction = op2 == 1u;
         if (is_write != 0u) {
-            return machine->arm9_tcm_.write_region(instruction, *value) ? 1 : 0;
+            if (!machine->arm9_tcm_.write_region(instruction, *value)) return 0;
+            if (instruction) {
+                oracis_runtime_set_arm9_itcm_code_window(
+                    machine->arm9_tcm_.itcm_code_window_size());
+            }
+            return 1;
         }
         return machine->arm9_tcm_.read_region(instruction, *value) ? 1 : 0;
     }
@@ -181,6 +189,7 @@ NdsMachineStatus NdsMachine::initialize() noexcept
     oracis_scheduler_reset(NDS_ARM7);
     idle_core_cycles_offset_.fill(0u);
     next_round_first_cpu_ = NDS_ARM9;
+    oracis_runtime_set_arm9_itcm_code_window(0u);
 
     const auto rollback = [this](NdsMachineStatus cause) noexcept {
         return shutdown() == NdsMachineStatus::Ok
@@ -203,6 +212,8 @@ NdsMachineStatus NdsMachine::initialize() noexcept
         arm9_tcm_.install() != memory::Status::Ok) {
         return rollback(NdsMachineStatus::MemoryMapFailed);
     }
+    oracis_runtime_set_arm9_itcm_code_window(
+        arm9_tcm_.itcm_code_window_size());
 
     if (!oracis_bus_bind_memory(&memory_)) {
         return rollback(NdsMachineStatus::BusBindingFailed);
@@ -425,6 +436,7 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
         }
         runtime_bound_ = false;
     }
+    oracis_runtime_set_arm9_itcm_code_window(0u);
 
     oracis_scheduler_reset(NDS_ARM9);
     oracis_scheduler_reset(NDS_ARM7);

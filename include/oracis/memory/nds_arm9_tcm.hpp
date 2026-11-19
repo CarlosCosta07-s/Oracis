@@ -37,6 +37,7 @@ public:
     Status install() noexcept;
     uint32_t control() const noexcept { return control_; }
     uint32_t size_register() const noexcept;
+    uint32_t itcm_code_window_size() const noexcept;
 
     bool set_control(uint32_t value) noexcept;
     bool read_region(bool instruction, uint32_t &value) const noexcept;

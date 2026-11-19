@@ -60,6 +60,22 @@ uint32_t NdsArm9Tcm::size_register() const noexcept
     return (UINT32_C(5) << 18u) | (UINT32_C(6) << 6u);
 }
 
+uint32_t NdsArm9Tcm::itcm_code_window_size() const noexcept
+{
+    if (!installed_ || !itcm_mapped_ ||
+        (control_ & ItcmEnableMask) == 0u) {
+        return 0u;
+    }
+
+    uint32_t base = 0u;
+    uint32_t window_size = 0u;
+    if (!decode_region(true, itcm_region_control_, base, window_size) ||
+        base != 0u) {
+        return 0u;
+    }
+    return window_size;
+}
+
 bool NdsArm9Tcm::decode_region(
     bool instruction, uint32_t value,
     uint32_t &base, uint32_t &window_size) noexcept

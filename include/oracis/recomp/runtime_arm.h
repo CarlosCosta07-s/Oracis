@@ -222,11 +222,26 @@ void runtime_insn_slow(void);
  */
 #define NDS_ARM9_CODE_K(pc, thumb) (UINT32_C(0))
 
+/*
+ * Publish the active ARM9 ITCM instruction window to the code-timing helper.
+ * Zero means ITCM is disabled. Only NdsMachine's CP15/TCM controller updates
+ * this process-wide value; the rest of CP15 timing remains unsupported.
+ */
+void oracis_runtime_set_arm9_itcm_code_window(uint32_t size);
+
 static inline uint32_t nds_code_numc(uint32_t pc, uint32_t packed_cost)
 {
     (void)packed_cost;
     return runtime_code_cycles(pc);
 }
+
+/*
+ * ARM9 uncached code-fetch timing is implemented for ITCM, Main RAM, BIOS,
+ * WRAM, I/O and OAM. ARM7 code-fetch time is already included in the generated
+ * instruction base and this helper returns zero for ARM7. Unsupported ARM9
+ * executable regions fail closed.
+ */
+uint32_t runtime_code_cycles(uint32_t pc);
 
 uint32_t arm7_refill_cycles(uint32_t target);
 uint32_t arm9_refill_cycles(uint32_t target);
