@@ -7,16 +7,17 @@
 ## Entrega desta etapa
 
 - `tools/ndsrecomp/build_recompiler.py`: sparse checkout externo fixado contendo somente `recompiler/`, `cmake/` e `external/arm-recomp-core/`; inicializa o submódulo MIT necessário e compila `nds_recompile` e os testes standalone do núcleo.
-- `CMakeLists.txt`: C99 e C++20; biblioteca `oracis_arm_state` faz parte do build de produto mesmo com `BUILD_TESTING=OFF`.
+- `CMakeLists.txt`: C99 e C++20; `oracis_arm_state` e `oracis_memory` fazem parte do build de produto mesmo com `BUILD_TESTING=OFF` e são ligados ao host SDL3.
 - `include/oracis/recomp/arm_cpu_state.h`: layout POD de estado ARM, com asserts de tamanho/offset.
 - `src/runtime/arm_cpu_state_ops.cpp`: mapeamento dos modos ARM e troca dos registradores bancados.
 - `src/runtime/arm_psr_ops.cpp`: operações CPSR/SPSR, máscaras de campos e privilégio User.
 - `src/runtime/arm_exception_ops.cpp`: entrada/retorno de Undefined, SWI, prefetch/data abort, IRQ e FIQ; o chamador fornece o link e a base vetorial.
 - `src/runtime/arm_flags.cpp`: condições ARM e atualização NZ/NZC/NZCV.
 - `include/oracis/recomp/runtime_arm.h` e `src/runtime/recomp_abi.cpp`: ponte parcial para o C gerado, estado ativo ARM9/ARM7, wrappers de flags/PSR/exceção e falhas fail-closed.
-- `tests/abi/`: dez testes C99/C++20, incluindo layouts de dispatch, bridge e especialização estática dos dois processadores.
+- `include/oracis/memory/guest_memory.hpp` e `src/memory/guest_memory.cpp`: regiões guest configuráveis, aliases e acessos little-endian com permissões e limites.
+- `tests/abi/` e `tests/memory/`: onze testes C99/C++20, incluindo ABI, especialização estática dos dois processadores e mapa de memória.
 
-O runtime usa um ponteiro global para o estado ativo. A futura execução será serial/cooperativa nesta primeira versão: o scheduler deve selecionar ARM9 ou ARM7 antes de chamar um banco. Execução concorrente dos dois bancos em threads ainda não é suportada.
+O runtime usa um ponteiro global para o estado ativo. A futura execução será serial/cooperativa nesta primeira versão: o scheduler deve selecionar ARM9 ou ARM7 antes de chamar um banco. Execução concorrente dos dois bancos em threads ainda não é suportada. GuestMemory ainda não é o mapa físico do DS e não implementa MMIO, DMA, timing ou alinhamento ARM.
 
 ## Preparar o recompilador
 
@@ -38,7 +39,8 @@ A validação local da cópia conferiu SHA-1, offsets, limites e hashes dos dois
 
 ## Limites atuais
 
-- A ponte ABI parcial não implementa barramento, dispatch, scheduler, timers, DMA, IPC ou CP15.
+- GuestMemory oferece RAM/aliases genéricos; ainda não é o mapa DS e não implementa MMIO nem o contrato C bus_*.
+- A ponte ABI parcial não implementa dispatch, scheduler, timers, DMA, IPC ou CP15.
 - Os símbolos de ciclos e dispatch apenas declarados não podem ser ligados como se fossem funcionais.
 - O código gerado ainda não foi emitido nem ligado.
 - O host SDL3 continua um frontend experimental sem runtime de jogo conectado.
