@@ -58,14 +58,14 @@ A API recebe explicitamente um valor de `SharedWramMode`, correspondente aos bit
 
 | Bits | Modo Oracis | ARM9 | ARM7 |
 |---:|---|---|---|
-| 0 | `Arm9All32K` | Bancos 0 + 1 (32 KB) | Sem Shared WRAM |
+| 0 | `Arm9All32K` | Bancos 0 + 1 (32 KB) | A janela ARM7 espelha sua WRAM privada de 64 KB |
 | 1 | `Arm9Bank1Arm7Bank0` | Banco físico 1 (16 KB) | Banco físico 0 (16 KB) |
 | 2 | `Arm9Bank0Arm7Bank1` | Banco físico 0 (16 KB) | Banco físico 1 (16 KB) |
 | 3 | `Arm7All32K` | Sem Shared WRAM | Bancos 0 + 1 (32 KB) |
 
-Os bancos de 16 KB são espelhados pelas janelas de endereço documentadas: janela ARM9 de 16 MB e janela ARM7 de 8 MB, com a faixa privada ARM7 começando em `0x03800000). Os modos 1 e 2 são modelados com regiões sobrepostas no mesmo endereço virtual e máscaras de CPU disjuntas.
+Os bancos de 16 KB são espelhados pelas janelas de endereço documentadas: janela ARM9 de 16 MB e janela ARM7 de 8 MB, com a faixa privada ARM7 começando em `0x03800000`. Os modos 1 e 2 são modelados com regiões sobrepostas no mesmo endereço virtual e máscaras de CPU disjuntas.
 
-A instalação é estática: o builder configura o modo inicial escolhido pelo chamador. **Ainda não há handler MMIO para reconfigurar o mapa quando o guest escreve em WRAMCNT**, nem implementação de WRAMSTAT. Uma futura camada de dispositivos deverá atualizar essas regiões mantendo os bytes físicos dos dois bancos.
+No modo 0, o mapa não deixa o espaço ARM7 vazio: conforme o comportamento documentado de desalocação, a janela ARM7 espelha a WRAM privada de 64 KB em `0x03800000`. A instalação é estática: o builder configura o modo inicial escolhido pelo chamador. **Ainda não há handler MMIO para reconfigurar o mapa quando o guest escreve em WRAMCNT**, nem implementação de WRAMSTAT. Uma futura camada de dispositivos deverá atualizar essas regiões mantendo os bytes físicos dos dois bancos.
 
 Os bytes físicos das duas banks são armazenados em um backing interno com `CpuAccessNone`; os processadores acessam somente os mirrors que o modo WRAMCNT lhes atribui.
 
@@ -129,6 +129,6 @@ O CMake registra testes separados para:
 - wrappers C do barramento;
 - Main RAM compartilhada e seus três espelhos;
 - WRAM ARM7 privada;
-- todos os quatro modos de Shared WRAM, incluindo regiões sobrepostas com visibilidade diferente por CPU.
+- todos os quatro modos de Shared WRAM, incluindo regiões sobrepostas com visibilidade diferente por CPU e o espelho da WRAM privada ARM7 no modo 0.
 
 **Os testes da revisão atual estão registrados, mas não há confirmação de que tenham sido executados ou aprovados.**
