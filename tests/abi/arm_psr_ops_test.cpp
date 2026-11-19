@@ -49,7 +49,7 @@ int main()
     state.banked_sp[ARM_BANK_IRQ] = UINT32_C(0x0300FFFC);
     state.banked_lr[ARM_BANK_IRQ] = UINT32_C(0x03001000);
     if (!oracis_arm_cpu_write_cpsr(
-            &state, ORACIS_ARM_MODE_IRQ | CPSR_T_BIT, 0x1u)) {
+            &state, ORACIS_ARM_MODE_IRQ | CPSR_T_BIT | CPSR_I_BIT | CPSR_F_BIT, 0x1u)) {
         return fail("privileged System -> IRQ CPSR write failed");
     }
     if ((state.cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_IRQ ||
