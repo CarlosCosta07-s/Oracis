@@ -131,17 +131,18 @@ Requer Python 3.10 ou mais recente. Todos os arquivos de saída são locais e ig
 
 ## 9. Resultados de validação em 19/11/2026
 
-A revisão `f24aa5ea201de866d8a574183647f399b14c79c5` passou na execução completa da CI:
+A revisão `a3032f13ca8a11130ccc17fe8c6f871ee253d24e` passou na execução completa da CI:
 
-- Desktop Linux x86-64: configuração e build bem-sucedidos; **26/26 CTests** aprovados.
-- Integração opcional de bancos: os dois objetos de bancos sintéticos foram ligados e o teste de ciclo de registro/remoção passou (**1/1**).
-- Runtime ARM sem SDL3: build e testes aprovados.
+- Desktop Linux x86-64: configuração e build bem-sucedidos; **28/28 CTests** aprovados.
+- Integração opcional de bancos: os dois objetos de bancos sintéticos foram ligados e o ciclo de registro/remoção passou (**1/1**).
+- Runtime ARM sem SDL3: build e testes aprovados, incluindo os novos testes do carregador local e SHA-1.
 - Android ARM64: biblioteca nativa compilada.
-- NDSRecomp estático: o alvo `nds_recompile` foi compilado na revisão externa fixada.
+- NDSRecomp estático: alvo `nds_recompile` compilado na revisão upstream fixada.
+- Tooling Python: **11 testes** aprovados, incluindo a rejeição de uma identidade de codegen diferente de `nds-codegen-v3`.
 
-O tooling Python executa 11 testes, incluindo validação estrita dos metadados dos segmentos, integridade dos binários, emissão transacional e rejeição de uma identidade de codegen incompatível. A identidade esperada é `nds-codegen-v3`.
+[Execução da CI](https://github.com/CarlosCosta07-s/Oracis/actions/runs/44604378710).
 
-Esses resultados validam o pipeline sintético, o vínculo dos símbolos/tabelas e o build multiplataforma. **Não** validam a emissão do código real de Pokémon Platinum nem o boot do jogo. A extração/emissão comercial permanece uma etapa local que depende da ROM fornecida pelo usuário.
+Esses resultados validam o pipeline sintético, a ligação/remoção de tabelas e a integridade do carregador com casos de erro. **Não** validam a emissão do código real de Pokémon Platinum nem o boot do jogo. A extração e a emissão comercial continuam dependendo da ROM fornecida pelo usuário e ainda não foram executadas pelo pipeline versionado.
 
 ## 10. Pipeline local completo
 
@@ -160,15 +161,13 @@ O extrator só aceita a identidade de ROM documentada e grava os segmentos e met
 
 Quando `ORACIS_LOCAL_BANK_DIR` aponta para os bancos locais, o CMake compila os corpos e tabelas de dispatch como objetos e liga-os ao runtime. Na inicialização, o host pode registrar as tabelas por meio de `oracis_host_runtime_register_compiled_banks()`. O smoke test da CI valida essa ligação e o ciclo de registro/remoção com fixtures sintéticas.
 
-**Limite atual do host:** a ponte possui `oracis_host_runtime_load_program_segments()`, que recebe buffers já residentes no processo e carrega bytes na memória guest. Ela ainda não lê automaticamente `arm9.bin` e `arm7.bin` do diretório local. O host SDL3 também não chama `oracis_host_runtime_run_round()`; registrar bancos não é o mesmo que carregar a imagem executável, resolver todos os serviços ou iniciar o jogo.
+A ponte agora oferece `oracis_host_runtime_load_local_platinum_segments(directory)`. Quando `directory` é nulo, a função usa `.oracis/local/pokemon-platinum-usa-rev1`; lê `arm9.bin` e `arm7.bin`; exige os tamanhos, endereços de carga, entry points e SHA-1 esperados para USA Rev 1; rejeita arquivo ausente, truncado, maior ou com hash divergent## 11. Próximos marcos técnicos
 
-## 11. Próximos marcos técnicos
-
-1. Criar um carregador local estrito para ARM9/ARM7, com tamanhos e SHA-1 fixos, leitura integral e falha sem mutação da máquina quando algum arquivo estiver ausente ou corrompido.
-2. Executar o extrator versionado e o NDSRecomp fixado contra os segmentos reais da cópia USA Rev 1; guardar localmente os logs, hashes e manifesto de saída.
-3. Compilar os bancos reais e inventariar símbolos indefinidos, chamadas de runtime e dependências entre bancos.
-4. Implementar somente os helpers/serviços efetivamente exigidos, com contratos e testes próprios: ciclos, bus, exceções/CP15, IRQ, DMA, IPC, BIOS/NitroSDK e código dinâmico/overlays.
-5. Implementar e testar o provider arquitetural de IRQ, incluindo LR correto, modo ARM/Thumb e base de vetor CP15.
-6. Ligar a carga de imagem e execução ao host apenas depois desses requisitos; não executar rounds sem ambos os bancos, imagens validadas e provider IRQ correto.
+1. Executar o extrator versionado e o emissor NDSRecomp fixado contra a cópia USA Rev 1 local; preservar localmente logs, hashes e manifesto.
+2. Compilar os bancos reais e inventariar símbolos indefinidos, helpers esperados, dependências e overlays/cópias de código.
+3. Implementar somente os serviços efetivamente exigidos pelos bancos, com contratos e testes próprios: ciclos, bus, exceções/CP15, IRQ, DMA, IPC, BIOS/NitroSDK e código dinâmico.
+4. Implementar e testar o provider arquitetural de IRQ, incluindo LR correto, modo ARM/Thumb e base vetorial CP15.
+5. Ligar no host SDL3 o registro dos bancos e a chamada ao carregador local somente depois da validação da extração real; manter a execução bloqueada até os serviços e o provider IRQ estarem completos.
+6. Iniciar rounds somente quando ambos os bancos e imagens estiverem validados e os caminhos de dispatch/IRQ exigidos estiverem prontos.
 
 O critério de primeiro boot nativo continua sendo a execução observável e reproduzível dos dois cores até a apresentação do primeiro quadro, sem interpretador ARM genérico e sem componentes de runtime derivados de melonDS.

@@ -9,7 +9,7 @@
 
 <p align="center"><strong>Reconstruindo Sinnoh para além do hardware original.</strong></p>
 
-> **Status:** a ponte C ABI do host consegue inicializar a máquina, registrar opcionalmente os bancos estáticos ARM9/ARM7 e carregar segmentos já extraídos pela API de runtime. O CMake aceita bancos locais por `ORACIS_LOCAL_BANK_DIR`; o teste de integração usa tabelas sintéticas e comprova ligação/registro/remoção, não execução de Pokémon. O host SDL3 ainda apresenta telas de protótipo e **não carrega automaticamente os binários locais nem executa rounds**: o provider arquitetural de IRQ, os serviços exigidos pelo código real e o boot continuam pendentes. A revisão `f24aa5e` passou nos quatro jobs da CI em 19/11/2026: desktop Linux (26/26 CTests e smoke de bancos locais 1/1), runtime ARM, Android ARM64 e compilador estático NDSRecomp.
+> **Status:** o runtime agora possui um carregador local para os segmentos ARM9/ARM7 de Pokémon Platinum USA Rev 1. A API `oracis_host_runtime_load_local_platinum_segments()` lê `arm9.bin` e `arm7.bin`, verifica tamanhos e SHA-1 fixos dos dois arquivos e só depois carrega as imagens na memória guest. O CMake também liga bancos estáticos locais por `ORACIS_LOCAL_BANK_DIR`, e a ponte C ABI consegue registrar/remover as tabelas. O host SDL3 ainda **não chama automaticamente o carregador nem executa rounds**: faltam a emissão dos bancos reais, os serviços exigidos por eles e o provider arquitetural completo de IRQ. A revisão `a3032f1` passou na CI de 19/11/2026: desktop Linux (28/28 CTests e smoke de bancos sintéticos 1/1), tooling Python (11 testes), runtime ARM, Android ARM64 e compilador estático NDSRecomp.
 
 ## O projeto
 
@@ -38,6 +38,7 @@ O Oracis já contém:
 - wrappers C bus_read_*/bus_write_* que encaminham para RAM guest mapeada e falham com diagnóstico em endereços inválidos;
 - controlador MMIO `NdsInterruptControl` com IME/IE/IF independentes por CPU, IRQ requests latcheados, IF W1C e `try_enter_irq` condicionado a `CPSR.I`; `run_dual_core_round` consulta e entrega IRQs nas fronteiras usando LR/base vetorial fornecidos pelo callback do host;
 - `NdsTimerControl` com Timer 0–3 para cada CPU, reload, prescalers, cascata e pedidos de IRQ; `NdsSystemClock` converte os contadores cumulativos ARM9/ARM7 na razão 2:1, preserva meio ciclo e chama `advance_bus_cycles(n)` uma única vez por intervalo de barramento completo;
+- carregador local de programas que lê os dois binários extraídos, exige tamanhos e SHA-1 conhecidos de ARM9/ARM7 e só entrega as imagens à máquina depois de validar ambas; módulo SHA-1 próprio coberto por vetores conhecidos;
 - `NdsMachine` como contexto proprietário dos dois estados ARM e dos dispositivos base; instalação do mapa retail, vínculo C ABI em ordem de dependência, rollback/desvínculo reverso, início/fim de fatias com relatório automático dos contadores cumulativos, contabilização de ciclos ociosos com precisão de core e rounds dual-core sincronizados em 2:1; HALT/wake básico por CPU conectado ao BIOS SWI `0x06`, SWI ARM7 `0x1F` (parâmetro em R2) e CP15 WFI do ARM9; scheduler geral de eventos DS e Sleep/Stop ainda pendentes;
 - operações CPSR/SPSR e entrada/retorno de exceções;
 - avaliação de condições e atualização de flags NZCV;
@@ -51,13 +52,11 @@ O Oracis já contém:
 - `NdsKeypadControl` com KEYINPUT compartilhado, KEYCNT independente por CPU, condições OR/AND e IRQ de teclado; o host SDL3 mapeia X/Z, Enter/Backspace, setas e Q/W, limpa entradas ao perder foco e encaminha estado pela ponte C;
 - entradas `runtime_link_*` encaminhadas ao dispatcher normal; otimização de slots e folhas inline ainda desabilitada.
 
-A validação automatizada atual registra 26 CTests no build desktop, todos aprovados na revisão `f24aa5e`. O mesmo job compilou e executou o smoke test opcional de bancos locais (1/1), usando fixtures sintéticas. Os demais jobs da mesma execução também passaram: runtime ARM sem dependência SDL3, Android ARM64 e build do alvo estático `nds_recompile`. O bootstrap do NDSRecomp está fixado no commit `14b7e15023e9affc9dc375e4e611ac703f5c76ab`.
+A validação automatizada atual registra **28 CTests** no build desktop, todos aprovados na revisão `a3032f1`. O mesmo job compilou e executou o smoke test opcional de bancos locais (1/1), usando fixtures sintéticas. Os demais jobs da execução também passaram: runtime ARM sem dependência SDL3, Android ARM64 e build do alvo estático `nds_recompile`. O tooling Python executou 11 testes, incluindo a validação estrita do emissor e da identidade `nds-codegen-v3`. [Execução da CI](https://github.com/CarlosCosta07-s/Oracis/actions/runs/44604378710).
 
-O extrator e o emissor local agora validam a identidade dos segmentos, os metadados do TOML, os hashes ARM9/ARM7 e a identidade do gerador `nds-codegen-v3`. A emissão é transacional: os dois bancos precisam ser gerados e validados antes de serem publicados no diretório local. A CI cobre 11 testes Python de tooling e a identidade do compilador; não acessa ROM comercial.
+O extrator e o emissor local validam a identidade dos segmentos, os metadados TOML, os hashes ARM9/ARM7 e a identidade do gerador. A emissão dos dois bancos é transacional. O novo carregador local verifica o tamanho e o SHA-1 fixos dos dois arquivos antes de modificar a memória guest; os testes rejeitam imagens ausentes, truncadas ou adulteradas, e os vetores SHA-1 conhecidos passam.
 
-**Ainda não foi concluído:** executar o extrator versionado e o NDSRecomp contra a cópia local real de Pokémon Platinum USA Rev 1, emitir os bancos de jogo, compilar esses bancos e auditar seus símbolos/serviços. A API de máquina já carrega segmentos de programa em memória quando fornecidos pelo host, mas não existe ainda um carregador automático de arquivos locais integrado ao SDL. O host tampouco possui o provider arquitetural completo de IRQ necessário para executar o jogo.
-
-As plataformas desktop Linux e Android ARM64 passam pelo build da CI; isso comprova compilação dos alvos, não compatibilidade jogável. Windows x64 continua planejado e requer validação própria.
+**Ainda não foi concluído:** executar o extrator versionado e o NDSRecomp contra a cópia local real de Pokémon Platinum USA Rev 1, emitir e compilar os bancos do jogo e auditar seus símbolos/serviços. Embora a API do carregador local esteja pronta e testada com arquivos inválidos sintéticos, ela ainda não é chamada automaticamente pelo host SDL3. O provider arquitetural completo de IRQ e os serviços necessários à execução continuam pendentes. Nenhum teste atual comprova boot ou compatibilidade jogável.
 
 ## Princípios
 
@@ -71,7 +70,7 @@ As plataformas desktop Linux e Android ARM64 passam pelo build da CI; isso compr
 
 ## Plataformas planejadas
 
-Windows x64 e Linux x86-64 são os primeiros alvos. Android ARM64 será integrado depois de validar o runtime desktop.
+Linux x86-64 e Android ARM64 já passam pelos builds da CI; isso comprova compilação, não execução jogável. Windows x64 continua planejado e requer validação própria.
 
 ## Aviso
 
