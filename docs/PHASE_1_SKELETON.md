@@ -18,10 +18,11 @@
 - `include/oracis/recomp/runtime_arm.h` e `src/runtime/recomp_abi.cpp`: ponte parcial para o C gerado, estado ativo ARM9/ARM7, wrappers de flags/PSR/exceção e falhas fail-closed.
 - `include/oracis/memory/guest_memory.hpp` e `src/memory/guest_memory.cpp`: regiões guest configuráveis, aliases, mirrors periódicos e visibilidade por CPU.
 - `include/oracis/memory/nds_retail_map.hpp` e `src/memory/nds_retail_map.cpp`: Main RAM 4MB/mirrors, WRAM ARM7 privada e modos WRAMCNT 0–3.
-- `src/memory/bus_abi.cpp`: wrappers C bus_read_*/bus_write_* ligados ao estado ARM9/ARM7 ativo e ao backing GuestMemory.
-- `tests/abi/` e `tests/memory/`: dezenove alvos CTest registrados, incluindo ABI, dispatch, pilha de retorno, User bank, CLZ, identidade da memória e especialização ARM9/ARM7. A execução da versão atual ainda não foi confirmada.
+- `src/memory/bus_abi.cpp`: wrappers C bus_read_*/bus_write_* ligados ao estado ARM9/ARM7 ativo, ao GuestMemory e ao dispositivo MMIO WRAMCNT.
+- `include/oracis/memory/nds_wram_control.hpp` e `src/memory/nds_wram_control.cpp`: WRAMCNT ARM9 de 8 bits, remapeamento Shared WRAM no barramento; WRAMSTAT permanece pendente.
+- `tests/abi/` e `tests/memory/`: vinte alvos CTest registrados, incluindo ABI, dispatch, pilha de retorno, User bank, CLZ, identidade da memória e especialização ARM9/ARM7. A execução da versão atual ainda não foi confirmada.
 
-O runtime usa um ponteiro global para o estado ativo. A futura execução será serial/cooperativa nesta primeira versão: o scheduler deve selecionar ARM9 ou ARM7 antes de chamar um banco. Execução concorrente dos dois bancos em threads ainda não é suportada. GuestMemory instala o mapa de RAM do NDS retail; WRAMCNT=0 também espelha a WRAM privada ARM7 na janela Shared WRAM ARM7. `set_shared_wram_mode()` alterna dinamicamente os quatro modos sem perder os bancos físicos; falta ligar essa API ao MMIO de WRAMCNT/WRAMSTAT. DMA, CP15/TCM, BIOS, VRAM/OAM e timing por região também continuam pendentes. Os wrappers bus_* operam apenas sobre regiões RAM explicitamente mapeadas e falham quando o endereço não existe.
+O runtime usa um ponteiro global para o estado ativo. A futura execução será serial/cooperativa nesta primeira versão: o scheduler deve selecionar ARM9 ou ARM7 antes de chamar um banco. Execução concorrente dos dois bancos em threads ainda não é suportada. GuestMemory instala o mapa de RAM do NDS retail; WRAMCNT=0 também espelha a WRAM privada ARM7 na janela Shared WRAM ARM7. `set_shared_wram_mode()` alterna dinamicamente os quatro modos sem perder os bancos físicos; o MMIO WRAMCNT ARM9 de 8 bits já chama essa API. WRAMSTAT, demais MMIO, DMA, CP15/TCM, BIOS, VRAM/OAM e timing por região continuam pendentes. Os wrappers bus_* operam apenas sobre regiões RAM explicitamente mapeadas e falham quando o endereço não existe.
 
 ## Preparar o recompilador
 
@@ -43,7 +44,7 @@ A validação local da cópia conferiu SHA-1, offsets, limites e hashes dos dois
 
 ## Limites atuais
 
-- O mapa NDS retail cobre somente Main RAM e WRAM; ainda não há MMIO, CP15/TCM, BIOS, VRAM/OAM ou handler guest para WRAMCNT/WRAMSTAT.
+- O mapa NDS retail cobre somente Main RAM e WRAM; ainda não há WRAMSTAT, demais MMIO, CP15/TCM, BIOS, VRAM/OAM ou timing por região.
 - O registry/runtime_dispatch e a pilha de retorno guest estão implementados para tabelas registradas. Os link slots permanecem sem cache/resolução direta; o controle de fatias existe, mas o scheduler DS com eventos, timers e sincronização ainda não existe.
 - Ciclos, timers, DMA, IPC, IRQ/SWI/CP15 e serviços NitroSDK continuam pendentes.
 - O código gerado ainda não foi emitido nem ligado.
