@@ -130,6 +130,15 @@ public:
         void *context) noexcept;
 
     /*
+     * Default executor for registered static banks. It dispatches the
+     * selected CPU's current guest PC through runtime_dispatch(); a missing
+     * or invalid bank remains a fatal, fail-closed dispatch error.
+     */
+    static bool execute_registered_bank_slice(
+        void *context, NdsCpu cpu, ArmCpuState *state,
+        uint64_t cycle_budget);
+
+    /*
      * HALT is modeled as a CPU execution state; peripherals keep advancing
      * through the synchronized bus clock. IRQ delivery remains a separate
      * scheduler operation. ARM7 HALTCNT accepts 0x80 for HALT; GBA-mode and
