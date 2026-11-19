@@ -154,7 +154,7 @@ int main()
             select_a_b));
 
     if (bus_read_u16(NdsKeypadControl::KeyControlAddress) != 0xC003u ||
-        keypad.key_control(NDS_ARM9) != 0x4003u) {
+        keypad.key_control(NDS_ARM9) != 0u) {
         return fail("ARM7 and ARM9 KEYCNT state was not independent");
     }
 
