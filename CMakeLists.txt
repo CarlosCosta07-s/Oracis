@@ -13,7 +13,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(ORACIS_BUILD_HOST "Build the SDL3 desktop/Android host" ON)
+option(ORACIS_BUILD_HOST "Build the SDL3 desktop/Android host" ON)
 option(ORACIS_FETCH_SDL3 "Download and build the pinned SDL3 release" ON)
+
+if(ORACIS_BUILD_HOST)
 
 if(ORACIS_BUILD_HOST)
     if(ORACIS_FETCH_SDL3)
@@ -55,6 +58,7 @@ if(ORACIS_BUILD_HOST)
             -Wpedantic
         )
     endif()
+endif()
 endif()
 
 include(CTest)
