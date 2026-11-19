@@ -304,11 +304,63 @@ extern "C" uint32_t runtime_mem_cycles(
         addr, width, sequential, 0u);
 }
 
+namespace {
+
+uint32_t arm7_multiply_array_cycles(
+    uint32_t multiplier, bool signed_variant) noexcept
+{
+    if (signed_variant) {
+        /*
+         * Signed early termination: the high bits may be all zero or all one
+         * (a sign extension of the significant low byte/halfword/three bytes).
+         */
+        if ((multiplier & UINT32_C(0xFFFFFF00)) == 0u ||
+            (multiplier & UINT32_C(0xFFFFFF00)) == UINT32_C(0xFFFFFF00)) {
+            return 1u;
+        }
+        if ((multiplier & UINT32_C(0xFFFF0000)) == 0u ||
+            (multiplier & UINT32_C(0xFFFF0000)) == UINT32_C(0xFFFF0000)) {
+            return 2u;
+        }
+        if ((multiplier & UINT32_C(0xFF000000)) == 0u ||
+            (multiplier & UINT32_C(0xFF000000)) == UINT32_C(0xFF000000)) {
+            return 3u;
+        }
+        return 4u;
+    }
+
+    /* Unsigned early termination only removes leading zero bytes. */
+    if ((multiplier & UINT32_C(0xFFFFFF00)) == 0u) return 1u;
+    if ((multiplier & UINT32_C(0xFFFF0000)) == 0u) return 2u;
+    if ((multiplier & UINT32_C(0xFF000000)) == 0u) return 3u;
+    return 4u;
+}
+
+} // namespace
+
 extern "C" uint32_t runtime_mul_cycles(
     uint32_t rs_value, uint32_t signed_variant, uint32_t extra)
 {
-    timing_unavailable(
-        "runtime_mul_cycles", 0u, rs_value, signed_variant, extra);
+    if (oracis_active_cpu_state == nullptr ||
+        (g_nds_active != NDS_ARM9 && g_nds_active != NDS_ARM7)) {
+        timing_unavailable(
+            "runtime_mul_cycles without active CPU", 0u,
+            rs_value, signed_variant, extra);
+    }
+    if (signed_variant > 1u || extra > 2u) {
+        timing_unavailable(
+            "runtime_mul_cycles invalid variant/extra", 0u,
+            rs_value, signed_variant, extra);
+    }
+
+    /*
+     * ARM9's multiply internal cost is a static numI term supplied to
+     * arm9_cycle_combine. This dynamic ARM7TDMI helper is used only by ARM7.
+     */
+    if (g_nds_active == NDS_ARM9) return 0u;
+
+    return arm7_multiply_array_cycles(
+        rs_value, signed_variant != 0u) + extra;
 }
 
 namespace {
