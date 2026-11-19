@@ -137,7 +137,8 @@ Os corpos C gerados usam um contrato adicional de timing:
 
 O header fornece o contrato C99 necessário para compilar os bancos emitidos, e os helpers de timing acima permitem a ligação fail-closed. Os seguintes grupos ainda precisam de implementações funcionais:
 
-- timing de dados, multiplicação e refill: `runtime_mem_cycles`, `runtime_mul_cycles`, `arm7_refill_cycles`, `arm9_refill_cycles` e `arm7_cycle_combine` continuam fail-closed. `runtime_code_cycles` cobre apenas o subconjunto uncached ARM9 documentado em [ARM9_TIMING.md](ARM9_TIMING.md);
+- timing parcial de instruções: `runtime_code_cycles` implementa fetch uncached ARM9 em ITCM (1), Main RAM (18), WRAM/BIOS/I/O/OAM (8) e Palette/VRAM (10) ciclos core ARM9; a janela de I/O coberta pelo provider é `0x04000000–0x04000FFF`. `arm9_refill_cycles` soma os fetches N32 do destino: duas palavras em ARM, uma palavra compartilhada para Thumb alinhado a 4 bytes ou duas palavras se o destino começa na segunda halfword. `arm7_refill_cycles` soma dois fetches sequenciais S32 (ARM) ou S16 (Thumb), usando a tabela NDS7/CODE. Ambos reclassificam cada fetch quando o destino atravessa uma fronteira de região e falham fora das classes suportadas. Veja [ARM9_TIMING.md](ARM9_TIMING.md).
+- timing ainda fail-closed: `runtime_mem_cycles` (leitura/escrita de dados), `runtime_mul_cycles` (multiplicação/early termination) e `arm7_cycle_combine` (combinação do custo ARM7) abortam com diagnóstico. Cache/MPU e wait states dinâmicos de Gamecard/Wi-Fi também não estão implementados.
 - otimização de transferências: resolução/cache de link slots e admissão de folhas inline (os símbolos atuais fazem dispatch conservador e não usam cache);
 - exceções geradas: `runtime_swi` atende HALT (0x06) e CustomHalt ARM7 (0x1F); os demais SWIs ainda falham de forma explícita. O helper `runtime_irq` permanece sem provider arquitetural completo;
 - coprocessador: runtime_coproc_read/write fazem dispatch fail-closed por registrador; ARM9 CP15 implementa c0 ID/TCM size, c1 Control.V + enable/load-mode de ITCM/DTCM e c9 regiões dos TCM. Os backings de 32 KB ITCM e 16 KB DTCM usam janelas overlay com máscaras independentes de leitura/escrita/busca; MPU, cache e demais operações CP15 continuam sem implementação. WFI via c7,c0,4/c7,c8,2 segue separado; veja docs/ARM9_TCM.md;
@@ -157,18 +158,21 @@ Também ficam fora da integração:
 
 ## 10. Testes registrados
 
-O CMake registra **31 testes C99/C++20**. A CI da revisão `3bb7598` passou em 31/31 CTests desktop; o smoke de bancos sintéticos passou em 1/1; o tooling Python passou em 15 testes; runtime ARM, Android ARM64 e o build do NDSRecomp também passaram. Os testes incluem tracing por CPU, CP15/TCM/load modes e fetch ARM9 ARM/Thumb em ITCM, Main RAM uncached, WRAM, BIOS, I/O e OAM. A CI não recebe ROM, segmentos nem bancos reais. [Execução da CI](https://github.com/CarlosCosta07-s/Oracis/actions/runs/44622864047).
+O CMake registra **31 testes C99/C++20**. A CI da revisão `ed035ab` passou em 31/31 CTests desktop; o smoke de bancos sintéticos passou em 1/1; o tooling Python passou em 15 testes; runtime ARM, Android ARM64 e o build do NDSRecomp também passaram. O teste de timing cobre fetch uncached e refill ARM9/ARM7, estados ARM/Thumb, ITCM, Main RAM, WRAM, BIOS, I/O, OAM e Palette/VRAM. A CI não recebe ROM, segmentos nem bancos reais. [Execução da CI](https://github.com/CarlosCosta07-s/Oracis/actions/runs/44624426075).
 
 
 ## 11. Prova de integração ainda exigida
 
 1. Ligar os quatro objetos corpo/dispatch às bibliotecas Oracis e confirmar a resolução dos 48 símbolos externos inventariados.
-2. Expandir os provedores de timing: data read/write, multiply, pipeline refill e combinação ARM7; fetch uncached ARM9 já tem cobertura parcial de ITCM/Main RAM/WRAM/BIOS/I/O/OAM. Preservar a falha explícita em regiões sem modelo.
-3. Auditar e implementar alvos indiretos e overlays desconhecidos; manter dispatch fechado para qualquer endereço sem banco válido.
-4. Registrar os bancos no runtime, validar bytes/dependências contra GuestMemory e exercitar entradas sem iniciar rounds completos.
-5. Completar os SWIs e serviços BIOS/NitroSDK requeridos pelo fluxo real de inicialização, além de DMA/IPC/MMIO.
-6. Implementar o provider arquitetural de LR IRQ ARM/Thumb e testar a entrada/saída de exceção nas duas CPUs.
-7. Só então habilitar rounds reais e avançar para primeiro quadro, áudio e saves.
+2. Implementar `runtime_mem_cycles` para leitura/escrita de dados com largura e sequência, separando classes de barramento que tenham custo publicado; manter TCM/load-mode e regiões dinâmicas fora até que a ABI represente todos os fatores.
+3. Implementar `runtime_mul_cycles` com tempos por família ARM7TDMI/ARM946E-S e early termination documentados.
+4. Implementar `arm7_cycle_combine` com os parâmetros e semântica exatos requeridos pelo banco gerado.
+5. Expandir fetch/refill ARM9 para cache/MPU e outras regiões dinâmicas somente com modelo e testes.
+6. Auditar alvos indiretos e overlays desconhecidos; manter dispatch fechado para qualquer endereço sem banco válido.
+7. Registrar os bancos no runtime, validar bytes/dependências contra GuestMemory e exercitar entradas sem iniciar rounds completos.
+8. Completar SWIs e serviços BIOS/NitroSDK requeridos pelo boot, além de DMA/IPC/MMIO.
+9. Implementar o provider arquitetural de LR IRQ ARM/Thumb e testar entrada/saída de exceção nas duas CPUs.
+10. Só então habilitar rounds reais e avançar para primeiro quadro, áudio e saves.
 
 
 Até a ligação dos bancos reais ao runtime e a execução verificável da sequência de inicialização, o Oracis ainda não inicializa Pokémon Platinum.

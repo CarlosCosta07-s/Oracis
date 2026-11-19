@@ -215,9 +215,10 @@ void runtime_insn_slow(void);
  * Static-bank timing ABI.
  *
  * The fast packed ARM9 code-fetch table is disabled. nds_code_numc always
- * calls the Oracis provider, which currently models a limited set of uncached
- * ARM9 code-fetch regions. Data access, multiply, refill and full device
- * timing remain fail-closed until their models are implemented and tested.
+ * calls the Oracis provider, which models a limited set of uncached ARM9
+ * code-fetch regions. ARM9/ARM7 branch refill providers also cover documented
+ * memory classes. Data access, multiply, ARM7 cycle combination, cache and
+ * dynamic device wait-state timing remain fail-closed.
  */
 #define NDS_ARM9_CODE_K(pc, thumb) (UINT32_C(0))
 
@@ -234,6 +235,11 @@ static inline uint32_t nds_code_numc(uint32_t pc, uint32_t packed_cost)
     return runtime_code_cycles(pc);
 }
 
+/*
+ * Branch/PC-write pipeline refill. target bit 0 marks Thumb. The helpers
+ * account for sequential destination fetches (including the shared 32-bit
+ * fetch for an aligned ARM9 Thumb pair); unsupported target regions fail closed.
+ */
 uint32_t arm7_refill_cycles(uint32_t target);
 uint32_t arm9_refill_cycles(uint32_t target);
 

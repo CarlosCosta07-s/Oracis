@@ -1,10 +1,9 @@
 /*
- * Fail-closed timing ABI for generated NDSRecomp banks.
+ * Partial timing ABI for generated NDSRecomp banks.
  *
- * These symbols are part of the generated C contract, but Oracis has not yet
- * completed the retail DS wait-state/TCM/cache model needed to calculate them.
- * Keeping the symbols defined lets banks link; executing an unsupported timing
- * path stops with CPU/PC and operation diagnostics instead of inventing cycles.
+ * ARM9 uncached code fetch and ARM9/ARM7 pipeline refill are implemented for
+ * documented memory classes. Data timing, multiply, ARM7 cycle combination,
+ * cache and dynamic device waits remain fail-closed with CPU/PC diagnostics.
  */
 #include "oracis/recomp/runtime_arm.h"
 
@@ -42,11 +41,9 @@ uint32_t arm9_uncached_code_fetch_cycles(uint32_t pc)
 {
     /*
      * These costs are in ARM9 core cycles (66 MHz). The documented DS bus
-     * costs are in 33 MHz units: Main RAM N32=9 -> 18 core cycles, and
-     * WRAM/BIOS/I/O/OAM N32=4 -> 8 core cycles. ITCM is 0.5 bus cycles -> 1.
-     *
-     * This first pass deliberately excludes cache, VRAM/Palette executable
-     * mappings, gamecard windows and arbitrary unmapped addresses.
+     * costs are in 33 MHz units: Main RAM N32=9 -> 18 core cycles,
+     * WRAM/BIOS/I/O/OAM N32=4 -> 8, Palette/VRAM N32=5 -> 10, and ITCM
+     * 0.5 -> 1 core cycle. Cache and Gamecard windows remain unsupported.
      */
     if (pc < g_arm9_itcm_code_window_size) return 1u;
     if ((pc - UINT32_C(0x02000000)) < UINT32_C(0x01000000)) {
@@ -96,7 +93,7 @@ extern "C" uint32_t runtime_code_cycles(uint32_t pc)
      * The NDS9 fetches two Thumb halfwords per 32-bit bus fetch. The full
      * 32-bit fetch cost is charged at the first halfword; the second halfword
      * has no additional cost. Taken branches are charged separately by the
-     * pipeline-refill provider (still fail-closed).
+     * ARM9/ARM7 pipeline-refill providers for supported target regions.
      */
     if (thumb && (pc & 2u) != 0u) return 0u;
 
