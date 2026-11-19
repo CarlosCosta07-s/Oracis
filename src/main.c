@@ -2,6 +2,7 @@
 #include <SDL3/SDL_main.h>
 
 #include "oracis/memory/guest_memory_abi.h"
+#include "oracis/host/runtime_bridge.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -116,6 +117,7 @@ int main(int argc, char *argv[])
     SDL_Renderer *renderer = NULL;
     SDL_Event event;
     bool running = true;
+    bool host_runtime_initialized = false;
     int exit_code = EXIT_FAILURE;
 
     (void)argc;
@@ -160,9 +162,24 @@ int main(int argc, char *argv[])
         goto cleanup;
     }
 
-    SDL_Log("Oracis host started: two %d x %d test screens.",
-            ORACIS_SCREEN_WIDTH,
-            ORACIS_SCREEN_HEIGHT);
+    const int runtime_status = oracis_host_runtime_initialize();
+    if (runtime_status != ORACIS_HOST_RUNTIME_OK) {
+        SDL_LogCritical(
+            SDL_LOG_CATEGORY_APPLICATION,
+            "NDS machine initialization failed (bridge=%d, machine=%d).",
+            runtime_status,
+            oracis_host_runtime_last_machine_status()
+        );
+        goto cleanup;
+    }
+    host_runtime_initialized = true;
+
+    SDL_Log(
+        "Oracis host started: NDS machine initialized; "
+        "two %d x %d prototype screens (no native game banks loaded).",
+        ORACIS_SCREEN_WIDTH,
+        ORACIS_SCREEN_HEIGHT
+    );
 
     exit_code = EXIT_SUCCESS;
 
@@ -194,6 +211,18 @@ int main(int argc, char *argv[])
 
 cleanup:
     release_all_keys();
+    if (host_runtime_initialized) {
+        const int shutdown_status = oracis_host_runtime_shutdown();
+        if (shutdown_status != ORACIS_HOST_RUNTIME_OK) {
+            SDL_LogCritical(
+                SDL_LOG_CATEGORY_APPLICATION,
+                "NDS machine shutdown failed (bridge=%d, machine=%d).",
+                shutdown_status,
+                oracis_host_runtime_last_machine_status()
+            );
+            exit_code = EXIT_FAILURE;
+        }
+    }
     if (renderer != NULL) {
         SDL_DestroyRenderer(renderer);
     }
