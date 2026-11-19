@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Build only the pinned NDSRecomp static compiler for local Oracis work.
 
-The NDSRecomp checkout is kept outside the Oracis repository. This script
-never configures or builds the upstream runner, melonDS-derived devices,
-oracle, or frontend.
+The checkout is external and uses sparse paths only: recompiler/, cmake/, and
+external/arm-recomp-core/. runner/, oracle/, and melonDS-derived trees are not
+checked out, configured, compiled, linked, or distributed by this tool.
 """
 
 from __future__ import annotations
@@ -16,14 +16,14 @@ from pathlib import Path
 
 UPSTREAM_URL = "https://github.com/RetroPortingToolKit/ndsrecomp.git"
 PINNED_REVISION = "14b7e15023e9affc9dc375e4e611ac703f5c76ab"
+SPARSE_PATHS = {"recompiler", "cmake", "external/arm-recomp-core"}
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def run(command: list[str], *, cwd: Path | None = None) -> str:
+def run(command: list[str]) -> str:
     print("+", " ".join(str(part) for part in command), flush=True)
     completed = subprocess.run(
         command,
-        cwd=cwd,
         check=False,
         text=True,
         stdout=subprocess.PIPE,
@@ -43,6 +43,20 @@ def git(source: Path, *args: str) -> str:
     return run(["git", "-C", str(source), *args])
 
 
+def configure_sparse_checkout(source: Path) -> None:
+    git(source, "sparse-checkout", "init", "--cone")
+    git(
+        source, "sparse-checkout", "set",
+        "recompiler", "cmake", "external/arm-recomp-core",
+    )
+    sparse_paths = set(git(source, "sparse-checkout", "list").splitlines())
+    if sparse_paths != SPARSE_PATHS:
+        raise RuntimeError(
+            "The NDSRecomp checkout does not match the approved sparse paths: "
+            f"{sorted(sparse_paths)}"
+        )
+
+
 def ensure_checkout(source: Path) -> None:
     if not shutil.which("git"):
         raise RuntimeError("Git is required. Install Git and retry.")
@@ -53,54 +67,59 @@ def ensure_checkout(source: Path) -> None:
             "git", "clone", "--filter=blob:none", "--no-checkout",
             UPSTREAM_URL, str(source),
         ])
-        run(["git", "-C", str(source), "fetch", "--depth=1", "origin",
-             PINNED_REVISION])
-        run(["git", "-C", str(source), "checkout", "--detach",
-             PINNED_REVISION])
+        configure_sparse_checkout(source)
+        git(source, "fetch", "--depth=1", "origin", PINNED_REVISION)
+        git(source, "checkout", "--detach", PINNED_REVISION)
     else:
         if not (source / ".git").exists():
             raise RuntimeError(
                 f"{source} exists but is not a Git checkout. "
                 "Choose another path with --source."
             )
-        remote = git(source, "remote", "get-url", "origin")
-        normalized_remote = remote.rstrip("/")
-        normalized_expected = UPSTREAM_URL.rstrip("/")
-        if normalized_remote != normalized_expected:
+        remote = git(source, "remote", "get-url", "origin").rstrip("/")
+        if remote != UPSTREAM_URL.rstrip("/"):
             raise RuntimeError(
                 f"Unexpected origin in {source}: {remote}. "
-                "Use a fresh directory with --source."
+                "Use a fresh empty directory with --source."
             )
         head = git(source, "rev-parse", "HEAD")
         if head != PINNED_REVISION:
-            status = git(source, "status", "--porcelain")
-            detail = " The checkout has local changes." if status else ""
             raise RuntimeError(
                 f"Existing NDSRecomp checkout is at {head}, not the pinned "
-                f"revision {PINNED_REVISION}.{detail} "
-                "The script will not reset or overwrite an existing checkout. "
-                "Use a fresh path with --source."
+                f"revision {PINNED_REVISION}. The script will not reset or "
+                "overwrite it; use a fresh path with --source."
+            )
+        status = git(source, "status", "--porcelain")
+        if status:
+            raise RuntimeError(
+                "The existing NDSRecomp checkout has local modifications. "
+                "The bootstrap will not overwrite it; use a clean checkout."
+            )
+        # Existing checkouts are only accepted when already sparse and free of
+        # the excluded runner/oracle source trees.
+        sparse_paths = set(git(source, "sparse-checkout", "list").splitlines())
+        if sparse_paths != SPARSE_PATHS:
+            raise RuntimeError(
+                "The existing checkout is not restricted to the approved "
+                "sparse paths. Use a fresh empty directory with --source."
             )
 
     head = git(source, "rev-parse", "HEAD")
     if head != PINNED_REVISION:
         raise RuntimeError(f"Pin mismatch: expected {PINNED_REVISION}, got {head}")
 
-    status = git(source, "status", "--porcelain")
-    if status:
+    if (source / "runner").exists() or (source / "oracle").exists():
         raise RuntimeError(
-            "The external NDSRecomp checkout has local modifications. "
-            "The bootstrap will not build from a dirty source tree; use a "
-            "clean checkout at the pinned revision."
+            "Excluded runner/oracle directories are present. Use a fresh sparse "
+            "checkout; Oracis must not include melonDS-derived source trees."
         )
 
-    # The compiler uses this MIT-licensed ARM core submodule. Do not initialize
-    # freebios or any runtime/oracle dependencies.
-    run([
-        "git", "-C", str(source), "submodule", "update", "--init",
+    # Only this MIT-licensed compiler dependency is initialized. FreeBIOS and
+    # any runtime/oracle dependencies remain absent.
+    git(
+        source, "submodule", "update", "--init",
         "--depth", "1", "--", "external/arm-recomp-core",
-    ])
-
+    )
     if not (source / "external/arm-recomp-core" / "CMakeLists.txt").exists():
         raise RuntimeError(
             "The arm-recomp-core submodule is missing or incomplete."
@@ -108,12 +127,12 @@ def ensure_checkout(source: Path) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--source",
         type=Path,
         default=ROOT.parent / "ndsrecomp",
-        help="External NDSRecomp source checkout (default: sibling ../ndsrecomp).",
+        help="External sparse checkout (default: sibling ../ndsrecomp).",
     )
     parser.add_argument(
         "--build-dir",
@@ -139,27 +158,28 @@ def main() -> int:
     ensure_checkout(source)
     build_dir.mkdir(parents=True, exist_ok=True)
 
-    # Configure upstream recompiler directory, then build only the
-    # nds_recompile target. runner/ is not configured as a build target.
+    # Configure only recompiler/. The sparse checkout has no runner/, oracle/,
+    # frontend, melonDS or FreeBIOS source tree.
     run([
         "cmake", "-S", str(source / "recompiler"), "-B", str(build_dir),
         "-G", args.generator, "-DCMAKE_BUILD_TYPE=Release",
     ])
     run([
-        "cmake", "--build", str(build_dir), "--target", "nds_recompile",
-        "--parallel",
+        "cmake", "--build", str(build_dir), "--config", "Release",
+        "--target", "nds_recompile", "--parallel",
     ])
 
-    executable = build_dir / ("nds_recompile.exe" if sys.platform == "win32"
-                              else "nds_recompile")
-    if not executable.exists():
+    executable_name = "nds_recompile.exe" if sys.platform == "win32" else "nds_recompile"
+    candidates = list(build_dir.rglob(executable_name))
+    if not candidates:
         raise RuntimeError(
-            f"Build returned success but executable was not found: {executable}"
+            f"Build returned success but {executable_name} was not found under {build_dir}"
         )
+    executable = candidates[0]
 
     print(f"Static recompiler ready: {executable}")
     print(f"Upstream revision: {PINNED_REVISION}")
-    print("Built target: nds_recompile only (no runner/oracle/melonDS target).")
+    print("Built target: nds_recompile only; runner/oracle/melonDS are excluded.")
     return 0
 
 
