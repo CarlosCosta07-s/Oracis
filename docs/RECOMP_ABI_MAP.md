@@ -1,6 +1,6 @@
 # NDSRecomp — mapa do contrato de bancos gerados
 
-**Estado:** contrato parcial implementado e testado em C99/C++20. Bancos reais ainda não foram emitidos nem ligados.
+**Estado:** contrato parcial implementado; testes C99/C++20 estão registrados, mas a execução da revisão atual não está confirmada. Bancos reais ainda não foram emitidos nem ligados.
 
 **Revisão upstream examinada:** `14b7e15023e9affc9dc375e4e611ac703f5c76ab`.
 
@@ -73,7 +73,7 @@ O código gerado pelo perfil ARMv5TE atual expande os shifts de operand2 inline,
 
 A camada `oracis_memory` já implementa os seis símbolos C `bus_read_u8/u16/u32` e `bus_write_u8/u16/u32`. Eles usam o seletor `g_nds_active`, encaminham a transferência para `GuestMemory` e falham com diagnóstico quando a região não está mapeada ou a permissão não permite o acesso.
 
-Essa ponte cobre RAM/aliases explicitamente configurados. `NdsRetailRamMap` agora instala Main RAM retail 4MB compartilhada com espelhos em 0x02400000/0x02800000/0x02C00000, WRAM privada ARM7 64KB em 0x03800000 e Shared WRAM segundo os quatro modos de WRAMCNT. As regiões sobrepostas de Shared WRAM usam máscaras de CPU disjuntas e espelhos periódicos; no modo 0, a janela ARM7 espelha a WRAM privada de 64KB. `set_shared_wram_mode()` alterna atomicamente a visibilidade de sete janelas Shared WRAM pré-mapeadas. O dispositivo MMIO `NdsWramControl` já implementa leitura/escrita de 8 bits do `WRAMCNT` (`0x04000247`) pelo ARM9 e aciona essa troca; `WRAMSTAT` (`0x04000241`, ARM7, somente leitura) continua pendente por falta de especificação de valor suficientemente confiável. DMA, IPC, wait states e efeitos colaterais dos demais registradores ainda não existem. O codegen ARMv5TE alinha LDR/STR e aplica rotação/sign-extension fora do wrapper.
+Essa ponte cobre RAM/aliases explicitamente configurados. `NdsRetailRamMap` agora instala Main RAM retail 4MB compartilhada com espelhos em 0x02400000/0x02800000/0x02C00000, WRAM privada ARM7 64KB em 0x03800000 e Shared WRAM segundo os quatro modos de WRAMCNT. As regiões sobrepostas de Shared WRAM usam máscaras de CPU disjuntas e espelhos periódicos; no modo 0, a janela ARM7 espelha a WRAM privada de 64KB. `set_shared_wram_mode()` altera transacionalmente, após validar o mapa resultante, a visibilidade de sete janelas Shared WRAM pré-mapeadas. O dispositivo MMIO `NdsWramControl` já implementa leitura/escrita de 8 bits do `WRAMCNT` (`0x04000247`) pelo ARM9 e aciona essa troca; `WRAMSTAT` (`0x04000241`, ARM7, somente leitura) continua pendente por falta de especificação de valor suficientemente confiável. DMA, IPC, wait states e efeitos colaterais dos demais registradores ainda não existem. O codegen ARMv5TE alinha LDR/STR e aplica rotação/sign-extension fora do wrapper.
 
 Consulte [GUEST_MEMORY.md](GUEST_MEMORY.md) para o contrato completo.
 
