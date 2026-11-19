@@ -51,7 +51,9 @@ class EmitPlatinumBanksTests(unittest.TestCase):
                 f'size = 0x{len(data):08X}\n'
                 f'entry_pc = 0x{load:08X}\n'
                 f'[identity]\nsha1 = "{digest}"\n'
-                f'[[entry_point]]\nmode = "{mode}"\n',
+                f'[[entry_point]]\naddr = 0x{load:08X}\n'
+                f'mode = "{mode}"\n'
+                f'name = "rom_entry"\n',
                 encoding="utf-8",
             )
             self.records.append({
