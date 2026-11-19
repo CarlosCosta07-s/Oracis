@@ -149,7 +149,7 @@ Também ficam fora da integração:
 
 ## 10. Testes registrados
 
-O CMake registra dezenove testes C99/C++20 para o runtime e ABI, incluindo o mapa NDS retail e os quatro modos de Shared WRAM. A execução da versão atual ainda não foi confirmada. Os alvos registrados são: RAM guest; mapa NDS retail (Main RAM/mirrors, WRAM privada e Shared WRAM modes); ponte C bus_* e validação por GuestMemory; layouts ABI C99/C++20; bancos ARM e modos; CPSR/SPSR; exceções; flags; acesso ao User bank e CLZ; pilha de retorno guest; controle de fatias; registry de dispatch; runtime dispatch C++ e ABI dispatch C99; ponte ARM9/ARM7 C/C++; especialização estática ARM9 e ARM7.
+O CMake registra vinte testes C99/C++20 para o runtime e ABI, incluindo o mapa NDS retail, as transições dinâmicas dos quatro modos e a rota MMIO de WRAMCNT. A execução da versão atual ainda não foi confirmada. Os alvos registrados são: RAM guest; mapa NDS retail; WRAMCNT MMIO e rota bus_*; ponte C bus_* e validação por GuestMemory; layouts ABI C99/C++20; bancos ARM e modos; CPSR/SPSR; exceções; flags; acesso ao User bank e CLZ; pilha de retorno guest; controle de fatias; registry de dispatch; runtime dispatch C++ e ABI dispatch C99; ponte ARM9/ARM7 C/C++; especialização estática ARM9 e ARM7.
 
 Não há status check atual confirmado para o último commit; portanto, não declarar os testes como aprovados. O CMake também inclui as bibliotecas de produto independentemente de `BUILD_TESTING`, mas o build completo com SDL3 e a ligação de bancos NDSRecomp continuam pendentes.
 
@@ -159,8 +159,8 @@ Não há status check atual confirmado para o último commit; portanto, não dec
 2. Emitir os bancos C ARM9 e ARM7 da cópia USA Rev 1, sem `--flat-execution`.
 3. Compilar os bancos usando somente o header e a biblioteca ABI Oracis.
 4. Inspecionar símbolos indefinidos e implementar as funções necessárias.
-5. Implementar MMIO para WRAMCNT/WRAMSTAT e conectar escritas guest à API de reconfiguração já existente.
-6. Completar MMIO/CP15/TCM, BIOS, VRAM/OAM, scheduler de dispositivos e timing por região.
+5. Implementar WRAMSTAT com semântica documentada e completar os demais handlers MMIO.
+6. Completar CP15/TCM, BIOS, VRAM/OAM, scheduler de dispositivos e timing por região.
 6. Demonstrar que um endereço guest sem banco gera falha detalhada, sem execução interpretada.
 
 Até a emissão, compilação e execução de bancos reais existir, o Oracis ainda não inicializa Pokémon Platinum.
