@@ -42,6 +42,7 @@ Responsabilidades previstas:
 - pilha de retorno guest por CPU para distinguir retorno nativo de salto guest;
 - chamadas por slot ainda encaminhadas ao dispatcher; cache direto exige epoch e guardas de conteúdo;
 - flags CPSR, banked registers e transições ARM/Thumb;
+- helpers ABI de acesso ao User bank, aritmética/condições e CLZ;
 - execução/dispatch de bancos estáticos por CPU;
 - interface de memória guest com regiões configuráveis e aliases explícitos;
 - interrupções, timers, DMA, IPC e sincronização;
