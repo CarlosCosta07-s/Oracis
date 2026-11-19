@@ -2,6 +2,7 @@
 
 #include "oracis/memory/guest_memory.hpp"
 #include "oracis/memory/nds_wram_control.hpp"
+#include "oracis/memory/nds_interrupt_control.hpp"
 #include "oracis/recomp/runtime_arm.h"
 #include "oracis/recomp/static_dispatch_abi.h"
 
@@ -12,6 +13,7 @@ namespace {
 
 oracis::memory::GuestMemory *g_guest_memory = nullptr;
 oracis::memory::NdsWramControl *g_wram_control = nullptr;
+oracis::memory::NdsInterruptControl *g_interrupt_control = nullptr;
 
 [[noreturn]] void bus_failure(const char *operation,
                               uint32_t address,
@@ -44,6 +46,14 @@ oracis::memory::GuestMemory &bound_memory(const char *operation,
 uint32_t read_bus(uint32_t address, uint32_t width, const char *operation)
 {
     auto &memory = bound_memory(operation, address, width);
+    if (g_interrupt_control != nullptr) {
+        const auto mmio = g_interrupt_control->read(
+            g_nds_active, address, width);
+        if (mmio.status != oracis::memory::Status::Unmapped) {
+            if (!mmio) bus_failure(operation, address, width, mmio.status);
+            return mmio.value;
+        }
+    }
     if (g_wram_control != nullptr) {
         const auto mmio = g_wram_control->read(
             g_nds_active, address, width);
@@ -63,6 +73,16 @@ void write_bus(uint32_t address,
                const char *operation)
 {
     auto &memory = bound_memory(operation, address, width);
+    if (g_interrupt_control != nullptr) {
+        const auto mmio = g_interrupt_control->write(
+            g_nds_active, address, width, value);
+        if (mmio != oracis::memory::Status::Unmapped) {
+            if (mmio != oracis::memory::Status::Ok) {
+                bus_failure(operation, address, width, mmio);
+            }
+            return;
+        }
+    }
     if (g_wram_control != nullptr) {
         const auto mmio = g_wram_control->write(
             g_nds_active, address, width, value);
@@ -98,7 +118,9 @@ extern "C" int oracis_bus_unbind_memory(void *memory)
     if (memory == nullptr || g_guest_memory !=
             static_cast<oracis::memory::GuestMemory *>(memory) ||
         (g_wram_control != nullptr &&
-         &g_wram_control->backing_memory() == g_guest_memory)) {
+         &g_wram_control->backing_memory() == g_guest_memory) ||
+        (g_interrupt_control != nullptr &&
+         &g_interrupt_control->backing_memory() == g_guest_memory)) {
         return 0;
     }
     g_guest_memory = nullptr;
@@ -125,6 +147,27 @@ extern "C" int oracis_bus_unbind_wram_control(void *control)
         return 0;
     }
     g_wram_control = nullptr;
+    return 1;
+}
+
+extern "C" int oracis_bus_bind_interrupt_control(void *control)
+{
+    if (control == nullptr || g_guest_memory == nullptr) return 0;
+    auto *device =
+        static_cast<oracis::memory::NdsInterruptControl *>(control);
+    if (&device->backing_memory() != g_guest_memory) return 0;
+    if (g_interrupt_control != nullptr) return 0;
+    g_interrupt_control = device;
+    return 1;
+}
+
+extern "C" int oracis_bus_unbind_interrupt_control(void *control)
+{
+    if (control == nullptr || g_interrupt_control !=
+            static_cast<oracis::memory::NdsInterruptControl *>(control)) {
+        return 0;
+    }
+    g_interrupt_control = nullptr;
     return 1;
 }
 
