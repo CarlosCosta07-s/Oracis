@@ -240,6 +240,19 @@ if(BUILD_TESTING)
         COMMAND oracis_host_runtime_bridge_c_test
     )
 
+    if(ORACIS_LOCAL_BANK_DIR)
+        add_executable(oracis_compiled_bank_link_smoke
+            tests/host/compiled_bank_link_smoke.cpp
+        )
+        target_link_libraries(oracis_compiled_bank_link_smoke PRIVATE
+            oracis_machine
+        )
+        add_test(
+            NAME oracis_compiled_bank_link_smoke
+            COMMAND oracis_compiled_bank_link_smoke
+        )
+    endif()
+
     add_executable(oracis_abi_c_test
         tests/abi/arm_cpu_state_c_test.c
     )
