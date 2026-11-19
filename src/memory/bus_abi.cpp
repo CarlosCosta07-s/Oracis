@@ -334,14 +334,17 @@ extern "C" void oracis_host_set_keypad_state(uint16_t pressed_keys)
 }
 
 extern "C" int oracis_bus_validate_dispatch(
+    NdsCpu cpu,
     const NdsStaticValidation *validation,
     uint32_t pc,
     uint32_t thumb,
     void *user)
 {
     auto *memory = static_cast<oracis::memory::GuestMemory *>(user);
-    if (memory == nullptr || validation == nullptr ||
-        validation->expected == nullptr || thumb > 1u ||
+    if (memory == nullptr ||
+        (cpu != NDS_ARM9 && cpu != NDS_ARM7) ||
+        validation == nullptr || validation->expected == nullptr ||
+        thumb > 1u ||
         (validation->dependency_count != 0u &&
          validation->dependencies == nullptr)) {
         return 0;
