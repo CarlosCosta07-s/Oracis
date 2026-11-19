@@ -5,6 +5,7 @@
 #include "oracis/memory/nds_interrupt_control.hpp"
 #include "oracis/memory/nds_timer_control.hpp"
 #include "oracis/memory/nds_keypad_control.hpp"
+#include "oracis/memory/nds_system_clock.hpp"
 #include "oracis/recomp/runtime_arm.h"
 #include "oracis/recomp/static_dispatch_abi.h"
 
@@ -18,6 +19,7 @@ oracis::memory::NdsWramControl *g_wram_control = nullptr;
 oracis::memory::NdsInterruptControl *g_interrupt_control = nullptr;
 oracis::memory::NdsTimerControl *g_timer_control = nullptr;
 oracis::memory::NdsKeypadControl *g_keypad_control = nullptr;
+oracis::memory::NdsSystemClock *g_system_clock = nullptr;
 uint16_t g_host_keypad_pressed_keys = 0u;
 
 [[noreturn]] void bus_failure(const char *operation,
@@ -239,13 +241,52 @@ extern "C" int oracis_bus_bind_timer_control(void *control)
 extern "C" int oracis_bus_unbind_timer_control(void *control)
 {
     if (control == nullptr || g_timer_control !=
-            static_cast<oracis::memory::NdsTimerControl *>(control)) {
+            static_cast<oracis::memory::NdsTimerControl *>(control) ||
+        (g_system_clock != nullptr &&
+         &g_system_clock->timer_control() == g_timer_control)) {
         return 0;
     }
     g_timer_control = nullptr;
     return 1;
 }
 
+
+
+extern "C" int oracis_bus_bind_system_clock(void *clock)
+{
+    if (clock == nullptr || g_timer_control == nullptr) return 0;
+    auto *device = static_cast<oracis::memory::NdsSystemClock *>(clock);
+    if (&device->timer_control() != g_timer_control ||
+        g_system_clock != nullptr) {
+        return 0;
+    }
+    g_system_clock = device;
+    return 1;
+}
+
+extern "C" int oracis_bus_unbind_system_clock(void *clock)
+{
+    if (clock == nullptr || g_system_clock !=
+            static_cast<oracis::memory::NdsSystemClock *>(clock)) {
+        return 0;
+    }
+    g_system_clock = nullptr;
+    return 1;
+}
+
+extern "C" int oracis_bus_report_cpu_cycles(
+    NdsCpu cpu, uint64_t cumulative_cycles)
+{
+    if (g_system_clock == nullptr) return 0;
+    return g_system_clock->report_cpu_cycles(cpu, cumulative_cycles) ==
+        oracis::memory::NdsClockStatus::Ok ? 1 : 0;
+}
+
+extern "C" uint64_t oracis_bus_global_bus_cycles(void)
+{
+    return g_system_clock != nullptr
+        ? g_system_clock->global_bus_cycles() : 0u;
+}
 
 extern "C" int oracis_bus_bind_keypad_control(void *control)
 {

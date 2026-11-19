@@ -96,6 +96,14 @@ Quando a condição selecionada se torna ativa com o bit 14 habilitado, o dispos
 
 Os acessos ao KEYINPUT/KEYCNT são de 16 bits; larguras não suportadas e escritas em KEYINPUT são rejeitadas explicitamente. O barramento C pode conectar o dispositivo após o GuestMemory e o controlador de interrupções.
 
+### Relógio global ARM9/ARM7
+
+`NdsSystemClock` converte os ciclos cumulativos dos dois núcleos para um domínio comum de meio ciclo de barramento. O ARM9 opera a 2 ciclos internos por ciclo de barramento; o ARM7 opera a 1:1. O relógio calcula um watermark sincronizado usando o menor tempo reportado pelos dois processadores e só então converte meios-ciclos completos em ciclos globais do barramento. Isso evita somar os ciclos locais como se os processadores executassem em série e evita avançar periféricos além do núcleo mais atrasado.
+
+A API `report_cpu_cycles(cpu, total)` recebe contadores cumulativos e monotônicos, não deltas. A cada atualização, `NdsSystemClock` chama `NdsTimerControl::advance_bus_cycles(delta)` uma única vez para o intervalo global recém-concluído. Relatórios repetidos não avançam o tempo; regressão, CPU inválida e overflow são rejeitados. A fração de meio ciclo é preservada entre relatórios.
+
+A ponte C oferece `oracis_bus_bind_system_clock()`, `oracis_bus_report_cpu_cycles(cpu, total)` e `oracis_bus_global_bus_cycles()`. O relógio deve ser conectado depois do controlador de timers. O driver de máquina deve reportar ambos os contadores no mesmo epoch, preferencialmente nas fronteiras das fatias cooperativas. Se uma CPU estiver ociosa/pausada enquanto a outra avança, o driver deverá reportar também seu progresso temporal virtual; essa política ainda não está integrada ao loop host. A contabilização atual usa ciclos core fornecidos pelo scheduler e não inclui ainda todas as esperas de memória/barramento.
+
 ### Temporizadores ARM9/ARM7
 
 `NdsTimerControl` modela quatro timers de 16 bits para cada processador:
@@ -111,7 +119,7 @@ O registro baixo lê o contador atual e recebe a recarga em escritas. A recarga 
 
 Escrita de 32 bits iniciada no registro baixo atualiza recarga e controle na mesma operação, preservando o caso em que reload e start são escritos juntos. As operações de 16 bits também são suportadas; outras larguras falham explicitamente.
 
-`advance_bus_cycles(n)` recebe ciclos do barramento NDS e avança, numa única chamada, as quatro timers ARM9 e as quatro ARM7. As duas banks compartilham o clock periférico de 33,513982 MHz, mas mantêm contadores, recargas, prescalers e flags IRQ independentes. A chamada representa tempo de sistema transcorrido uma única vez, não deve ser repetida para cada CPU. O scheduler ainda precisa sincronizar os clocks ARM9/ARM7 e chamar essa API a partir de um relógio global; ela não é ligada diretamente a `runtime_tick`.
+`advance_bus_cycles(n)` recebe ciclos do barramento NDS e avança, numa única chamada, as quatro timers ARM9 e as quatro ARM7. As duas banks compartilham o clock periférico de 33,513982 MHz, mas mantêm contadores, recargas, prescalers e flags IRQ independentes. `NdsSystemClock` agora sincroniza o tempo cumulativo reportado pelos dois núcleos e chama esta API uma única vez por intervalo global completo. A ligação ao loop de execução ainda depende de o driver reportar os ciclos de ambas as CPUs nas fronteiras das fatias; não há chamada automática em `runtime_tick`.
 
 
 ## 4. API principal do GuestMemory
@@ -133,9 +141,15 @@ Implementação: `src/memory/guest_memory.cpp`
 - `NdsInterruptControl::try_enter_irq(cpu, state, return_address, vector_base)`: entra em IRQ apenas quando a linha está ativa e `CPSR.I` está limpo; o chamador fornece LR e vetor; IF não é apagado.
 - `NdsTimerControl::read/write(cpu, address, width, value)`: implementa Timer 0–3 de cada CPU, com operações de 16 bits e acesso combinado de 32 bits ao par contador/controle.
 - `NdsTimerControl::advance_bus_cycles(n)`: avança as duas banks ARM9/ARM7 pelo mesmo número de ticks do clock global do barramento.
+- `NdsSystemClock::report_cpu_cycles(cpu, total)`: sincroniza watermarks cumulativos ARM9/ARM7 na razão de clock 2:1 e avança temporizadores apenas pelos ciclos globais completos.
+- `NdsSystemClock::global_bus_cycles()`: consulta o tempo periférico global já comprometido.
+- `oracis_bus_bind_system_clock()` / `oracis_bus_unbind_system_clock()`: conecta o relógio global após o controlador de timers.
+- `oracis_bus_report_cpu_cycles(cpu, total)`: reporta o contador cumulativo de uma CPU ao relógio conectado; rejeita regressões/overflow e não soma tempos locais.
+- `oracis_bus_global_bus_cycles()`: consulta os ciclos de barramento globais já avançados.
 - `NdsKeypadControl::read/write(cpu, address, width, value)`: implementa KEYINPUT e KEYCNT, com KEYINPUT físico compartilhado e KEYCNT/condição de IRQ separados por CPU.
 - `NdsKeypadControl::set_pressed_keys(mask)`: atualiza os dez botões físicos e solicita IRQ bit 12 quando a condição KEYCNT habilitada se torna ativa.
-- `oracis_bus_bind_keypad_control()` / `oracis_bus_unbind_keypad_control()`: conecta/desconecta o teclado depois do GuestMemory e de NdsInterruptControl; o estado de entrada armazenado pela ponte host é aplicado no vínculo.\n- `oracis_host_set_keypad_state(mask)`: recebe os dez botões em formato ativo-alto e encaminha ao dispositivo conectado, retendo também o estado quando ele está temporariamente desvinculado.
+- `oracis_bus_bind_keypad_control()` / `oracis_bus_unbind_keypad_control()`: conecta/desconecta o teclado depois do GuestMemory e de NdsInterruptControl; o estado de entrada armazenado pela ponte host é aplicado no vínculo.
+- `oracis_host_set_keypad_state(mask)`: recebe os dez botões em formato ativo-alto e encaminha ao dispositivo conectado, retendo também o estado quando ele está temporariamente desvinculado.
 - `oracis_bus_bind_interrupt_control()` / `oracis_bus_unbind_interrupt_control()`: conecta/desconecta o controlador de interrupções ao barramento C.
 - `oracis_bus_bind_wram_control()` / `oracis_bus_unbind_wram_control()`: conecta e desconecta o dispositivo ao barramento C.
 - `read(cpu, address, width)`: leitura little-endian de 1, 2 ou 4 bytes.
@@ -178,10 +192,10 @@ Ainda não são regiões GuestMemory funcionais:
 - VRAM, paletas, OAM e VRAM usada como WRAM;
 - Wi-Fi RAM/registradores;
 - GBA slot e Game Card;
-- sincronização dos clocks ARM9/ARM7 e chamada de `advance_bus_cycles` a partir do relógio global; DMA, IPC, PPU, wait states e ordenação geral de eventos;
+- ligação do driver de fatias ao `NdsSystemClock`, incluindo avanço temporal virtual de CPU ociosa e accounting de wait states; DMA, IPC, PPU e ordenação geral de eventos;
 - wait states, prioridades de barramento e penalidades de contenção Main RAM.
 
-O runtime soma os custos enviados por `runtime_tick`. Ainda falta convertê-los numa linha temporal global comum para ARM9, ARM7 e periféricos. Os modelos de `runtime_mem_cycles`/`runtime_code_cycles` também não representam todo o hardware NDS.
+O runtime mantém contadores cumulativos locais via `runtime_tick`; `NdsSystemClock` converte esses contadores quando o driver os reporta, usando o watermark comum ARM9/ARM7. O driver ainda não faz esses relatórios automaticamente, e os modelos de `runtime_mem_cycles`/`runtime_code_cycles` não representam todo o hardware NDS.
 
 ## 8. Testes registrados
 
@@ -194,6 +208,7 @@ O CMake registra testes separados para:
 - transições dinâmicas entre modos, preservação de conteúdo dos dois bancos e rejeição de modo inválido sem alterar a janela corrente;
 - leitura/escrita de WRAMCNT pelo ARM9 e leitura WRAMSTAT pelo ARM7 via barramento C; WRAMSTAT read-only, modos 0–3, larguras inválidas e distinção do alias ARM9 VRAMCNT_B;
 - KEYINPUT ativo-baixo e compartilhado, KEYCNT independente por CPU, mascaramento de bits reservados, acesso somente leitura de KEYINPUT, condições OR/AND, IRQ bit 12, não repetição enquanto a condição permanece ativa e roteamento/teardown do barramento C;
+- sincronização 2:1 dos contadores cumulativos ARM9/ARM7, watermark de tempo comum, preservação de meio ciclo, avanço único dos dois bancos de timer, rejeição de regressões/overflow e bind/unbind C ABI do relógio global;
 - `IME`/`IE`/`IF` independentes por CPU, IME master gate, máscara IE, IF write-one-to-clear, requests latcheados e roteamento por `bus_read_u32`/`bus_write_u32`.
 
 **Na revisão `a435c0f`, a CI passou nos quatro jobs**, incluindo desktop Linux, Android ARM64, NDSRecomp e 22/22 testes de runtime. A revisão atual acrescenta WRAMSTAT ARM7 e regressões de acesso; a CI está em execução.

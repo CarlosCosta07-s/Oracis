@@ -9,7 +9,7 @@
 
 <p align="center"><strong>Reconstruindo Sinnoh para além do hardware original.</strong></p>
 
-> **Status: runtime ARM, RAM guest, WRAMCNT/WRAMSTAT, controlador MMIO IME/IE/IF e dispatch estático inicial implementados; integração com bancos reais pendente.** A CI confirmou desktop Linux, Android ARM64, NDSRecomp estático e 22/22 testes de runtime na revisão `a435c0f`; WRAMSTAT ARM7 está implementado nesta revisão e aguarda CI.
+> **Status:** runtime ARM, GuestMemory, WRAMCNT/WRAMSTAT, IME/IE/IF, timers, KEYINPUT/KEYCNT, relógio global sincronizado 2:1 e entrada de teclado desktop SDL3 implementados. A integração com bancos reais e o loop de máquina ainda está pendente. A última CI integral confirmada foi a revisão `19cd14e` (quatro jobs aprovados, 23/23 testes); a camada NdsSystemClock acrescentada nesta revisão ainda aguarda sua própria validação.
 
 ## O projeto
 
@@ -37,7 +37,7 @@ O Oracis já contém:
 - GuestMemory: mapa de RAM NDS retail, Main RAM compartilhada/mirrors, WRAM ARM7 privada, quatro modos WRAMCNT e leitura ARM7 de WRAMSTAT; as sete janelas Shared WRAM são pré-mapeadas e suas máscaras de visibilidade por CPU são atualizadas de forma transacional, com o mapa validado antes da aplicação, sem desalocação nem perda dos bytes físicos;
 - wrappers C bus_read_*/bus_write_* que encaminham para RAM guest mapeada e falham com diagnóstico em endereços inválidos;
 - controlador MMIO `NdsInterruptControl` com IME/IE/IF independentes por CPU, IRQ requests latcheados, IF W1C e `try_enter_irq` condicionado a `CPSR.I`; o scheduler ainda precisa chamar a entrada IRQ;
-- `NdsTimerControl` com Timer 0–3 para cada CPU, reload, prescalers, cascata e pedidos de IRQ; `advance_bus_cycles(n)` avança ambas as banks pelo mesmo clock global explícito; sincronização ARM9/ARM7 e ordenação geral de eventos ainda não alimentam essa API;
+- `NdsTimerControl` com Timer 0–3 para cada CPU, reload, prescalers, cascata e pedidos de IRQ; `NdsSystemClock` converte os contadores cumulativos ARM9/ARM7 na razão 2:1, preserva meio ciclo e chama `advance_bus_cycles(n)` uma única vez por intervalo de barramento completo; o driver ainda precisa reportar os ciclos após cada fatia e avançar virtualmente CPUs ociosas;
 - operações CPSR/SPSR e entrada/retorno de exceções;
 - avaliação de condições e atualização de flags NZCV;
 - helpers de acesso aos registradores do User bank e instrução `CLZ` na ABI C;
@@ -47,9 +47,10 @@ O Oracis já contém:
 - callback de identidade que compara bytes do banco e dependências contra `GuestMemory`, exigindo proveniência para RAM gravável;
 - pilha de retorno guest separada por CPU, com chave PC+ARM/Thumb e desenrolamento de retornos não locais;
 - contadores de ciclos e controle cooperativo de fatias ARM9/ARM7 por orçamento, yield e unwind;
+- `NdsKeypadControl` com KEYINPUT compartilhado, KEYCNT independente por CPU, condições OR/AND e IRQ de teclado; o host SDL3 mapeia X/Z, Enter/Backspace, setas e Q/W, limpa entradas ao perder foco e encaminha estado pela ponte C;
 - entradas `runtime_link_*` encaminhadas ao dispatcher normal; otimização de slots e folhas inline ainda desabilitada.
 
-O CMake registra vinte e dois testes CTest, incluindo mapa NDS retail, Shared WRAM, WRAMCNT, IME/IE/IF e timers. A CI da revisão `bc3b2ed` passou em desktop Linux, Android ARM64, NDSRecomp e 22/22 testes. O mapa cobre RAM principal/WRAM e permite reconfigurar as janelas Shared WRAM por API. Ainda faltam sincronização ARM9/ARM7 para alimentar o clock global, ordenação geral de eventos, entrega de IRQ pelo scheduler, VRAMCNT_B e demais handlers MMIO, DMA, IPC, CP15/TCM, BIOS, VRAM, OAM, temporização de memória, SWI e serviços NitroSDK para executar bancos reais.
+O CMake registra 24 testes CTest, incluindo mapa NDS retail, Shared WRAM, WRAMCNT, IME/IE/IF, timers, teclado e relógio global. A CI da revisão `19cd14e` passou nos quatro jobs (desktop Linux, Android ARM64, NDSRecomp estático e runtime 23/23); a nova revisão com NdsSystemClock aguarda validação. O mapa cobre RAM principal/WRAM e permite reconfigurar as janelas Shared WRAM por API. Ainda faltam a ligação do driver às fronteiras das fatias e o avanço virtual de CPUs ociosas, entrega automática de IRQ pelo scheduler, ordenação geral de eventos, VRAMCNT_B e demais handlers MMIO, DMA, IPC, CP15/TCM, BIOS, VRAM, OAM, temporização de memória, SWI e serviços NitroSDK para executar bancos reais.
 
 A extração local da USA Rev 1 teve offsets, limites e hashes ARM9/ARM7 verificados. A execução integral do extrator versionado e a emissão de bancos continuam pendentes.
 

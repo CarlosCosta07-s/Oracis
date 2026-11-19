@@ -30,6 +30,14 @@ int oracis_bus_unbind_interrupt_control(void *control);
 int oracis_bus_bind_timer_control(void *control);
 int oracis_bus_unbind_timer_control(void *control);
 
+/* Bind a synchronized NdsSystemClock after its matching timer control. */
+int oracis_bus_bind_system_clock(void *clock);
+int oracis_bus_unbind_system_clock(void *clock);
+
+/* Report cumulative emulated core cycles; call at CPU slice boundaries. */
+int oracis_bus_report_cpu_cycles(NdsCpu cpu, uint64_t cumulative_cycles);
+uint64_t oracis_bus_global_bus_cycles(void);
+
 /* Bind a live NdsKeypadControl after its matching memory and interrupt controller. */
 int oracis_bus_bind_keypad_control(void *control);
 int oracis_bus_unbind_keypad_control(void *control);
