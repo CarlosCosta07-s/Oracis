@@ -91,23 +91,30 @@ Também ficam fora da integração:
 - JIT ou interpretador ARM como fallback;
 - HLE manifests e live-overlay compilation até que a necessidade seja mapeada.
 
-## 7. Testes feitos
+## 7. Memória guest versus barramento
 
-O harness runtime-only local, reconstruído a partir dos arquivos versionados, compilou com Clang/CMake/Ninja e passou em dez testes:
-1. layout ABI C99;
-2. layout ABI C++20;
-3. bancos e troca de modos ARM;
-4. CPSR/SPSR e privilégios;
-5. entrada e retorno de exceções;
-6. condições e flags NZCV;
-7. ponte C++ para o estado ativo;
-8. ponte C99 para o estado ativo;
-9. especialização estática ARM9 (`NDS_STATIC_CPU=0`);
-10. especialização estática ARM7 (`NDS_STATIC_CPU=1`).
+A biblioteca independente `oracis_memory` fornece armazenamento guest configurável, aliases compartilhados, permissões e transferências little-endian. Ela foi separada dos wrappers C da ABI: não define ainda o mapa DS da revisão, MMIO, DMA, custos de ciclos, rotação ARM nem os símbolos `bus_read_*`/`bus_write_*`.
 
-Uma configuração separada com `BUILD_TESTING=OFF` também compilou `liboracis_arm_state.a`. Isso valida a biblioteca do runtime no harness local, não o build completo com SDL3 nem os bancos NDSRecomp.
+Consulte [GUEST_MEMORY.md](GUEST_MEMORY.md) para o contrato e os limites atuais.
 
-## 8. Prova de integração ainda exigida
+## 8. Testes feitos
+
+O harness runtime-only local, reconstruído a partir dos arquivos versionados, compilou com Clang/CMake/Ninja e passou em onze testes:
+1. RAM guest: little-endian, aliases, permissões, limites e overflow;
+2. layout ABI C99;
+3. layout ABI C++20;
+4. bancos e troca de modos ARM;
+5. CPSR/SPSR e privilégios;
+6. entrada e retorno de exceções;
+7. condições e flags NZCV;
+8. ponte C++ para o estado ativo;
+9. ponte C99 para o estado ativo;
+10. especialização estática ARM9 (`NDS_STATIC_CPU=0`);
+11. especialização estática ARM7 (`NDS_STATIC_CPU=1`).
+
+Uma configuração separada com `BUILD_TESTING=OFF` também compilou `liboracis_arm_state.a` e `liboracis_memory.a`. Isso valida as duas bibliotecas no harness local, não o build completo com SDL3 nem os bancos NDSRecomp.
+
+## 9. Prova de integração ainda exigida
 
 1. Compilar o executável `nds_recompile` na revisão fixada.
 2. Emitir os bancos C ARM9 e ARM7 da cópia USA Rev 1, sem `--flat-execution`.
