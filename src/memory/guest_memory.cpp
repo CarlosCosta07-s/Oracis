@@ -487,6 +487,73 @@ Status GuestMemory::write(NdsCpu cpu,
     return Status::Ok;
 }
 
+Status GuestMemory::write_bytes(
+    NdsCpu cpu,
+    uint32_t address,
+    const uint8_t *contents,
+    uint32_t size) noexcept
+{
+    if (!valid_cpu(cpu)) return Status::InvalidCpu;
+    if (contents == nullptr) return Status::InvalidRegion;
+    if (size == 0u) return Status::InvalidWidth;
+
+    /*
+     * Resolve and validate the whole guest span before touching any bytes.
+     * This prevents partial copies on unmapped, cross-region, denied or
+     * overflowing requests.
+     */
+    const MutableResolution result = resolve_mutable(cpu, address, size);
+    if (result.status != Status::Ok || result.region == nullptr) {
+        return result.status;
+    }
+    if (!has_permission(result.region->permissions, Writable)) {
+        return Status::PermissionDenied;
+    }
+
+    auto &bytes = result.region->backing->bytes;
+    auto &provenance = result.region->backing->write_provenance;
+    const Region &region = *result.region;
+
+    if (region.backing_period == 0u) {
+        const std::size_t begin = result.backing_offset;
+        const std::size_t end = begin + static_cast<std::size_t>(size);
+        std::memcpy(bytes.data() + begin, contents, size);
+        std::fill(provenance.begin() + begin, provenance.begin() + end, 1u);
+        return Status::Ok;
+    }
+
+    /*
+     * A mirrored guest window may be larger than its physical backing.
+     * Split at each period boundary so the copy wraps to the start of the
+     * same backing and marks every written byte as materialized.
+     */
+    uint32_t remaining = size;
+    uint32_t source_offset = 0u;
+    uint32_t period_offset =
+        (address - region.base) % region.backing_period;
+    uint32_t backing_offset = result.backing_offset;
+
+    while (remaining != 0u) {
+        const uint32_t chunk = std::min(
+            remaining, region.backing_period - period_offset);
+        const std::size_t begin = backing_offset;
+        const std::size_t end = begin + static_cast<std::size_t>(chunk);
+
+        std::memcpy(
+            bytes.data() + begin,
+            contents + source_offset,
+            chunk);
+        std::fill(provenance.begin() + begin, provenance.begin() + end, 1u);
+
+        remaining -= chunk;
+        source_offset += chunk;
+        backing_offset = region.backing_offset;
+        period_offset = 0u;
+    }
+
+    return Status::Ok;
+}
+
 Status GuestMemory::validate_execute(NdsCpu cpu,
                                      uint32_t address,
                                      uint32_t size) const noexcept
