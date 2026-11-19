@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: oracis-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   desktop-linux:
     name: Desktop Linux x86-64
