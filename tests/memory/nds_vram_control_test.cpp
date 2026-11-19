@@ -174,6 +174,59 @@ int main()
         return fail("C bank data or CPU permissions were lost when changing LCDC to ARM7 mode");
     }
 
+    /* All nine banks expose their fixed LCDC aliases in MST=0. */
+    struct LcdcBankCase {
+        uint32_t control_address;
+        uint32_t guest_address;
+        uint32_t size;
+        uint32_t control_value;
+        uint32_t marker;
+    };
+    constexpr LcdcBankCase lcdc_banks[] = {
+        {NdsVramControl::VramCntAAddress, UINT32_C(0x06800000),
+         UINT32_C(0x00020000), UINT32_C(0x98), UINT32_C(0xA0A0A0A0)},
+        {NdsVramControl::VramCntBAddress, UINT32_C(0x06820000),
+         UINT32_C(0x00020000), UINT32_C(0x90), UINT32_C(0xB1B1B1B1)},
+        {NdsVramControl::VramCntCAddress, UINT32_C(0x06840000),
+         UINT32_C(0x00020000), UINT32_C(0x98), UINT32_C(0xC2C2C2C2)},
+        {NdsVramControl::VramCntDAddress, UINT32_C(0x06860000),
+         UINT32_C(0x00020000), UINT32_C(0x90), UINT32_C(0xD3D3D3D3)},
+        {NdsVramControl::VramCntEAddress, UINT32_C(0x06880000),
+         UINT32_C(0x00010000), UINT32_C(0x98), UINT32_C(0xE4E4E4E4)},
+        {NdsVramControl::VramCntFAddress, UINT32_C(0x06890000),
+         UINT32_C(0x00004000), UINT32_C(0x98), UINT32_C(0xF5F5F5F5)},
+        {NdsVramControl::VramCntGAddress, UINT32_C(0x06894000),
+         UINT32_C(0x00004000), UINT32_C(0x90), UINT32_C(0x16161616)},
+        {NdsVramControl::VramCntHAddress, UINT32_C(0x06898000),
+         UINT32_C(0x00008000), UINT32_C(0x98), UINT32_C(0x27272727)},
+        {NdsVramControl::VramCntIAddress, UINT32_C(0x068A0000),
+         UINT32_C(0x00004000), UINT32_C(0x90), UINT32_C(0x38383838)}
+    };
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 selection before all-bank LCDC test failed");
+    }
+    for (const LcdcBankCase &bank : lcdc_banks) {
+        bus_write_u8(bank.control_address, bank.control_value);
+    }
+    for (const LcdcBankCase &bank : lcdc_banks) {
+        bus_write_u32(bank.guest_address, bank.marker);
+        bus_write_u32(
+            bank.guest_address + bank.size - 4u, ~bank.marker);
+    }
+    for (const LcdcBankCase &bank : lcdc_banks) {
+        if (bus_read_u32(bank.guest_address) != bank.marker ||
+            bus_read_u32(bank.guest_address + bank.size - 4u) != ~bank.marker ||
+            memory.read(
+                NDS_ARM7, bank.guest_address, 4u).status == Status::Ok) {
+            return fail("LCDC MST=0 bank base, size or CPU visibility is incorrect");
+        }
+    }
+    if (control.status() != 0u ||
+        !oracis_arm_runtime_select_cpu(NDS_ARM7) ||
+        bus_read_u8(NdsVramControl::VramStatAddress) != 0u) {
+        return fail("VRAMSTAT did not clear when C/D left ARM7 Work RAM mode");
+    }
+
     if (oracis_bus_unbind_memory(&memory)) {
         return fail("memory unbind succeeded while VRAM controller remained bound");
     }
@@ -183,6 +236,6 @@ int main()
         return fail("VRAM/GuestMemory/CPU unbinding failed");
     }
 
-    std::puts("VRAMCNT_C/D LCDC/ARM7 mapping, VRAMSTAT and bank remapping passed");
+    std::puts("VRAM A-I LCDC mapping, C/D ARM7 mapping, VRAMSTAT and remapping passed");
     return 0;
 }

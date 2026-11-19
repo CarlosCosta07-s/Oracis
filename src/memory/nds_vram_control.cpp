@@ -6,19 +6,64 @@ namespace oracis::memory {
 namespace {
 
 constexpr uint32_t kVramBackingBase = UINT32_C(0xF1100000);
-constexpr uint32_t kVramBackingSize =
-    NdsVramControl::BankSize * UINT32_C(2);
+constexpr uint32_t kBank128K = UINT32_C(0x00020000);
+constexpr uint32_t kBank64K = UINT32_C(0x00010000);
+constexpr uint32_t kBank32K = UINT32_C(0x00008000);
+constexpr uint32_t kBank16K = UINT32_C(0x00004000);
+constexpr uint32_t kVramBackingSize = UINT32_C(0x000A4000);
 constexpr uint8_t kVramPermissions =
     static_cast<uint8_t>(Readable | Writable | Executable);
+
+struct VramBank {
+    uint32_t lcdc_address;
+    uint32_t backing_offset;
+    uint32_t size;
+    uint32_t control_address;
+    const char *alias_name;
+};
+
+constexpr std::array<VramBank, 9> kVramBanks{{
+    {UINT32_C(0x06800000), UINT32_C(0x00000000), kBank128K,
+     NdsVramControl::VramCntAAddress, "NDS VRAM A ARM9 LCDC"},
+    {UINT32_C(0x06820000), UINT32_C(0x00020000), kBank128K,
+     NdsVramControl::VramCntBAddress, "NDS VRAM B ARM9 LCDC"},
+    {UINT32_C(0x06840000), UINT32_C(0x00040000), kBank128K,
+     NdsVramControl::VramCntCAddress, "NDS VRAM C ARM9 LCDC"},
+    {UINT32_C(0x06860000), UINT32_C(0x00060000), kBank128K,
+     NdsVramControl::VramCntDAddress, "NDS VRAM D ARM9 LCDC"},
+    {UINT32_C(0x06880000), UINT32_C(0x00080000), kBank64K,
+     NdsVramControl::VramCntEAddress, "NDS VRAM E ARM9 LCDC"},
+    {UINT32_C(0x06890000), UINT32_C(0x00090000), kBank16K,
+     NdsVramControl::VramCntFAddress, "NDS VRAM F ARM9 LCDC"},
+    {UINT32_C(0x06894000), UINT32_C(0x00094000), kBank16K,
+     NdsVramControl::VramCntGAddress, "NDS VRAM G ARM9 LCDC"},
+    {UINT32_C(0x06898000), UINT32_C(0x00098000), kBank32K,
+     NdsVramControl::VramCntHAddress, "NDS VRAM H ARM9 LCDC"},
+    {UINT32_C(0x068A0000), UINT32_C(0x000A0000), kBank16K,
+     NdsVramControl::VramCntIAddress, "NDS VRAM I ARM9 LCDC"}
+}};
+
+constexpr uint32_t kVramCBacking =
+    kVramBackingBase + UINT32_C(0x00040000);
+constexpr uint32_t kVramDBacking =
+    kVramBackingBase + UINT32_C(0x00060000);
 
 constexpr const char *kVramCWindow0 = "NDS VRAM C ARM7 window 0";
 constexpr const char *kVramCWindow1 = "NDS VRAM C ARM7 window 1";
 constexpr const char *kVramDWindow0 = "NDS VRAM D ARM7 window 0";
 constexpr const char *kVramDWindow1 = "NDS VRAM D ARM7 window 1";
-constexpr const char *kVramCLcdcWindow = "NDS VRAM C ARM9 LCDC window";
-constexpr const char *kVramDLcdcWindow = "NDS VRAM D ARM9 LCDC window";
 
 } // namespace
+
+int NdsVramControl::bank_index_for_address(uint32_t address) noexcept
+{
+    for (std::size_t index = 0u; index < kVramBanks.size(); ++index) {
+        if (kVramBanks[index].control_address == address) {
+            return static_cast<int>(index);
+        }
+    }
+    return -1;
+}
 
 int NdsVramControl::arm7_window_index(uint8_t control) noexcept
 {
@@ -38,15 +83,15 @@ bool NdsVramControl::allocated_to_arm7(uint8_t control) noexcept
 
 bool NdsVramControl::lcdc_enabled(uint8_t control) noexcept
 {
-    /* C/D use fixed physical LCDC slots; their OFS bits are not used. */
+    /* LCDC is a fixed physical slot for each bank; OFS is ignored. */
     return (control & UINT8_C(0x87)) == UINT8_C(0x80);
 }
 
 uint8_t NdsVramControl::status() const noexcept
 {
     return static_cast<uint8_t>(
-        (allocated_to_arm7(control_c_) ? 0x01u : 0u) |
-        (allocated_to_arm7(control_d_) ? 0x02u : 0u));
+        (allocated_to_arm7(controls_[2]) ? 0x01u : 0u) |
+        (allocated_to_arm7(controls_[3]) ? 0x02u : 0u));
 }
 
 Status NdsVramControl::install()
@@ -57,28 +102,34 @@ Status NdsVramControl::install()
         kVramBackingBase,
         kVramBackingSize,
         kVramPermissions,
-        "NDS VRAM C/D physical banks (internal)",
+        "NDS VRAM A-I physical banks (internal)",
         CpuAccessNone);
     if (result != Status::Ok) return result;
 
-    struct Window {
+    for (const VramBank &bank : kVramBanks) {
+        result = memory_.map_alias(
+            bank.lcdc_address,
+            kVramBackingBase + bank.backing_offset,
+            bank.size,
+            bank.alias_name,
+            CpuAccessNone);
+        if (result != Status::Ok) return result;
+    }
+
+    struct Arm7Window {
         uint32_t address;
         uint32_t backing;
         const char *name;
     };
-    const Window windows[] = {
-        {UINT32_C(0x06000000), kVramBackingBase, kVramCWindow0},
-        {UINT32_C(0x06020000), kVramBackingBase, kVramCWindow1},
-        {UINT32_C(0x06000000), kVramBackingBase + BankSize, kVramDWindow0},
-        {UINT32_C(0x06020000), kVramBackingBase + BankSize, kVramDWindow1},
-        {UINT32_C(0x06840000), kVramBackingBase, kVramCLcdcWindow},
-        {UINT32_C(0x06860000), kVramBackingBase + BankSize, kVramDLcdcWindow}
+    const Arm7Window arm7_windows[] = {
+        {UINT32_C(0x06000000), kVramCBacking, kVramCWindow0},
+        {UINT32_C(0x06020000), kVramCBacking, kVramCWindow1},
+        {UINT32_C(0x06000000), kVramDBacking, kVramDWindow0},
+        {UINT32_C(0x06020000), kVramDBacking, kVramDWindow1}
     };
-
-    /* Inactive aliases are preallocated; register writes only switch masks. */
-    for (const Window &window : windows) {
+    for (const Arm7Window &window : arm7_windows) {
         result = memory_.map_alias(
-            window.address, window.backing, BankSize,
+            window.address, window.backing, kBank128K,
             window.name, CpuAccessNone);
         if (result != Status::Ok) return result;
     }
@@ -88,11 +139,10 @@ Status NdsVramControl::install()
 }
 
 Status NdsVramControl::apply_controls(
-    uint8_t control_c,
-    uint8_t control_d) noexcept
+    const std::array<uint8_t, 9> &controls) noexcept
 {
-    const int c_window = arm7_window_index(control_c);
-    const int d_window = arm7_window_index(control_d);
+    const int c_window = arm7_window_index(controls[2]);
+    const int d_window = arm7_window_index(controls[3]);
     const auto arm7_access_for = [](int selected, int window) noexcept {
         return selected == window
             ? static_cast<uint8_t>(CpuAccessArm7)
@@ -104,18 +154,22 @@ Status NdsVramControl::apply_controls(
             : static_cast<uint8_t>(CpuAccessNone);
     };
 
-    const std::array<GuestMemory::CpuAccessUpdate, 6> updates{{
-        {kVramCWindow0, arm7_access_for(c_window, 0)},
-        {kVramCWindow1, arm7_access_for(c_window, 1)},
-        {kVramDWindow0, arm7_access_for(d_window, 0)},
-        {kVramDWindow1, arm7_access_for(d_window, 1)},
-        {kVramCLcdcWindow, lcdc_access_for(lcdc_enabled(control_c))},
-        {kVramDLcdcWindow, lcdc_access_for(lcdc_enabled(control_d))}
-    }};
+    std::array<GuestMemory::CpuAccessUpdate, 13> updates{};
+    for (std::size_t index = 0u; index < kVramBanks.size(); ++index) {
+        updates[index] = {
+            kVramBanks[index].alias_name,
+            lcdc_access_for(lcdc_enabled(controls[index]))
+        };
+    }
+
+    updates[9] = {kVramCWindow0, arm7_access_for(c_window, 0)};
+    updates[10] = {kVramCWindow1, arm7_access_for(c_window, 1)};
+    updates[11] = {kVramDWindow0, arm7_access_for(d_window, 0)};
+    updates[12] = {kVramDWindow1, arm7_access_for(d_window, 1)};
 
     /*
-     * Validate all six aliases before mutation. If C and D target the same
-     * ARM7 128KB slot, reject the write and preserve the previous mapping.
+     * Validate all aliases before mutation. If C and D target the same ARM7
+     * 128KB slot, reject the write and preserve the previous complete map.
      */
     return memory_.update_cpu_access(updates.data(), updates.size());
 }
@@ -125,23 +179,28 @@ ReadResult NdsVramControl::read(
     uint32_t address,
     uint32_t width) const noexcept
 {
-    if (address == VramStatAddress) {
-        /* On ARM9 this address is VRAMCNT_A, outside this partial device. */
-        if (cpu == NDS_ARM9) return {Status::Unmapped, 0u};
-        if (cpu != NDS_ARM7) return {Status::InvalidCpu, 0u};
+    if (cpu != NDS_ARM9 && cpu != NDS_ARM7) {
+        return {Status::InvalidCpu, 0u};
+    }
+
+    if (address == VramStatAddress && cpu == NDS_ARM7) {
         if (width != 1u) return {Status::InvalidWidth, 0u};
         if (!installed_) return {Status::Unmapped, 0u};
         return {Status::Ok, status()};
     }
 
-    if (address == VramCntCAddress || address == VramCntDAddress) {
-        if (cpu != NDS_ARM9) return {Status::CpuAccessDenied, 0u};
-        if (width != 1u) return {Status::InvalidWidth, 0u};
-        if (!installed_) return {Status::Unmapped, 0u};
-        return {Status::PermissionDenied, 0u}; /* write-only registers */
+    /* 0x04000241 is WRAMSTAT for ARM7; its device is checked before VRAM. */
+    if (address == VramCntBAddress && cpu == NDS_ARM7) {
+        return {Status::Unmapped, 0u};
     }
 
-    return {Status::Unmapped, 0u};
+    if (bank_index_for_address(address) < 0) {
+        return {Status::Unmapped, 0u};
+    }
+    if (cpu != NDS_ARM9) return {Status::CpuAccessDenied, 0u};
+    if (width != 1u) return {Status::InvalidWidth, 0u};
+    if (!installed_) return {Status::Unmapped, 0u};
+    return {Status::PermissionDenied, 0u}; /* VRAMCNT registers are write-only */
 }
 
 Status NdsVramControl::write(
@@ -150,34 +209,32 @@ Status NdsVramControl::write(
     uint32_t width,
     uint32_t value) noexcept
 {
-    if (address == VramStatAddress) {
-        /* ARM7 VRAMSTAT is read-only; ARM9 owns VRAMCNT_A here. */
-        if (cpu == NDS_ARM9) return Status::Unmapped;
-        if (cpu != NDS_ARM7) return Status::InvalidCpu;
+    if (cpu != NDS_ARM9 && cpu != NDS_ARM7) return Status::InvalidCpu;
+
+    if (address == VramStatAddress && cpu == NDS_ARM7) {
         if (width != 1u) return Status::InvalidWidth;
         if (!installed_) return Status::Unmapped;
         return Status::PermissionDenied;
     }
 
-    if (address != VramCntCAddress && address != VramCntDAddress) {
+    /* Let NdsWramControl own ARM7 writes to its read-only WRAMSTAT register. */
+    if (address == VramCntBAddress && cpu == NDS_ARM7) {
         return Status::Unmapped;
     }
+
+    const int bank_index = bank_index_for_address(address);
+    if (bank_index < 0) return Status::Unmapped;
     if (cpu != NDS_ARM9) return Status::CpuAccessDenied;
     if (width != 1u) return Status::InvalidWidth;
     if (!installed_) return Status::Unmapped;
 
-    /* Bits 5-6 are reserved; keep Enable, OFS and MST only. */
+    /* Bits 5-6 are reserved; preserve enable, OFS and MST only. */
     const uint8_t requested = static_cast<uint8_t>(value & UINT32_C(0x9F));
-    const uint8_t next_c =
-        address == VramCntCAddress ? requested : control_c_;
-    const uint8_t next_d =
-        address == VramCntDAddress ? requested : control_d_;
+    std::array<uint8_t, 9> next_controls = controls_;
+    next_controls[static_cast<std::size_t>(bank_index)] = requested;
 
-    const Status result = apply_controls(next_c, next_d);
-    if (result == Status::Ok) {
-        control_c_ = next_c;
-        control_d_ = next_d;
-    }
+    const Status result = apply_controls(next_controls);
+    if (result == Status::Ok) controls_ = next_controls;
     return result;
 }
 
