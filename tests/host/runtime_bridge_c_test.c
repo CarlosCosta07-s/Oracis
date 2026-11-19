@@ -51,7 +51,7 @@ int main(void)
     if (oracis_host_runtime_has_program_banks() != 0 ||
         oracis_host_runtime_run_round(1u, NULL, NULL) !=
             ORACIS_HOST_RUNTIME_NO_PROGRAM_BANKS) {
-        fprintf(stderr, "host bridge ran without both static CPU banks\\n");
+        fprintf(stderr, "host bridge ran without both static CPU banks\n");
         return 1;
     }
 
@@ -69,7 +69,7 @@ int main(void)
             ORACIS_DISPATCH_REGISTER_OK ||
         oracis_host_runtime_has_program_banks() != 1) {
         oracis_static_dispatch_clear();
-        fprintf(stderr, "host bridge could not register both test banks\\n");
+        fprintf(stderr, "host bridge could not register both test banks\n");
         return 1;
     }
 
@@ -79,7 +79,7 @@ int main(void)
         g_arm7_bank_calls != 1u ||
         oracis_host_runtime_global_bus_cycles() != UINT64_C(1)) {
         oracis_static_dispatch_clear();
-        fprintf(stderr, "C host bridge failed to execute synchronized ARM9/ARM7 banks\\n");
+        fprintf(stderr, "C host bridge failed to execute synchronized ARM9/ARM7 banks\n");
         return 1;
     }
 
@@ -89,7 +89,7 @@ int main(void)
             NDS_ARM7, arm7_table, 1u) == 0 ||
         oracis_host_runtime_has_program_banks() != 0) {
         oracis_static_dispatch_clear();
-        fprintf(stderr, "host C test banks were not unregistered\\n");
+        fprintf(stderr, "host C test banks were not unregistered\n");
         return 1;
     }
 
