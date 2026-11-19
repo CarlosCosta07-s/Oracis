@@ -85,14 +85,14 @@ O identificador pode ser usado na validação local. O conteúdo da ROM, os bin�
 
 ### Segmentos verificados localmente
 
-O extrator Oracis foi executado contra a cópia local USA Rev 1. O SHA-1 completo conferiu com o identificador esperado, os offsets/tamanhos dos segmentos estavam dentro do arquivo e ARM9/ARM7 não se sobrepunham.
+A cópia local USA Rev 1 foi inspecionada com uma rotina de extração de trabalho. O SHA-1 completo conferiu com o identificador esperado, os offsets/tamanhos dos segmentos estavam dentro do arquivo e ARM9/ARM7 não se sobrepunham. Os valores abaixo vieram dessa verificação local; o script versionado `tools/ndsrecomp/extract_nds_programs.py` ainda aguarda sua primeira execução integral após publicação.
 
 | Segmento | Offset na ROM | Load address | Entry PC | Tamanho | SHA-1 do segmento |
 |---|---:|---:|---:|---:|---|
 | ARM9 | `0x00004000` | `0x02000000` | `0x02000800` (ARM) | `0x001023F8` | `7ec963e737f0f61efcbbf5c7a3d33cbf378143f8` |
 | ARM7 | `0x00409800` | `0x02380000` | `0x02380000` (ARM) | `0x000277FC` | `082bb349ae7d057edbbd91a07316b1402b18b803` |
 
-Os hashes são dos segmentos extraídos, não de bancos recompilados. Os binários e TOMLs foram gerados apenas no ambiente local e não foram adicionados ao Git.
+Os hashes são dos segmentos extraídos, não de bancos recompilados. Os binários e TOMLs temporários foram gerados apenas no ambiente local e não foram adicionados ao Git.
 
 ## 7. Como preparar o compilador
 
@@ -128,15 +128,15 @@ Requer Python 3.10 ou mais recente. Todos os arquivos de saída são locais e ig
 
 ## 9. Validação ainda pendente
 
-O extrator foi executado com sucesso contra a cópia local e os TOMLs foram analisados como TOML válido. **Ainda não validado:** a compilação do executável `nds_recompile`, sua execução contra os dois segmentos, a emissão dos bancos e a compilação desses bancos com uma ABI Oracis.
+A rotina local de extração de trabalho validou o SHA-1 da ROM, os limites/overlap dos segmentos, os hashes de ARM9/ARM7 e a estrutura dos TOMLs. O script versionado ainda não foi executado integralmente depois de publicado; a CI fará pelo menos a validação de sintaxe Python. **Ainda não validado:** a compilação do executável `nds_recompile`, sua execução contra os dois segmentos, a emissão dos bancos e a compilação desses bancos com a ABI Oracis.
 
 ## 10. Próximos marcos
 
 1. Executar o bootstrap e registrar a versão/hash real do executável `nds_recompile`.
-2. Criar um extrator local de cabeçalho e segmentos ARM9/ARM7 do arquivo NDS, com verificação do SHA-1 USA Rev 1 e limites de arquivo.
-3. Gerar configurações TOML próprias para cada segmento e emitir os primeiros bancos.
-4. Compilar um banco de teste para comprovar o contrato C ABI independente.
-5. Implementar o runtime ARM9/ARM7 próprio, sem importar o runtime upstream.
+2. Rodar o compilador contra os TOMLs/binários ARM9 e ARM7 já validados e resolver eventuais incompatibilidades de schema.
+3. Emitir os primeiros bancos C e suas tabelas de dispatch, sem `--flat-execution`.
+4. Compilar um banco de cada CPU contra o header/contrato de ABI Oracis e revisar os símbolos indefinidos.
+5. Implementar dispatch e runtime ARM9/ARM7 próprios, sem importar o runtime upstream.
 6. Só então ligar serviços de memória, interrupções, timers, DMA, vídeo, áudio e save.
 
 A etapa 1 não estará concluída apenas porque o executável do recompilador foi compilado: o primeiro banco real precisa ser emitido e compilado com sucesso.
