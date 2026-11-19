@@ -114,4 +114,13 @@ if(BUILD_TESTING)
     target_link_libraries(oracis_runtime_abi_bridge_test PRIVATE oracis_arm_state)
     target_include_directories(oracis_runtime_abi_bridge_test PRIVATE include/oracis/recomp)
     add_test(NAME oracis_runtime_abi_bridge_test COMMAND oracis_runtime_abi_bridge_test)
+
+    add_executable(oracis_runtime_abi_bridge_c_test
+        tests/abi/runtime_abi_bridge_c_test.c
+    )
+    target_link_libraries(oracis_runtime_abi_bridge_c_test PRIVATE oracis_arm_state)
+    target_include_directories(oracis_runtime_abi_bridge_c_test PRIVATE include)
+    target_compile_features(oracis_runtime_abi_bridge_c_test PRIVATE c_std_99)
+    set_target_properties(oracis_runtime_abi_bridge_c_test PROPERTIES LINKER_LANGUAGE CXX)
+    add_test(NAME oracis_runtime_abi_bridge_c_test COMMAND oracis_runtime_abi_bridge_c_test)
 endif()
