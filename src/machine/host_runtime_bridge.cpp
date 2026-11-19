@@ -30,6 +30,9 @@ int g_last_machine_status =
     static_cast<int>(oracis::machine::NdsMachineStatus::Ok);
 
 #ifdef ORACIS_WITH_PLATINUM_STATIC_BANKS
+bool g_arm9_compiled_bank_registered = false;
+bool g_arm7_compiled_bank_registered = false;
+
 bool unregister_compiled_banks() noexcept
 {
     bool success = true;
