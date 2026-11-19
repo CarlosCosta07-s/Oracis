@@ -2,12 +2,16 @@
 
 namespace oracis::memory {
 
-Status NdsWramControl::install() noexcept
+Status NdsWramControl::install()
 {
     if (installed_) return Status::InvalidRegion;
-    const Status status = NdsRetailRamMap::install(memory_, mode_);
-    if (status == Status::Ok) installed_ = true;
-    return status;
+    try {
+        const Status status = NdsRetailRamMap::install(memory_, mode_);
+        if (status == Status::Ok) installed_ = true;
+        return status;
+    } catch (...) {
+        return Status::InvalidRegion;
+    }
 }
 
 ReadResult NdsWramControl::read(
@@ -43,10 +47,14 @@ Status NdsWramControl::write(
      */
     const SharedWramMode requested =
         static_cast<SharedWramMode>(value & UINT32_C(0x03));
-    const Status status =
-        NdsRetailRamMap::set_shared_wram_mode(memory_, requested);
-    if (status == Status::Ok) mode_ = requested;
-    return status;
+    try {
+        const Status status =
+            NdsRetailRamMap::set_shared_wram_mode(memory_, requested);
+        if (status == Status::Ok) mode_ = requested;
+        return status;
+    } catch (...) {
+        return Status::InvalidRegion;
+    }
 }
 
 } // namespace oracis::memory
