@@ -112,6 +112,47 @@ int main()
         return fail("invalid interrupt MMIO access or CPU was accepted");
     }
 
+    /*
+     * IRQ entry uses the caller's precise return address/vector, observes the
+     * CPU CPSR.I mask, and leaves IF pending until guest acknowledgement.
+     */
+    ArmCpuState irq_state{};
+    irq_state.cpsr = ORACIS_ARM_MODE_SYSTEM | CPSR_T_BIT |
+                     CPSR_I_BIT | CPSR_C_BIT;
+    constexpr uint32_t irq_return = UINT32_C(0x02381234);
+    constexpr uint32_t irq_vector_base = UINT32_C(0xFFFF0000);
+    const uint32_t masked_cpsr = irq_state.cpsr;
+    if (interrupts.try_enter_irq(
+            NDS_ARM7, irq_state, irq_return, irq_vector_base) ||
+        irq_state.cpsr != masked_cpsr ||
+        irq_state.R[14] != 0u ||
+        irq_state.R[15] != 0u) {
+        return fail("CPSR.I did not prevent IRQ exception entry");
+    }
+
+    irq_state.cpsr &= ~CPSR_I_BIT;
+    const uint32_t saved_cpsr = irq_state.cpsr;
+    if (!interrupts.try_enter_irq(
+            NDS_ARM7, irq_state, irq_return, irq_vector_base) ||
+        (irq_state.cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_IRQ ||
+        (irq_state.cpsr & (CPSR_I_BIT | CPSR_T_BIT | CPSR_C_BIT)) !=
+            (CPSR_I_BIT | CPSR_C_BIT) ||
+        irq_state.banked_spsr[ARM_BANK_IRQ] != saved_cpsr ||
+        irq_state.R[14] != irq_return ||
+        irq_state.R[15] != irq_vector_base + UINT32_C(0x18) ||
+        !interrupts.irq_asserted(NDS_ARM7)) {
+        return fail("pending IRQ did not enter the expected ARM exception state");
+    }
+    if (interrupts.try_enter_irq(
+            NDS_ARM7, irq_state, irq_return, irq_vector_base)) {
+        return fail("IRQ was re-entered while CPSR.I was set");
+    }
+    if (interrupts.write(
+            NDS_ARM7, NdsInterruptControl::IfAddress, 4u, dma0) != Status::Ok ||
+        interrupts.irq_asserted(NDS_ARM7)) {
+        return fail("guest IF acknowledgement did not lower the IRQ line");
+    }
+
     /* Verify both CPU banks through the generated-code C bus ABI. */
     ArmCpuState arm9{};
     ArmCpuState arm7{};
