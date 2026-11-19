@@ -142,6 +142,8 @@ public:
 
     Status validate_execute(NdsCpu cpu, uint32_t address,
                             uint32_t size) const noexcept;
+    Status validate_write(NdsCpu cpu, uint32_t address,
+                          uint32_t size) const noexcept;
     Status validate_identity(NdsCpu cpu, uint32_t address, uint32_t size,
                              const uint8_t *expected) const noexcept;
 
