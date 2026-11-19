@@ -105,10 +105,18 @@ def validate_extraction(extracted_dir: Path) -> tuple[dict, dict[str, dict]]:
 
         config_text = config.read_text(encoding="utf-8")
         expected_id = f"{BANK_PREFIX}_{cpu}"
-        if f'id = "{expected_id}"' not in config_text:
-            raise ValueError(f"{cpu.upper()} TOML program id does not match")
-        if f'sha1 = "{digest}"' not in config_text:
-            raise ValueError(f"{cpu.upper()} TOML identity does not match its binary")
+        expected_toml_fields = (
+            f'id = "{expected_id}"',
+            f"load_address = 0x{load:08X}",
+            f"size = 0x{size:08X}",
+            f"entry_pc = 0x{entry:08X}",
+            f'sha1 = "{digest}"',
+            f'mode = "{mode}"',
+        )
+        if any(field not in config_text for field in expected_toml_fields):
+            raise ValueError(
+                f"{cpu.upper()} TOML metadata does not match its binary manifest"
+            )
 
         by_cpu[cpu] = {
             "cpu": cpu,
