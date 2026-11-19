@@ -121,6 +121,7 @@ NdsMachineStatus NdsMachine::initialize() noexcept
 
     arm9_state_ = {};
     arm7_state_ = {};
+    program_loaded_ = false;
     arm9_state_.cpsr = ORACIS_ARM_MODE_SYSTEM;
     arm7_state_.cpsr = ORACIS_ARM_MODE_SYSTEM;
     run_states_.fill(NdsCpuRunState::Running);
@@ -185,6 +186,107 @@ NdsMachineStatus NdsMachine::initialize() noexcept
     validation_bound_ = true;
 
     initialized_ = true;
+    return NdsMachineStatus::Ok;
+}
+
+NdsMachineStatus NdsMachine::load_program_segments(
+    const NdsProgramSegment &arm9,
+    const NdsProgramSegment &arm7) noexcept
+{
+    if (!initialized_) return NdsMachineStatus::NotInitialized;
+    if (program_loaded_) return NdsMachineStatus::ProgramAlreadyLoaded;
+    if (slice_active_[0] || slice_active_[1]) {
+        return NdsMachineStatus::SliceAlreadyActive;
+    }
+
+    if (system_clock_.global_bus_cycles() != 0u ||
+        oracis_scheduler_cycle_count(NDS_ARM9) != 0u ||
+        oracis_scheduler_cycle_count(NDS_ARM7) != 0u ||
+        idle_core_cycles_offset_[0] != 0u ||
+        idle_core_cycles_offset_[1] != 0u) {
+        return NdsMachineStatus::ProgramLoadAfterExecution;
+    }
+
+    const auto valid_segment = [](const NdsProgramSegment &segment,
+                                  NdsCpu expected_cpu) noexcept {
+        if (segment.cpu != expected_cpu || segment.contents == nullptr ||
+            segment.size == 0u) {
+            return false;
+        }
+
+        const uint64_t load_begin = segment.load_address;
+        const uint64_t load_end =
+            load_begin + static_cast<uint64_t>(segment.size);
+        const uint64_t entry_begin = segment.entry_pc;
+        const uint64_t instruction_size =
+            segment.entry_thumb ? UINT64_C(2) : UINT64_C(4);
+        const uint64_t entry_end = entry_begin + instruction_size;
+        const uint32_t alignment = segment.entry_thumb ? 2u : 4u;
+
+        return load_end <= UINT64_C(0x1'0000'0000) &&
+               segment.entry_pc % alignment == 0u &&
+               entry_begin >= load_begin &&
+               entry_end <= load_end;
+    };
+
+    if (!valid_segment(arm9, NDS_ARM9) ||
+        !valid_segment(arm7, NDS_ARM7)) {
+        return NdsMachineStatus::InvalidProgramImage;
+    }
+
+    /*
+     * Preflight BOTH complete segments before writing either one. This makes
+     * a missing, non-writable or non-executable ARM7 destination fail without
+     * leaving ARM9 bytes installed.
+     */
+    const memory::Status arm9_write = memory_.validate_write(
+        NDS_ARM9, arm9.load_address, arm9.size);
+    const memory::Status arm9_execute = memory_.validate_execute(
+        NDS_ARM9, arm9.load_address, arm9.size);
+    const memory::Status arm7_write = memory_.validate_write(
+        NDS_ARM7, arm7.load_address, arm7.size);
+    const memory::Status arm7_execute = memory_.validate_execute(
+        NDS_ARM7, arm7.load_address, arm7.size);
+    if (arm9_write != memory::Status::Ok ||
+        arm9_execute != memory::Status::Ok ||
+        arm7_write != memory::Status::Ok ||
+        arm7_execute != memory::Status::Ok) {
+        return NdsMachineStatus::ProgramMemoryUnavailable;
+    }
+
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return NdsMachineStatus::SchedulerFailure;
+    }
+
+    if (memory_.write_bytes(
+            NDS_ARM9, arm9.load_address, arm9.contents, arm9.size) !=
+            memory::Status::Ok ||
+        memory_.write_bytes(
+            NDS_ARM7, arm7.load_address, arm7.contents, arm7.size) !=
+            memory::Status::Ok) {
+        return NdsMachineStatus::ProgramLoadFailed;
+    }
+
+    /* Confirm that the exact bytes used by the static banks are now live. */
+    if (memory_.validate_identity(
+            NDS_ARM9, arm9.load_address, arm9.size, arm9.contents) !=
+            memory::Status::Ok ||
+        memory_.validate_identity(
+            NDS_ARM7, arm7.load_address, arm7.size, arm7.contents) !=
+            memory::Status::Ok) {
+        return NdsMachineStatus::ProgramLoadFailed;
+    }
+
+    arm9_state_ = {};
+    arm7_state_ = {};
+    arm9_state_.cpsr = ORACIS_ARM_MODE_SYSTEM |
+        (arm9.entry_thumb ? CPSR_T_BIT : 0u);
+    arm7_state_.cpsr = ORACIS_ARM_MODE_SYSTEM |
+        (arm7.entry_thumb ? CPSR_T_BIT : 0u);
+    arm9_state_.R[15] = arm9.entry_pc;
+    arm7_state_.R[15] = arm7.entry_pc;
+    run_states_.fill(NdsCpuRunState::Running);
+    program_loaded_ = true;
     return NdsMachineStatus::Ok;
 }
 
@@ -269,6 +371,7 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
     run_states_.fill(NdsCpuRunState::Running);
     idle_core_cycles_offset_.fill(0u);
     next_round_first_cpu_ = NDS_ARM9;
+    program_loaded_ = false;
     initialized_ = false;
     return NdsMachineStatus::Ok;
 }
