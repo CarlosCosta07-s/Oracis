@@ -679,6 +679,15 @@ int main()
     }
 
     arm7->cpsr = ORACIS_ARM_MODE_SYSTEM | CPSR_T_BIT;
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9) ||
+        oracis_static_dispatch_lookup(
+            NDS_ARM7, validated_arm7_pc | 1u, arm7->cpsr,
+            &validation_status, &validation_candidates,
+            &inactive_candidate) != nullptr ||
+        validation_status != ORACIS_DISPATCH_LOOKUP_MISS ||
+        inactive_candidate != validated_arm7_bank) {
+        return fail("ARM7 validation used the wrong active CPU memory context");
+    }
     if (!oracis_arm_runtime_select_cpu(NDS_ARM7) ||
         oracis_static_dispatch_lookup(
             NDS_ARM7, validated_arm7_pc | 1u, arm7->cpsr,
