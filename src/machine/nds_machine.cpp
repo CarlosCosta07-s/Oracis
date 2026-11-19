@@ -426,6 +426,27 @@ NdsMachineStatus NdsMachine::run_dual_core_round(
     return NdsMachineStatus::Ok;
 }
 
+bool NdsMachine::execute_registered_bank_slice(
+    void *context, NdsCpu cpu, ArmCpuState *state,
+    uint64_t cycle_budget)
+{
+    (void)context;
+    (void)cycle_budget;
+
+    if (!valid_cpu(cpu) || state == nullptr ||
+        oracis_active_cpu_state != state || g_nds_active != cpu) {
+        return false;
+    }
+
+    /*
+     * Generated code owns its instruction-boundary yield checks and invokes
+     * runtime_dispatch for guest control-flow transfers. The machine only
+     * supplies the already-selected CPU state and the active slice budget.
+     */
+    runtime_dispatch(state->R[15]);
+    return true;
+}
+
 NdsMachineStatus NdsMachine::enter_cpu_halt(NdsCpu cpu) noexcept
 {
     if (!initialized_) return NdsMachineStatus::NotInitialized;
