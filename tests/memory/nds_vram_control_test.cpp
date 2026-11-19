@@ -144,6 +144,36 @@ int main()
         return fail("VRAMSTAT access width, write protection or ARM9 alias failed");
     }
 
+    /* MST=0 exposes C/D to ARM9 at their fixed LCDC physical addresses. */
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 reselection before LCDC mapping failed");
+    }
+    bus_write_u8(NdsVramControl::VramCntCAddress, UINT8_C(0x98));
+    bus_write_u8(NdsVramControl::VramCntDAddress, UINT8_C(0x80));
+    if (control.status() != 0u ||
+        memory.read(NDS_ARM9, UINT32_C(0x06840000), 4u).status != Status::Ok ||
+        memory.read(NDS_ARM9, UINT32_C(0x06860000), 4u).status != Status::Ok ||
+        memory.read(NDS_ARM7, UINT32_C(0x06840000), 4u).status == Status::Ok ||
+        memory.read(NDS_ARM7, UINT32_C(0x06860000), 4u).status == Status::Ok) {
+        return fail("MST=0 did not expose LCDC C/D banks exclusively to ARM9");
+    }
+    bus_write_u32(UINT32_C(0x06840000), UINT32_C(0xCCCCCCCC));
+    bus_write_u32(UINT32_C(0x06860000), UINT32_C(0xDDDDDDDD));
+    if (bus_read_u32(UINT32_C(0x06840000)) != UINT32_C(0xCCCCCCCC) ||
+        bus_read_u32(UINT32_C(0x06860000)) != UINT32_C(0xDDDDDDDD)) {
+        return fail("ARM9 LCDC C/D aliases did not preserve separate bank data");
+    }
+
+    /* Moving C from LCDC to ARM7 Work RAM keeps the physical bank contents. */
+    bus_write_u8(NdsVramControl::VramCntCAddress, UINT8_C(0x82));
+    if (control.status() != 1u ||
+        !oracis_arm_runtime_select_cpu(NDS_ARM7) ||
+        bus_read_u8(NdsVramControl::VramStatAddress) != 1u ||
+        bus_read_u32(UINT32_C(0x06000000)) != UINT32_C(0xCCCCCCCC) ||
+        memory.read(NDS_ARM9, UINT32_C(0x06840000), 4u).status == Status::Ok) {
+        return fail("C bank data or CPU permissions were lost when changing LCDC to ARM7 mode");
+    }
+
     if (oracis_bus_unbind_memory(&memory)) {
         return fail("memory unbind succeeded while VRAM controller remained bound");
     }
@@ -153,6 +183,6 @@ int main()
         return fail("VRAM/GuestMemory/CPU unbinding failed");
     }
 
-    std::puts("VRAMCNT_C/D ARM7 mapping, VRAMSTAT and bank remapping passed");
+    std::puts("VRAMCNT_C/D LCDC/ARM7 mapping, VRAMSTAT and bank remapping passed");
     return 0;
 }

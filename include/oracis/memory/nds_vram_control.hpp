@@ -1,9 +1,9 @@
 /*
  * Nintendo DS VRAM C/D bank controller.
  *
- * This partial device implements the ARM7 Work RAM mapping (MST=2) for the
- * two 128KB banks. Other VRAM destinations remain unmapped until their
- * corresponding graphics engines are implemented.
+ * This partial device implements C/D LCDC direct access for ARM9 (MST=0)
+ * and ARM7 Work RAM mapping (MST=2) for the two 128KB banks. Other VRAM
+ * destinations remain unmapped until their corresponding devices exist.
  */
 #ifndef ORACIS_MEMORY_NDS_VRAM_CONTROL_HPP
 #define ORACIS_MEMORY_NDS_VRAM_CONTROL_HPP
@@ -47,6 +47,7 @@ public:
 private:
     static int arm7_window_index(uint8_t control) noexcept;
     static bool allocated_to_arm7(uint8_t control) noexcept;
+    static bool lcdc_enabled(uint8_t control) noexcept;
 
     Status apply_controls(uint8_t control_c,
                           uint8_t control_d) noexcept;

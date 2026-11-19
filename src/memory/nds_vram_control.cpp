@@ -15,6 +15,8 @@ constexpr const char *kVramCWindow0 = "NDS VRAM C ARM7 window 0";
 constexpr const char *kVramCWindow1 = "NDS VRAM C ARM7 window 1";
 constexpr const char *kVramDWindow0 = "NDS VRAM D ARM7 window 0";
 constexpr const char *kVramDWindow1 = "NDS VRAM D ARM7 window 1";
+constexpr const char *kVramCLcdcWindow = "NDS VRAM C ARM9 LCDC window";
+constexpr const char *kVramDLcdcWindow = "NDS VRAM D ARM9 LCDC window";
 
 } // namespace
 
@@ -32,6 +34,12 @@ bool NdsVramControl::allocated_to_arm7(uint8_t control) noexcept
 {
     /* VRAMSTAT reports enable+MST only; its bits do not reflect OFS. */
     return (control & UINT8_C(0x87)) == UINT8_C(0x82);
+}
+
+bool NdsVramControl::lcdc_enabled(uint8_t control) noexcept
+{
+    /* C/D use fixed physical LCDC slots; their OFS bits are not used. */
+    return (control & UINT8_C(0x87)) == UINT8_C(0x80);
 }
 
 uint8_t NdsVramControl::status() const noexcept
@@ -62,7 +70,9 @@ Status NdsVramControl::install()
         {UINT32_C(0x06000000), kVramBackingBase, kVramCWindow0},
         {UINT32_C(0x06020000), kVramBackingBase, kVramCWindow1},
         {UINT32_C(0x06000000), kVramBackingBase + BankSize, kVramDWindow0},
-        {UINT32_C(0x06020000), kVramBackingBase + BankSize, kVramDWindow1}
+        {UINT32_C(0x06020000), kVramBackingBase + BankSize, kVramDWindow1},
+        {UINT32_C(0x06840000), kVramBackingBase, kVramCLcdcWindow},
+        {UINT32_C(0x06860000), kVramBackingBase + BankSize, kVramDLcdcWindow}
     };
 
     /* Inactive aliases are preallocated; register writes only switch masks. */
@@ -83,22 +93,29 @@ Status NdsVramControl::apply_controls(
 {
     const int c_window = arm7_window_index(control_c);
     const int d_window = arm7_window_index(control_d);
-    const auto access_for = [](int selected, int window) noexcept {
+    const auto arm7_access_for = [](int selected, int window) noexcept {
         return selected == window
             ? static_cast<uint8_t>(CpuAccessArm7)
             : static_cast<uint8_t>(CpuAccessNone);
     };
+    const auto lcdc_access_for = [](bool enabled) noexcept {
+        return enabled
+            ? static_cast<uint8_t>(CpuAccessArm9)
+            : static_cast<uint8_t>(CpuAccessNone);
+    };
 
-    const std::array<GuestMemory::CpuAccessUpdate, 4> updates{{
-        {kVramCWindow0, access_for(c_window, 0)},
-        {kVramCWindow1, access_for(c_window, 1)},
-        {kVramDWindow0, access_for(d_window, 0)},
-        {kVramDWindow1, access_for(d_window, 1)}
+    const std::array<GuestMemory::CpuAccessUpdate, 6> updates{{
+        {kVramCWindow0, arm7_access_for(c_window, 0)},
+        {kVramCWindow1, arm7_access_for(c_window, 1)},
+        {kVramDWindow0, arm7_access_for(d_window, 0)},
+        {kVramDWindow1, arm7_access_for(d_window, 1)},
+        {kVramCLcdcWindow, lcdc_access_for(lcdc_enabled(control_c))},
+        {kVramDLcdcWindow, lcdc_access_for(lcdc_enabled(control_d))}
     }};
 
     /*
-     * Validate all four windows before mutation. If C and D target the same
-     * 128KB slot, reject the write and preserve the previous complete mapping.
+     * Validate all six aliases before mutation. If C and D target the same
+     * ARM7 128KB slot, reject the write and preserve the previous mapping.
      */
     return memory_.update_cpu_access(updates.data(), updates.size());
 }
