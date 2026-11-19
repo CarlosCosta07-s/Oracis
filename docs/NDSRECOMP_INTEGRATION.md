@@ -161,9 +161,9 @@ O extrator só aceita a identidade de ROM documentada e grava os segmentos e met
 
 Quando `ORACIS_LOCAL_BANK_DIR` aponta para os bancos locais, o CMake compila os corpos e tabelas de dispatch como objetos e liga-os ao runtime. Na inicialização, o host pode registrar as tabelas por meio de `oracis_host_runtime_register_compiled_banks()`. O smoke test da CI valida essa ligação e o ciclo de registro/remoção com fixtures sintéticas.
 
-A ponte agora oferece `oracis_host_runtime_load_local_platinum_segments(directory)`. Quando `directory` é nulo, a função usa `.oracis/local/pokemon-platinum-usa-rev1`; lê `arm9.bin` e `arm7.bin`; exige os tamanhos, endereços de carga, entry points e SHA-1 esperados para USA Rev 1; rejeita arquivo ausente, truncado, maior ou com hash divergente; e só chama o carregamento de segmentos em memória depois da validação integral dos dois arquivos. A falha de validação ocorre antes de qualquer escrita na máquina.
+A ponte oferece `oracis_host_runtime_load_local_platinum_segments(directory)`. Quando `directory` é nulo, a função usa `.oracis/local/pokemon-platinum-usa-rev1`; lê `arm9.bin` e `arm7.bin`; exige os tamanhos, endereços de carga, entry points e SHA-1 esperados para USA Rev 1; rejeita arquivo ausente, truncado, maior ou com hash divergente; e só chama o carregamento de segmentos em memória depois da validação integral dos dois arquivos. A falha de validação ocorre antes de qualquer escrita na máquina.
 
-O carregador é uma API disponível para o host, mas o host SDL3 **ainda não a chama automaticamente**. Ele também não chama `oracis_host_runtime_run_round()`; carregar imagens e registrar bancos não substitui a implementação dos serviços de runtime ou o provider arquitetural de IRQ.
+Quando bancos estáticos estão ligados, o host SDL3 desktop chama essa API durante a inicialização. Se os arquivos não existirem, informa que continuará em modo de protótipo; se um arquivo existir mas for inválido, falha de modo explícito. No Android, a seleção de arquivo e a resolução do diretório privado ainda não estão integradas. Em nenhuma das plataformas o host chama `oracis_host_runtime_run_round()` nesta etapa: carregar imagens e registrar bancos não substitui a implementação dos serviços de runtime ou o provider arquitetural de IRQ.
 
 ## 11. Próximos marcos técnicos
 
@@ -171,7 +171,7 @@ O carregador é uma API disponível para o host, mas o host SDL3 **ainda não a 
 2. Compilar os bancos reais e inventariar símbolos indefinidos, helpers esperados, dependências e overlays/cópias de código.
 3. Implementar somente os serviços efetivamente exigidos pelos bancos, com contratos e testes próprios: ciclos, bus, exceções/CP15, IRQ, DMA, IPC, BIOS/NitroSDK e código dinâmico.
 4. Implementar e testar o provider arquitetural de IRQ, incluindo LR correto, modo ARM/Thumb e base vetorial CP15.
-5. Ligar no host SDL3 o registro dos bancos e a chamada ao carregador local somente depois da validação da extração real; manter a execução bloqueada até os serviços e o provider IRQ estarem completos.
-6. Iniciar rounds somente quando ambos os bancos e imagens estiverem validados e os caminhos de dispatch/IRQ exigidos estiverem prontos.
+5. Executar e auditar o caminho de inicialização desktop com a extração real; confirmar que os bancos estáticos compilados e os segmentos carregados pertencem à mesma revisão, e implementar a seleção segura de arquivo/diretório local no Android.
+6. Iniciar rounds somente quando ambos os bancos e imagens estiverem validados e os caminhos de dispatch, serviços e IRQ exigidos estiverem prontos.
 
 O critério de primeiro boot nativo continua sendo a execução observável e reproduzível dos dois cores até a apresentação do primeiro quadro, sem interpretador ARM genérico e sem componentes de runtime derivados de melonDS.
