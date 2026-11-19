@@ -146,6 +146,32 @@ RegisterBankStatus StaticDispatchRegistry::register_bank(
     return RegisterBankStatus::Ok;
 }
 
+bool StaticDispatchRegistry::unregister_bank(
+    NdsCpu cpu,
+    const NdsDispatchEntry *table,
+    std::size_t length) noexcept
+{
+    if (!valid_cpu(cpu) || table == nullptr || length == 0u) return false;
+
+    std::vector<Bank> &banks =
+        cpu == NDS_ARM9 ? arm9_banks_ : arm7_banks_;
+    const auto found = std::find_if(
+        banks.begin(), banks.end(),
+        [table, length](const Bank &bank) {
+            return bank.table == table && bank.length == length;
+        });
+    if (found == banks.end()) return false;
+
+    banks.erase(found);
+    return true;
+}
+
+void StaticDispatchRegistry::clear() noexcept
+{
+    arm9_banks_.clear();
+    arm7_banks_.clear();
+}
+
 DispatchLookupResult StaticDispatchRegistry::lookup(
     NdsCpu cpu,
     uint32_t target_pc,
