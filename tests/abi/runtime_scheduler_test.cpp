@@ -6,20 +6,6 @@
 
 namespace {
 
-struct CycleObservation {
-    NdsCpu last_cpu = NDS_ARM9;
-    uint64_t total_cycles = 0u;
-    uint32_t calls = 0u;
-};
-
-void record_cycle_observation(NdsCpu cpu, uint32_t cycles, void *user)
-{
-    auto *observation = static_cast<CycleObservation *>(user);
-    observation->last_cpu = cpu;
-    observation->total_cycles += cycles;
-    ++observation->calls;
-}
-
 int fail(const char *message)
 {
     std::fprintf(stderr, "runtime_scheduler_test: %s\n", message);
@@ -37,29 +23,6 @@ int main()
     if (!oracis_arm_runtime_bind_cpus(&arm9, &arm7))
         return fail("CPU bind failed");
 
-    oracis_scheduler_reset(NDS_ARM9);
-    oracis_scheduler_reset(NDS_ARM7);
-
-    CycleObservation observation{};
-    if (oracis_scheduler_bind_cycle_observer(nullptr, &observation) ||
-        !oracis_scheduler_bind_cycle_observer(record_cycle_observation, &observation) ||
-        oracis_scheduler_bind_cycle_observer(record_cycle_observation, &observation))
-        return fail("cycle observer null/duplicate binding failed");
-    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) return fail("ARM9 select failed");
-    runtime_tick(3u);
-    if (observation.calls != 1u || observation.last_cpu != NDS_ARM9 ||
-        observation.total_cycles != 3u) return fail("ARM9 observer tick failed");
-    if (!oracis_arm_runtime_select_cpu(NDS_ARM7)) return fail("ARM7 select failed");
-    runtime_tick(5u);
-    if (observation.calls != 2u || observation.last_cpu != NDS_ARM7 ||
-        observation.total_cycles != 8u) return fail("ARM7 observer tick failed");
-    if (!oracis_scheduler_unbind_cycle_observer(record_cycle_observation, &observation) ||
-        oracis_scheduler_unbind_cycle_observer(record_cycle_observation, &observation))
-        return fail("observer unbind identity failed");
-    runtime_tick(7u);
-    if (observation.calls != 2u || observation.total_cycles != 8u)
-        return fail("unbound observer still invoked");
-    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) return fail("ARM9 reselection failed");
     oracis_scheduler_reset(NDS_ARM9);
     oracis_scheduler_reset(NDS_ARM7);
 

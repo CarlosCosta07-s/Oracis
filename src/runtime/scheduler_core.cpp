@@ -18,9 +18,6 @@ struct CpuSliceState {
 };
 
 std::array<CpuSliceState, 2> g_cpu_slice{};
-OracisSchedulerCycleObserver g_cycle_observer = nullptr;
-void *g_cycle_observer_user = nullptr;
-
 bool valid_cpu(NdsCpu cpu) noexcept
 {
     return cpu == NDS_ARM9 || cpu == NDS_ARM7;
@@ -59,27 +56,6 @@ bool should_yield(const CpuSliceState &state) noexcept
 }
 
 } // namespace
-
-extern "C" int oracis_scheduler_bind_cycle_observer(
-    OracisSchedulerCycleObserver observer,
-    void *user)
-{
-    if (observer == nullptr || g_cycle_observer != nullptr) return 0;
-    g_cycle_observer = observer;
-    g_cycle_observer_user = user;
-    return 1;
-}
-
-extern "C" int oracis_scheduler_unbind_cycle_observer(
-    OracisSchedulerCycleObserver observer,
-    void *user)
-{
-    if (observer == nullptr || g_cycle_observer != observer ||
-        g_cycle_observer_user != user) return 0;
-    g_cycle_observer = nullptr;
-    g_cycle_observer_user = nullptr;
-    return 1;
-}
 
 extern "C" int oracis_scheduler_begin_slice(
     NdsCpu cpu,
@@ -145,10 +121,6 @@ extern "C" void runtime_tick(uint32_t cycles)
     }
 
     state.cycles += cycles;
-
-    if (g_cycle_observer != nullptr && cycles != 0u) {
-        g_cycle_observer(g_nds_active, cycles, g_cycle_observer_user);
-    }
 
     if (state.slice_active && state.cycles >= state.deadline) {
         state.yield_requested = true;
