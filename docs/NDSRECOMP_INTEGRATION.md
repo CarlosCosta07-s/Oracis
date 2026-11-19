@@ -15,7 +15,10 @@ A integração será feita por um checkout de desenvolvimento externo, fora da �
 1. baixa ou verifica o checkout na revisão fixada;
 2. inicializa somente o submódulo `external/arm-recomp-core`;
 3. configura somente o diretório `recompiler/`;
-4. compila somente o alvo `nds_recompile`.
+4. compila `nds_recompile` e alvos de teste independentes do recompilador/núcleo ARM;
+5. executa os testes do decodificador ARMv5TE, ciclo do núcleo, relocação, manifesto HLE, emissão, output errors e transferências.
+
+O teste `live_shard_identity_test` fica fora porque depende de `runner/tests/` e `tools/compile_live_shards.py`, não incluídos no sparse checkout.
 
 O bootstrap configura um **sparse checkout** que materializa somente `recompiler/`, `cmake/` e `external/arm-recomp-core/`. Os diretórios `runner/` e `oracle/` não são materializados nesse checkout. Em seguida, o CMake é apontado apenas para `recompiler/` e compila somente o alvo `nds_recompile`.
 
