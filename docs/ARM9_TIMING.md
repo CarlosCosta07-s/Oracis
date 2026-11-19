@@ -51,7 +51,7 @@ O ARM7TDMI refaz o pipeline por dois fetches sequenciais após a instrução de 
 | WRAM, BIOS, I/O, OAM | 2 | 2 |
 | VRAM C/D atribuída como Work RAM ARM7 | 4 | 2 |
 
-Os custos por fetch vêm da tabela NDS7/CODE: Main RAM S32=2/S16=1; WRAM/BIOS/I/O/OAM S32=S16=1; VRAM S32=2/S16=1. A Palette RAM (`0x05000000`) não faz parte do mapa ARM7. Somente VRAM C/D podem ser atribuídas ao ARM7 como Work RAM, cada banco com 128 KB no intervalo potencial `0x06000000–0x0603FFFF`. O helper classifica apenas essa janela potencial; a visibilidade efetiva depende de VRAMCNT_C/VRAMCNT_D e ainda precisa ser imposta pelo controlador de memória. Cada fetch é classificado isoladamente, inclusive ao cruzar fronteiras, e endereços fora dessa janela falham fechado. Wi-Fi e Gamecard continuam sem suporte por dependerem de wait states configuráveis.
+Os custos por fetch vêm da tabela NDS7/CODE: Main RAM S32=2/S16=1; WRAM/BIOS/I/O/OAM S32=S16=1; VRAM S32=2/S16=1. A Palette RAM (`0x05000000`) não faz parte do mapa ARM7. Somente VRAM C/D podem ser atribuídas ao ARM7 como Work RAM, cada banco com 128 KB no intervalo `0x06000000–0x0603FFFF`. `NdsVramControl` aplica a visibilidade real: `VRAMCNT_C/D` precisam ter enable=1 e MST=2; OFS.0 seleciona `0x06000000` ou `0x06020000`, enquanto OFS.1 não é mapeado. `VRAMSTAT` informa enable+MST e não reflete OFS. Os quatro aliases pré-instalados têm máscaras de acesso ARM7 atualizadas pelo controlador; se C e D disputarem o mesmo slot, a escrita é rejeitada e o mapeamento anterior é preservado. O helper de timing classifica a faixa potencial, mas a leitura/escrita só é possível quando o controlador habilita o alias. Cada fetch é classificado isoladamente, inclusive ao cruzar fronteiras, e endereços fora dessa janela falham fechado. Wi-Fi e Gamecard continuam sem suporte por dependerem de wait states configuráveis.
 
 ## Timing de acesso a dados
 
@@ -86,7 +86,7 @@ Sem acesso a dados, o helper substitui o 1S embutido no custo-base pelo fetch S 
 - Somente CODE Main RAM: aplica o ajuste CDI em `num_data` e usa a mesma regra de sobreposição.
 - Nenhum lado em Main RAM: soma CODE + DATA e acrescenta um ciclo para instruções de leitura.
 
-As classes de CODE aceitas são Main RAM, BIOS ARM7, WRAM, os primeiros 4 KB de I/O, OAM e a janela potencial de VRAM C/D atribuída como Work RAM. Palette RAM, Gamecard, Wi-Fi e endereços não modelados continuam fail-closed. A janela C/D ainda precisa de validação do mapeamento por VRAMCNT no controlador de memória.
+As classes de CODE aceitas são Main RAM, BIOS ARM7, WRAM, os primeiros 4 KB de I/O, OAM e a faixa de VRAM C/D atribuída como Work RAM. Para esta última, `NdsVramControl` valida enable+MST=2 e OFS=0/1 antes de tornar o alias visível ao ARM7; colisões de C/D no mesmo slot são rejeitadas de forma transacional. Palette RAM, Gamecard, Wi-Fi e endereços não modelados continuam fail-closed. O controlador ainda não implementa destinos VRAM gráficos nem bancos A/B.
 
 ## Multiply ARM7TDMI
 
