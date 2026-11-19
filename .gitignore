@@ -36,3 +36,7 @@ Thumbs.db
 /cache/
 /userdata/
 /extracted/
+
+# Oracis local tool checkouts, extracted binaries, and generated banks
+/.oracis/
+/generated/
