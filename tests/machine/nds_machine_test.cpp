@@ -3,6 +3,7 @@
 #include "oracis/memory/guest_memory_abi.h"
 #include "oracis/recomp/runtime_arm.h"
 #include "oracis/recomp/runtime_scheduler.h"
+#include "oracis/recomp/static_dispatch_abi.h"
 
 #include <cstdint>
 #include <cstdio>
