@@ -43,6 +43,22 @@ def git(source: Path, *args: str) -> str:
     return run(["git", "-C", str(source), *args])
 
 
+def ignore_generated_toml_header(source: Path) -> None:
+    """Keep NDSRecomp's downloaded toml++ staging header out of Git status."""
+    exclude_value = git(source, "rev-parse", "--git-path", "info/exclude")
+    exclude_path = Path(exclude_value)
+    if not exclude_path.is_absolute():
+        exclude_path = source / exclude_path
+    exclude_path.parent.mkdir(parents=True, exist_ok=True)
+    current = exclude_path.read_text(encoding="utf-8") if exclude_path.exists() else ""
+    pattern = "/recompiler/third_party/"
+    if pattern not in current.splitlines():
+        with exclude_path.open("a", encoding="utf-8", newline="\\n") as stream:
+            if current and not current.endswith("\\n"):
+                stream.write("\\n")
+            stream.write(pattern + "\\n")
+
+
 def configure_sparse_checkout(source: Path) -> None:
     git(source, "sparse-checkout", "init", "--cone")
     git(
@@ -167,6 +183,7 @@ def main() -> int:
     build_dir = args.build_dir.expanduser().resolve()
 
     ensure_checkout(source)
+    ignore_generated_toml_header(source)
     build_dir.mkdir(parents=True, exist_ok=True)
 
     # Configure only recompiler/. The sparse checkout has no runner/, oracle/,
