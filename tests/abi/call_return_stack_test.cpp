@@ -91,11 +91,13 @@ int main()
     }
     const uint32_t replacement[] = {0x02008000u, 0x02009001u};
     runtime_call_stack_restore(replacement, 2u);
+    arm9.cpsr |= CPSR_T_BIT;
     if (runtime_call_stack_depth() != 2u ||
         !runtime_call_should_return(0x02009001u) ||
         runtime_call_stack_depth() != 1u) {
         return fail("restored Thumb return did not match the top frame");
     }
+    arm9.cpsr &= ~CPSR_T_BIT;
     if (!runtime_call_should_return(0x02008000u) ||
         runtime_call_stack_depth() != 0u) {
         return fail("restored outer frame did not match after the inner return");
