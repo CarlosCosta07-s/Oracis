@@ -139,4 +139,3 @@ jobs:
 
       - name: Build Android native library
         run: cmake --build build-android --parallel
- --output-on-failure
