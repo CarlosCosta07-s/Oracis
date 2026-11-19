@@ -63,6 +63,8 @@ O runtime C++ implementa wrappers C para:
 | `runtime_msr_cpsr/spsr` | Escrita por máscara de campos e validação de privilégio |
 | `runtime_restore_cpsr_from_spsr` | Restauração do PSR salvo |
 | `runtime_exception_return` | Restauração de SPSR, bancos e PC |
+| `runtime_read_user_reg` / `runtime_write_user_reg` | Acesso à visão User de R0–R15, incluindo bancos FIQ e SP/LR privilegiados |
+| `runtime_clz` | Contagem de zeros à esquerda em 32 bits (zero retorna 32) |
 | `runtime_unimplemented_op` | Diagnóstico e encerramento fail-closed |
 
 O código gerado pelo perfil ARMv5TE atual expande os shifts de operand2 inline, cobrindo as formas imediatas e por registrador e os casos especiais de LSR/ASR #0 e ROR #0 (RRX). Por isso, não adicionamos uma segunda implementação de shifter ao runtime. A compatibilidade com bancos antigos que chamem símbolos `arm_shift_*` ainda não é uma meta do primeiro pipeline.
@@ -134,8 +136,8 @@ Também ficam fora da integração:
 
 ## 10. Testes registrados
 
-O CMake registra dezesseis testes C99/C++20 para o runtime e ABI. A lista inclui memória, identidade/proveniência, layout ARM, CPSR/SPSR, exceções, flags, registry ranking/misses, ponte de dispatch C/C++ e especialização estática ARM9/ARM7. A execução de todos os quinze testes para o estado atual ainda não foi confirmada:
-Os dezesseis alvos registrados são: RAM guest; ponte C bus_* e validação por GuestMemory; layouts ABI C99/C++20; bancos ARM e modos; CPSR/SPSR; exceções; flags; registry de dispatch; runtime dispatch C++ e ABI dispatch C99; pilha de retorno guest; ponte ARM9/ARM7 C/C++; especialização estática ARM9 e ARM7.
+O CMake registra dezessete testes C99/C++20 para o runtime e ABI. A lista inclui memória, identidade/proveniência, layout ARM, CPSR/SPSR, exceções, flags, registry ranking/misses, ponte de dispatch C/C++ e especialização estática ARM9/ARM7. A execução de todos os quinze testes para o estado atual ainda não foi confirmada:
+Os dezessete alvos registrados são: RAM guest; ponte C bus_* e validação por GuestMemory; layouts ABI C99/C++20; bancos ARM e modos; CPSR/SPSR; exceções; flags; acesso ao User bank e CLZ; registry de dispatch; runtime dispatch C++ e ABI dispatch C99; pilha de retorno guest; ponte ARM9/ARM7 C/C++; especialização estática ARM9 e ARM7.
 
 Não há status check atual confirmado para o último commit; portanto, não declarar esses quinze testes como aprovados. O CMake também inclui as bibliotecas de produto independentemente de `BUILD_TESTING`, mas o build completo com SDL3 e a ligação de bancos NDSRecomp continuam pendentes.
 
