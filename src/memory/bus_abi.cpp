@@ -282,6 +282,14 @@ extern "C" int oracis_bus_report_cpu_cycles(
         oracis::memory::NdsClockStatus::Ok ? 1 : 0;
 }
 
+extern "C" int oracis_bus_report_idle_bus_cycles(
+    NdsCpu cpu, uint64_t elapsed_bus_cycles)
+{
+    if (g_system_clock == nullptr) return 0;
+    return g_system_clock->report_idle_bus_cycles(cpu, elapsed_bus_cycles) ==
+        oracis::memory::NdsClockStatus::Ok ? 1 : 0;
+}
+
 extern "C" uint64_t oracis_bus_global_bus_cycles(void)
 {
     return g_system_clock != nullptr

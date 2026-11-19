@@ -36,6 +36,7 @@ int oracis_bus_unbind_system_clock(void *clock);
 
 /* Report cumulative emulated core cycles; call at CPU slice boundaries. */
 int oracis_bus_report_cpu_cycles(NdsCpu cpu, uint64_t cumulative_cycles);
+int oracis_bus_report_idle_bus_cycles(NdsCpu cpu, uint64_t elapsed_bus_cycles);
 uint64_t oracis_bus_global_bus_cycles(void);
 
 /* Bind a live NdsKeypadControl after its matching memory and interrupt controller. */

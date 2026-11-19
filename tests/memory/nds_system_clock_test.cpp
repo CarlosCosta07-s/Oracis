@@ -131,6 +131,47 @@ int main()
         return fail("cumulative CPU cycle watermarks were not retained");
     }
 
+    /*
+     * ARM9 runs ahead while ARM7 is idle. Explicitly reporting three elapsed
+     * bus ticks for ARM7 catches its clock watermark up without inventing
+     * instruction executions.
+     */
+    if (clock.report_cpu_cycles(NDS_ARM9, 10u) != NdsClockStatus::Ok ||
+        clock.global_bus_cycles() != 2u ||
+        !oracis_bus_report_idle_bus_cycles(NDS_ARM7, 3u) ||
+        clock.global_bus_cycles() != 5u ||
+        clock.cpu_cycle_count(NDS_ARM7) != 5u ||
+        timers.read(
+            NDS_ARM9, NdsTimerControl::Timer0CounterAddress, 2u).value !=
+            0xFFFFu ||
+        timers.read(
+            NDS_ARM7, NdsTimerControl::Timer0CounterAddress, 2u).value !=
+            0xFFFFu) {
+        return fail("ARM7 idle bus-time report did not synchronize the global clock");
+    }
+
+    /* The same facility accounts for ARM9 idle time at its 2:1 clock ratio. */
+    if (clock.report_cpu_cycles(NDS_ARM7, 7u) != NdsClockStatus::Ok ||
+        clock.global_bus_cycles() != 5u ||
+        clock.report_idle_bus_cycles(NDS_ARM9, 1u) != NdsClockStatus::Ok ||
+        clock.global_bus_cycles() != 6u ||
+        clock.cpu_cycle_count(NDS_ARM9) != 12u ||
+        timers.read(
+            NDS_ARM9, NdsTimerControl::Timer0CounterAddress, 2u).value !=
+            0xFFFEu ||
+        timers.read(
+            NDS_ARM7, NdsTimerControl::Timer0CounterAddress, 2u).value !=
+            0xFFFEu) {
+        return fail("ARM9 idle bus-time report did not use the 2:1 clock ratio");
+    }
+
+    if (clock.report_idle_bus_cycles(
+            NDS_ARM7, std::numeric_limits<uint64_t>::max()) !=
+            NdsClockStatus::TimeOverflow ||
+        clock.global_bus_cycles() != 6u) {
+        return fail("overflowing idle-time report changed the global clock");
+    }
+
     if (!oracis_bus_unbind_system_clock(&clock) ||
         !oracis_bus_unbind_timer_control(&timers) ||
         !oracis_bus_unbind_interrupt_control(&interrupts) ||

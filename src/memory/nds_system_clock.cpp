@@ -65,6 +65,36 @@ NdsClockStatus NdsSystemClock::report_cpu_cycles(
     return NdsClockStatus::Ok;
 }
 
+NdsClockStatus NdsSystemClock::report_idle_bus_cycles(
+    NdsCpu cpu, uint64_t elapsed_bus_cycles) noexcept
+{
+    if (!valid_cpu(cpu)) return NdsClockStatus::InvalidCpu;
+
+    const uint64_t core_cycles_per_bus_cycle =
+        cpu == NDS_ARM9 ? UINT64_C(2) : UINT64_C(1);
+    if (elapsed_bus_cycles >
+        std::numeric_limits<uint64_t>::max() /
+            core_cycles_per_bus_cycle) {
+        return NdsClockStatus::TimeOverflow;
+    }
+
+    const uint64_t elapsed_core_cycles =
+        elapsed_bus_cycles * core_cycles_per_bus_cycle;
+    const unsigned index = cpu_index(cpu);
+    if (elapsed_core_cycles >
+        std::numeric_limits<uint64_t>::max() - cpu_cycles_[index]) {
+        return NdsClockStatus::TimeOverflow;
+    }
+
+    /*
+     * This does not synthesize guest instructions. The caller explicitly
+     * reports elapsed bus time for a CPU whose execution is idle while its
+     * clock domain continues to run.
+     */
+    return report_cpu_cycles(
+        cpu, cpu_cycles_[index] + elapsed_core_cycles);
+}
+
 uint64_t NdsSystemClock::cpu_cycle_count(NdsCpu cpu) const noexcept
 {
     if (!valid_cpu(cpu)) return 0u;

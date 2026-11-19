@@ -102,7 +102,7 @@ Os acessos ao KEYINPUT/KEYCNT são de 16 bits; larguras não suportadas e escrit
 
 A API `report_cpu_cycles(cpu, total)` recebe contadores cumulativos e monotônicos, não deltas. A cada atualização, `NdsSystemClock` chama `NdsTimerControl::advance_bus_cycles(delta)` uma única vez para o intervalo global recém-concluído. Relatórios repetidos não avançam o tempo; regressão, CPU inválida e overflow são rejeitados. A fração de meio ciclo é preservada entre relatórios.
 
-A ponte C oferece `oracis_bus_bind_system_clock()`, `oracis_bus_report_cpu_cycles(cpu, total)` e `oracis_bus_global_bus_cycles()`. O relógio deve ser conectado depois do controlador de timers. O driver de máquina deve reportar ambos os contadores no mesmo epoch, preferencialmente nas fronteiras das fatias cooperativas. Se uma CPU estiver ociosa/pausada enquanto a outra avança, o driver deverá reportar também seu progresso temporal virtual; essa política ainda não está integrada ao loop host. A contabilização atual usa ciclos core fornecidos pelo scheduler e não inclui ainda todas as esperas de memória/barramento.
+A ponte C oferece `oracis_bus_bind_system_clock()`, `oracis_bus_report_cpu_cycles(cpu, total)`, `oracis_bus_report_idle_bus_cycles(cpu, bus_ticks)` e `oracis_bus_global_bus_cycles()`. O relógio deve ser conectado depois do controlador de timers. O driver de máquina reporta contadores cumulativos de ciclos core nas fronteiras das fatias. Quando uma CPU não está executando, mas seu domínio de clock continua ativo, o driver pode reportar o tempo de barramento transcorrido por ela por `report_idle_bus_cycles`; a seleção dos modos HALT/STOP e a chamada dessas APIs ainda não estão integradas ao loop host. A contabilização atual usa ciclos core fornecidos pelo scheduler e não inclui ainda todas as esperas de memória/barramento.
 
 ### Temporizadores ARM9/ARM7
 
@@ -145,6 +145,7 @@ Implementação: `src/memory/guest_memory.cpp`
 - `NdsSystemClock::global_bus_cycles()`: consulta o tempo periférico global já comprometido.
 - `oracis_bus_bind_system_clock()` / `oracis_bus_unbind_system_clock()`: conecta o relógio global após o controlador de timers.
 - `oracis_bus_report_cpu_cycles(cpu, total)`: reporta o contador cumulativo de uma CPU ao relógio conectado; rejeita regressões/overflow e não soma tempos locais.
+- `NdsSystemClock::report_idle_bus_cycles(cpu, ticks)` / `oracis_bus_report_idle_bus_cycles(cpu, ticks)`: adiciona tempo de barramento explicitamente transcorrido para uma CPU que não está executando instruções mas cujo clock permanece ativo; converte pela razão 2:1 e preserva o watermark comum.
 - `oracis_bus_global_bus_cycles()`: consulta os ciclos de barramento globais já avançados.
 - `NdsKeypadControl::read/write(cpu, address, width, value)`: implementa KEYINPUT e KEYCNT, com KEYINPUT físico compartilhado e KEYCNT/condição de IRQ separados por CPU.
 - `NdsKeypadControl::set_pressed_keys(mask)`: atualiza os dez botões físicos e solicita IRQ bit 12 quando a condição KEYCNT habilitada se torna ativa.
@@ -192,7 +193,7 @@ Ainda não são regiões GuestMemory funcionais:
 - VRAM, paletas, OAM e VRAM usada como WRAM;
 - Wi-Fi RAM/registradores;
 - GBA slot e Game Card;
-- ligação do driver de fatias ao `NdsSystemClock`, incluindo avanço temporal virtual de CPU ociosa e accounting de wait states; DMA, IPC, PPU e ordenação geral de eventos;
+- ligação do driver de fatias ao `NdsSystemClock` e seleção correta dos modos HALT/STOP para reportar progresso ocioso; accounting de wait states, DMA, IPC, PPU e ordenação geral de eventos;
 - wait states, prioridades de barramento e penalidades de contenção Main RAM.
 
 O runtime mantém contadores cumulativos locais via `runtime_tick`; `NdsSystemClock` converte esses contadores quando o driver os reporta, usando o watermark comum ARM9/ARM7. O driver ainda não faz esses relatórios automaticamente, e os modelos de `runtime_mem_cycles`/`runtime_code_cycles` não representam todo o hardware NDS.

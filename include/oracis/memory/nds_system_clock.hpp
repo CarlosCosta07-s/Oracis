@@ -39,6 +39,10 @@ public:
     NdsClockStatus report_cpu_cycles(
         NdsCpu cpu, uint64_t cumulative_cycles) noexcept;
 
+    /* Advance a non-executing CPU by explicitly elapsed peripheral bus ticks. */
+    NdsClockStatus report_idle_bus_cycles(
+        NdsCpu cpu, uint64_t elapsed_bus_cycles) noexcept;
+
     uint64_t cpu_cycle_count(NdsCpu cpu) const noexcept;
     uint64_t global_bus_cycles() const noexcept { return global_bus_cycles_; }
 
