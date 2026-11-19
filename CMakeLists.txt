@@ -78,6 +78,7 @@ add_library(oracis_arm_state STATIC
     src/runtime/static_dispatch_abi.cpp
     src/runtime/call_return_stack.cpp
     src/runtime/scheduler_core.cpp
+    src/runtime/runtime_event_trace.cpp
     src/runtime/cycle_accounting.cpp
 )
 target_link_libraries(oracis_arm_state PUBLIC oracis_generated_bank_abi)
@@ -327,6 +328,20 @@ if(BUILD_TESTING)
     )
     target_link_libraries(oracis_runtime_scheduler_test PRIVATE oracis_arm_state)
     add_test(NAME oracis_runtime_scheduler_test COMMAND oracis_runtime_scheduler_test)
+
+    add_executable(oracis_runtime_event_trace_test
+        tests/abi/runtime_event_trace_test.cpp
+    )
+    target_link_libraries(oracis_runtime_event_trace_test PRIVATE oracis_arm_state)
+    add_test(NAME oracis_runtime_event_trace_test COMMAND oracis_runtime_event_trace_test)
+
+    add_executable(oracis_runtime_event_trace_c_test
+        tests/abi/runtime_event_trace_c_test.c
+    )
+    target_link_libraries(oracis_runtime_event_trace_c_test PRIVATE oracis_arm_state)
+    target_compile_features(oracis_runtime_event_trace_c_test PRIVATE c_std_99)
+    set_target_properties(oracis_runtime_event_trace_c_test PROPERTIES LINKER_LANGUAGE CXX)
+    add_test(NAME oracis_runtime_event_trace_c_test COMMAND oracis_runtime_event_trace_c_test)
 
     add_executable(oracis_static_dispatch_test
         tests/abi/static_dispatch_test.cpp

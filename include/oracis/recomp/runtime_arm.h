@@ -14,6 +14,7 @@
 #include "arm_cpu_state.h"
 #include "arm_cpu_state_ops.h"
 #include "arm_flags.h"
+#include "runtime_event_trace.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -174,6 +175,7 @@ ORACIS_BANK_ABI_ASSERT(oracis_link_slot_guard_offset, offsetof(NdsLinkSlot, guar
 #define RUNTIME_TRACE_IRQ       6u
 #define RUNTIME_TRACE_CALL      7u
 #define RUNTIME_TRACE_MEM_READ  8u
+#define RUNTIME_TRACE_LIVE_TRANSFER 9u
 
 #define NDS_LIVE_TRANSFER_B         1u
 #define NDS_LIVE_TRANSFER_BL        2u
