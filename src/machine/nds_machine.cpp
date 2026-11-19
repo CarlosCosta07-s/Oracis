@@ -562,6 +562,7 @@ NdsMachineStatus NdsMachine::run_dual_core_round(
             return NdsMachineStatus::IrqContextFailed;
         }
         if (!supplied) return NdsMachineStatus::IrqContextFailed;
+        (void)legacy_vector_base; /* Retained only for callback ABI compatibility. */
 
         /* Do not trust a host guess: select from the modeled CPU CP15 state. */
         const uint32_t vector_base = exception_vector_base(cpu);
