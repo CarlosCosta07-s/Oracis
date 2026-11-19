@@ -77,6 +77,7 @@ if(BUILD_TESTING)
     add_library(oracis_arm_state STATIC
         src/runtime/arm_cpu_state_ops.cpp
         src/runtime/arm_psr_ops.cpp
+        src/runtime/arm_exception_ops.cpp
     )
     target_include_directories(oracis_arm_state PUBLIC include)
     target_compile_features(oracis_arm_state PUBLIC cxx_std_20)
@@ -92,4 +93,10 @@ if(BUILD_TESTING)
     )
     target_link_libraries(oracis_arm_psr_ops_test PRIVATE oracis_arm_state)
     add_test(NAME oracis_arm_psr_ops_test COMMAND oracis_arm_psr_ops_test)
+
+    add_executable(oracis_arm_exception_ops_test
+        tests/abi/arm_exception_ops_test.cpp
+    )
+    target_link_libraries(oracis_arm_exception_ops_test PRIVATE oracis_arm_state)
+    add_test(NAME oracis_arm_exception_ops_test COMMAND oracis_arm_exception_ops_test)
 endif()
