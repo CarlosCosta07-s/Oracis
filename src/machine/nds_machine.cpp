@@ -1,0 +1,234 @@
+#include "oracis/machine/nds_machine.hpp"
+
+#include "oracis/memory/guest_memory_abi.h"
+#include "oracis/recomp/runtime_arm.h"
+#include "oracis/recomp/runtime_scheduler.h"
+
+#include <exception>
+
+namespace oracis::machine {
+
+NdsMachine::NdsMachine(memory::SharedWramMode initial_wram_mode) noexcept
+    : wram_control_(memory_, initial_wram_mode),
+      interrupt_control_(memory_),
+      timer_control_(memory_, interrupt_control_),
+      keypad_control_(memory_, interrupt_control_),
+      system_clock_(timer_control_)
+{
+}
+
+NdsMachine::~NdsMachine()
+{
+    /*
+     * A failed unbind would leave process-global ABI pointers referencing
+     * members that are about to be destroyed. Terminate rather than permit a
+     * silent use-after-free; callers should shut down at a safe machine stop.
+     */
+    if (shutdown() != NdsMachineStatus::Ok) {
+        std::terminate();
+    }
+}
+
+bool NdsMachine::valid_cpu(NdsCpu cpu) noexcept
+{
+    return cpu == NDS_ARM9 || cpu == NDS_ARM7;
+}
+
+unsigned NdsMachine::cpu_index(NdsCpu cpu) noexcept
+{
+    return cpu == NDS_ARM9 ? 0u : 1u;
+}
+
+NdsMachineStatus NdsMachine::initialize() noexcept
+{
+    if (initialized_ || wram_control_.installed()) {
+        return NdsMachineStatus::AlreadyInitialized;
+    }
+
+    arm9_state_ = {};
+    arm7_state_ = {};
+    arm9_state_.cpsr = ORACIS_ARM_MODE_SYSTEM;
+    arm7_state_.cpsr = ORACIS_ARM_MODE_SYSTEM;
+
+    if (!oracis_arm_runtime_bind_cpus(&arm9_state_, &arm7_state_)) {
+        return NdsMachineStatus::RuntimeAlreadyBound;
+    }
+    runtime_bound_ = true;
+
+    oracis_scheduler_reset(NDS_ARM9);
+    oracis_scheduler_reset(NDS_ARM7);
+
+    const auto rollback = [this](NdsMachineStatus cause) noexcept {
+        return shutdown() == NdsMachineStatus::Ok
+            ? cause : NdsMachineStatus::ShutdownFailed;
+    };
+
+    if (wram_control_.install() != memory::Status::Ok) {
+        return rollback(NdsMachineStatus::MemoryMapFailed);
+    }
+
+    if (!oracis_bus_bind_memory(&memory_)) {
+        return rollback(NdsMachineStatus::BusBindingFailed);
+    }
+    memory_bound_ = true;
+
+    if (!oracis_bus_bind_wram_control(&wram_control_)) {
+        return rollback(NdsMachineStatus::BusBindingFailed);
+    }
+    wram_bound_ = true;
+
+    if (!oracis_bus_bind_interrupt_control(&interrupt_control_)) {
+        return rollback(NdsMachineStatus::BusBindingFailed);
+    }
+    interrupt_bound_ = true;
+
+    if (!oracis_bus_bind_timer_control(&timer_control_)) {
+        return rollback(NdsMachineStatus::BusBindingFailed);
+    }
+    timer_bound_ = true;
+
+    if (!oracis_bus_bind_keypad_control(&keypad_control_)) {
+        return rollback(NdsMachineStatus::BusBindingFailed);
+    }
+    keypad_bound_ = true;
+
+    if (!oracis_bus_bind_system_clock(&system_clock_)) {
+        return rollback(NdsMachineStatus::BusBindingFailed);
+    }
+    clock_bound_ = true;
+
+    initialized_ = true;
+    return NdsMachineStatus::Ok;
+}
+
+NdsMachineStatus NdsMachine::shutdown() noexcept
+{
+    const bool owns_runtime =
+        runtime_bound_ || memory_bound_ || wram_bound_ ||
+        interrupt_bound_ || timer_bound_ || keypad_bound_ || clock_bound_;
+    if (!owns_runtime && !initialized_) {
+        return NdsMachineStatus::Ok;
+    }
+
+    if (slice_active_[0]) {
+        oracis_scheduler_end_slice(NDS_ARM9);
+        slice_active_[0] = false;
+    }
+    if (slice_active_[1]) {
+        oracis_scheduler_end_slice(NDS_ARM7);
+        slice_active_[1] = false;
+    }
+
+    if (clock_bound_) {
+        if (!oracis_bus_unbind_system_clock(&system_clock_)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        clock_bound_ = false;
+    }
+    if (keypad_bound_) {
+        if (!oracis_bus_unbind_keypad_control(&keypad_control_)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        keypad_bound_ = false;
+    }
+    if (timer_bound_) {
+        if (!oracis_bus_unbind_timer_control(&timer_control_)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        timer_bound_ = false;
+    }
+    if (interrupt_bound_) {
+        if (!oracis_bus_unbind_interrupt_control(&interrupt_control_)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        interrupt_bound_ = false;
+    }
+    if (wram_bound_) {
+        if (!oracis_bus_unbind_wram_control(&wram_control_)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        wram_bound_ = false;
+    }
+    if (memory_bound_) {
+        if (!oracis_bus_unbind_memory(&memory_)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        memory_bound_ = false;
+    }
+    if (runtime_bound_) {
+        if (!oracis_arm_runtime_unbind_cpus(&arm9_state_, &arm7_state_)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        runtime_bound_ = false;
+    }
+
+    oracis_scheduler_reset(NDS_ARM9);
+    oracis_scheduler_reset(NDS_ARM7);
+    system_clock_.reset();
+    initialized_ = false;
+    return NdsMachineStatus::Ok;
+}
+
+NdsMachineStatus NdsMachine::begin_cpu_slice(
+    NdsCpu cpu, uint64_t cycle_budget) noexcept
+{
+    if (!initialized_) return NdsMachineStatus::NotInitialized;
+    if (!valid_cpu(cpu)) return NdsMachineStatus::InvalidCpu;
+
+    const unsigned index = cpu_index(cpu);
+    if (slice_active_[0] || slice_active_[1]) {
+        return NdsMachineStatus::SliceAlreadyActive;
+    }
+    if (!oracis_arm_runtime_select_cpu(cpu) ||
+        !oracis_scheduler_begin_slice(cpu, cycle_budget)) {
+        return NdsMachineStatus::SchedulerFailure;
+    }
+
+    slice_active_[index] = true;
+    return NdsMachineStatus::Ok;
+}
+
+NdsMachineStatus NdsMachine::end_cpu_slice(NdsCpu cpu) noexcept
+{
+    if (!initialized_) return NdsMachineStatus::NotInitialized;
+    if (!valid_cpu(cpu)) return NdsMachineStatus::InvalidCpu;
+
+    const unsigned index = cpu_index(cpu);
+    if (!slice_active_[index]) return NdsMachineStatus::NoActiveSlice;
+
+    oracis_scheduler_end_slice(cpu);
+    slice_active_[index] = false;
+
+    return oracis_bus_report_cpu_cycles(
+        cpu, oracis_scheduler_cycle_count(cpu))
+        ? NdsMachineStatus::Ok
+        : NdsMachineStatus::ClockReportFailed;
+}
+
+NdsMachineStatus NdsMachine::report_idle_bus_cycles(
+    NdsCpu cpu, uint64_t elapsed_bus_cycles) noexcept
+{
+    if (!initialized_) return NdsMachineStatus::NotInitialized;
+    if (!valid_cpu(cpu)) return NdsMachineStatus::InvalidCpu;
+    if (slice_active_[0] || slice_active_[1]) {
+        return NdsMachineStatus::SliceAlreadyActive;
+    }
+
+    return oracis_bus_report_idle_bus_cycles(cpu, elapsed_bus_cycles)
+        ? NdsMachineStatus::Ok
+        : NdsMachineStatus::ClockReportFailed;
+}
+
+ArmCpuState *NdsMachine::cpu_state(NdsCpu cpu) noexcept
+{
+    if (!valid_cpu(cpu)) return nullptr;
+    return cpu == NDS_ARM9 ? &arm9_state_ : &arm7_state_;
+}
+
+const ArmCpuState *NdsMachine::cpu_state(NdsCpu cpu) const noexcept
+{
+    if (!valid_cpu(cpu)) return nullptr;
+    return cpu == NDS_ARM9 ? &arm9_state_ : &arm7_state_;
+}
+
+} // namespace oracis::machine

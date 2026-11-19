@@ -96,11 +96,17 @@ target_link_libraries(oracis_memory PUBLIC
 )
 target_compile_features(oracis_memory PUBLIC cxx_std_20)
 
-# The SDL host consumes the same independent runtime library that generated
-# static banks and the cooperative scheduler will use.
+# Owns and binds one coherent NDS machine context over the runtime devices.
+add_library(oracis_machine STATIC
+    src/machine/nds_machine.cpp
+)
+target_link_libraries(oracis_machine PUBLIC oracis_memory oracis_arm_state)
+target_compile_features(oracis_machine PUBLIC cxx_std_20)
+
+# The SDL host consumes the independent machine/runtime libraries.
 if(ORACIS_BUILD_HOST)
     target_link_libraries(${ORACIS_RUNTIME_TARGET} PRIVATE
-        oracis_memory
+        oracis_machine
     )
 endif()
 
@@ -156,6 +162,12 @@ if(BUILD_TESTING)
         oracis_memory
     )
     add_test(NAME oracis_guest_memory_bus_abi_test COMMAND oracis_guest_memory_bus_abi_test)
+
+    add_executable(oracis_nds_machine_test
+        tests/machine/nds_machine_test.cpp
+    )
+    target_link_libraries(oracis_nds_machine_test PRIVATE oracis_machine)
+    add_test(NAME oracis_nds_machine_test COMMAND oracis_nds_machine_test)
 
     add_executable(oracis_abi_c_test
         tests/abi/arm_cpu_state_c_test.c

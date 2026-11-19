@@ -20,8 +20,8 @@ Cada fase deve produzir uma entrega pequena, compilável, executável e verific�
 | 1 | NDSRecomp | Checkout fixado e compilação isolada | Bootstrap validado em CI; alvo nds_recompile compilou isoladamente; emissão de bancos reais pendente |
 | 2 | Extração e bancos | Extrair ARM9/ARM7 e emitir bancos C | Metadados e hashes dos segmentos verificados localmente; emissão pendente |
 | 3 | ABI e estado ARM | Estado ARM, CPSR/SPSR, exceções, flags e ponte C ABI | Estado/flags, User-bank helpers e CLZ implementados; CI multiplataforma e 21/21 testes confirmados na revisão 480651a |
-| 4 | Memória e serviços base | Barramento, MMIO, IRQ, timers, DMA, IPC, CP15 e NitroSDK | Mapa inicial NDS retail: Main RAM 4MB/mirrors, WRAM ARM7 e modos WRAMCNT 0–3 (incluindo mirror ARM7 privado no modo 0); WRAMCNT ARM9 MMIO e troca transacional, sem alocação, das máscaras das sete janelas Shared WRAM, com validação integral antes da aplicação nos quatro modos implementados; IME/IE/IF, entrada IRQ condicional via `try_enter_irq` e Timer 0–3 por CPU implementados; `advance_bus_cycles(n)` avança as duas banks pelo mesmo clock global explícito; `NdsSystemClock` sincroniza os watermarks cumulativos ARM9/ARM7 na razão 2:1 e alimenta timers uma única vez pelos ciclos de barramento completos; o driver externo ainda precisa reportar ciclos nas fronteiras das fatias e chamar a API de tempo ocioso nos modos apropriados; também precisa entregar IRQ e ordenar os demais eventos DS; KEYINPUT compartilhado, KEYCNT independente por CPU e IRQ de teclado OR/AND implementados; VRAMCNT_B, demais MMIO, CP15/TCM, VRAM e timing pendentes |
-| 5 | Dispatch e scheduler | Tabelas por CPU, validação de conteúdo, interworking e scheduler dual-core cooperativo | Registry, validação de bytes, pilha de retorno e orçamento/yield por CPU implementados; carregador de bancos, cache de links e eventos DS pendentes |
+| 4 | Memória e serviços base | Barramento, MMIO, IRQ, timers, DMA, IPC, CP15 e NitroSDK | Mapa inicial NDS retail: Main RAM 4MB/mirrors, WRAM ARM7 e modos WRAMCNT 0–3 (incluindo mirror ARM7 privado no modo 0); WRAMCNT ARM9 MMIO e troca transacional, sem alocação, das máscaras das sete janelas Shared WRAM, com validação integral antes da aplicação nos quatro modos implementados; IME/IE/IF, entrada IRQ condicional via `try_enter_irq` e Timer 0–3 por CPU implementados; `advance_bus_cycles(n)` avança as duas banks pelo mesmo clock global explícito; `NdsSystemClock` sincroniza os watermarks cumulativos ARM9/ARM7 na razão 2:1 e alimenta timers uma única vez pelos ciclos de barramento completos; o driver externo ainda precisa reportar ciclos nas fronteiras das fatias e chamar a API de tempo ocioso nos modos apropriados; também precisa entregar IRQ e ordenar os demais eventos DS; KEYINPUT compartilhado, KEYCNT independente por CPU e IRQ de teclado OR/AND implementados; `NdsMachine` reúne os estados ARM e dispositivos base, vincula/desvincula o barramento por dependência e reporta ciclos cumulativos ao relógio no fim de cada fatia; o driver ainda precisa delimitar/alternar as fatias e informar o tempo ocioso correto; seleção HALT/STOP, loop dual-core, entrega automática de IRQ, VRAMCNT_B, demais MMIO, CP15/TCM, VRAM e timing pendentes |
+| 5 | Dispatch e scheduler | Tabelas por CPU, validação de conteúdo, interworking e scheduler dual-core cooperativo | Registry, validação de bytes, pilha de retorno e orçamento/yield por CPU implementados; `NdsMachine` conecta relatórios de fatias ao relógio, mas o driver dual-core/eventos DS, carregador de bancos e cache de links continuam pendentes |
 | 6 | Boot visível e vídeo 2D | Primeiro quadro, VRAM, BGs, sprites, OAM e blending | Não iniciada |
 | 7 | Vídeo 3D | Geometry Engine, transformações, iluminação, texturas e fog | Não iniciada |
 | 8 | Áudio | SDAT, SSEQ/SBNK/SWAR/STRM, canais e mixagem | Não iniciada |
@@ -32,14 +32,16 @@ Cada fase deve produzir uma entrega pequena, compilável, executável e verific�
 
 ## Próxima ordem de implementação
 
-1. Compilar o NDSRecomp fixado e emitir os bancos reais.
-2. Inventariar todos os símbolos indefinidos dos bancos ARM9/ARM7.
-3. Mapear os segmentos reais de memória da revisão DS e adicionar aliases/mirrors confirmados.
-4. Implementar MMIO e timing por faixa de endereço, mantendo as RAM transfers já existentes.
-5. Integrar o emissor NDSRecomp ao registro e carregar tabelas ARM9/ARM7 reais.
-6. Implementar chamadas/retornos, link slots e scheduler cooperativo com ciclos.
-7. Ligar SWI/IRQ/CP15 e serviços essenciais conforme os caminhos reais de boot exigirem.
-8. Só então avançar para vídeo, áudio, saves e UX do jogo.
+1. Integrar um loop dual-core explícito que intercale fatias ARM9/ARM7 e modele HALT/STOP corretamente.
+2. Implementar entrega segura de IRQ nas fronteiras de bloco, com LR/vetor determinados pelo estado arquitetural.
+3. Compilar o NDSRecomp fixado e emitir os bancos reais.
+4. Inventariar todos os símbolos indefinidos dos bancos ARM9/ARM7.
+5. Mapear os segmentos reais de memória da revisão DS e adicionar aliases/mirrors confirmados.
+6. Implementar MMIO e timing por faixa de endereço, mantendo as RAM transfers já existentes.
+7. Integrar o emissor NDSRecomp ao registro e carregar tabelas ARM9/ARM7 reais.
+8. Implementar chamadas/retornos, link slots e scheduler cooperativo com ciclos.
+9. Ligar SWI/CP15 e serviços essenciais conforme os caminhos reais de boot exigirem.
+10. Só então avançar para vídeo, áudio, saves e UX do jogo.
 
 ## Código dinâmico e overlays
 

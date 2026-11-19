@@ -27,7 +27,7 @@ extern ArmCpuState *oracis_active_cpu_state;
 extern NdsCpu g_nds_active;
 #endif
 
-int oracis_arm_runtime_bind_cpus(ArmCpuState *arm9, ArmCpuState *arm7);
+int oracis_arm_runtime_bind_cpus(ArmCpuState *arm9, ArmCpuState *arm7);\nint oracis_arm_runtime_unbind_cpus(ArmCpuState *arm9, ArmCpuState *arm7);
 int oracis_arm_runtime_select_cpu(NdsCpu cpu);
 ArmCpuState *oracis_arm_runtime_current_state(void);
 

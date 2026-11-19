@@ -30,10 +30,31 @@ int oracis_arm_runtime_bind_cpus(ArmCpuState *arm9, ArmCpuState *arm7)
 {
     if (arm9 == nullptr || arm7 == nullptr) return 0;
 
+    /* The generated-bank ABI is process-global: never replace live states. */
+    if (g_arm9_state != nullptr || g_arm7_state != nullptr) {
+        return g_arm9_state == arm9 && g_arm7_state == arm7 ? 1 : 0;
+    }
+
     g_arm9_state = arm9;
     g_arm7_state = arm7;
     g_nds_active = NDS_ARM9;
     oracis_active_cpu_state = g_arm9_state;
+    return 1;
+}
+
+int oracis_arm_runtime_unbind_cpus(ArmCpuState *arm9, ArmCpuState *arm7)
+{
+    if (arm9 == nullptr || arm7 == nullptr ||
+        g_arm9_state != arm9 || g_arm7_state != arm7 ||
+        (oracis_active_cpu_state != arm9 &&
+         oracis_active_cpu_state != arm7)) {
+        return 0;
+    }
+
+    g_arm9_state = nullptr;
+    g_arm7_state = nullptr;
+    oracis_active_cpu_state = nullptr;
+    g_nds_active = NDS_ARM9;
     return 1;
 }
 
