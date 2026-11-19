@@ -54,6 +54,7 @@ void oracis_host_set_keypad_state(uint16_t pressed_keys);
  * user is the live GuestMemory object that backs the generated CPU bus.
  */
 int oracis_bus_validate_dispatch(
+    NdsCpu cpu,
     const NdsStaticValidation *validation,
     uint32_t pc,
     uint32_t thumb,
