@@ -1,66 +1,71 @@
 # Mapa de desenvolvimento do Oracis
 
-Este roteiro segue o guia de desenvolvimento fornecido para o projeto. Cada etapa deve produzir uma entrega pequena, compilável, executável e verificável. Nenhuma fase será considerada concluída apenas porque stubs ou interfaces foram criados.
+Cada fase deve produzir uma entrega pequena, compilável, executável e verificável. Stubs, interfaces e código gerado sem execução não contam como subsistema concluído.
 
 ## Regras permanentes
 
-1. Passos pequenos; cada entrega deve compilar e rodar.
-2. Logs completos devem orientar a investigação de falhas.
-3. Desktop e Android fazem parte da CI desde o esqueleto inicial.
-4. ROM, firmware, recursos extraídos, saves e patches binários não entram no repositório, CI ou releases.
-5. Mudanças de comportamento devem ser comparadas com um emulador de referência, sem copiar seu código.
-6. Antes de usar código ou ferramentas externas, verificar commit, licença e instruções atuais.
-7. Não presumir direitos de reutilização a partir da disponibilidade pública de um repositório.
+1. Trabalhar diretamente na branch `main`; não criar branches.
+2. Não copiar, incorporar ou ligar componentes derivados de melonDS.
+3. Usar somente o alvo de compilação estática `nds_recompile` do NDSRecomp, em checkout externo e revisão fixada.
+4. Implementar runtime, scheduler, memória e dispositivos do Oracis de forma independente.
+5. Não usar um interpretador ARM geral como fallback de código dinâmico; regiões não recompiladas devem falhar com diagnóstico explícito.
+6. ROM, BIOS, firmware, arquivos extraídos, saves e bancos gerados ficam fora do repositório, CI e releases.
+7. A reutilização de código de pret/pokeplatinum continua bloqueada até esclarecimento dos direitos.
+8. Logs e testes reproduzíveis devem acompanhar cada mudança relevante.
 
 ## Fases
 
 | Fase | Área | Entrega principal | Estado |
 |---:|---|---|---|
-| 0 | Baseline | Estado, revisão/região, build e direitos de reutilização identificados | Revisão USA Rev 1 identificada; licença/build upstream ainda pendentes |
-| 1 | Esqueleto multiplataforma | Janela SDL3 com duas telas de teste 256 × 192 no desktop e Android | Em implementação; código e CI iniciais adicionados, validação pendente |
-| 2 | Compilação nativa do jogo | Código C compilando e linkando para x86-64 e ARM64, com stubs explícitos para serviços ainda ausentes | Bloqueada até esclarecer reutilização/licença |
-| 3 | NitroSDK / HLE | Serviços OS, MI/DMA/MATH, FS/NitroFS, CARD, PAD/TP/RTC e stubs offline | Não iniciada |
-| 4 | Boot visível | Primeiro logo/aviso e, depois, tela de título | Não iniciada |
-| 5 | Vídeo 2D | VRAM, paletas, OAM, BGs, sprites, janelas, blending e efeitos por scanline | Não iniciada |
-| 6 | Vídeo 3D | Geometry Engine, transformações, iluminação, atributos, texturas, transparência, fog e rasterização | Não iniciada |
+| 0 | Baseline | Revisão/região identificada; fontes e direitos avaliados | USA Rev 1 identificada; pret/pokeplatinum continua sem licença geral confirmada |
+| 1 | NDSRecomp | Checkout externo fixado e compilação apenas do alvo nds_recompile | Script de bootstrap adicionado; execução/build pendentes |
+| 2 | Extração e bancos | Validar header/segmentos ARM9 e ARM7; gerar TOMLs próprios; emitir e compilar bancos | Não iniciada |
+| 3 | Runtime e ABI | ABI C independente, estados ARM9/ARM7, dispatch estático e scheduler dual-CPU | Não iniciada |
+| 4 | Serviços base | Memória, exceções, IRQ, timers, DMA, IPC e serviços NitroSDK essenciais | Não iniciada |
+| 5 | Boot visível e vídeo 2D | Primeiro quadro real; VRAM, paletas, BGs, sprites, OAM, janelas e blending | Não iniciada |
+| 6 | Vídeo 3D | Geometry Engine, transformações, iluminação, atributos, texturas, transparência e fog | Não iniciada |
 | 7 | Áudio | SDAT, SSEQ/SBNK/SWAR/STRM, canais e mixagem | Não iniciada |
-| 8 | Entrada e UX | Teclado, gamepad, toque, controles virtuais e configurações | Não iniciada |
-| 9 | Testes automatizados | Input movies, comparações de frames, testes unitários e sanitizadores | Não iniciada |
-| 10 | Performance mobile | Profiling, batching, cache e meta de 60 FPS em aparelho intermediário | Não iniciada |
-| 11 | Empacotamento | Windows, Linux, macOS, Android e posteriormente iOS | Não iniciada |
+| 8 | Entrada e UX | Teclado, gamepad, toque, controles virtuais e configurações | Host SDL3 de teste existe; integração ao runtime não iniciada |
+| 9 | Saves e dados | Save/load, cache local versionado e verificação de integridade | Não iniciada |
+| 10 | Testes e desempenho | Oracle comportamental externo, testes de frames, sanitizers e profiling | Não iniciada |
+| 11 | Empacotamento | Windows, Linux e, após validação, Android ARM64 | Não iniciada |
 
-## Ordem interna da camada NitroSDK
+## Pipeline de recompilação
 
-1. OS: heaps/arenas, tick, eventos de VBlank, sincronização e escalonamento cooperativo.
-2. MI/DMA/MATH: cópias, DMA e operações matemáticas com semântica compatível.
-3. FS/NitroFS: leitura sob demanda a partir da cópia fornecida pelo usuário.
-4. CARD: saves locais com importação/exportação compatível.
-5. PAD/TP/RTC: controles, toque e relógio do sistema.
-6. WM/Wi-Fi/PXI: stubs offline enquanto funções de rede não forem necessárias.
+1. Validar o SHA-1 da ROM selecionada localmente.
+2. Ler o header e validar offsets/tamanhos dos segmentos ARM9/ARM7.
+3. Extrair os segmentos para diretório local ignorado pelo Git.
+4. Construir TOMLs próprios com SHA-1 do binário, load address, entry PC e seeds confirmados.
+5. Rodar auditoria do recompilador e revisar instruções/cobertura.
+6. Emitir os bancos C/C++ e tabelas de dispatch.
+7. Compilar os bancos com o runtime ABI Oracis.
+8. Registrar misses, instruções sem suporte e endereços não cobertos; não ocultar falhas em fallback genérico.
 
-## Armadilhas a testar explicitamente
+## Ordem da implementação do runtime
 
-- Conversões entre ponteiros de 32 e 64 bits.
-- Packing e alinhamento de estruturas lidas de arquivos.
-- Ponto fixo, overflow, shifts, divisão por zero e sinal.
-- Rotinas ainda em assembly: converter para C ou isolar um lifter apenas quando necessário.
-- Overlays e endereços de registradores de hardware.
-- Ordem dos eventos de VBlank e determinismo do loop.
-- Efeitos por scanline em batalhas e transições.
-- Comportamento indefinido revelado por Clang/UBSan.
+1. Estado CPU e ABI: registradores, CPSR, modos bancados, ARM/Thumb e helpers.
+2. Dispatch: chamadas diretas/indiretas, retorno, interworking e identificação dos bancos por CPU.
+3. Memória: regiões, espelhos, acesso alinhado/desalinhado e MMIO.
+4. Scheduler: ARM9/ARM7, ciclos, eventos e sincronização IPC.
+5. IRQ, timers, DMA, SWI e exceções.
+6. OS/NitroSDK: heaps, eventos, espera/sincronização e serviços usados no boot.
+7. FS/NitroFS, CARD/save, PAD/TP/RTC e stubs offline explícitos.
+8. Vídeo 2D, vídeo 3D e áudio conforme os primeiros caminhos reais exigirem.
 
-## Critério de “inicializa nativamente”
+## Código dinâmico, overlays e cópias para RAM
 
-- Build de referência e revisão identificada.
-- Executável SDL3 abre no desktop e no Android.
-- Código do jogo compila e linka para x86-64 e ARM64.
-- Serviços OS/FS/CARD/PAD básicos funcionam.
-- Loop principal permanece ativo por 10 minutos sem crash.
-- Vídeo 2D apresenta a tela de título.
-- Menu, novo jogo, mapa 3D e áudio funcionam.
-- Save/load funciona.
-- Input movie passa na comparação definida com o emulador de referência.
+O runtime do NDSRecomp usa um interpretador limitado como camada de fallback para código copiado para RAM. Oracis não vai importar essa camada. Precisamos inventariar code-copies, overlays e funções descobertas em tempo de execução, convertendo cada região executável em bancos recompilados e validados. Até isso ser resolvido, uma chamada para código desconhecido deve encerrar o teste com diagnóstico detalhado, não executar instruções guest por interpretação.
+
+## Critério de primeiro boot nativo
+
+- A cópia local é identificada como USA Rev 1.
+- ARM9 e ARM7 são extraídos com offsets/tamanhos validados.
+- O NDSRecomp gera bancos para ambos e as unidades geradas compilam.
+- O runtime próprio faz dispatch inicial sem depender de melonDS ou do runner upstream.
+- ARM9/ARM7 e o barramento têm testes unitários de estado e acesso.
+- O loop de boot progride até o primeiro ponto de vídeo sem executar código guest por interpretador geral.
+- A tela inicial é apresentada pelo host SDL3 com logs e evidências reproduzíveis.
 
 ## Critério de qualidade
 
-Não anunciar compatibilidade, desempenho, áudio ou conclusão de subsistemas sem testes reproduzíveis e logs associados. Cada milestone deve registrar limitações conhecidas e diferenças observadas.
+Não anunciar compatibilidade, desempenho, áudio ou conclusão de subsistemas sem testes reproduzíveis, logs associados e registro das limitações conhecidas.
