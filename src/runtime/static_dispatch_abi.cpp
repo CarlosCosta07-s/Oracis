@@ -65,9 +65,14 @@ extern "C" int oracis_static_dispatch_register_bank(
         return static_cast<int>(
             oracis::recomp::RegisterBankStatus::InvalidTable);
     }
-    const auto result = registry().register_bank(
-        cpu, table, length, bank_name);
-    return static_cast<int>(result);
+    try {
+        const auto result = registry().register_bank(
+            cpu, table, length, std::string(bank_name));
+        return static_cast<int>(result);
+    } catch (...) {
+        return static_cast<int>(
+            oracis::recomp::RegisterBankStatus::InvalidTable);
+    }
 }
 
 extern "C" int oracis_static_dispatch_unregister_bank(
@@ -81,6 +86,8 @@ extern "C" int oracis_static_dispatch_unregister_bank(
 extern "C" void oracis_static_dispatch_clear(void)
 {
     registry().clear();
+    g_validation_callback = nullptr;
+    g_validation_user = nullptr;
 }
 
 extern "C" void oracis_static_dispatch_set_validation_callback(
