@@ -1,4 +1,5 @@
 #include "oracis/recomp/arm_flags.h"
+#include "oracis/recomp/arm_cpu_state_ops.h"
 
 #include <cstdint>
 #include <cstdio>
