@@ -125,13 +125,13 @@ Com a ROM fornecida pelo próprio usuário:
 python tools/ndsrecomp/extract_nds_programs.py "/caminho/Pokemon - Platinum Version (USA) (Rev 1).nds"
 ```
 
-O extrator aceita somente o SHA-1 USA Rev 1 esperado, valida os limites dos dois segmentos, calcula o SHA-1 de cada binário, confere os dados gravados e gera `arm9.toml`, `arm7.toml` e `manifest.json` em `.oracis/local/pokemon-platinum-usa-rev1`.
+O extrator aceita somente o SHA-1 USA Rev 1 esperado, valida os limites dos dois segmentos, calcula o SHA-1 de cada binário, confere os dados gravados e gera `arm9.toml`, `arm7.toml` e `manifest.json` em `.oracis/local/pokemon-platinum-usa-rev1`. Os testes `tests/tools/test_extract_nds_programs.py` usam imagens sintéticas para cobrir integridade, limites, sobreposição, entry point e overflow. O bootstrap do compilador também executa `tests/tools/test_extractor_recompiler.py`: extrai uma imagem sintética ARM/Thumb e exige que o NDSRecomp fixado emita os dois bancos C e suas tabelas de dispatch. Esses testes não usam nem distribuem ROMs comerciais.
 
 Requer Python 3.10 ou mais recente. Todos os arquivos de saída são locais e ignorados pelo Git.
 
 ## 9. Validação ainda pendente
 
-A rotina local de extração de trabalho validou o SHA-1 da ROM, os limites/overlap dos segmentos, os hashes de ARM9/ARM7 e a estrutura dos TOMLs. O script versionado ainda não foi executado integralmente depois de publicado; a CI fará pelo menos a validação de sintaxe Python. **Ainda não validado:** a compilação do executável `nds_recompile`, sua execução contra os dois segmentos, a emissão dos bancos e a compilação desses bancos com a ABI Oracis.
+A rotina local de extração de trabalho validou o SHA-1 da ROM, os limites/overlap dos segmentos, os hashes de ARM9/ARM7 e a estrutura dos TOMLs. O script versionado ainda não foi executado integralmente depois de publicado; a CI fará pelo menos a validação de sintaxe Python. **Ainda não validado para o jogo real:** executar o compilador com os segmentos ARM9/ARM7 extraídos da cópia USA Rev 1, emitir os bancos comerciais e compilá-los com a ABI Oracis. O teste sintético comprova somente o contrato do extrator com o compilador.
 
 ## 10. Próximos marcos
 
