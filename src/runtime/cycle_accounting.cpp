@@ -2,8 +2,8 @@
  * Partial timing ABI for generated NDSRecomp banks.
  *
  * ARM9 uncached code fetch and ARM9/ARM7 pipeline refill are implemented for
- * documented memory classes. Data timing, multiply, ARM7 cycle combination,
- * cache and dynamic device waits remain fail-closed with CPU/PC diagnostics.
+ * documented memory classes. Multiply, ARM7 cycle combination, cache
+ * and dynamic device waits remain fail-closed with CPU/PC diagnostics.
  */
 #include "oracis/recomp/runtime_arm.h"
 
@@ -129,7 +129,7 @@ extern "C" void oracis_runtime_set_arm9_tcm_timing_state(
          (dtcm_base == 0u ||
           (static_cast<uint64_t>(dtcm_base) &
               (dtcm_window_size - 1u)) != 0u ||
-          dtcm_end > UINT64_C(0x1'0000'0000))) {
+          dtcm_end > UINT64_C(0x1'0000'0000)))) {
         timing_unavailable(
             "invalid ARM9 TCM timing state",
             dtcm_base, itcm_window_size, dtcm_window_size,
