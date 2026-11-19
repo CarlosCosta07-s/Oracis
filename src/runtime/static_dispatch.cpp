@@ -38,6 +38,12 @@ bool validation_owns_entry(
 
 } // namespace
 
+StaticDispatchRegistry &global_static_dispatch_registry() noexcept
+{
+    static StaticDispatchRegistry instance;
+    return instance;
+}
+
 bool StaticDispatchRegistry::valid_cpu(NdsCpu cpu) noexcept
 {
     return cpu == NDS_ARM9 || cpu == NDS_ARM7;
