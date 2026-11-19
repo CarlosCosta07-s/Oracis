@@ -78,6 +78,7 @@ target_compile_features(oracis_arm_state PUBLIC cxx_std_20)
 
 add_library(oracis_memory STATIC
     src/memory/guest_memory.cpp
+    src/memory/bus_abi.cpp
 )
 target_link_libraries(oracis_memory PUBLIC oracis_generated_bank_abi)
 target_compile_features(oracis_memory PUBLIC cxx_std_20)
@@ -99,6 +100,15 @@ if(BUILD_TESTING)
     )
     target_link_libraries(oracis_guest_memory_test PRIVATE oracis_memory)
     add_test(NAME oracis_guest_memory_test COMMAND oracis_guest_memory_test)
+
+    add_executable(oracis_guest_memory_bus_abi_test
+        tests/memory/guest_memory_bus_abi_test.cpp
+    )
+    target_link_libraries(oracis_guest_memory_bus_abi_test PRIVATE
+        oracis_memory
+        oracis_arm_state
+    )
+    add_test(NAME oracis_guest_memory_bus_abi_test COMMAND oracis_guest_memory_bus_abi_test)
 
     add_executable(oracis_abi_c_test
         tests/abi/arm_cpu_state_c_test.c
