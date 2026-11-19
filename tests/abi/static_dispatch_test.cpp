@@ -31,12 +31,14 @@ struct ValidationMemory {
     uint32_t size;
 };
 
-bool validate_bytes(const NdsStaticValidation *validation,
+bool validate_bytes(NdsCpu cpu,
+                    const NdsStaticValidation *validation,
                     uint32_t pc,
                     bool thumb,
                     void *user)
 {
-    if (validation == nullptr || user == nullptr) return false;
+    if (cpu != NDS_ARM9 || validation == nullptr || user == nullptr)
+        return false;
     const auto *memory = static_cast<const ValidationMemory *>(user);
     const uint64_t validation_end =
         static_cast<uint64_t>(validation->addr) + validation->size;
