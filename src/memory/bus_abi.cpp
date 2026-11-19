@@ -113,7 +113,7 @@ extern "C" int oracis_bus_bind_wram_control(void *control)
     if (!device->installed() || &device->backing_memory() != g_guest_memory) {
         return 0;
     }
-    if (g_wram_control != nullptr && g_wram_control != device) return 0;
+    if (g_wram_control != nullptr) return 0;
     g_wram_control = device;
     return 1;
 }
