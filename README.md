@@ -9,7 +9,7 @@
 
 <p align="center"><strong>Reconstruindo Sinnoh para além do hardware original.</strong></p>
 
-> **Status: runtime ARM, RAM guest e dispatch estático inicial implementados; integração com bancos reais pendente.** O NDSRecomp ainda não foi compilado/validado nesta revisão e nenhum banco do Pokémon Platinum foi emitido, ligado ou executado.
+> **Status: runtime ARM, RAM guest, WRAMCNT, controlador MMIO IME/IE/IF e dispatch estático inicial implementados; integração com bancos reais pendente.** A CI confirmou build desktop Linux, Android ARM64, NDSRecomp estático e 20/20 testes de runtime na revisão d7e9e23; o novo teste de interrupções ainda aguarda execução.
 
 ## O projeto
 
@@ -35,7 +35,7 @@ O bootstrap do NDSRecomp está fixado no commit `14b7e15023e9affc9dc375e4e611ac7
 O Oracis já contém:
 - estado ARM com registradores bancados e asserts de layout C99;
 - GuestMemory: mapa de RAM NDS retail, Main RAM compartilhada/mirrors, WRAM ARM7 privada e quatro modos WRAMCNT; as sete janelas Shared WRAM são pré-mapeadas e suas máscaras de visibilidade por CPU são atualizadas de forma transacional, com o mapa validado antes da aplicação, sem desalocação nem perda dos bytes físicos;
-- wrappers C bus_read_*/bus_write_* que encaminham para RAM guest mapeada e falham com diagnóstico em endereços inválidos;
+- wrappers C bus_read_*/bus_write_* que encaminham para RAM guest mapeada e falham com diagnóstico em endereços inválidos;\n- controlador MMIO `NdsInterruptControl` com IME/IE/IF independentes por CPU, IRQ requests latcheados e IF W1C; a entrada de IRQ ainda não é acionada pelo scheduler;
 - operações CPSR/SPSR e entrada/retorno de exceções;
 - avaliação de condições e atualização de flags NZCV;
 - helpers de acesso aos registradores do User bank e instrução `CLZ` na ABI C;
@@ -47,7 +47,7 @@ O Oracis já contém:
 - contadores de ciclos e controle cooperativo de fatias ARM9/ARM7 por orçamento, yield e unwind;
 - entradas `runtime_link_*` encaminhadas ao dispatcher normal; otimização de slots e folhas inline ainda desabilitada.
 
-O CMake registra vinte testes CTest, incluindo o mapa NDS retail, os quatro modos Shared WRAM e o acesso MMIO de WRAMCNT. **A execução dos testes para o estado atual ainda não foi confirmada**; a consulta aos status checks do último commit não retornou verificações. O mapa cobre RAM principal/WRAM e permite reconfigurar as janelas Shared WRAM por API. Ainda faltam WRAMSTAT, os demais handlers MMIO, CP15/TCM, BIOS, VRAM, OAM, temporização de memória, IRQ/SWI e serviços NitroSDK para executar bancos reais.
+O CMake registra vinte e um testes CTest, incluindo mapa NDS retail, Shared WRAM, WRAMCNT e o novo controlador IME/IE/IF. A CI anterior confirmou desktop Linux, Android ARM64, compilação isolada do NDSRecomp e 20/20 testes; o 21º teste ainda aguarda execução. O mapa cobre RAM principal/WRAM e permite reconfigurar as janelas Shared WRAM por API. Ainda faltam WRAMSTAT, entrada IRQ pelo scheduler, demais handlers MMIO, timers, DMA, IPC, CP15/TCM, BIOS, VRAM, OAM, temporização de memória, SWI e serviços NitroSDK para executar bancos reais.
 
 A extração local da USA Rev 1 teve offsets, limites e hashes ARM9/ARM7 verificados. A execução integral do extrator versionado e a emissão de bancos continuam pendentes.
 
