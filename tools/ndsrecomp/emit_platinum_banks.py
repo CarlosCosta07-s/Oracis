@@ -146,6 +146,7 @@ def validate_extraction(extracted_dir: Path) -> tuple[dict, dict[str, dict]]:
             f"load_address = 0x{load:08X}",
             f"size = 0x{size:08X}",
             f"entry_pc = 0x{entry:08X}",
+            f"addr = 0x{entry:08X}",
             f'sha1 = "{digest}"',
             f'mode = "{mode}"',
         )
