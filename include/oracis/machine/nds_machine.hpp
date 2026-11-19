@@ -188,7 +188,7 @@ private:
         void *context, NdsCpu cpu,
         uint32_t operation, uint32_t value);
     static int runtime_validate_dispatch_bytes(
-        const NdsStaticValidation *validation,
+        NdsCpu cpu, const NdsStaticValidation *validation,
         uint32_t pc, uint32_t thumb, void *context);
 
     memory::GuestMemory memory_;
