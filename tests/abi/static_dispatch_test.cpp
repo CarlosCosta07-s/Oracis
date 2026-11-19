@@ -280,6 +280,32 @@ int main()
         return fail("duplicate bank name was accepted");
     }
 
+    if (!registry.unregister_bank(NDS_ARM9, same_address_modes, 2u) ||
+        registry.unregister_bank(NDS_ARM9, same_address_modes, 2u) ||
+        registry.unregister_bank(static_cast<NdsCpu>(77), same_address_modes, 2u)) {
+        return fail("dispatch bank unregister accepted invalid state");
+    }
+    if (registry.bank_count(NDS_ARM9) != 3u) {
+        return fail("dispatch bank count did not decrease after unregister");
+    }
+    result = registry.lookup(NDS_ARM9, 0x02005000u, 0u);
+    if (result.status != DispatchLookupStatus::Miss) {
+        return fail("unregistered bank remained visible to lookup");
+    }
+    if (registry.register_bank(
+            NDS_ARM9, same_address_modes, 2u, "same-address-modes") !=
+        RegisterBankStatus::Ok) {
+        return fail("bank name was not reusable after unregister");
+    }
+
+    registry.clear();
+    if (registry.bank_count(NDS_ARM9) != 0u ||
+        registry.bank_count(NDS_ARM7) != 0u ||
+        registry.lookup(NDS_ARM9, 0x02000000u, 0u).status !=
+            DispatchLookupStatus::CpuNotRegistered) {
+        return fail("registry clear did not remove all banks");
+    }
+
     std::puts("static ARM9/ARM7 dispatch registry tests passed");
     return 0;
 }
