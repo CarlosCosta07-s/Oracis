@@ -184,12 +184,96 @@ int test_shared_wram_modes()
     return 0;
 }
 
+int test_dynamic_shared_wram_reconfiguration()
+{
+    GuestMemory memory;
+    if (NdsRetailRamMap::install(memory, SharedWramMode::Arm9All32K) !=
+        Status::Ok) {
+        return fail("dynamic reconfiguration initial mode 0 install failed");
+    }
+
+    constexpr uint32_t bank0_value = UINT32_C(0xB0B0B0B0);
+    constexpr uint32_t bank1_value = UINT32_C(0xB1B1B1B1);
+    constexpr uint32_t private_value = UINT32_C(0xA7A7A7A7);
+
+    /* Populate both physical banks and ARM7-private WRAM in mode zero. */
+    if (memory.write(NDS_ARM9, 0x03000000u, 4u, bank0_value) != Status::Ok ||
+        memory.write(NDS_ARM9, 0x03004000u, 4u, bank1_value) != Status::Ok ||
+        memory.write(NDS_ARM7, NdsRetailRamMap::Arm7WramBase,
+                     4u, private_value) != Status::Ok) {
+        return fail("could not seed physical WRAM banks");
+    }
+
+    const std::size_t initial_region_count = memory.region_count();
+
+    /* Mode 1: bank 1 to ARM9, bank 0 to ARM7. */
+    if (NdsRetailRamMap::set_shared_wram_mode(
+            memory, SharedWramMode::Arm9Bank1Arm7Bank0) != Status::Ok) {
+        return fail("dynamic transition 0 -> 1 failed");
+    }
+    if (memory.region_count() != initial_region_count ||
+        memory.read(NDS_ARM9, 0x03000000u, 4u).value != bank1_value ||
+        memory.read(NDS_ARM7, 0x03000000u, 4u).value != bank0_value) {
+        return fail("mode 1 remap did not preserve and reassign physical banks");
+    }
+
+    /* Mode 2 reverses the two banks while preserving their bytes. */
+    if (NdsRetailRamMap::set_shared_wram_mode(
+            memory, SharedWramMode::Arm9Bank0Arm7Bank1) != Status::Ok) {
+        return fail("dynamic transition 1 -> 2 failed");
+    }
+    if (memory.read(NDS_ARM9, 0x03000000u, 4u).value != bank0_value ||
+        memory.read(NDS_ARM7, 0x03000000u, 4u).value != bank1_value) {
+        return fail("mode 2 remap did not reverse the physical banks");
+    }
+
+    /* Mode 3 exposes both banks contiguously to ARM7. */
+    if (NdsRetailRamMap::set_shared_wram_mode(
+            memory, SharedWramMode::Arm7All32K) != Status::Ok) {
+        return fail("dynamic transition 2 -> 3 failed");
+    }
+    if (memory.read(NDS_ARM7, 0x03000000u, 4u).value != bank0_value ||
+        memory.read(NDS_ARM7, 0x03004000u, 4u).value != bank1_value ||
+        !expect_cpu_denied(memory, NDS_ARM9, 0x03000000u)) {
+        return fail("mode 3 remap did not expose both banks only to ARM7");
+    }
+
+    /* Return to mode zero and confirm private ARM7 WRAM is still distinct. */
+    if (NdsRetailRamMap::set_shared_wram_mode(
+            memory, SharedWramMode::Arm9All32K) != Status::Ok) {
+        return fail("dynamic transition 3 -> 0 failed");
+    }
+    if (memory.read(NDS_ARM9, 0x03000000u, 4u).value != bank0_value ||
+        memory.read(NDS_ARM9, 0x03004000u, 4u).value != bank1_value ||
+        memory.read(NDS_ARM7, 0x03000000u, 4u).value != private_value ||
+        memory.read(NDS_ARM7, NdsRetailRamMap::Arm7WramBase, 4u).value !=
+            private_value) {
+        return fail("mode 0 remap lost Shared or private WRAM contents");
+    }
+
+    /* Invalid requests are rejected without tearing down the current view. */
+    if (NdsRetailRamMap::set_shared_wram_mode(
+            memory, static_cast<SharedWramMode>(9u)) != Status::InvalidRegion ||
+        memory.read(NDS_ARM9, 0x03000000u, 4u).value != bank0_value) {
+        return fail("invalid WRAMCNT mode changed the active mapping");
+    }
+
+    GuestMemory uninitialized;
+    if (NdsRetailRamMap::set_shared_wram_mode(
+            uninitialized, SharedWramMode::Arm9All32K) != Status::Unmapped) {
+        return fail("WRAM mode change without an installed map was accepted");
+    }
+
+    return 0;
+}
+
 } // namespace
 
 int main()
 {
     if (test_main_ram_and_arm7_private_wram() != 0) return 1;
     if (test_shared_wram_modes() != 0) return 1;
+    if (test_dynamic_shared_wram_reconfiguration() != 0) return 1;
 
     GuestMemory invalid;
     if (NdsRetailRamMap::install(
@@ -205,6 +289,6 @@ int main()
         return fail("retail map could be installed twice");
     }
 
-    std::puts("retail NDS main RAM, mirrors, ARM7 WRAM and Shared WRAM modes passed");
+    std::puts("retail NDS RAM map, CPU views, Shared WRAM modes and dynamic remapping passed");
     return 0;
 }
