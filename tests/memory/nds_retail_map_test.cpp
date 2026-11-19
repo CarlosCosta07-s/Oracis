@@ -68,6 +68,14 @@ int test_main_ram_and_arm7_private_wram()
         return fail("ARM9 was allowed to access ARM7-private WRAM");
     }
 
+    /* With WRAMCNT=0, ARM7's Shared-WRAM window aliases private WRAM. */
+    if (memory.read(NDS_ARM7, NdsRetailRamMap::SharedWramBase, 4u).value !=
+            UINT32_C(0xA7A7A7A7) ||
+        memory.read(NDS_ARM7, NdsRetailRamMap::SharedWramBase + 0x10000u, 4u).value !=
+            UINT32_C(0xA7A7A7A7)) {
+        return fail("deallocated ARM7 Shared-WRAM window did not mirror private WRAM");
+    }
+
     return 0;
 }
 
@@ -90,8 +98,12 @@ int test_shared_wram_modes()
                 UINT32_C(0x33334444)) {
             return fail("mode 0 did not expose both banks to ARM9");
         }
-        if (!expect_cpu_denied(memory, NDS_ARM7, 0x03000000u))
-            return fail("mode 0 unexpectedly exposed Shared WRAM to ARM7");
+        if (memory.write(NDS_ARM7, NdsRetailRamMap::Arm7WramBase,
+                         4u, UINT32_C(0xA7A7A7A7)) != Status::Ok ||
+            memory.read(NDS_ARM7, 0x03000000u, 4u).value !=
+                UINT32_C(0xA7A7A7A7)) {
+            return fail("mode 0 ARM7 window did not map private WRAM");
+        }
         if (memory.read(NDS_ARM9, 0x03008000u, 4u).value !=
             UINT32_C(0x11112222)) {
             return fail("mode 0 Shared WRAM window did not mirror every 32KB");
