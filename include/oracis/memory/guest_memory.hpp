@@ -27,7 +27,9 @@ enum class Status : uint8_t {
     Overlap,
     Unmapped,
     CrossesRegion,
-    PermissionDenied
+    PermissionDenied,
+    IdentityMismatch,
+    MissingWriteProvenance
 };
 
 enum Permission : uint8_t {
@@ -78,14 +80,18 @@ public:
 
     Status validate_execute(NdsCpu cpu, uint32_t address,
                             uint32_t size) const noexcept;
+    Status validate_identity(NdsCpu cpu, uint32_t address, uint32_t size,
+                             const uint8_t *expected) const noexcept;
 
     static const char *status_name(Status status) noexcept;
     std::size_t region_count() const noexcept { return regions_.size(); }
 
 private:
     struct Backing {
-        explicit Backing(uint32_t size) : bytes(size, 0u) {}
+        explicit Backing(uint32_t size)
+            : bytes(size, 0u), write_provenance(size, 0u) {}
         std::vector<uint8_t> bytes;
+        std::vector<uint8_t> write_provenance;
     };
 
     struct Region {
