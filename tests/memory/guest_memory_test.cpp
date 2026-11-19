@@ -63,6 +63,31 @@ int main()
             Status::CpuAccessDenied) {
         return fail("valid CPU-specific mapping was treated as inaccessible");
     }
+
+    const GuestMemory::CpuAccessUpdate conflicting_updates[] = {
+        {"ARM9-only overlap", oracis::memory::CpuAccessArm9},
+        {"ARM7-only overlap", oracis::memory::CpuAccessArm9}
+    };
+    if (cpu_scoped.update_cpu_access(
+            conflicting_updates, 2u) != Status::Overlap ||
+        cpu_scoped.read(NDS_ARM9, 0x10000000u, 4u).value !=
+            UINT32_C(0x99999999) ||
+        cpu_scoped.read(NDS_ARM7, 0x10000000u, 4u).value !=
+            UINT32_C(0x77777777)) {
+        return fail("conflicting visibility update was not atomic");
+    }
+
+    const GuestMemory::CpuAccessUpdate valid_updates[] = {
+        {"ARM9-only overlap", oracis::memory::CpuAccessNone},
+        {"ARM7-only overlap", oracis::memory::CpuAccessArm9}
+    };
+    if (cpu_scoped.update_cpu_access(valid_updates, 2u) != Status::Ok ||
+        cpu_scoped.read(NDS_ARM9, 0x10000000u, 4u).value !=
+            UINT32_C(0x77777777) ||
+        cpu_scoped.read(NDS_ARM7, 0x10000000u, 1u).status !=
+            Status::Unmapped) {
+        return fail("valid atomic CPU visibility update failed");
+    }
     if (cpu_scoped.map_ram(
             0x10000000u, 0x100u, rw, "invalid CPU mask", 0x80u) !=
         Status::InvalidRegion) {
