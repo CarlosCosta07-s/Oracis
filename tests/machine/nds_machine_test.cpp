@@ -104,7 +104,10 @@ int main()
         machine.cpu_state(NDS_ARM9)->cpsr != ORACIS_ARM_MODE_SYSTEM ||
         machine.cpu_state(NDS_ARM7)->cpsr != ORACIS_ARM_MODE_SYSTEM ||
         machine.exception_vector_base(NDS_ARM9) != UINT32_C(0xFFFF0000) ||
-        runtime_coproc_read(15u, 0u, 1u, 0u, 0u) != (UINT32_C(1) << 13u) ||
+        runtime_coproc_read(15u, 0u, 1u, 0u, 0u) !=
+            oracis::memory::NdsArm9Tcm::ResetControl ||
+        runtime_coproc_read(15u, 0u, 0u, 0u, 0u) != UINT32_C(0x41059461) ||
+        runtime_coproc_read(15u, 0u, 0u, 0u, 2u) != UINT32_C(0x00140180) ||
         machine.exception_vector_base(NDS_ARM7) != 0u) {
         return fail("machine did not bind CPU states or apply NDS reset vector bases");
     }
@@ -117,6 +120,64 @@ int main()
             NDS_ARM7, UINT32_C(0x02000000), 4u).value !=
             UINT32_C(0x12345678)) {
         return fail("retail main RAM was not installed as shared memory");
+    }
+
+    /*
+     * Configure ARM9 TCM through CP15. The 32KB ITCM is mirrored through a
+     * 32MB low-address aperture; the 16KB DTCM overlays main-RAM mirror 1.
+     */
+    constexpr uint32_t tcm_control = UINT32_C(0x00052078);
+    constexpr uint32_t dtcm_disabled_control = UINT32_C(0x00042078);
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 could not be selected for TCM configuration");
+    }
+    runtime_coproc_write(15u, 0u, 9u, 1u, 1u, UINT32_C(0x00000020));
+    runtime_coproc_write(15u, 0u, 9u, 1u, 0u, UINT32_C(0x027C000A));
+    runtime_coproc_write(15u, 0u, 1u, 0u, 0u, tcm_control);
+    if (runtime_coproc_read(15u, 0u, 9u, 1u, 1u) != UINT32_C(0x20) ||
+        runtime_coproc_read(15u, 0u, 9u, 1u, 0u) != UINT32_C(0x027C000A) ||
+        runtime_coproc_read(15u, 0u, 1u, 0u, 0u) != tcm_control) {
+        return fail("CP15 did not preserve the supported ARM9 TCM registers");
+    }
+
+    if (machine.guest_memory().write(
+            NDS_ARM9, UINT32_C(0x023C0000), 4u,
+            UINT32_C(0x11223344)) != oracis::memory::Status::Ok ||
+        machine.guest_memory().write(
+            NDS_ARM9, UINT32_C(0x027C0000), 4u,
+            UINT32_C(0xAABBCCDD)) != oracis::memory::Status::Ok ||
+        machine.guest_memory().read(
+            NDS_ARM9, UINT32_C(0x027C0000), 4u).value !=
+            UINT32_C(0xAABBCCDD) ||
+        machine.guest_memory().read(
+            NDS_ARM9, UINT32_C(0x023C0000), 4u).value !=
+            UINT32_C(0x11223344)) {
+        return fail("DTCM overlay did not preserve the underlying main-RAM mirror");
+    }
+
+    if (machine.guest_memory().write(
+            NDS_ARM9, UINT32_C(0x00000020), 4u,
+            UINT32_C(0x55667788)) != oracis::memory::Status::Ok ||
+        machine.guest_memory().read(
+            NDS_ARM9, UINT32_C(0x00008020), 4u).value !=
+            UINT32_C(0x55667788) ||
+        machine.guest_memory().read(
+            NDS_ARM7, UINT32_C(0x00000020), 4u).status !=
+            oracis::memory::Status::Unmapped) {
+        return fail("ITCM physical storage did not mirror privately to ARM9");
+    }
+
+    runtime_coproc_write(15u, 0u, 1u, 0u, 0u, dtcm_disabled_control);
+    if (machine.guest_memory().read(
+            NDS_ARM9, UINT32_C(0x027C0000), 4u).value !=
+            UINT32_C(0x11223344)) {
+        return fail("disabling DTCM did not reveal the underlying RAM mirror");
+    }
+    runtime_coproc_write(15u, 0u, 1u, 0u, 0u, tcm_control);
+    if (machine.guest_memory().read(
+            NDS_ARM9, UINT32_C(0x027C0000), 4u).value !=
+            UINT32_C(0xAABBCCDD)) {
+        return fail("re-enabling DTCM did not restore its physical backing");
     }
 
     /* Load pre-extracted segments only after both CPU destinations pass preflight. */
@@ -779,7 +840,8 @@ int main()
      * ARM9 CP15 Control.V owns the high-vector selection. The legacy host
      * callback deliberately reports the low base; the machine must use CP15.
      */
-    constexpr uint32_t cp15_vector_select = UINT32_C(1) << 13u;
+    constexpr uint32_t cp15_vector_select =
+        oracis::memory::NdsArm9Tcm::ResetControl;
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
         return fail("ARM9 could not be selected for unsupported CP15 write test");
     }
@@ -822,7 +884,9 @@ int main()
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
         return fail("ARM9 could not be reselected after high-vector IRQ test");
     }
-    runtime_coproc_write(15u, 0u, 1u, 0u, 0u, 0u);
+    runtime_coproc_write(
+        15u, 0u, 1u, 0u, 0u,
+        oracis::memory::NdsArm9Tcm::RequiredControlOnesMask);
     arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
     arm9->R[15] = UINT32_C(0x02006000);
     machine.interrupt_control().write(

@@ -140,23 +140,52 @@ GuestMemory::Resolution GuestMemory::resolve(
 
     const uint8_t cpu_bit = cpu_access_bit(cpu);
     const Region *selected = nullptr;
+    uint8_t crossing_priority = 0u;
+    bool crossing_region = false;
     bool cpu_denied = false;
 
     for (const Region &region : regions_) {
-        const uint64_t begin = region.base;
-        const uint64_t end = begin + region.size;
-        if (address < begin || address >= end) continue;
-
         if (region.cpu_access == CpuAccessNone) continue;
         if ((region.cpu_access & cpu_bit) == 0u) {
-            cpu_denied = true;
+            if (address >= region.base &&
+                static_cast<uint64_t>(address) <
+                    static_cast<uint64_t>(region.base) + region.size) {
+                cpu_denied = true;
+            }
             continue;
         }
-        if (access_end > end) {
-            return {Status::CrossesRegion, nullptr, 0u};
+
+        const uint64_t begin = region.base;
+        const uint64_t end = begin + region.size;
+        const bool contains_start = address >= begin && address < end;
+        if (!contains_start) {
+            if (begin > address && begin < access_end &&
+                (!crossing_region || region.priority > crossing_priority)) {
+                crossing_priority = region.priority;
+                crossing_region = true;
+            }
+            continue;
         }
-        if (selected != nullptr) return {Status::Overlap, nullptr, 0u};
-        selected = &region;
+
+        if (access_end > end) {
+            if (!crossing_region || region.priority > crossing_priority) {
+                crossing_priority = region.priority;
+                crossing_region = true;
+            }
+            continue;
+        }
+
+        if (selected == nullptr || region.priority > selected->priority) {
+            selected = &region;
+        } else if (region.priority == selected->priority) {
+            return {Status::Overlap, nullptr, 0u};
+        }
+    }
+
+    if (crossing_region &&
+        (selected == nullptr ||
+         crossing_priority >= selected->priority)) {
+        return {Status::CrossesRegion, nullptr, 0u};
     }
 
     if (selected == nullptr) {
@@ -328,6 +357,110 @@ Status GuestMemory::map_mirror(uint32_t alias_base,
     return Status::Ok;
 }
 
+Status GuestMemory::map_mirror_overlay(
+    uint32_t alias_base, uint32_t canonical_base,
+    uint32_t period, uint32_t window_size,
+    std::string name, uint8_t cpu_access, uint8_t priority)
+{
+    if (!valid_range(alias_base, window_size) ||
+        !valid_range(canonical_base, period) || period == 0u ||
+        name.empty() || !valid_cpu_access(cpu_access) || priority == 0u) {
+        return Status::InvalidRegion;
+    }
+    if (has_region_name(name)) return Status::InvalidRegion;
+
+    const Resolution target = resolve_any(canonical_base, period);
+    if (target.status != Status::Ok || target.region == nullptr) {
+        return target.status;
+    }
+
+    const uint64_t begin = alias_base;
+    const uint64_t end = begin + window_size;
+    for (const Region &region : regions_) {
+        if ((region.cpu_access & cpu_access) == 0u ||
+            region.priority < priority) {
+            continue;
+        }
+        const uint64_t other_begin = region.base;
+        const uint64_t other_end = other_begin + region.size;
+        if (begin < other_end && other_begin < end) return Status::Overlap;
+    }
+
+    try {
+        Region mirror;
+        mirror.base = alias_base;
+        mirror.size = window_size;
+        mirror.backing_offset = target.backing_offset;
+        mirror.permissions = target.region->permissions;
+        mirror.cpu_access = cpu_access;
+        mirror.backing_period = period;
+        mirror.priority = priority;
+        mirror.name = std::move(name);
+        mirror.backing = target.region->backing;
+        regions_.push_back(std::move(mirror));
+    } catch (...) {
+        return Status::InvalidRegion;
+    }
+    return Status::Ok;
+}
+
+Status GuestMemory::replace_mirror_overlay(
+    const char *name, uint32_t alias_base, uint32_t canonical_base,
+    uint32_t period, uint32_t window_size,
+    uint8_t cpu_access, uint8_t priority)
+{
+    if (name == nullptr || name[0] == '\\0' ||
+        !valid_range(alias_base, window_size) ||
+        !valid_range(canonical_base, period) || period == 0u ||
+        !valid_cpu_access(cpu_access) || priority == 0u) {
+        return Status::InvalidRegion;
+    }
+
+    Region *existing = nullptr;
+    for (Region &region : regions_) {
+        if (region.name == name) {
+            if (existing != nullptr) return Status::InvalidRegion;
+            existing = &region;
+        }
+    }
+    if (existing == nullptr) return Status::Unmapped;
+
+    const Resolution target = resolve_any(canonical_base, period);
+    if (target.status != Status::Ok || target.region == nullptr) {
+        return target.status;
+    }
+
+    const uint64_t begin = alias_base;
+    const uint64_t end = begin + window_size;
+    for (const Region &region : regions_) {
+        if (&region == existing ||
+            (region.cpu_access & cpu_access) == 0u ||
+            region.priority < priority) {
+            continue;
+        }
+        const uint64_t other_begin = region.base;
+        const uint64_t other_end = other_begin + region.size;
+        if (begin < other_end && other_begin < end) return Status::Overlap;
+    }
+
+    try {
+        Region replacement;
+        replacement.base = alias_base;
+        replacement.size = window_size;
+        replacement.backing_offset = target.backing_offset;
+        replacement.permissions = target.region->permissions;
+        replacement.cpu_access = cpu_access;
+        replacement.backing_period = period;
+        replacement.priority = priority;
+        replacement.name = existing->name;
+        replacement.backing = target.region->backing;
+        *existing = std::move(replacement);
+    } catch (...) {
+        return Status::InvalidRegion;
+    }
+    return Status::Ok;
+}
+
 bool GuestMemory::unmap_region(const std::string &name) noexcept
 {
     if (name.empty()) return false;
@@ -394,7 +527,8 @@ Status GuestMemory::update_cpu_access(
 
             const uint64_t right_begin = regions_[right].base;
             const uint64_t right_end = right_begin + regions_[right].size;
-            if (left_begin < right_end && right_begin < left_end) {
+            if (regions_[left].priority == regions_[right].priority &&
+                left_begin < right_end && right_begin < left_end) {
                 return Status::Overlap;
             }
         }

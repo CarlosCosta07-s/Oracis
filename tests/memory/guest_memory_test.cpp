@@ -282,6 +282,55 @@ int main()
         return fail("failed read-only bulk write changed bytes or provenance");
     }
 
+    /*
+     * Higher-priority overlays shadow their underlay only while visible.
+     * Replacing an overlay preserves both backings and is transactional.
+     */
+    GuestMemory overlay_memory;
+    if (overlay_memory.map_ram(
+            0x40000000u, 0x4000u, rwx, "overlay physical backing",
+            oracis::memory::CpuAccessNone) != Status::Ok ||
+        overlay_memory.map_ram(
+            0x50000000u, 0x4000u, rwx, "underlay physical backing",
+            oracis::memory::CpuAccessNone) != Status::Ok ||
+        overlay_memory.map_mirror(
+            0x60000000u, 0x4000u, 0x4000u, 0x4000u,
+            "ordinary underlay", oracis::memory::CpuAccessArm9) !=
+            Status::Ok ||
+        overlay_memory.map_mirror_overlay(
+            0x60000000u, 0x40000000u, 0x4000u, 0x4000u,
+            "high priority overlay", oracis::memory::CpuAccessNone, 1u) !=
+            Status::Ok ||
+        overlay_memory.write(
+            NDS_ARM9, 0x60000000u, 4u, UINT32_C(0x12345678)) != Status::Ok) {
+        return fail("priority overlay setup failed");
+    }
+    const GuestMemory::CpuAccessUpdate overlay_enable[] = {
+        {"high priority overlay", oracis::memory::CpuAccessArm9}
+    };
+    if (overlay_memory.update_cpu_access(
+            overlay_enable, 1u) != Status::Ok ||
+        overlay_memory.read(
+            NDS_ARM9, 0x60000000u, 4u).value != 0u) {
+        return fail("active priority overlay did not shadow its underlay");
+    }
+    const uint8_t overlay_payload[] = {0xA1u, 0xB2u, 0xC3u, 0xD4u};
+    if (overlay_memory.write_bytes(
+            NDS_ARM9, 0x60000000u, overlay_payload,
+            static_cast<uint32_t>(sizeof(overlay_payload))) != Status::Ok ||
+        overlay_memory.replace_mirror_overlay(
+            "high priority overlay", 0x60004000u,
+            0x40000000u, 0x4000u, 0x4000u,
+            oracis::memory::CpuAccessArm9, 1u) != Status::Ok ||
+        overlay_memory.read(
+            NDS_ARM9, 0x60004000u, 4u).value !=
+            UINT32_C(0xD4C3B2A1) ||
+        overlay_memory.read(
+            NDS_ARM9, 0x60000000u, 4u).value !=
+            UINT32_C(0x12345678)) {
+        return fail("priority overlay replacement did not preserve both RAM views");
+    }
+
     const uint8_t image_bytes[] = {0xAAu, 0xBBu, 0xCCu, 0xDDu};
     if (memory.map_image(
             0x03100000u, image_bytes, sizeof(image_bytes),

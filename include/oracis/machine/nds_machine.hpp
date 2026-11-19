@@ -13,6 +13,7 @@
 
 #include "oracis/recomp/arm_cpu_state.h"
 #include "oracis/memory/guest_memory.hpp"
+#include "oracis/memory/nds_arm9_tcm.hpp"
 #include "oracis/memory/nds_interrupt_control.hpp"
 #include "oracis/memory/nds_keypad_control.hpp"
 #include "oracis/memory/nds_retail_map.hpp"
@@ -231,14 +232,12 @@ private:
     memory::GuestMemory memory_;
     ArmCpuState arm9_state_{};
     ArmCpuState arm7_state_{};
+    memory::NdsArm9Tcm arm9_tcm_;
     memory::NdsWramControl wram_control_;
     memory::NdsInterruptControl interrupt_control_;
     memory::NdsTimerControl timer_control_;
     memory::NdsKeypadControl keypad_control_;
     memory::NdsSystemClock system_clock_;
-
-    /* ARM946E-S CP15 Control register; only Alternate Vector Select is modeled. */
-    uint32_t arm9_cp15_control_ = 0u;
 
     std::array<bool, 2> slice_active_{};
     std::array<NdsCpuRunState, 2> run_states_{};

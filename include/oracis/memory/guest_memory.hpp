@@ -110,6 +110,25 @@ public:
                       std::string name,
                       uint8_t cpu_access);
 
+    /*
+     * Map a higher-priority periodic region over an existing mapping. Used for
+     * ARM9 TCM, which shadows the normal RAM mirror while enabled.
+     */
+    Status map_mirror_overlay(uint32_t alias_base,
+                              uint32_t canonical_base,
+                              uint32_t period,
+                              uint32_t window_size,
+                              std::string name,
+                              uint8_t cpu_access,
+                              uint8_t priority);
+    Status replace_mirror_overlay(const char *name,
+                                  uint32_t alias_base,
+                                  uint32_t canonical_base,
+                                  uint32_t period,
+                                  uint32_t window_size,
+                                  uint8_t cpu_access,
+                                  uint8_t priority);
+
     /* Remove one guest mapping by its unique region name. */
     bool unmap_region(const std::string &name) noexcept;
 
@@ -165,6 +184,7 @@ private:
         uint8_t permissions = 0u;
         uint8_t cpu_access = CpuAccessBoth;
         uint32_t backing_period = 0u;
+        uint8_t priority = 0u;
         std::string name;
         std::shared_ptr<Backing> backing;
     };

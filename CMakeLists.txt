@@ -85,6 +85,7 @@ target_compile_features(oracis_arm_state PUBLIC cxx_std_20)
 
 add_library(oracis_memory STATIC
     src/memory/guest_memory.cpp
+    src/memory/nds_arm9_tcm.cpp
     src/memory/bus_abi.cpp
     src/memory/nds_retail_map.cpp
     src/memory/nds_wram_control.cpp

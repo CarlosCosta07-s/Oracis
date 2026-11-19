@@ -11,7 +11,8 @@
 namespace oracis::machine {
 
 NdsMachine::NdsMachine(memory::SharedWramMode initial_wram_mode) noexcept
-    : wram_control_(memory_, initial_wram_mode),
+    : arm9_tcm_(memory_),
+      wram_control_(memory_, initial_wram_mode),
       interrupt_control_(memory_),
       timer_control_(memory_, interrupt_control_),
       keypad_control_(memory_, interrupt_control_),
@@ -66,20 +67,40 @@ int NdsMachine::runtime_coprocessor_handler(
     auto *machine = static_cast<NdsMachine *>(context);
     if (machine == nullptr || !machine->initialized_ ||
         cpu != NDS_ARM9 || is_write > 1u || value == nullptr ||
-        cp_num != 15u || op1 != 0u || crn != 1u || crm != 0u || op2 != 0u) {
+        cp_num != 15u || op1 != 0u) {
         return 0;
     }
 
-    /* ARM946E-S CP15 c1 bit 13 selects 0x00000000 or 0xFFFF0000 vectors. */
-    constexpr uint32_t kAlternateVectorSelect = UINT32_C(1) << 13u;
-    if (is_write != 0u) {
-        /* Refuse to claim support for MPU/cache/TCM bits not modeled yet. */
-        if ((*value & ~kAlternateVectorSelect) != 0u) return 0;
-        machine->arm9_cp15_control_ = *value;
-    } else {
-        *value = machine->arm9_cp15_control_ & kAlternateVectorSelect;
+    if (crn == 0u && crm == 0u && is_write == 0u) {
+        if (op2 == 0u) {
+            *value = UINT32_C(0x41059461);
+            return 1;
+        }
+        if (op2 == 2u) {
+            *value = machine->arm9_tcm_.size_register();
+            return 1;
+        }
+        return 0;
     }
-    return 1;
+
+    if (crn == 1u && crm == 0u && op2 == 0u) {
+        if (is_write != 0u) {
+            return machine->arm9_tcm_.set_control(*value) ? 1 : 0;
+        }
+        *value = machine->arm9_tcm_.control();
+        return 1;
+    }
+
+    if (crn == 9u && crm == 1u && (op2 == 0u || op2 == 1u)) {
+        const bool instruction = op2 == 1u;
+        if (is_write != 0u) {
+            return machine->arm9_tcm_.write_region(instruction, *value) ? 1 : 0;
+        }
+        return machine->arm9_tcm_.read_region(instruction, *value) ? 1 : 0;
+    }
+
+    /* MPU, cache maintenance/configuration and other CP15 registers fail closed. */
+    return 0;
 }
 
 int NdsMachine::runtime_validate_dispatch_bytes(
@@ -146,8 +167,7 @@ NdsMachineStatus NdsMachine::initialize() noexcept
     arm9_state_ = {};
     arm7_state_ = {};
     program_loaded_ = false;
-    /* Nintendo DS ARM9 reset uses the high BIOS vector window (VINITHI=1). */
-    arm9_cp15_control_ = UINT32_C(1) << 13u;
+    /* CP15 Control.V and fixed-one bits are owned by the ARM9 TCM controller. */
     arm9_state_.cpsr = ORACIS_ARM_MODE_SYSTEM;
     arm7_state_.cpsr = ORACIS_ARM_MODE_SYSTEM;
     run_states_.fill(NdsCpuRunState::Running);
@@ -179,7 +199,8 @@ NdsMachineStatus NdsMachine::initialize() noexcept
     }
     coprocessor_handler_bound_ = true;
 
-    if (wram_control_.install() != memory::Status::Ok) {
+    if (wram_control_.install() != memory::Status::Ok ||
+        arm9_tcm_.install() != memory::Status::Ok) {
         return rollback(NdsMachineStatus::MemoryMapFailed);
     }
 
@@ -768,8 +789,8 @@ NdsMachineStatus NdsMachine::try_deliver_pending_irq(
 uint32_t NdsMachine::exception_vector_base(NdsCpu cpu) const noexcept
 {
     if (cpu == NDS_ARM9) {
-        constexpr uint32_t kAlternateVectorSelect = UINT32_C(1) << 13u;
-        return (arm9_cp15_control_ & kAlternateVectorSelect) != 0u
+        return (arm9_tcm_.control() &
+                memory::NdsArm9Tcm::AlternateVectorSelectMask) != 0u
             ? UINT32_C(0xFFFF0000)
             : 0u;
     }
