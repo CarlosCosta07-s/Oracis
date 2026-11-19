@@ -95,6 +95,9 @@ Implementação: `src/memory/guest_memory.cpp`
 - `NdsRetailRamMap::set_shared_wram_mode(memory, mode)`: altera transacionalmente a visibilidade das sete janelas Shared WRAM pré-mapeadas e preserva os bancos físicos.
 - `NdsWramControl::install()`: instala o mapa inicial e mantém o modo atual do dispositivo.
 - `NdsWramControl::read/write(cpu, address, width, value)`: implementa WRAMCNT para o ARM9; outros endereços não são consumidos por esse dispositivo.
+- `NdsInterruptControl::read/write(cpu, address, width, value)`: implementa IME/IE/IF para ambas as CPUs, em 32 bits, com IF write-one-to-clear.
+- `NdsInterruptControl::request_irq(cpu, mask)` / `irq_asserted(cpu)`: latcheia fontes IF e calcula a linha de interrupção habilitada por IME/IE; não executa a exceção ARM IRQ.
+- `oracis_bus_bind_interrupt_control()` / `oracis_bus_unbind_interrupt_control()`: conecta/desconecta o controlador de interrupções ao barramento C.
 - `oracis_bus_bind_wram_control()` / `oracis_bus_unbind_wram_control()`: conecta e desconecta o dispositivo ao barramento C.
 - `read(cpu, address, width)`: leitura little-endian de 1, 2 ou 4 bytes.
 - `write(cpu, address, width, value)`: escrita little-endian de 1, 2 ou 4 bytes.
@@ -149,6 +152,7 @@ O CMake registra testes separados para:
 - WRAM ARM7 privada;
 - todos os quatro modos de Shared WRAM, incluindo regiões sobrepostas com visibilidade diferente por CPU e o espelho da WRAM privada ARM7 no modo 0;
 - transições dinâmicas entre modos, preservação de conteúdo dos dois bancos e rejeição de modo inválido sem alterar a janela corrente;
-- leitura/escrita de `WRAMCNT` pelo ARM9 via `bus_read_u8`/`bus_write_u8`, rejeição de acesso pelo ARM7 e ligação/desligamento do dispositivo.
+- leitura/escrita de `WRAMCNT` pelo ARM9 via `bus_read_u8`/`bus_write_u8`, rejeição de acesso pelo ARM7 e ligação/desligamento do dispositivo;
+- `IME`/`IE`/`IF` independentes por CPU, IME master gate, máscara IE, IF write-one-to-clear, requests latcheados e roteamento por `bus_read_u32`/`bus_write_u32`.
 
-**Na revisão d7e9e23, a CI confirmou os 20 testes existentes e todos passaram.** O novo teste do controlador de interrupções é o 21º alvo e aguarda a primeira execução da revisão que o introduziu.
+**Na revisão d7e9e23, a CI confirmou os 20 testes existentes e todos passaram.** O teste do controlador de interrupções é o 21º alvo; sua primeira execução está na CI da revisão atual.
