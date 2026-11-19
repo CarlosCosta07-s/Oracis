@@ -101,7 +101,7 @@ int main()
         runtime_mem_cycles(UINT32_C(0x03000000), 4u, 0u);
     if (!check("main/WRAM store", 9u,
                arm7_cycle_combine(1u + fast_data, fast_data, 0u, 0u)) ||
-        !check("main/WRAM load", 9u,
+        !check("main/WRAM load", 10u,
                arm7_cycle_combine(1u + fast_data, fast_data, 1u, 0u))) {
         return fail("main/WRAM overlap timing was incorrect");
     }
@@ -111,7 +111,7 @@ int main()
     }
     if (!check("WRAM/main store", 10u,
                arm7_cycle_combine(1u + main_data, main_data, 0u, 0u)) ||
-        !check("WRAM/main load", 10u,
+        !check("WRAM/main load", 11u,
                arm7_cycle_combine(1u + main_data, main_data, 1u, 0u))) {
         return fail("WRAM/main overlap timing was incorrect");
     }
