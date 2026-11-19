@@ -39,6 +39,8 @@ Responsabilidades previstas:
 - estado de registradores para ARM9 e ARM7;
 - registro/lookup estático de bancos C por CPU e estado ARM/Thumb;
 - verificação da identidade dos bytes do banco e suas dependências antes da execução;
+- pilha de retorno guest por CPU para distinguir retorno nativo de salto guest;
+- chamadas por slot ainda encaminhadas ao dispatcher; cache direto exige epoch e guardas de conteúdo;
 - flags CPSR, banked registers e transições ARM/Thumb;
 - execução/dispatch de bancos estáticos por CPU;
 - interface de memória guest com regiões configuráveis e aliases explícitos;
