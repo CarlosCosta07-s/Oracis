@@ -2,6 +2,7 @@
 
 #include "oracis/memory/guest_memory_abi.h"
 #include "oracis/recomp/runtime_arm.h"
+#include "oracis/recomp/runtime_scheduler.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -359,6 +360,88 @@ int main()
             machine_irq) == 0u ||
         g_nds_active != NDS_ARM7) {
         return fail("ARM7 IRQ entry did not wake/enter with supplied LR and vector");
+    }
+
+    /*
+     * The dual-core round advances both CPUs toward one shared bus-time
+     * watermark, preserving the ARM9:ARM7 2:1 cycle ratio.
+     */
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IfAddress, 4u, UINT32_MAX);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IeAddress, 4u, 0u);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 0u);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::IfAddress, 4u, UINT32_MAX);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::IeAddress, 4u, 0u);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::ImeAddress, 4u, 0u);
+    arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
+    arm7->cpsr = ORACIS_ARM_MODE_SYSTEM;
+    SchedulerFixture scheduler_fixture{};
+    scheduler_fixture.yield_early_arm9 = true;
+
+    if (machine.run_dual_core_round(
+            0u, &execute_test_slice, &provide_test_irq_context,
+            &scheduler_fixture) != NdsMachineStatus::InvalidCycleBudget ||
+        machine.run_dual_core_round(
+            1u, nullptr, &provide_test_irq_context,
+            &scheduler_fixture) != NdsMachineStatus::SliceExecutionFailed) {
+        return fail("dual-core scheduler accepted an invalid round configuration");
+    }
+
+    if (machine.run_dual_core_round(
+            1u, &execute_test_slice, &provide_test_irq_context,
+            &scheduler_fixture) != NdsMachineStatus::Ok ||
+        scheduler_fixture.calls[0] != 1u ||
+        scheduler_fixture.calls[1] != 1u ||
+        scheduler_fixture.budgets[0] != 2u ||
+        scheduler_fixture.budgets[1] != 1u ||
+        machine.global_bus_cycles() != 3u ||
+        machine.system_clock().cpu_cycle_count(NDS_ARM9) != 6u ||
+        machine.system_clock().cpu_cycle_count(NDS_ARM7) != 3u ||
+        oracis_scheduler_cycle_count(NDS_ARM9) != 3u) {
+        return fail("dual-core scheduler failed 2:1 timing or early-yield accounting");
+    }
+
+    /* A halted ARM7 advances only its elapsed clock time; it is not dispatched. */
+    if (machine.write_arm7_halt_control(0x80u) != NdsMachineStatus::Ok ||
+        !machine.cpu_is_halted(NDS_ARM7)) {
+        return fail("ARM7 did not enter HALT before the scheduler idle test");
+    }
+    const uint32_t arm7_calls_before_halt = scheduler_fixture.calls[1];
+    if (machine.run_dual_core_round(
+            1u, &execute_test_slice, &provide_test_irq_context,
+            &scheduler_fixture) != NdsMachineStatus::Ok ||
+        scheduler_fixture.calls[1] != arm7_calls_before_halt ||
+        !machine.cpu_is_halted(NDS_ARM7) ||
+        machine.global_bus_cycles() != 4u ||
+        machine.system_clock().cpu_cycle_count(NDS_ARM7) != 4u) {
+        return fail("dual-core scheduler executed HALTed ARM7 or failed to advance its clock");
+    }
+
+    /* A pending enabled ARM7 interrupt wakes HALT and is delivered before code runs. */
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::IeAddress, 4u, machine_irq);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::ImeAddress, 4u, 1u);
+    machine.interrupt_control().request_irq(NDS_ARM7, machine_irq);
+    arm7->cpsr = ORACIS_ARM_MODE_SYSTEM | CPSR_Z_BIT;
+    const uint32_t arm7_round_irq_cpsr = arm7->cpsr;
+    if (machine.run_dual_core_round(
+            1u, &execute_test_slice, &provide_test_irq_context,
+            &scheduler_fixture) != NdsMachineStatus::Ok ||
+        machine.cpu_is_halted(NDS_ARM7) ||
+        scheduler_fixture.irq_context_calls[1] != 1u ||
+        (arm7->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_IRQ ||
+        arm7->banked_spsr[ARM_BANK_IRQ] != arm7_round_irq_cpsr ||
+        arm7->R[14] != UINT32_C(0x02005002) ||
+        arm7->R[15] != UINT32_C(0x00000018) ||
+        scheduler_fixture.calls[1] != arm7_calls_before_halt + 1u ||
+        machine.global_bus_cycles() != 5u) {
+        return fail("dual-core scheduler did not wake and service ARM7 IRQ at its boundary");
     }
 
     {
