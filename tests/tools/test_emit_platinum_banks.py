@@ -90,7 +90,7 @@ class EmitPlatinumBanksTests(unittest.TestCase):
 
     @staticmethod
     def fake_runner(
-        commands, *, omit_dispatch=False,
+        commands, *, omit_dispatch=False, fail_bank=None,
         codegen_identity=EXPECTED_CODEGEN_IDENTITY,
     ):
         def run(command):
@@ -99,6 +99,8 @@ class EmitPlatinumBanksTests(unittest.TestCase):
                 return codegen_identity + "\n"
 
             bank = command[command.index("--bank") + 1]
+            if bank == fail_bank:
+                raise RuntimeError(f"synthetic {bank} emission failure")
             output = Path(command[command.index("--out") + 1])
             (output / f"{bank}.c").write_text(
                 "/* synthetic bank body */\n", encoding="utf-8"
@@ -191,6 +193,76 @@ class EmitPlatinumBanksTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ROM identity mismatch"):
             emit_banks(
                 self.recompiler, self.extracted, self.output,
+                self.fake_runner(commands),
+            )
+        self.assertEqual(commands, [])
+
+    def test_replaces_previous_generated_set_without_stale_files(self) -> None:
+        self.output.mkdir()
+        (self.output / "oracis_banks.json").write_text(
+            '{"schema_version": 0, "banks": {}}', encoding="utf-8"
+        )
+        (self.output / f"{BANK_PREFIX}_arm9.c").write_text(
+            "old ARM9 body", encoding="utf-8"
+        )
+        (self.output / f"{BANK_PREFIX}_arm7.h").write_text(
+            "old ARM7 header", encoding="utf-8"
+        )
+        commands = []
+
+        emit_banks(
+            self.recompiler, self.extracted, self.output,
+            self.fake_runner(commands),
+        )
+
+        expected = {"oracis_banks.json"}
+        for cpu in ("arm9", "arm7"):
+            bank = f"{BANK_PREFIX}_{cpu}"
+            expected.update({f"{bank}.c", f"{bank}.h", f"{bank}_dispatch.c"})
+        self.assertEqual({entry.name for entry in self.output.iterdir()}, expected)
+        self.assertNotIn("old ARM9 body", (self.output / f"{BANK_PREFIX}_arm9.c").read_text())
+
+    def test_preserves_previous_output_when_arm7_emission_fails(self) -> None:
+        self.output.mkdir()
+        previous_manifest = self.output / "oracis_banks.json"
+        previous_arm9 = self.output / f"{BANK_PREFIX}_arm9.c"
+        previous_manifest.write_text('{"previous": true}', encoding="utf-8")
+        previous_arm9.write_text("previous complete bank set", encoding="utf-8")
+        before = {entry.name: entry.read_bytes() for entry in self.output.iterdir()}
+        commands = []
+
+        with self.assertRaisesRegex(RuntimeError, "synthetic .*arm7 emission failure"):
+            emit_banks(
+                self.recompiler, self.extracted, self.output,
+                self.fake_runner(
+                    commands, fail_bank=f"{BANK_PREFIX}_arm7"
+                ),
+            )
+
+        after = {entry.name: entry.read_bytes() for entry in self.output.iterdir()}
+        self.assertEqual(after, before)
+        self.assertEqual(len(commands), 3)
+
+    def test_rejects_unrelated_files_in_existing_output_directory(self) -> None:
+        self.output.mkdir()
+        note = self.output / "notes.txt"
+        note.write_text("user data", encoding="utf-8")
+        commands = []
+
+        with self.assertRaisesRegex(ValueError, "unrelated or unsafe content"):
+            emit_banks(
+                self.recompiler, self.extracted, self.output,
+                self.fake_runner(commands),
+            )
+
+        self.assertEqual(commands, [])
+        self.assertEqual(note.read_text(encoding="utf-8"), "user data")
+
+    def test_rejects_output_directory_overlapping_extraction(self) -> None:
+        commands = []
+        with self.assertRaisesRegex(ValueError, "separate from the extraction"):
+            emit_banks(
+                self.recompiler, self.extracted, self.extracted,
                 self.fake_runner(commands),
             )
         self.assertEqual(commands, [])
