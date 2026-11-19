@@ -171,6 +171,11 @@ int main()
 
     if (memory.validate_execute(NDS_ARM9, 0x02000000u, 4u) != Status::Ok)
         return fail("executable RAM validation failed");
+    if (memory.validate_write(NDS_ARM9, 0x02000000u, 4u) != Status::Ok ||
+        memory.validate_write(NDS_ARM7, 0x02000FFFu, 2u) !=
+            Status::CrossesRegion) {
+        return fail("write preflight did not validate CPU/range semantics");
+    }
 
     /* Bulk segment writes preserve identity through the canonical map/alias. */
     const uint8_t bulk_segment[] = {0xA1u, 0xB2u, 0xC3u, 0xD4u};
@@ -255,6 +260,10 @@ int main()
     if (memory.validate_execute(NDS_ARM9, 0x03000000u, 2u) !=
         Status::PermissionDenied) {
         return fail("execute permission was not enforced");
+    }
+    if (memory.validate_write(NDS_ARM9, 0x03000000u, 2u) !=
+        Status::PermissionDenied) {
+        return fail("write preflight accepted a read-only mapping");
     }
 
     const uint8_t read_only_zeros[] = {0u, 0u};
