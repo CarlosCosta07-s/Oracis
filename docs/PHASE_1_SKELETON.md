@@ -18,7 +18,7 @@
 - `include/oracis/recomp/runtime_arm.h` e `src/runtime/recomp_abi.cpp`: ponte parcial para o C gerado, estado ativo ARM9/ARM7, wrappers de flags/PSR/exceção e falhas fail-closed.
 - `include/oracis/memory/guest_memory.hpp` e `src/memory/guest_memory.cpp`: regiões guest configuráveis, aliases, mirrors periódicos e visibilidade por CPU.
 - `include/oracis/memory/nds_retail_map.hpp` e `src/memory/nds_retail_map.cpp`: Main RAM 4MB/mirrors, WRAM ARM7 privada e modos WRAMCNT 0–3.
-- `src/memory/bus_abi.cpp`: wrappers C bus_read_*/bus_write_* ligados ao estado ARM9/ARM7 ativo, ao GuestMemory e ao dispositivo MMIO WRAMCNT.
+- `src/memory/bus_abi.cpp`: wrappers C bus_read_*/bus_write_* ligados ao estado ARM9/ARM7 ativo, ao GuestMemory e aos dispositivos MMIO WRAMCNT e IME/IE/IF.
 - `include/oracis/memory/nds_wram_control.hpp` e `src/memory/nds_wram_control.cpp`: WRAMCNT ARM9 de 8 bits, remapeamento Shared WRAM no barramento; WRAMSTAT permanece pendente.
 - `include/oracis/memory/nds_interrupt_control.hpp` e `src/memory/nds_interrupt_control.cpp`: IME/IE/IF independentes por CPU, request flags latcheadas, IF W1C e linha IRQ consultável; a exceção ainda não é entregue pelo scheduler.
 - `tests/abi/` e `tests/memory/`: vinte e um alvos CTest registrados, incluindo ABI, dispatch, pilha de retorno, User bank, CLZ, identidade da memória, WRAMCNT e IME/IE/IF. A CI da revisão d7e9e23 passou em 20/20 testes; o novo teste de interrupções aguarda execução.
