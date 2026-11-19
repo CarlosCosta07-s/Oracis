@@ -40,9 +40,9 @@ A validação local da cópia conferiu SHA-1, offsets, limites e hashes dos dois
 
 ## Limites atuais
 
-- GuestMemory e os wrappers C bus_* oferecem RAM/aliases genéricos; ainda não são o mapa DS e não implementam MMIO.
-- A ponte ABI parcial não implementa dispatch, scheduler, timers, DMA, IPC ou CP15.
-- Os símbolos de ciclos e dispatch apenas declarados não podem ser ligados como se fossem funcionais.
+- GuestMemory e os wrappers C bus_* oferecem RAM/aliases genéricos com identidade de bytes; ainda não são o mapa DS e não implementam MMIO.
+- O registry e runtime_dispatch estão implementados para tabelas registradas, mas não há carregador de bancos reais, chamada/retorno, link slots ou scheduler.
+- Ciclos, timers, DMA, IPC, IRQ/SWI/CP15 e serviços NitroSDK continuam pendentes.
 - O código gerado ainda não foi emitido nem ligado.
 - O host SDL3 continua um frontend experimental sem runtime de jogo conectado.
 - Nenhuma ROM ou dado derivado entra no Git, CI ou releases.
