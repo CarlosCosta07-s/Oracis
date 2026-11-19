@@ -1,4 +1,4 @@
-#include "runtime_arm.h"
+#include "oracis/recomp/runtime_arm.h"
 
 #include <cstdio>
 #include <cstdlib>
