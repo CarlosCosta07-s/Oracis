@@ -19,6 +19,7 @@ int main()
 {
     using oracis::memory::GuestMemory;
     using oracis::memory::NdsWramControl;
+    using oracis::memory::NdsRetailRamMap;
     using oracis::memory::SharedWramMode;
     using oracis::memory::Status;
 
