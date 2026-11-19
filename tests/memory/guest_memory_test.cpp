@@ -75,6 +75,38 @@ int main()
         return fail("execute permission was not enforced");
     }
 
+    const uint8_t read_only_zeros[] = {0u, 0u};
+    if (memory.validate_identity(
+            NDS_ARM9, 0x03000000u, sizeof(read_only_zeros),
+            read_only_zeros) != Status::MissingWriteProvenance) {
+        return fail("uninitialized read-only mapping passed identity validation");
+    }
+
+    const uint8_t image_bytes[] = {0xAAu, 0xBBu, 0xCCu, 0xDDu};
+    if (memory.map_image(
+            0x03100000u, image_bytes, sizeof(image_bytes),
+            static_cast<uint8_t>(oracis::memory::Readable |
+                                 oracis::memory::Executable),
+            "trusted initial image") != Status::Ok) {
+        return fail("initialized image mapping failed");
+    }
+    if (memory.validate_identity(
+            NDS_ARM9, 0x03100000u, sizeof(image_bytes), image_bytes) !=
+        Status::Ok) {
+        return fail("initialized image bytes did not validate");
+    }
+    const uint8_t wrong_image[] = {0xAAu, 0xBBu, 0u, 0xDDu};
+    if (memory.validate_identity(
+            NDS_ARM9, 0x03100000u, sizeof(wrong_image), wrong_image) !=
+        Status::IdentityMismatch) {
+        return fail("initialized image accepted different bytes");
+    }
+    if (memory.map_image(0x03200000u, nullptr, 4u,
+                         oracis::memory::Readable,
+                         "null image") != Status::InvalidRegion) {
+        return fail("null initial image was accepted");
+    }
+
     if (memory.map_ram(0x02000800u, 0x100u, rwx, "overlap") != Status::Overlap)
         return fail("overlapping mapping was accepted");
     if (memory.map_ram(0x04000000u, 0u, rwx, "zero") != Status::InvalidRegion)
