@@ -194,8 +194,25 @@ int main()
         return fail("ARM7 HALT SWI test slice did not begin");
     }
     runtime_swi(0x06u);
-    if (!runtime_should_yield() || !machine.cpu_is_halted(NDS_ARM7) ||
-        machine.end_cpu_slice(NDS_ARM7) != NdsMachineStatus::Ok) {
+    const bool halt_swi_yielded = runtime_should_yield();
+    const bool halt_swi_halted = machine.cpu_is_halted(NDS_ARM7);
+    const uint32_t halt_swi_pending =
+        machine.interrupt_control().pending_enabled(NDS_ARM7);
+    const uint32_t halt_swi_if =
+        machine.interrupt_control().read(
+            NDS_ARM7, NdsInterruptControl::IfAddress, 4u).value;
+    const auto halt_swi_end = machine.end_cpu_slice(NDS_ARM7);
+    if (!halt_swi_yielded || !halt_swi_halted ||
+        halt_swi_end != NdsMachineStatus::Ok) {
+        std::fprintf(stderr,
+            "HALT SWI diagnostic: yield=%d halted=%d IE&IF=0x%08X IF=0x%08X "
+            "active_cpu=%u end_status=%u\\n",
+            halt_swi_yielded ? 1 : 0,
+            halt_swi_halted ? 1 : 0,
+            halt_swi_pending,
+            halt_swi_if,
+            static_cast<unsigned>(g_nds_active),
+            static_cast<unsigned>(halt_swi_end));
         return fail("BIOS HALT SWI did not set ARM7 HALT and yield its slice");
     }
     machine.interrupt_control().request_irq(NDS_ARM7, 1u);
