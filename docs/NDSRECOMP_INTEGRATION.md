@@ -81,6 +81,17 @@ A primeira revisão-alvo é **Pokémon Platinum USA Rev 1**, identificada localm
 
 O identificador pode ser usado na validação local. O conteúdo da ROM, os binários ARM extraídos, os bancos recompilados e os arquivos de configuração gerados a partir dela devem permanecer em diretórios ignorados pelo Git.
 
+### Segmentos verificados localmente
+
+O extrator Oracis foi executado contra a cópia local USA Rev 1. O SHA-1 completo conferiu com o identificador esperado, os offsets/tamanhos dos segmentos estavam dentro do arquivo e ARM9/ARM7 não se sobrepunham.
+
+| Segmento | Offset na ROM | Load address | Entry PC | Tamanho | SHA-1 do segmento |
+|---|---:|---:|---:|---:|---|
+| ARM9 | `0x00004000` | `0x02000000` | `0x02000800` (ARM) | `0x001023F8` | `7ec963e737f0f61efcbbf5c7a3d33cbf378143f8` |
+| ARM7 | `0x00409800` | `0x02380000` | `0x02380000` (ARM) | `0x000277FC` | `082bb349ae7d057edbbd91a07316b1402b18b803` |
+
+Os hashes são dos segmentos extraídos, não de bancos recompilados. Os binários e TOMLs foram gerados apenas no ambiente local e não foram adicionados ao Git.
+
 ## 7. Como preparar o compilador
 
 Na raiz do repositório Oracis, com Python 3, Git, CMake 3.20+, Ninja e um compilador C++20 instalados:
@@ -101,7 +112,21 @@ python tools/ndsrecomp/build_recompiler.py \
 
 O script recusa mover ou sobrescrever um checkout existente que não esteja exatamente na revisão fixada. Ele também não inicializa o submódulo FreeBIOS.
 
-**Ainda não validado nesta máquina:** o script foi publicado, mas sua execução, a compilação de `nds_recompile` e a emissão de bancos ARM9/ARM7 ainda precisam ser testadas em um ambiente com Git, CMake, Ninja, compilador C++20 e acesso à rede.
+## 8. Extrair os segmentos da cópia local
+
+Com a ROM fornecida pelo próprio usuário:
+
+```sh
+python tools/ndsrecomp/extract_nds_programs.py "/caminho/Pokemon - Platinum Version (USA) (Rev 1).nds"
+```
+
+O extrator aceita somente o SHA-1 USA Rev 1 esperado, valida os limites dos dois segmentos, calcula o SHA-1 de cada binário, confere os dados gravados e gera `arm9.toml`, `arm7.toml` e `manifest.json` em `.oracis/local/pokemon-platinum-usa-rev1`.
+
+Requer Python 3.10 ou mais recente. Todos os arquivos de saída são locais e ignorados pelo Git.
+
+## 9. Validação ainda pendente
+
+O extrator foi executado com sucesso contra a cópia local e os TOMLs foram analisados como TOML válido. **Ainda não validado:** a compilação do executável `nds_recompile`, sua execução contra os dois segmentos, a emissão dos bancos e a compilação desses bancos com uma ABI Oracis.
 
 ## 8. Próximos marcos
 
