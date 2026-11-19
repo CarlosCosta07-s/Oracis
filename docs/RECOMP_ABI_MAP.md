@@ -120,23 +120,29 @@ Os símbolos \`runtime_link_call/branch/fallthrough\` já existem, mas não reso
 - \`runtime_unwinding()\` consulta o estado de unwind enquanto os frames C gerados retornam ao host, permitindo que os caminhos BL/BLX preservem frames guest pendentes durante a preempção.
 - \`oracis_scheduler_begin_slice/end_slice\`, \`request_yield\`, \`set_unwinding\`, \`cycle_count\` e \`reset\` permitem ao host controlar cada CPU. O fim da fatia limpa o unwind somente depois que o callback já retornou ao host.
 
-Os contadores e deadlines ARM9/ARM7 são independentes. O runtime não executa automaticamente a outra CPU: o host ainda precisa selecionar a CPU e iniciar a próxima fatia.
+Os contadores e deadlines ARM9/ARM7 são independentes, mas `NdsMachine::run_dual_core_round()` já coordena fatias até um watermark comum na razão 2:1, contabiliza o restante de HALT/yield como tempo ocioso e solicita contexto arquitetural ao host para entrega IRQ. A ponte C do host também oferece `oracis_host_runtime_run_round()`, protegida pela presença de bancos para ambas as CPUs.
 
-**Limite desta etapa:** isto não é o scheduler Nintendo DS completo. Os timers têm uma API explícita de clock global, ainda não alimentada automaticamente. Não há sincronização dos dois CPUs, ordenação geral de eventos, DMA, entrega automática de IRQ, IPC, PPU, wait states ou custos calibrados por região de memória. \`runtime_code_cycles\`, \`runtime_mem_cycles\` e \`runtime_mul_cycles\` ainda não possuem modelos de hardware e continuam pendentes.
+**Limite desta etapa:** isto ainda não é o scheduler Nintendo DS completo. O round sincroniza os dois cores e alimenta o relógio/timers, mas não ordena todos os eventos DS nem modela DMA, IPC, PPU, wait states ou contenção do barramento.
 
-## 8. Declarações ainda sem implementação
+Os corpos C gerados usam um contrato adicional de timing:
+- `g_insn_count[2]` mantém contadores independentes de instruções aposentadas; `oracis_scheduler_reset()` limpa apenas o contador da CPU selecionada.
+- `g_insn_hook_armed` inicia desarmado. `runtime_insn_slow()` falha explicitamente até haver um consumidor de tracing registrado.
+- `NDS_ARM9_CODE_K` emite o sentinel que desativa o fast path packed; `nds_code_numc()` encaminha ao provedor `runtime_code_cycles()`.
+- `arm9_cycle_combine()` implementa a combinação aritmética entre fetch, acesso de dados e ciclos internos.
+- `runtime_code_cycles()`, `runtime_mem_cycles()`, `runtime_mul_cycles()`, `arm7_refill_cycles()`, `arm9_refill_cycles()` e `arm7_cycle_combine()` têm símbolos definidos fail-closed: abortam com diagnóstico até que o modelo de timing de hardware correspondente seja implementado. Nenhum custo inventado é retornado.
 
-O header também declara os serviços que o código gerado precisa, mas não fornece stubs vazios. Os seguintes grupos ainda precisam de implementações reais:
+## 8. Declarações e serviços ainda sem comportamento funcional
 
-- custos de hardware: `runtime_code_cycles`, `runtime_mem_cycles`, `runtime_mul_cycles`;
+O header fornece o contrato C99 necessário para compilar os bancos emitidos, e os helpers de timing acima permitem a ligação fail-closed. Os seguintes grupos ainda precisam de implementações funcionais:
+
+- custos de hardware por região, cache/TCM e acesso: os entry points existem, mas interrompem a execução;
 - otimização de transferências: resolução/cache de link slots e admissão de folhas inline (os símbolos atuais fazem dispatch conservador e não usam cache);
 - observabilidade de transferências: `runtime_live_transfer`;
 - exceções geradas: `runtime_swi`, `runtime_irq`;
 - coprocessador: `runtime_coproc_*` e serviços CP15;
-- observabilidade: `runtime_trace_event`, `runtime_insn_slow`.
+- observabilidade: `runtime_trace_event` e consumidor do hook lento.
 
-Um banco pode incluir o header e compilar sintaticamente, mas continuará sem poder ligar enquanto todos os símbolos efetivamente referenciados não tiverem uma implementação. Não fornecemos no-op stubs para simular progresso.
-
+A compilação C99 de um banco não significa que ele possa executar. A primeira emissão sintética testa o formato ARM/Thumb e a compilação; os bancos reais ainda precisam ser extraídos localmente, ligados ao carregador e validados contra GuestMemory.
 ## 9. Opção de geração excluída
 
 O parâmetro `--flat-execution` altera os corpos gerados para usar `NdsExecRegion`, `execution_region.h` e serviços do runtime upstream. **Oracis não usa essa opção.** Usaremos emissão padrão por função.
