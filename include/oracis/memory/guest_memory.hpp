@@ -119,9 +119,11 @@ public:
     };
 
     /*
-     * Atomically replace CPU visibility masks for a set of existing regions.
+     * Transactionally replace CPU visibility masks for existing regions.
      * All names must resolve uniquely; the resulting map must contain no
-     * overlapping regions visible to the same CPU. No storage is allocated.
+     * overlapping regions visible to the same CPU. Validation completes
+     * before any mutation and the commit phase performs no allocation.
+     * This is not a cross-thread synchronization primitive.
      */
     Status update_cpu_access(const CpuAccessUpdate *updates,
                              std::size_t count) noexcept;
@@ -175,6 +177,7 @@ private:
     static bool valid_cpu_access(uint8_t cpu_access) noexcept;
     bool overlaps(uint32_t base, uint32_t size,
                   uint8_t cpu_access) const noexcept;
+    bool has_region_name(const std::string &name) const noexcept;
     Resolution resolve_any(uint32_t address, uint32_t size) const noexcept;
     Resolution resolve(NdsCpu cpu, uint32_t address, uint32_t size) const noexcept;
     MutableResolution resolve_mutable(NdsCpu cpu,
