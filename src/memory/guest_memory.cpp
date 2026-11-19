@@ -127,8 +127,20 @@ GuestMemory::Resolution GuestMemory::resolve_any(
     return {Status::Ok, selected, backing_offset};
 }
 
+uint8_t GuestMemory::access_mask(
+    const Region &region, AccessKind kind) noexcept
+{
+    switch (kind) {
+    case AccessKind::Read: return region.read_access;
+    case AccessKind::Write: return region.write_access;
+    case AccessKind::Execute: return region.execute_access;
+    }
+    return CpuAccessNone;
+}
+
 GuestMemory::Resolution GuestMemory::resolve(
-    NdsCpu cpu, uint32_t address, uint32_t size) const noexcept
+    NdsCpu cpu, uint32_t address, uint32_t size,
+    AccessKind kind) const noexcept
 {
     if (!valid_cpu(cpu)) return {Status::InvalidCpu, nullptr, 0u};
     if (size == 0u) return {Status::InvalidWidth, nullptr, 0u};
@@ -145,8 +157,9 @@ GuestMemory::Resolution GuestMemory::resolve(
     bool cpu_denied = false;
 
     for (const Region &region : regions_) {
-        if (region.cpu_access == CpuAccessNone) continue;
-        if ((region.cpu_access & cpu_bit) == 0u) {
+        const uint8_t visible_to = access_mask(region, kind);
+        if (visible_to == CpuAccessNone) continue;
+        if ((visible_to & cpu_bit) == 0u) {
             if (address >= region.base &&
                 static_cast<uint64_t>(address) <
                     static_cast<uint64_t>(region.base) + region.size) {
@@ -231,6 +244,9 @@ Status GuestMemory::map_ram(uint32_t base,
         region.size = size;
         region.permissions = permissions;
         region.cpu_access = cpu_access;
+        region.read_access = cpu_access;
+        region.write_access = cpu_access;
+        region.execute_access = cpu_access;
         region.name = std::move(name);
         region.backing = std::make_shared<Backing>(size);
         regions_.push_back(std::move(region));
@@ -262,6 +278,9 @@ Status GuestMemory::map_image(uint32_t base,
         region.size = size;
         region.permissions = permissions;
         region.cpu_access = cpu_access;
+        region.read_access = cpu_access;
+        region.write_access = cpu_access;
+        region.execute_access = cpu_access;
         region.name = std::move(name);
         region.backing = std::make_shared<Backing>(size);
         std::memcpy(region.backing->bytes.data(), contents, size);
@@ -304,6 +323,12 @@ Status GuestMemory::map_alias(uint32_t alias_base,
         alias.backing_offset = target.backing_offset;
         alias.permissions = target.region->permissions;
         alias.cpu_access = effective_access;
+        alias.read_access = cpu_access == CpuAccessInherit
+            ? target.region->read_access : effective_access;
+        alias.write_access = cpu_access == CpuAccessInherit
+            ? target.region->write_access : effective_access;
+        alias.execute_access = cpu_access == CpuAccessInherit
+            ? target.region->execute_access : effective_access;
         alias.name = std::move(name);
         alias.backing = target.region->backing;
         regions_.push_back(std::move(alias));
@@ -347,6 +372,9 @@ Status GuestMemory::map_mirror(uint32_t alias_base,
         mirror.backing_offset = target.backing_offset;
         mirror.permissions = target.region->permissions;
         mirror.cpu_access = effective_access;
+        mirror.read_access = effective_access;
+        mirror.write_access = effective_access;
+        mirror.execute_access = effective_access;
         mirror.backing_period = period;
         mirror.name = std::move(name);
         mirror.backing = target.region->backing;
@@ -360,11 +388,23 @@ Status GuestMemory::map_mirror(uint32_t alias_base,
 Status GuestMemory::map_mirror_overlay(
     uint32_t alias_base, uint32_t canonical_base,
     uint32_t period, uint32_t window_size,
-    std::string name, uint8_t cpu_access, uint8_t priority)
+    std::string name, uint8_t cpu_access, uint8_t priority,
+    uint8_t read_access, uint8_t write_access, uint8_t execute_access)
 {
+    const uint8_t effective_read = read_access == CpuAccessInherit
+        ? cpu_access : read_access;
+    const uint8_t effective_write = write_access == CpuAccessInherit
+        ? cpu_access : write_access;
+    const uint8_t effective_execute = execute_access == CpuAccessInherit
+        ? cpu_access : execute_access;
     if (!valid_range(alias_base, window_size) ||
         !valid_range(canonical_base, period) || period == 0u ||
-        name.empty() || !valid_cpu_access(cpu_access) || priority == 0u) {
+        name.empty() || !valid_cpu_access(cpu_access) || priority == 0u ||
+        !valid_cpu_access(effective_read) ||
+        !valid_cpu_access(effective_write) ||
+        !valid_cpu_access(effective_execute) ||
+        static_cast<uint8_t>(effective_read | effective_write |
+                             effective_execute) != cpu_access) {
         return Status::InvalidRegion;
     }
     if (has_region_name(name)) return Status::InvalidRegion;
@@ -377,10 +417,11 @@ Status GuestMemory::map_mirror_overlay(
     const uint64_t begin = alias_base;
     const uint64_t end = begin + window_size;
     for (const Region &region : regions_) {
-        if ((region.cpu_access & cpu_access) == 0u ||
-            region.priority < priority) {
-            continue;
-        }
+        const bool access_conflict =
+            ((region.read_access & effective_read) != 0u) ||
+            ((region.write_access & effective_write) != 0u) ||
+            ((region.execute_access & effective_execute) != 0u);
+        if (!access_conflict || region.priority < priority) continue;
         const uint64_t other_begin = region.base;
         const uint64_t other_end = other_begin + region.size;
         if (begin < other_end && other_begin < end) return Status::Overlap;
@@ -393,6 +434,9 @@ Status GuestMemory::map_mirror_overlay(
         mirror.backing_offset = target.backing_offset;
         mirror.permissions = target.region->permissions;
         mirror.cpu_access = cpu_access;
+        mirror.read_access = effective_read;
+        mirror.write_access = effective_write;
+        mirror.execute_access = effective_execute;
         mirror.backing_period = period;
         mirror.priority = priority;
         mirror.name = std::move(name);
@@ -407,12 +451,24 @@ Status GuestMemory::map_mirror_overlay(
 Status GuestMemory::replace_mirror_overlay(
     const char *name, uint32_t alias_base, uint32_t canonical_base,
     uint32_t period, uint32_t window_size,
-    uint8_t cpu_access, uint8_t priority)
+    uint8_t cpu_access, uint8_t priority,
+    uint8_t read_access, uint8_t write_access, uint8_t execute_access)
 {
-    if (name == nullptr || name[0] == '\\0' ||
+    const uint8_t effective_read = read_access == CpuAccessInherit
+        ? cpu_access : read_access;
+    const uint8_t effective_write = write_access == CpuAccessInherit
+        ? cpu_access : write_access;
+    const uint8_t effective_execute = execute_access == CpuAccessInherit
+        ? cpu_access : execute_access;
+    if (name == nullptr || name[0] == '\0' ||
         !valid_range(alias_base, window_size) ||
         !valid_range(canonical_base, period) || period == 0u ||
-        !valid_cpu_access(cpu_access) || priority == 0u) {
+        !valid_cpu_access(cpu_access) || priority == 0u ||
+        !valid_cpu_access(effective_read) ||
+        !valid_cpu_access(effective_write) ||
+        !valid_cpu_access(effective_execute) ||
+        static_cast<uint8_t>(effective_read | effective_write |
+                             effective_execute) != cpu_access) {
         return Status::InvalidRegion;
     }
 
@@ -433,8 +489,11 @@ Status GuestMemory::replace_mirror_overlay(
     const uint64_t begin = alias_base;
     const uint64_t end = begin + window_size;
     for (const Region &region : regions_) {
-        if (&region == existing ||
-            (region.cpu_access & cpu_access) == 0u ||
+        const bool access_conflict =
+            ((region.read_access & effective_read) != 0u) ||
+            ((region.write_access & effective_write) != 0u) ||
+            ((region.execute_access & effective_execute) != 0u);
+        if (&region == existing || !access_conflict ||
             region.priority < priority) {
             continue;
         }
@@ -450,6 +509,9 @@ Status GuestMemory::replace_mirror_overlay(
         replacement.backing_offset = target.backing_offset;
         replacement.permissions = target.region->permissions;
         replacement.cpu_access = cpu_access;
+        replacement.read_access = effective_read;
+        replacement.write_access = effective_write;
+        replacement.execute_access = effective_execute;
         replacement.backing_period = period;
         replacement.priority = priority;
         replacement.name = existing->name;
@@ -478,67 +540,97 @@ Status GuestMemory::update_cpu_access(
 {
     if (updates == nullptr || count == 0u) return Status::InvalidRegion;
 
+    const auto requested_mask = [](uint8_t requested,
+                                   uint8_t fallback) noexcept -> uint8_t {
+        return requested == CpuAccessInherit ? fallback : requested;
+    };
+
     /* Validate every request and require each name to identify one region. */
     for (std::size_t index = 0u; index < count; ++index) {
-        if (updates[index].name == nullptr ||
-            updates[index].name[0] == '\0' ||
-            !valid_cpu_access(updates[index].cpu_access)) {
+        const CpuAccessUpdate &update = updates[index];
+        const uint8_t read_mask =
+            requested_mask(update.read_access, update.cpu_access);
+        const uint8_t write_mask =
+            requested_mask(update.write_access, update.cpu_access);
+        const uint8_t execute_mask =
+            requested_mask(update.execute_access, update.cpu_access);
+        if (update.name == nullptr || update.name[0] == '\0' ||
+            !valid_cpu_access(update.cpu_access) ||
+            !valid_cpu_access(read_mask) ||
+            !valid_cpu_access(write_mask) ||
+            !valid_cpu_access(execute_mask) ||
+            static_cast<uint8_t>(read_mask | write_mask | execute_mask) !=
+                update.cpu_access) {
             return Status::InvalidRegion;
         }
 
         for (std::size_t previous = 0u; previous < index; ++previous) {
-            if (std::strcmp(updates[index].name, updates[previous].name) == 0) {
+            if (std::strcmp(update.name, updates[previous].name) == 0) {
                 return Status::InvalidRegion;
             }
         }
 
         std::size_t matches = 0u;
         for (const Region &region : regions_) {
-            if (region.name == updates[index].name) ++matches;
+            if (region.name == update.name) ++matches;
         }
         if (matches == 0u) return Status::Unmapped;
         if (matches != 1u) return Status::InvalidRegion;
     }
 
-    const auto access_after_update =
-        [updates, count](const Region &region) noexcept -> uint8_t {
+    const auto mask_after_update =
+        [updates, count, &requested_mask](
+            const Region &region, AccessKind kind) noexcept -> uint8_t {
             for (std::size_t index = 0u; index < count; ++index) {
                 if (region.name == updates[index].name) {
-                    return updates[index].cpu_access;
+                    const CpuAccessUpdate &update = updates[index];
+                    switch (kind) {
+                    case AccessKind::Read:
+                        return requested_mask(update.read_access, update.cpu_access);
+                    case AccessKind::Write:
+                        return requested_mask(update.write_access, update.cpu_access);
+                    case AccessKind::Execute:
+                        return requested_mask(update.execute_access, update.cpu_access);
+                    }
                 }
             }
-            return region.cpu_access;
+            return GuestMemory::access_mask(region, kind);
         };
 
-    /*
-     * Check the complete proposed map before mutating any region. A mapping
-     * may overlap another only when their resulting CPU masks are disjoint.
-     */
+    /* Validate the entire proposed map before mutating anything. */
     for (std::size_t left = 0u; left < regions_.size(); ++left) {
-        const uint8_t left_access = access_after_update(regions_[left]);
-        if (left_access == CpuAccessNone) continue;
-
         const uint64_t left_begin = regions_[left].base;
         const uint64_t left_end = left_begin + regions_[left].size;
         for (std::size_t right = left + 1u;
              right < regions_.size(); ++right) {
-            const uint8_t right_access = access_after_update(regions_[right]);
-            if ((left_access & right_access) == 0u) continue;
-
+            if (regions_[left].priority != regions_[right].priority) continue;
             const uint64_t right_begin = regions_[right].base;
             const uint64_t right_end = right_begin + regions_[right].size;
-            if (regions_[left].priority == regions_[right].priority &&
-                left_begin < right_end && right_begin < left_end) {
-                return Status::Overlap;
-            }
+            if (left_begin >= right_end || right_begin >= left_end) continue;
+
+            const bool conflicts =
+                (mask_after_update(regions_[left], AccessKind::Read) &
+                 mask_after_update(regions_[right], AccessKind::Read)) != 0u ||
+                (mask_after_update(regions_[left], AccessKind::Write) &
+                 mask_after_update(regions_[right], AccessKind::Write)) != 0u ||
+                (mask_after_update(regions_[left], AccessKind::Execute) &
+                 mask_after_update(regions_[right], AccessKind::Execute)) != 0u;
+            if (conflicts) return Status::Overlap;
         }
     }
 
-    /* All checks passed; this commit point performs no allocation. */
+    /* All checks passed; this commit phase performs no allocation. */
     for (std::size_t index = 0u; index < count; ++index) {
+        const CpuAccessUpdate &update = updates[index];
         for (Region &region : regions_) {
-            if (region.name == updates[index].name) {
-                region.cpu_access = updates[index].cpu_access;
+            if (region.name == update.name) {
+                region.cpu_access = update.cpu_access;
+                region.read_access =
+                    requested_mask(update.read_access, update.cpu_access);
+                region.write_access =
+                    requested_mask(update.write_access, update.cpu_access);
+                region.execute_access =
+                    requested_mask(update.execute_access, update.cpu_access);
                 break;
             }
         }
@@ -547,9 +639,10 @@ Status GuestMemory::update_cpu_access(
 }
 
 GuestMemory::MutableResolution GuestMemory::resolve_mutable(
-    NdsCpu cpu, uint32_t address, uint32_t size) noexcept
+    NdsCpu cpu, uint32_t address, uint32_t size,
+    AccessKind kind) noexcept
 {
-    const Resolution result = resolve(cpu, address, size);
+    const Resolution result = resolve(cpu, address, size, kind);
     if (result.status != Status::Ok || result.region == nullptr) {
         return {result.status, nullptr, 0u};
     }
@@ -571,7 +664,7 @@ ReadResult GuestMemory::read(NdsCpu cpu,
         return {Status::InvalidWidth, 0u};
     }
 
-    const Resolution result = resolve(cpu, address, width);
+    const Resolution result = resolve(cpu, address, width, AccessKind::Read);
     if (result.status != Status::Ok || result.region == nullptr) {
         return {result.status, 0u};
     }
@@ -600,7 +693,8 @@ Status GuestMemory::write(NdsCpu cpu,
         return Status::InvalidWidth;
     }
 
-    const MutableResolution result = resolve_mutable(cpu, address, width);
+    const MutableResolution result = resolve_mutable(
+        cpu, address, width, AccessKind::Write);
     if (result.status != Status::Ok || result.region == nullptr) {
         return result.status;
     }
@@ -636,7 +730,8 @@ Status GuestMemory::write_bytes(
      * This prevents partial copies on unmapped, cross-region, denied or
      * overflowing requests.
      */
-    const MutableResolution result = resolve_mutable(cpu, address, size);
+    const MutableResolution result = resolve_mutable(
+        cpu, address, size, AccessKind::Write);
     if (result.status != Status::Ok || result.region == nullptr) {
         return result.status;
     }
@@ -693,7 +788,7 @@ Status GuestMemory::validate_execute(NdsCpu cpu,
                                      uint32_t size) const noexcept
 {
     if (!valid_cpu(cpu)) return Status::InvalidCpu;
-    const Resolution result = resolve(cpu, address, size);
+    const Resolution result = resolve(cpu, address, size, AccessKind::Execute);
     if (result.status != Status::Ok || result.region == nullptr) {
         return result.status;
     }
@@ -707,7 +802,7 @@ Status GuestMemory::validate_write(
     NdsCpu cpu, uint32_t address, uint32_t size) const noexcept
 {
     if (!valid_cpu(cpu)) return Status::InvalidCpu;
-    const Resolution result = resolve(cpu, address, size);
+    const Resolution result = resolve(cpu, address, size, AccessKind::Write);
     if (result.status != Status::Ok || result.region == nullptr) {
         return result.status;
     }
@@ -726,7 +821,7 @@ Status GuestMemory::validate_identity(
     if (!valid_cpu(cpu)) return Status::InvalidCpu;
     if (expected == nullptr || size == 0u) return Status::InvalidRegion;
 
-    const Resolution result = resolve(cpu, address, size);
+    const Resolution result = resolve(cpu, address, size, AccessKind::Read);
     if (result.status != Status::Ok || result.region == nullptr) {
         return result.status;
     }

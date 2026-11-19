@@ -166,7 +166,7 @@ int main()
             UINT32_C(0x11223344) ||
         machine.guest_memory().validate_execute(
             NDS_ARM9, UINT32_C(0x027C0000), 4u) !=
-            oracis::memory::Status::PermissionDenied) {
+            oracis::memory::Status::Ok) {
         return fail("DTCM overlay did not preserve the underlying main-RAM mirror");
     }
 
@@ -212,6 +212,57 @@ int main()
             NDS_ARM9, UINT32_C(0x027C0000), 4u).value !=
             UINT32_C(0xAABBCCDD)) {
         return fail("re-enabling DTCM did not restore its physical backing");
+    }
+
+    /*
+     * In DTCM load mode, data reads and instruction fetches bypass DTCM to
+     * external RAM, while writes still populate the private DTCM store.
+     */
+    constexpr uint32_t dtcm_load_control = UINT32_C(0x00072078);
+    runtime_coproc_write(15u, 0u, 1u, 0u, 0u, dtcm_load_control);
+    if (machine.guest_memory().read(
+            NDS_ARM9, UINT32_C(0x027C0000), 4u).value !=
+            UINT32_C(0x11223344) ||
+        machine.guest_memory().validate_execute(
+            NDS_ARM9, UINT32_C(0x027C0000), 4u) !=
+            oracis::memory::Status::Ok ||
+        machine.guest_memory().write(
+            NDS_ARM9, UINT32_C(0x027C0000), 4u,
+            UINT32_C(0x88776655)) != oracis::memory::Status::Ok ||
+        machine.guest_memory().read(
+            NDS_ARM9, UINT32_C(0x027C0000), 4u).value !=
+            UINT32_C(0x11223344)) {
+        return fail("DTCM load mode did not bypass reads while retaining writes");
+    }
+    runtime_coproc_write(15u, 0u, 1u, 0u, 0u, tcm_control);
+    if (machine.guest_memory().read(
+            NDS_ARM9, UINT32_C(0x027C0000), 4u).value !=
+            UINT32_C(0x88776655)) {
+        return fail("DTCM load-mode writes were not retained in its backing");
+    }
+
+    /*
+     * ITCM load mode redirects data reads but keeps instruction fetches in
+     * ITCM; writes still load the instruction TCM through the data port.
+     */
+    constexpr uint32_t itcm_load_control = UINT32_C(0x000D2078);
+    runtime_coproc_write(15u, 0u, 1u, 0u, 0u, itcm_load_control);
+    if (machine.guest_memory().write(
+            NDS_ARM9, UINT32_C(0x00000020), 4u,
+            UINT32_C(0xA1B2C3D4)) != oracis::memory::Status::Ok ||
+        machine.guest_memory().read(
+            NDS_ARM9, UINT32_C(0x00000020), 4u).status !=
+            oracis::memory::Status::Unmapped ||
+        machine.guest_memory().validate_execute(
+            NDS_ARM9, UINT32_C(0x00000020), 4u) !=
+            oracis::memory::Status::Ok) {
+        return fail("ITCM load mode did not distinguish data reads from fetches");
+    }
+    runtime_coproc_write(15u, 0u, 1u, 0u, 0u, tcm_control);
+    if (machine.guest_memory().read(
+            NDS_ARM9, UINT32_C(0x00000020), 4u).value !=
+            UINT32_C(0xA1B2C3D4)) {
+        return fail("ITCM load-mode writes were not retained in its backing");
     }
 
     /* Load pre-extracted segments only after both CPU destinations pass preflight. */

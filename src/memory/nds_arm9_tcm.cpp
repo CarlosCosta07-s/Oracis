@@ -100,7 +100,17 @@ bool NdsArm9Tcm::map_region(bool instruction, uint32_t value) noexcept
 
     const bool enabled = (control_ &
         (instruction ? ItcmEnableMask : DtcmEnableMask)) != 0u;
-    const uint8_t cpu_access = enabled ? CpuAccessArm9 : CpuAccessNone;
+    const bool load_mode = (control_ &
+        (instruction ? ItcmLoadModeMask : DtcmLoadModeMask)) != 0u;
+    const uint8_t read_access =
+        enabled && !load_mode ? CpuAccessArm9 : CpuAccessNone;
+    const uint8_t write_access =
+        enabled ? CpuAccessArm9 : CpuAccessNone;
+    /* DTCM belongs to the data interface; instruction fetches bypass it. */
+    const uint8_t execute_access =
+        enabled && instruction ? CpuAccessArm9 : CpuAccessNone;
+    const uint8_t cpu_access = static_cast<uint8_t>(
+        read_access | write_access | execute_access);
     const uint32_t canonical_base = instruction
         ? ItcmBackingBase : DtcmBackingBase;
     const uint32_t period = instruction
@@ -112,10 +122,12 @@ bool NdsArm9Tcm::map_region(bool instruction, uint32_t value) noexcept
     const Status status = mapped
         ? memory_.replace_mirror_overlay(
             region_name, base, canonical_base, period,
-            window_size, cpu_access, kOverlayPriority)
+            window_size, cpu_access, kOverlayPriority,
+            read_access, write_access, execute_access)
         : memory_.map_mirror_overlay(
             base, canonical_base, period, window_size,
-            region_name, cpu_access, kOverlayPriority);
+            region_name, cpu_access, kOverlayPriority,
+            read_access, write_access, execute_access);
     if (status != Status::Ok) return false;
 
     if (instruction) {
@@ -133,7 +145,9 @@ bool NdsArm9Tcm::set_control(uint32_t value) noexcept
     constexpr uint32_t kSupportedControlMask =
         RequiredControlOnesMask |
         AlternateVectorSelectMask |
+        ItcmLoadModeMask |
         ItcmEnableMask |
+        DtcmLoadModeMask |
         DtcmEnableMask;
     if ((value & ~kSupportedControlMask) != 0u ||
         (value & RequiredControlOnesMask) != RequiredControlOnesMask ||
@@ -142,11 +156,26 @@ bool NdsArm9Tcm::set_control(uint32_t value) noexcept
         return false;
     }
 
+    const bool itcm_enabled = (value & ItcmEnableMask) != 0u;
+    const bool dtcm_enabled = (value & DtcmEnableMask) != 0u;
+    const bool itcm_load_mode = (value & ItcmLoadModeMask) != 0u;
+    const bool dtcm_load_mode = (value & DtcmLoadModeMask) != 0u;
+    const uint8_t itcm_read = itcm_enabled && !itcm_load_mode
+        ? CpuAccessArm9 : CpuAccessNone;
+    const uint8_t itcm_write = itcm_enabled
+        ? CpuAccessArm9 : CpuAccessNone;
+    const uint8_t dtcm_read = dtcm_enabled && !dtcm_load_mode
+        ? CpuAccessArm9 : CpuAccessNone;
+    const uint8_t dtcm_write = dtcm_enabled
+        ? CpuAccessArm9 : CpuAccessNone;
     const GuestMemory::CpuAccessUpdate updates[] = {
         {kItcmRegionName,
-         (value & ItcmEnableMask) != 0u ? CpuAccessArm9 : CpuAccessNone},
+         itcm_enabled ? CpuAccessArm9 : CpuAccessNone,
+         itcm_read, itcm_write,
+         itcm_enabled ? CpuAccessArm9 : CpuAccessNone},
         {kDtcmRegionName,
-         (value & DtcmEnableMask) != 0u ? CpuAccessArm9 : CpuAccessNone}
+         dtcm_enabled ? CpuAccessArm9 : CpuAccessNone,
+         dtcm_read, dtcm_write, CpuAccessNone}
     };
     GuestMemory::CpuAccessUpdate active_updates[2]{};
     std::size_t update_count = 0u;

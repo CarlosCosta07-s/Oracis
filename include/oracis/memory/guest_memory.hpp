@@ -120,21 +120,31 @@ public:
                               uint32_t window_size,
                               std::string name,
                               uint8_t cpu_access,
-                              uint8_t priority);
+                              uint8_t priority,
+                              uint8_t read_access = CpuAccessInherit,
+                              uint8_t write_access = CpuAccessInherit,
+                              uint8_t execute_access = CpuAccessInherit);
     Status replace_mirror_overlay(const char *name,
                                   uint32_t alias_base,
                                   uint32_t canonical_base,
                                   uint32_t period,
                                   uint32_t window_size,
                                   uint8_t cpu_access,
-                                  uint8_t priority);
+                                  uint8_t priority,
+                                  uint8_t read_access = CpuAccessInherit,
+                                  uint8_t write_access = CpuAccessInherit,
+                                  uint8_t execute_access = CpuAccessInherit);
 
     /* Remove one guest mapping by its unique region name. */
     bool unmap_region(const std::string &name) noexcept;
 
     struct CpuAccessUpdate {
         const char *name;
+        /* Union of read/write/execute visibility for overlap bookkeeping. */
         uint8_t cpu_access;
+        uint8_t read_access = CpuAccessInherit;
+        uint8_t write_access = CpuAccessInherit;
+        uint8_t execute_access = CpuAccessInherit;
     };
 
     /*
@@ -177,12 +187,21 @@ private:
         std::vector<uint8_t> write_provenance;
     };
 
+    enum class AccessKind : uint8_t {
+        Read,
+        Write,
+        Execute
+    };
+
     struct Region {
         uint32_t base = 0u;
         uint32_t size = 0u;
         uint32_t backing_offset = 0u;
         uint8_t permissions = 0u;
         uint8_t cpu_access = CpuAccessBoth;
+        uint8_t read_access = CpuAccessBoth;
+        uint8_t write_access = CpuAccessBoth;
+        uint8_t execute_access = CpuAccessBoth;
         uint32_t backing_period = 0u;
         uint8_t priority = 0u;
         std::string name;
@@ -209,10 +228,14 @@ private:
                   uint8_t cpu_access) const noexcept;
     bool has_region_name(const std::string &name) const noexcept;
     Resolution resolve_any(uint32_t address, uint32_t size) const noexcept;
-    Resolution resolve(NdsCpu cpu, uint32_t address, uint32_t size) const noexcept;
+    Resolution resolve(NdsCpu cpu, uint32_t address, uint32_t size,
+                       AccessKind kind) const noexcept;
     MutableResolution resolve_mutable(NdsCpu cpu,
                                       uint32_t address,
-                                      uint32_t size) noexcept;
+                                      uint32_t size,
+                                      AccessKind kind) noexcept;
+    static uint8_t access_mask(const Region &region,
+                               AccessKind kind) noexcept;
     static uint32_t backing_index(const Region &region,
                                   uint32_t address_offset) noexcept;
 

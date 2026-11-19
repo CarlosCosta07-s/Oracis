@@ -21,7 +21,9 @@ public:
     static constexpr uint32_t DtcmBackingBase =
         ItcmBackingBase + ItcmPhysicalSize;
 
+    static constexpr uint32_t ItcmLoadModeMask = UINT32_C(1) << 19u;
     static constexpr uint32_t ItcmEnableMask = UINT32_C(1) << 18u;
+    static constexpr uint32_t DtcmLoadModeMask = UINT32_C(1) << 17u;
     static constexpr uint32_t DtcmEnableMask = UINT32_C(1) << 16u;
     static constexpr uint32_t AlternateVectorSelectMask = UINT32_C(1) << 13u;
     static constexpr uint32_t RequiredControlOnesMask = UINT32_C(0x78);
