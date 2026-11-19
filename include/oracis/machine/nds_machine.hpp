@@ -43,8 +43,29 @@ enum class NdsMachineStatus : uint8_t {
     IrqEntered,
     IrqEntryFailed,
     UnsupportedPowerMode,
+    InvalidCycleBudget,
+    SliceExecutionFailed,
+    IrqContextUnavailable,
+    IrqContextFailed,
     ShutdownFailed
 };
+
+/*
+ * Executes one cooperative native-code slice for the selected CPU.
+ * The machine has already selected the CPU and opened its scheduler budget.
+ * The callback must return at a generated-code yield/safe instruction boundary.
+ */
+using NdsMachineSliceExecutor = bool (*)(
+    void *context, NdsCpu cpu, ArmCpuState *state,
+    uint64_t cycle_budget);
+
+/*
+ * Supplies architecture-specific IRQ state. The callback must calculate the
+ * IRQ LR for the exact boundary and select the active low/high vector base.
+ */
+using NdsMachineIrqContextProvider = bool (*)(
+    void *context, NdsCpu cpu, const ArmCpuState *state,
+    uint32_t *return_address, uint32_t *vector_base);
 
 class NdsMachine final {
 public:
@@ -85,6 +106,27 @@ public:
      */
     NdsMachineStatus report_idle_bus_cycles(
         NdsCpu cpu, uint64_t elapsed_bus_cycles) noexcept;
+
+    /*
+     * Account core cycles during a period in which this CPU is not executing
+     * guest instructions but its clock domain remains active. This preserves
+     * half-bus-cycle precision for ARM9.
+     */
+    NdsMachineStatus report_idle_core_cycles(
+        NdsCpu cpu, uint64_t elapsed_core_cycles) noexcept;
+
+    /*
+     * Advance both CPU timelines toward one common bus-clock watermark.
+     * ARM9 targets two core cycles per bus cycle; ARM7 targets one. A CPU that
+     * is HALTed or yields early is accounted as idle for the rest of this
+     * scheduling quantum. The callback executes native generated code; this
+     * method does not emulate missing devices or invent IRQ return addresses.
+     */
+    NdsMachineStatus run_dual_core_round(
+        uint64_t bus_cycle_budget,
+        NdsMachineSliceExecutor execute_slice,
+        NdsMachineIrqContextProvider irq_context,
+        void *context) noexcept;
 
     /*
      * HALT is modeled as a CPU execution state; peripherals keep advancing
@@ -146,6 +188,7 @@ private:
     std::array<NdsCpuRunState, 2> run_states_{};
     /* Core-cycle equivalents already reported through explicit idle time. */
     std::array<uint64_t, 2> idle_core_cycles_offset_{};
+    NdsCpu next_round_first_cpu_ = NDS_ARM9;
     bool runtime_bound_ = false;
     bool power_handler_bound_ = false;
     bool memory_bound_ = false;
