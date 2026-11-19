@@ -40,3 +40,7 @@ Thumbs.db
 # Oracis local tool checkouts, extracted binaries, and generated banks
 /.oracis/
 /generated/
+
+# Python tooling
+__pycache__/
+*.py[cod]
