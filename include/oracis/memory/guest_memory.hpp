@@ -8,6 +8,7 @@
 #ifndef ORACIS_MEMORY_GUEST_MEMORY_HPP
 #define ORACIS_MEMORY_GUEST_MEMORY_HPP
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -79,7 +80,7 @@ public:
                             uint32_t size) const noexcept;
 
     static const char *status_name(Status status) noexcept;
-    size_t region_count() const noexcept { return regions_.size(); }
+    std::size_t region_count() const noexcept { return regions_.size(); }
 
 private:
     struct Backing {
