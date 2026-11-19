@@ -439,11 +439,13 @@ bool NdsMachine::execute_registered_bank_slice(
     }
 
     /*
-     * Generated code owns its instruction-boundary yield checks and invokes
-     * runtime_dispatch for guest control-flow transfers. The machine only
-     * supplies the already-selected CPU state and the active slice budget.
+     * A dispatch row is one translated guest block, not necessarily a whole
+     * scheduling quantum. Keep dispatching subsequent guest PCs until the
+     * generated code requests a safe yield (budget, HALT, or explicit yield).
      */
-    runtime_dispatch(state->R[15]);
+    while (!runtime_should_yield()) {
+        runtime_dispatch(state->R[15]);
+    }
     return true;
 }
 
