@@ -40,6 +40,38 @@ int oracis_arm_cpu_write_spsr(ArmCpuState *state, uint32_t value, uint32_t field
 int oracis_arm_cpu_write_cpsr(ArmCpuState *state, uint32_t value, uint32_t field_mask);
 int oracis_arm_cpu_restore_cpsr_from_spsr(ArmCpuState *state);
 
+typedef enum OracisArmException {
+    ORACIS_ARM_EXCEPTION_UNDEFINED = 0,
+    ORACIS_ARM_EXCEPTION_SWI = 1,
+    ORACIS_ARM_EXCEPTION_PREFETCH_ABORT = 2,
+    ORACIS_ARM_EXCEPTION_DATA_ABORT = 3,
+    ORACIS_ARM_EXCEPTION_IRQ = 4,
+    ORACIS_ARM_EXCEPTION_FIQ = 5
+} OracisArmException;
+
+/*
+ * Enter an ARMv4T/ARMv5TE exception.
+ *
+ * return_address is the architectural link value computed by the caller for
+ * this exact exception boundary (it is deliberately not inferred from R15).
+ * vector_base is either the selected normal/high vector base or the platform's
+ * configured exception base. Returns 0 without changing state on bad input.
+ */
+int oracis_arm_cpu_enter_exception(
+    ArmCpuState *state,
+    OracisArmException exception,
+    uint32_t return_address,
+    uint32_t vector_base);
+
+/*
+ * Atomically restore CPSR from the current mode's SPSR and publish the
+ * caller-supplied return address as R15. The caller computes any instruction-
+ * specific LR adjustment before calling this routine.
+ */
+int oracis_arm_cpu_return_from_exception(
+    ArmCpuState *state,
+    uint32_t return_address);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
