@@ -146,7 +146,8 @@ NdsMachineStatus NdsMachine::initialize() noexcept
     arm9_state_ = {};
     arm7_state_ = {};
     program_loaded_ = false;
-    arm9_cp15_control_ = 0u;
+    /* Nintendo DS ARM9 reset uses the high BIOS vector window (VINITHI=1). */
+    arm9_cp15_control_ = UINT32_C(1) << 13u;
     arm9_state_.cpsr = ORACIS_ARM_MODE_SYSTEM;
     arm7_state_.cpsr = ORACIS_ARM_MODE_SYSTEM;
     run_states_.fill(NdsCpuRunState::Running);
