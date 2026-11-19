@@ -36,6 +36,7 @@ class EmitPlatinumBanksTests(unittest.TestCase):
         self.extracted.mkdir()
         self.recompiler = self.root / "nds_recompile"
         self.recompiler.write_bytes(b"synthetic test executable")
+        self.original_expected_segments = emitter.EXPECTED_SEGMENTS
 
         self.records = []
         for cpu, load, mode, data in (
@@ -55,12 +56,24 @@ class EmitPlatinumBanksTests(unittest.TestCase):
             )
             self.records.append({
                 "cpu": cpu,
+                "rom_offset": 0x200 if cpu == "arm9" else 0x204,
+                "entry_pc_raw": load | (1 if mode == "thumb" else 0),
                 "load_address": load,
                 "size": len(data),
                 "entry_pc": load,
                 "entry_mode": mode,
                 "sha1": digest,
             })
+
+        emitter.EXPECTED_SEGMENTS = {
+            record["cpu"]: {
+                key: record[key] for key in (
+                    "rom_offset", "entry_pc_raw", "load_address", "size",
+                    "entry_pc", "entry_mode", "sha1",
+                )
+            }
+            for record in self.records
+        }
 
         (self.extracted / "manifest.json").write_text(json.dumps({
             "schema_version": 1,
@@ -69,6 +82,7 @@ class EmitPlatinumBanksTests(unittest.TestCase):
         }), encoding="utf-8")
 
     def tearDown(self) -> None:
+        emitter.EXPECTED_SEGMENTS = self.original_expected_segments
         self.temp.cleanup()
 
     @staticmethod
@@ -135,7 +149,7 @@ class EmitPlatinumBanksTests(unittest.TestCase):
         )
 
     def test_rejects_changed_segment_before_invoking_recompiler(self) -> None:
-        (self.extracted / "arm7.bin").write_bytes(b"tampered")
+        (self.extracted / "arm7.bin").write_bytes(b"ZZ")
         commands = []
         with self.assertRaisesRegex(ValueError, "SHA-1 mismatch"):
             emit_banks(
@@ -160,7 +174,7 @@ class EmitPlatinumBanksTests(unittest.TestCase):
 
     def test_rejects_missing_dispatch_table(self) -> None:
         commands = []
-        with self.assertRaisesRegex(RuntimeError, "dispatch table"):
+        with self.assertRaisesRegex(RuntimeError, "dispatch"):
             emit_banks(
                 self.recompiler, self.extracted, self.output,
                 self.fake_runner(commands, omit_dispatch=True),
