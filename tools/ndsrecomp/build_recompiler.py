@@ -53,10 +53,10 @@ def ignore_generated_toml_header(source: Path) -> None:
     current = exclude_path.read_text(encoding="utf-8") if exclude_path.exists() else ""
     pattern = "/recompiler/third_party/"
     if pattern not in current.splitlines():
-        with exclude_path.open("a", encoding="utf-8", newline="\\n") as stream:
-            if current and not current.endswith("\\n"):
-                stream.write("\\n")
-            stream.write(pattern + "\\n")
+        with exclude_path.open("a", encoding="utf-8", newline="\n") as stream:
+            if current and not current.endswith("\n"):
+                stream.write("\n")
+            stream.write(pattern + "\n")
 
 
 def configure_sparse_checkout(source: Path) -> None:
