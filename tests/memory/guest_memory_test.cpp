@@ -287,22 +287,32 @@ int main()
      * Replacing an overlay preserves both backings and is transactional.
      */
     GuestMemory overlay_memory;
-    if (overlay_memory.map_ram(
-            0x40000000u, 0x4000u, rwx, "overlay physical backing",
-            oracis::memory::CpuAccessNone) != Status::Ok ||
-        overlay_memory.map_ram(
-            0x50000000u, 0x4000u, rwx, "underlay physical backing",
-            oracis::memory::CpuAccessNone) != Status::Ok ||
-        overlay_memory.map_mirror(
-            0x60000000u, 0x4000u, 0x4000u, 0x4000u,
-            "ordinary underlay", oracis::memory::CpuAccessArm9) !=
-            Status::Ok ||
-        overlay_memory.map_mirror_overlay(
-            0x60000000u, 0x40000000u, 0x4000u, 0x4000u,
-            "high priority overlay", oracis::memory::CpuAccessNone, 1u) !=
-            Status::Ok ||
-        overlay_memory.write(
-            NDS_ARM9, 0x60000000u, 4u, UINT32_C(0x12345678)) != Status::Ok) {
+    const Status overlay_backing = overlay_memory.map_ram(
+        0x40000000u, 0x4000u, rwx, "overlay physical backing",
+        oracis::memory::CpuAccessNone);
+    const Status underlay_backing = overlay_memory.map_ram(
+        0x50000000u, 0x4000u, rwx, "underlay physical backing",
+        oracis::memory::CpuAccessNone);
+    const Status underlay_view = overlay_memory.map_mirror(
+        0x60000000u, 0x50000000u, 0x4000u, 0x4000u,
+        "ordinary underlay", oracis::memory::CpuAccessArm9);
+    const Status overlay_view = overlay_memory.map_mirror_overlay(
+        0x60000000u, 0x40000000u, 0x4000u, 0x4000u,
+        "high priority overlay", oracis::memory::CpuAccessNone, 1u);
+    const Status underlay_write = overlay_memory.write(
+        NDS_ARM9, 0x60000000u, 4u, UINT32_C(0x12345678));
+    if (overlay_backing != Status::Ok ||
+        underlay_backing != Status::Ok ||
+        underlay_view != Status::Ok ||
+        overlay_view != Status::Ok ||
+        underlay_write != Status::Ok) {
+        std::fprintf(stderr,
+            "overlay setup statuses: backing=%s underlay=%s view=%s overlay=%s write=%s\\n",
+            GuestMemory::status_name(overlay_backing),
+            GuestMemory::status_name(underlay_backing),
+            GuestMemory::status_name(underlay_view),
+            GuestMemory::status_name(overlay_view),
+            GuestMemory::status_name(underlay_write));
         return fail("priority overlay setup failed");
     }
     const GuestMemory::CpuAccessUpdate overlay_enable[] = {
@@ -331,7 +341,7 @@ int main()
         return fail("priority overlay replacement did not preserve both RAM views");
     }
 
-    const uint8_t image_bytes[] = {0xAAu, 0xBBu, 0xCCu, 0xDDu};
+        const uint8_t image_bytes[] = {0xAAu, 0xBBu, 0xCCu, 0xDDu};
     if (memory.map_image(
             0x03100000u, image_bytes, sizeof(image_bytes),
             static_cast<uint8_t>(oracis::memory::Readable |

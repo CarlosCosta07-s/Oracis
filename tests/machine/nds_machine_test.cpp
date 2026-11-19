@@ -163,7 +163,7 @@ int main()
             UINT32_C(0x55667788) ||
         machine.guest_memory().read(
             NDS_ARM7, UINT32_C(0x00000020), 4u).status !=
-            oracis::memory::Status::Unmapped) {
+            oracis::memory::Status::CpuAccessDenied) {
         return fail("ITCM physical storage did not mirror privately to ARM9");
     }
 
