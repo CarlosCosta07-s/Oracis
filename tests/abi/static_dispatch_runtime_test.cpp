@@ -102,6 +102,24 @@ int main()
     if (arm9_calls != 2u || (arm9.cpsr & CPSR_T_BIT) != 0u)
         return fail("ARM exchange did not clear CPSR.T and invoke ARM row");
 
+    /* Link slots currently remain unresolved and route through dispatch. */
+    NdsLinkSlot call_slot{};
+    call_slot.target_pc = 0x02000000u;
+    NdsLinkSlot branch_slot{};
+    branch_slot.target_pc = 0x02000000u;
+    NdsLinkSlot fallthrough_slot{};
+    fallthrough_slot.target_pc = 0x02000000u;
+
+    runtime_link_call(&call_slot);
+    runtime_link_branch(&branch_slot);
+    runtime_link_fallthrough(&fallthrough_slot);
+    if (arm9_calls != 5u) {
+        return fail("unresolved link slots did not use the normal dispatcher");
+    }
+    if (runtime_inline_leaf_admit(&call_slot, arm9_body) != 0) {
+        return fail("inline leaf was admitted without a resolved link cache");
+    }
+
     /* A validated/mutable row stays inactive until identity is proven. */
     uint32_t lookup_status = UINT32_MAX;
     uint32_t candidate_count = 0u;
