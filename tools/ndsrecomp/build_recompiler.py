@@ -221,6 +221,15 @@ def main() -> int:
     for test_target in ("armv5te_decode_test", "interpreter_cycle_test"):
         run([str(locate_executable(test_target))])
 
+    # Exercise the real extractor output schema against the pinned compiler,
+    # using only a copyright-free synthetic ARM/Thumb image.
+    run([
+        sys.executable,
+        str(ROOT / "tests" / "tools" / "test_extractor_recompiler.py"),
+        "--recompiler",
+        str(recompiler),
+    ])
+
     # These tests need only the static recompiler and its local ARM core.
     # live_shard_identity_test is intentionally excluded because it requires
     # runner/tests and tools/compile_live_shards.py outside the sparse checkout.
