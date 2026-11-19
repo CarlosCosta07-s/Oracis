@@ -61,7 +61,18 @@ def ensure_checkout(source: Path) -> None:
     if not shutil.which("git"):
         raise RuntimeError("Git is required. Install Git and retry.")
 
-    if not source.exists():
+    # Git can clone into a pre-created empty directory. Accept that case,
+    # but never treat a non-empty directory or symlink as a fresh destination.
+    fresh_destination = (
+        not source.exists()
+        or (
+            source.is_dir()
+            and not source.is_symlink()
+            and not any(source.iterdir())
+        )
+    )
+
+    if fresh_destination:
         source.parent.mkdir(parents=True, exist_ok=True)
         run([
             "git", "clone", "--filter=blob:none", "--no-checkout",
