@@ -1,130 +1,119 @@
 # NDSRecomp — mapa do contrato de bancos gerados
 
-**Estado:** análise estática do gerador concluída em 19/11/2026; contrato Oracis ainda não implementado nem validado contra bancos emitidos.
+**Estado:** contrato parcial implementado e testado em C99/C++20. Bancos reais ainda não foram emitidos nem ligados.
 
-**Revisão examinada:** `14b7e15023e9affc9dc375e4e611ac703f5c76ab`.
+**Revisão upstream examinada:** `14b7e15023e9affc9dc375e4e611ac703f5c76ab`.
 
 ## 1. Emissão padrão escolhida
 
-O caminho de emissão padrão de `recompiler/src/main.cpp` produz:
+O caminho normal de `recompiler/src/main.cpp` emite código C:
+- corpos de função em `<bank>.c`;
+- protótipos em `<bank>.h`;
+- uma tabela `<bank>_dispatch.c` de endereços guest para ponteiros de função host.
 
-- um arquivo de corpos C para o banco, por exemplo `<bank>.c`;
-- um header com os protótipos das funções geradas;
-- um arquivo `<bank>_dispatch.c` com a tabela de endereços guest para ponteiros de função host.
+Os bancos incluem `runtime_arm.h`. O código gerado usa:
+- `g_cpu` para acessar registradores e CPSR da CPU ativa;
+- `g_nds_active` para identificar ARM9 ou ARM7;
+- `bus_read_*` / `bus_write_*` para acessos guest;
+- helpers `arm_*` e `runtime_*` para flags, tempo, dispatch e exceções.
 
-Os bancos incluem `runtime_arm.h`. Os corpos gerados usam o estado guest `g_cpu`, as operações de memória `bus_read_*` / `bus_write_*` e helpers `runtime_*` / `arm_*`.
+Oracis mantém os arquivos gerados em C e implementa o runtime em C++20 com símbolos C ABI.
 
-O comentário de emissão no upstream descreve esse formato como funções C sobre uma ABI de recompilação. O Oracis manterá o C gerado como entrada de compilação e implementará o runtime em C++20, exportando símbolos C compatíveis.
+## 2. Tipos binários da tabela de dispatch
 
-## 2. Interface de dispatch
+Os tipos foram comparados campo a campo com o header upstream:
 
-O gerador emite entradas equivalentes a:
+| Tipo | Campos principais | Tratamento |
+|---|---|---|
+| `NdsStaticValidationRange` | endereço, tamanho, ponteiro para bytes esperados | Definido em `runtime_arm.h` |
+| `NdsStaticValidation` | endereço, tamanho, bytes esperados, dependências, quantidade | Definido em `runtime_arm.h` |
+| `NdsDispatchEntry` | endereço, modo Thumb, ponteiro de função, validação | Definido em `runtime_arm.h` |
+| `NdsLinkSlot` | função resolvida, chave, PC guest, guarda | Definido em `runtime_arm.h` |
 
-- endereço virtual guest;
-- indicação ARM/Thumb;
-- ponteiro para a função C recompilada;
-- ponteiro opcional para metadados de validação estática.
+O header contém asserts C99 de tamanho e offsets para o layout de 64 bits usado nos alvos planejados (Windows/Linux x64 e Android ARM64). Um alvo de 32 bits exigirá outro layout e testes próprios.
 
-A tabela é ordenada por endereço e o runtime faz lookup por endereço e estado ARM/Thumb. Os metadados opcionais descrevem o intervalo de bytes que pertence à função/banco e podem incluir intervalos dependentes. O Oracis precisa validar a identidade do banco antes de registrar suas entradas.
+## 3. Estado ARM9/ARM7 ativo
 
-Para o primeiro protótipo, vamos manter o dispatch conservador:
-1. registrar separadamente ARM9 e ARM7;
-2. resolver o alvo pela CPU ativa e pelo bit ARM/Thumb;
-3. validar a faixa de endereço e a identidade do banco;
-4. falhar com CPU, PC, modo e banco quando não houver alvo;
-5. não redirecionar para interpretador ARM/JIT.
-
-## 3. Estado de CPU exigido
-
-O contrato de tipos compartilhados do núcleo ARM declara um estado POD com os seguintes campos arquiteturais:
-
-- `R[16]` — registradores visíveis, incluindo PC;
-- `cpsr` — estado de flags, modo e ARM/Thumb;
+A estrutura `ArmCpuState` contém:
+- `R[16]` e `cpsr`;
 - `banked_sp[6]`, `banked_lr[6]`, `banked_spsr[6]`;
 - `r8_12_user[5]` e `r8_12_fiq[5]`.
 
-As seis posições bancadas correspondem a User, FIQ, IRQ, Supervisor, Abort e Undefined. As constantes CPSR incluem N/Z/C/V/Q, I/F e T.
+O header de compatibilidade Oracis, `include/oracis/recomp/runtime_arm.h`, declara dois estados de CPU e usa:
 
-O Oracis começou a implementar o layout em `include/oracis/recomp/arm_cpu_state.h`. O header define o POD `ArmCpuState`, os seis índices bancados e os bits CPSR, com asserts C99 de tamanho/offset. A definição foi escrita no Oracis e não inclui implementação do runtime upstream. O layout foi comparado com o contrato de tipos MIT do núcleo ARM compartilhado para garantir compatibilidade.
+- `oracis_arm_runtime_bind_cpus(arm9, arm7)`;
+- `oracis_arm_runtime_select_cpu(NDS_ARM9/NDS_ARM7)`;
+- `oracis_arm_runtime_current_state()`;
+- `#define g_cpu (*oracis_active_cpu_state)`;
+- `g_nds_active`, ou uma constante via `NDS_STATIC_CPU=0/1` quando o banco é especializado.
 
-## 4. Famílias de helper
+Isso evita copiar os registradores para uma shadow state: os bancos acessam diretamente o estado escolhido pelo scheduler. A seleção global é deliberadamente serial/cooperativa nesta fase; o scheduler deverá selecionar a CPU antes de invocar cada banco. Não há ainda suporte a executar bancos ARM9 e ARM7 simultaneamente em threads diferentes.
 
-A inspeção de `recompiler/armv4t/runtime_arm.h` identificou as seguintes famílias de contrato:
+## 4. Helpers já ligados à ABI
 
-| Família | Exemplos | Responsabilidade Oracis |
-|---|---|---|
-| Memória | `bus_read_u8/u16/u32`, `bus_write_u8/u16/u32` | Barramento guest e MMIO |
-| Ciclos | `runtime_tick`, `runtime_mem_cycles`, `runtime_mul_cycles` | Retirada de instrução, custos e limite de evento |
-| Condições/flags | `arm_cond_passes`, `arm_shift_*`, `arm_set_nzcv_*` | Semântica ARM/Thumb |
-| Transferência de controle | `runtime_dispatch`, `runtime_dispatch_with_exchange`, `runtime_call_*` | Chamadas, retornos, interworking e dispatch |
-| Exceções | `runtime_swi`, `runtime_irq`, `runtime_msr_*`, `runtime_coproc_*` | SWI, IRQ, CPSR/SPSR e CP15 |
-| Entrada/retorno de exceção Oracis | `oracis_arm_cpu_enter_exception`, `oracis_arm_cpu_return_from_exception` | Gravar SPSR/LR bancados, aplicar modo/máscaras/vetor e restaurar CPSR/PC |
-| Falhas | `runtime_unimplemented_op`, dispatch miss/bad entry | Diagnóstico fail-closed |
-| Observabilidade | `runtime_trace_event`, `runtime_insn_*` | Logs, contadores e traces de depuração |
+O runtime C++ implementa wrappers C para:
 
-Essa tabela é um inventário inicial do cabeçalho, não uma promessa de que todos os helpers serão necessários ou implementados de uma vez. O conjunto definitivo será extraído do primeiro código C emitido, compilado e inspecionado por símbolos indefinidos.
+| Símbolo emitido | Implementação Oracis |
+|---|---|
+| `arm_cond_passes` / `arm_cond_passes_i` | Avaliação dos 16 códigos de condição usando N/Z/C/V |
+| `arm_set_nz` | Atualização de N/Z |
+| `arm_set_nzc_logic` | Atualização N/Z/C, preservando V |
+| `arm_set_nzcv_add/adc/sub/sbc` | Flags aritméticas N/Z/C/V |
+| `runtime_mrs_cpsr/spsr` | Leitura de CPSR/SPSR |
+| `runtime_msr_cpsr/spsr` | Escrita por máscara de campos e validação de privilégio |
+| `runtime_restore_cpsr_from_spsr` | Restauração do PSR salvo |
+| `runtime_exception_return` | Restauração de SPSR, bancos e PC |
+| `runtime_unimplemented_op` | Diagnóstico e encerramento fail-closed |
 
-### Helpers puros de condição e flags já implementados
+O código gerado pelo perfil ARMv5TE atual expande os shifts de operand2 inline, cobrindo as formas imediatas e por registrador e os casos especiais de LSR/ASR #0 e ROR #0 (RRX). Por isso, não adicionamos uma segunda implementação de shifter ao runtime. A compatibilidade com bancos antigos que chamem símbolos `arm_shift_*` ainda não é uma meta do primeiro pipeline.
 
-O Oracis contém uma primeira camada independente em \`include/oracis/recomp/arm_flags.h\` e \`src/runtime/arm_flags.cpp\`:
+## 5. Declarações ainda sem implementação
 
-- \`oracis_arm_condition_passes(cpsr, condition)\` avalia os 16 códigos de condição ARM usando N/Z/C/V.
-- \`oracis_arm_set_nz\` atualiza N/Z e preserva C/V.
-- \`oracis_arm_set_nzc_logic\` atualiza N/Z/C e preserva V.
-- \`oracis_arm_set_nzcv_add/adc/sub/sbc\` calcula N/Z/C/V para as quatro operações aritméticas.
+O header também declara os serviços que o código gerado precisa, mas não fornece stubs vazios. Os seguintes grupos ainda precisam de implementações reais:
 
-O teste percorre todas as 16 combinações possíveis de N/Z/C/V contra os 16 códigos de condição e cobre overflow, carry, borrow e preservação de bits não relacionados. Essas funções recebem um \`ArmCpuState*\` explícito: ainda não são os wrappers globais \`arm_cond_passes\` e \`arm_set_*\` que os bancos gerados chamam. A ponte entre os bancos e o estado ARM9/ARM7 ativo permanece pendente.
+- memória e MMIO: `bus_read_*`, `bus_write_*`;
+- ciclos: `runtime_tick`, `runtime_should_yield`, `runtime_code_cycles`, `runtime_mem_cycles`, `runtime_mul_cycles`;
+- dispatch: `runtime_dispatch*`, `runtime_link_*`, misses e validação de entradas;
+- transferências/retornos: `runtime_call_*`, `runtime_live_transfer`;
+- exceções geradas: `runtime_swi`, `runtime_irq`;
+- coprocessador: `runtime_coproc_*` e serviços CP15;
+- observabilidade: `runtime_trace_event`, `runtime_insn_slow`.
 
-Ainda faltam os helpers de shifter \`arm_shift_lsl/lsr/asr/ror\`, incluindo as distinções entre shift imediato e por registrador, além do adaptador C ABI global.
-
-### Helpers puros de condição e flags já implementados
-
-O Oracis contém uma primeira camada independente em \`include/oracis/recomp/arm_flags.h\` e \`src/runtime/arm_flags.cpp\`:
-
-- \`oracis_arm_condition_passes(cpsr, condition)\` avalia os 16 códigos de condição ARM usando N/Z/C/V.
-- \`oracis_arm_set_nz\` atualiza N/Z e preserva C/V.
-- \`oracis_arm_set_nzc_logic\` atualiza N/Z/C e preserva V.
-- \`oracis_arm_set_nzcv_add/adc/sub/sbc\` calcula N/Z/C/V para as quatro operações aritméticas.
-
-O teste percorre todas as 16 combinações possíveis de N/Z/C/V contra os 16 códigos de condição e cobre overflow, carry, borrow e preservação de bits não relacionados. Essas funções recebem um \`ArmCpuState*\` explícito: ainda não são os wrappers globais \`arm_cond_passes\` e \`arm_set_*\` que os bancos gerados chamam. A ponte entre os bancos e o estado ARM9/ARM7 ativo permanece pendente.
-
-Ainda faltam os helpers de shifter \`arm_shift_lsl/lsr/asr/ror\`, incluindo as distinções entre shift imediato e por registrador, além do adaptador C ABI global.
-
-## 5. Estratégia de compatibilidade sem importar o runtime
-
-O caminho padrão do compilador inclui `runtime_arm.h` nos arquivos gerados. O Oracis criará seu próprio `runtime_arm.h` compatível com a superfície mínima exigida pelos bancos, disponibilizado pelo include path do build local.
-
-As implementações serão código novo do Oracis:
-- estado e bancos de registradores;
-- funções C ABI com implementação em C++20;
-- barramento, scheduler e dispatch próprios;
-- diagnóstico fail-closed.
-
-Não serão copiados `recompiler/armv4t/runtime_arm.cpp`, `runner/src/runtime_arm.cpp`, `runner/src/bus.cpp`, `runner/src/scheduler.cpp` ou shims do upstream.
-
-O contrato de símbolo poderá manter nomes como `runtime_tick` e `runtime_dispatch`, pois são nomes emitidos pelo gerador; reutilizar nomes de ABI não significa reutilizar as implementações.
+Um banco pode incluir o header e compilar sintaticamente, mas continuará sem poder ligar enquanto todos os símbolos efetivamente referenciados não tiverem uma implementação. Não fornecemos no-op stubs para simular progresso.
 
 ## 6. Opção de geração excluída
 
-O parâmetro opcional `--flat-execution` altera os corpos gerados: eles passam a incluir `execution_region.h`, usam `NdsExecRegion` e chamam `nds_region_begin`, `nds_region_end`, `nds_region_needs_exit` e `runtime_region_single_step`.
+O parâmetro `--flat-execution` altera os corpos gerados para usar `NdsExecRegion`, `execution_region.h` e serviços do runtime upstream. **Oracis não usa essa opção.** Usaremos emissão padrão por função.
 
-Esse caminho depende de um contrato diferente e de serviços do runtime upstream. **O Oracis não usará `--flat-execution`** no primeiro pipeline. Usaremos a emissão padrão por função, com dispatch tradicional por banco.
+Também ficam fora da integração:
+- runner, oracle e frontend upstream;
+- código derivado de melonDS;
+- JIT ou interpretador ARM como fallback;
+- HLE manifests e live-overlay compilation até que a necessidade seja mapeada.
 
-Também não habilitaremos inicialmente:
-- HLE profiling manifests;
-- live overlay/DLL compilation;
-- dynamic JIT ou interpretador tier de código RAM;
-- runtime/oracle/frontend upstream.
+## 7. Testes feitos
 
-## 7. Prova de integração exigida
+O harness runtime-only local, reconstruído a partir dos arquivos versionados, compilou com Clang/CMake/Ninja e passou em dez testes:
+1. layout ABI C99;
+2. layout ABI C++20;
+3. bancos e troca de modos ARM;
+4. CPSR/SPSR e privilégios;
+5. entrada e retorno de exceções;
+6. condições e flags NZCV;
+7. ponte C++ para o estado ativo;
+8. ponte C99 para o estado ativo;
+9. especialização estática ARM9 (`NDS_STATIC_CPU=0`);
+10. especialização estática ARM7 (`NDS_STATIC_CPU=1`).
 
-A ABI não será considerada concluída com base apenas na leitura do header. Ela precisa passar por esta sequência:
+Uma configuração separada com `BUILD_TESTING=OFF` também compilou `liboracis_arm_state.a`. Isso valida a biblioteca do runtime no harness local, não o build completo com SDL3 nem os bancos NDSRecomp.
 
-1. compilar o executável `nds_recompile`;
-2. emitir ARM9 e ARM7 da revisão USA Rev 1 pelo caminho padrão, sem `--flat-execution`;
-3. compilar cada arquivo de banco C usando somente o header/runtime ABI Oracis;
-4. listar símbolos indefinidos e resolver cada referência com uma implementação ou declaração documentada;
-5. executar testes unitários de estado/flags, memória, dispatch e transferências ARM/Thumb;
-6. provar que um endereço sem banco gera falha explícita, sem execução guest interpretada.
+## 8. Prova de integração ainda exigida
 
-A estrutura `ArmCpuState` já compila em C99 e C++20 e seus testes de layout passam. O runtime também contém `oracis_arm_cpu_mode_bank`, `oracis_arm_cpu_switch_mode` e as operações `oracis_arm_cpu_read_spsr`, `oracis_arm_cpu_write_spsr`, `oracis_arm_cpu_write_cpsr` e `oracis_arm_cpu_restore_cpsr_from_spsr`. Os testes cobrem os seis bancos ARM, privilégio User, máscaras c/x/s/f, preservação de flags, transições FIQ/IRQ/System e retorno de exceção. Até a emissão/compilação de bancos reais existir, esta página continua sendo um mapa técnico preliminar e a ABI completa de funções Oracis permanece em implementação.
+1. Compilar o executável `nds_recompile` na revisão fixada.
+2. Emitir os bancos C ARM9 e ARM7 da cópia USA Rev 1, sem `--flat-execution`.
+3. Compilar os bancos usando somente o header e a biblioteca ABI Oracis.
+4. Inspecionar símbolos indefinidos e implementar as funções necessárias.
+5. Implementar e testar barramento, dispatch, scheduler e serviços de exceção/timing.
+6. Demonstrar que um endereço guest sem banco gera falha detalhada, sem execução interpretada.
+
+Até a emissão, compilação e execução de bancos reais existir, o Oracis ainda não inicializa Pokémon Platinum.
