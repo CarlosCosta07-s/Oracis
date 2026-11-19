@@ -20,7 +20,8 @@ typedef enum OracisHostRuntimeStatus {
     ORACIS_HOST_RUNTIME_NOT_INITIALIZED = 1,
     ORACIS_HOST_RUNTIME_ALREADY_INITIALIZED = 2,
     ORACIS_HOST_RUNTIME_NO_PROGRAM_BANKS = 3,
-    ORACIS_HOST_RUNTIME_MACHINE_ERROR = 4
+    ORACIS_HOST_RUNTIME_MACHINE_ERROR = 4,
+    ORACIS_HOST_RUNTIME_NO_PROGRAM_LOADED = 5
 } OracisHostRuntimeStatus;
 
 /* Initializes the process-wide NDS machine and binds its base devices. */
