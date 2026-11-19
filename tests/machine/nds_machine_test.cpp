@@ -834,6 +834,9 @@ int main()
         return fail("CP15 Control.V reset-to-low selection or cycle accounting failed");
     }
 
+    /* Preserve the ARM7 Thumb mode expected by its registered dispatch entry. */
+    arm7->cpsr = ORACIS_ARM_MODE_SYSTEM | CPSR_T_BIT;
+
     if (machine.shutdown() != NdsMachineStatus::Ok ||
         machine.initialized() ||
         oracis_arm_runtime_current_state() != nullptr ||
