@@ -64,6 +64,19 @@ A inspeção de `recompiler/armv4t/runtime_arm.h` identificou as seguintes famí
 
 Essa tabela é um inventário inicial do cabeçalho, não uma promessa de que todos os helpers serão necessários ou implementados de uma vez. O conjunto definitivo será extraído do primeiro código C emitido, compilado e inspecionado por símbolos indefinidos.
 
+### Helpers puros de condição e flags já implementados
+
+O Oracis contém uma primeira camada independente em \`include/oracis/recomp/arm_flags.h\` e \`src/runtime/arm_flags.cpp\`:
+
+- \`oracis_arm_condition_passes(cpsr, condition)\` avalia os 16 códigos de condição ARM usando N/Z/C/V.
+- \`oracis_arm_set_nz\` atualiza N/Z e preserva C/V.
+- \`oracis_arm_set_nzc_logic\` atualiza N/Z/C e preserva V.
+- \`oracis_arm_set_nzcv_add/adc/sub/sbc\` calcula N/Z/C/V para as quatro operações aritméticas.
+
+O teste percorre todas as 16 combinações possíveis de N/Z/C/V contra os 16 códigos de condição e cobre overflow, carry, borrow e preservação de bits não relacionados. Essas funções recebem um \`ArmCpuState*\` explícito: ainda não são os wrappers globais \`arm_cond_passes\` e \`arm_set_*\` que os bancos gerados chamam. A ponte entre os bancos e o estado ARM9/ARM7 ativo permanece pendente.
+
+Ainda faltam os helpers de shifter \`arm_shift_lsl/lsr/asr/ror\`, incluindo as distinções entre shift imediato e por registrador, além do adaptador C ABI global.
+
 ## 5. Estratégia de compatibilidade sem importar o runtime
 
 O caminho padrão do compilador inclui `runtime_arm.h` nos arquivos gerados. O Oracis criará seu próprio `runtime_arm.h` compatível com a superfície mínima exigida pelos bancos, disponibilizado pelo include path do build local.
