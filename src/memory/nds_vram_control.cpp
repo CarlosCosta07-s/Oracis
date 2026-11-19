@@ -5,7 +5,7 @@
 namespace oracis::memory {
 namespace {
 
-constexpr uint32_t kVramBackingBase = UINT32_C(0xF1000000);
+constexpr uint32_t kVramBackingBase = UINT32_C(0xF1100000);
 constexpr uint32_t kVramBackingSize =
     NdsVramControl::BankSize * UINT32_C(2);
 constexpr uint8_t kVramPermissions =
