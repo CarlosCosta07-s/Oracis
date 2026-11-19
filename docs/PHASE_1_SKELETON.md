@@ -17,7 +17,7 @@
 - `include/oracis/recomp/runtime_arm.h` e `src/runtime/recomp_abi.cpp`: ponte parcial para o C gerado, estado ativo ARM9/ARM7, wrappers de flags/PSR/exceção e falhas fail-closed.
 - `include/oracis/memory/guest_memory.hpp` e `src/memory/guest_memory.cpp`: regiões guest configuráveis, aliases e acessos little-endian com permissões e limites.
 - `src/memory/bus_abi.cpp`: wrappers C bus_read_*/bus_write_* ligados ao estado ARM9/ARM7 ativo e ao backing GuestMemory.
-- `tests/abi/` e `tests/memory/`: doze testes C99/C++20, incluindo ABI, especialização estática, mapa de memória e wrappers do barramento.
+- `tests/abi/` e `tests/memory/`: dezessete alvos CTest registrados, incluindo ABI, dispatch, pilha de retorno, User bank, CLZ, identidade da memória e especialização ARM9/ARM7. A execução da versão atual ainda não foi confirmada.
 
 O runtime usa um ponteiro global para o estado ativo. A futura execução será serial/cooperativa nesta primeira versão: o scheduler deve selecionar ARM9 ou ARM7 antes de chamar um banco. Execução concorrente dos dois bancos em threads ainda não é suportada. GuestMemory ainda não é o mapa físico do DS e não implementa MMIO, DMA, timing ou alinhamento ARM. Os wrappers bus_* operam apenas sobre regiões RAM explicitamente mapeadas e falham quando o endereço não existe.
 
