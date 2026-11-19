@@ -63,6 +63,41 @@ extern "C" int oracis_host_runtime_shutdown(void)
         : ORACIS_HOST_RUNTIME_MACHINE_ERROR;
 }
 
+extern "C" int oracis_host_runtime_load_program_segments(
+    const OracisHostProgramSegment *arm9,
+    const OracisHostProgramSegment *arm7)
+{
+    auto &machine = host_machine();
+    if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+    if (arm9 == nullptr || arm7 == nullptr ||
+        arm9->entry_thumb > 1u || arm7->entry_thumb > 1u) {
+        g_last_machine_status = static_cast<int>(
+            oracis::machine::NdsMachineStatus::InvalidProgramImage);
+        return ORACIS_HOST_RUNTIME_MACHINE_ERROR;
+    }
+
+    const oracis::machine::NdsProgramSegment arm9_segment{
+        NDS_ARM9, arm9->load_address, arm9->size, arm9->entry_pc,
+        arm9->entry_thumb != 0u, arm9->contents
+    };
+    const oracis::machine::NdsProgramSegment arm7_segment{
+        NDS_ARM7, arm7->load_address, arm7->size, arm7->entry_pc,
+        arm7->entry_thumb != 0u, arm7->contents
+    };
+    const auto status = machine.load_program_segments(
+        arm9_segment, arm7_segment);
+    g_last_machine_status = static_cast<int>(status);
+    return status == oracis::machine::NdsMachineStatus::Ok
+        ? ORACIS_HOST_RUNTIME_OK
+        : ORACIS_HOST_RUNTIME_MACHINE_ERROR;
+}
+
+extern "C" int oracis_host_runtime_program_loaded(void)
+{
+    return host_machine().initialized() && host_machine().program_loaded()
+        ? 1 : 0;
+}
+
 extern "C" int oracis_host_runtime_run_round(
     uint64_t bus_cycle_budget,
     OracisHostIrqContextProvider irq_context,
