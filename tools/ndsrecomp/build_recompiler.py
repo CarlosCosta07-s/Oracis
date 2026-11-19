@@ -192,22 +192,48 @@ def main() -> int:
         "cmake", "-S", str(source / "recompiler"), "-B", str(build_dir),
         "-G", args.generator, "-DCMAKE_BUILD_TYPE=Release",
     ])
+    compiler_targets = [
+        "nds_recompile",
+        "armv5te_decode_test",
+        "interpreter_cycle_test",
+        "reloc_scan_test",
+        "hle_manifest_test",
+        "interior_entry_fail_closed_test",
+        "codegen_golden_test",
+        "live_transfer_validation_test",
+    ]
     run([
         "cmake", "--build", str(build_dir), "--config", "Release",
-        "--target", "nds_recompile", "--parallel",
+        "--target", *compiler_targets, "--parallel",
     ])
 
-    executable_name = "nds_recompile.exe" if sys.platform == "win32" else "nds_recompile"
-    candidates = list(build_dir.rglob(executable_name))
-    if not candidates:
-        raise RuntimeError(
-            f"Build returned success but {executable_name} was not found under {build_dir}"
-        )
-    executable = candidates[0]
+    executable_suffix = ".exe" if sys.platform == "win32" else ""
+    def locate_executable(target: str) -> Path:
+        candidates = list(build_dir.rglob(target + executable_suffix))
+        if not candidates:
+            raise RuntimeError(
+                f"Build returned success but {target}{executable_suffix} "
+                f"was not found under {build_dir}"
+            )
+        return candidates[0]
 
-    print(f"Static recompiler ready: {executable}")
+    recompiler = locate_executable("nds_recompile")
+    for test_target in ("armv5te_decode_test", "interpreter_cycle_test"):
+        run([str(locate_executable(test_target))])
+
+    # These tests need only the static recompiler and its local ARM core.
+    # live_shard_identity_test is intentionally excluded because it requires
+    # runner/tests and tools/compile_live_shards.py outside the sparse checkout.
+    run([
+        "ctest", "--test-dir", str(build_dir), "--output-on-failure",
+        "-R",
+        "^(reloc_scan_test|hle_manifest_test|interior_entry_fail_closed|"
+        "codegen_golden|output_errors|live_transfer_validation)$",
+    ])
+
+    print(f"Static recompiler ready: {recompiler}")
     print(f"Upstream revision: {PINNED_REVISION}")
-    print("Built target: nds_recompile only; runner/oracle/melonDS are excluded.")
+    print("Built compiler/test targets only; runner/oracle/melonDS are excluded.")
     return 0
 
 
