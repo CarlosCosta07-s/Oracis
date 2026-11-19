@@ -107,7 +107,7 @@ mod tests {
 
     #[test]
     fn icon_is_a_square_vector_asset() {
-        assert!(ICON_SVG.contains("viewBox=\\\"0 0 1024 1024\\\""));
+        assert!(ICON_SVG.contains("viewBox=\"0 0 1024 1024\""));
         assert!(ICON_SVG.contains("<title>Oracis</title>"));
     }
 
