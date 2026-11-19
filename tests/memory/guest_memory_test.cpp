@@ -85,7 +85,7 @@ int main()
         cpu_scoped.read(NDS_ARM9, 0x10000000u, 4u).value !=
             UINT32_C(0x77777777) ||
         cpu_scoped.read(NDS_ARM7, 0x10000000u, 1u).status !=
-            Status::Unmapped) {
+            Status::CpuAccessDenied) {
         return fail("valid atomic CPU visibility update failed");
     }
     if (cpu_scoped.map_ram(
