@@ -20,7 +20,7 @@
 - `src/memory/bus_abi.cpp`: wrappers C bus_read_*/bus_write_* ligados ao estado ARM9/ARM7 ativo e ao backing GuestMemory.
 - `tests/abi/` e `tests/memory/`: dezoito alvos CTest registrados, incluindo ABI, dispatch, pilha de retorno, User bank, CLZ, identidade da memória e especialização ARM9/ARM7. A execução da versão atual ainda não foi confirmada.
 
-O runtime usa um ponteiro global para o estado ativo. A futura execução será serial/cooperativa nesta primeira versão: o scheduler deve selecionar ARM9 ou ARM7 antes de chamar um banco. Execução concorrente dos dois bancos em threads ainda não é suportada. GuestMemory ainda não é o mapa físico do DS e não implementa MMIO, DMA, timing ou alinhamento ARM. Os wrappers bus_* operam apenas sobre regiões RAM explicitamente mapeadas e falham quando o endereço não existe.
+O runtime usa um ponteiro global para o estado ativo. A futura execução será serial/cooperativa nesta primeira versão: o scheduler deve selecionar ARM9 ou ARM7 antes de chamar um banco. Execução concorrente dos dois bancos em threads ainda não é suportada. GuestMemory agora instala o mapa de RAM do NDS retail; ainda não implementa MMIO, reconfiguração dinâmica WRAMCNT, DMA, CP15/TCM, BIOS, VRAM/OAM ou timing por região. Os wrappers bus_* operam apenas sobre regiões RAM explicitamente mapeadas e falham quando o endereço não existe.
 
 ## Preparar o recompilador
 
@@ -42,7 +42,7 @@ A validação local da cópia conferiu SHA-1, offsets, limites e hashes dos dois
 
 ## Limites atuais
 
-- GuestMemory e os wrappers C bus_* oferecem RAM/aliases genéricos com identidade de bytes; ainda não são o mapa DS e não implementam MMIO.
+- O mapa NDS retail cobre somente Main RAM e WRAM; MMIO, CP15/TCM, BIOS, VRAM/OAM e atualização dinâmica de WRAMCNT ainda não existem.
 - O registry/runtime_dispatch e a pilha de retorno guest estão implementados para tabelas registradas. Os link slots permanecem sem cache/resolução direta; o controle de fatias existe, mas o scheduler DS com eventos, timers e sincronização ainda não existe.
 - Ciclos, timers, DMA, IPC, IRQ/SWI/CP15 e serviços NitroSDK continuam pendentes.
 - O código gerado ainda não foi emitido nem ligado.
