@@ -30,7 +30,7 @@ int test_main_ram_and_arm7_private_wram()
     const Status install_status =
         NdsRetailRamMap::install(memory, SharedWramMode::Arm9All32K);
     if (install_status != Status::Ok) {
-        std::fprintf(stderr, "retail install status: %s\\n",
+        std::fprintf(stderr, "retail install status: %s\n",
                      GuestMemory::status_name(install_status));
         return fail("retail NDS RAM map install failed");
     }
