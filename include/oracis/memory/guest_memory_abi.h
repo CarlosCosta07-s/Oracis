@@ -35,6 +35,12 @@ int oracis_bus_bind_keypad_control(void *control);
 int oracis_bus_unbind_keypad_control(void *control);
 
 /*
+ * Host input bridge. The ten low bits use 1=pressed. State is retained while
+ * the keypad device is unbound and applied when it is next bound.
+ */
+void oracis_host_set_keypad_state(uint16_t pressed_keys);
+
+/*
  * Validation callback suitable for oracis_static_dispatch_set_validation_callback.
  * user is the live GuestMemory object that backs the generated CPU bus.
  */

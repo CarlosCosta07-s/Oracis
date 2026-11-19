@@ -18,6 +18,7 @@ oracis::memory::NdsWramControl *g_wram_control = nullptr;
 oracis::memory::NdsInterruptControl *g_interrupt_control = nullptr;
 oracis::memory::NdsTimerControl *g_timer_control = nullptr;
 oracis::memory::NdsKeypadControl *g_keypad_control = nullptr;
+uint16_t g_host_keypad_pressed_keys = 0u;
 
 [[noreturn]] void bus_failure(const char *operation,
                               uint32_t address,
@@ -260,6 +261,7 @@ extern "C" int oracis_bus_bind_keypad_control(void *control)
         return 0;
     }
     g_keypad_control = device;
+    g_keypad_control->set_pressed_keys(g_host_keypad_pressed_keys);
     return 1;
 }
 
@@ -271,6 +273,15 @@ extern "C" int oracis_bus_unbind_keypad_control(void *control)
     }
     g_keypad_control = nullptr;
     return 1;
+}
+
+extern "C" void oracis_host_set_keypad_state(uint16_t pressed_keys)
+{
+    g_host_keypad_pressed_keys = static_cast<uint16_t>(
+        pressed_keys & oracis::memory::NdsKeypadControl::KeyMask);
+    if (g_keypad_control != nullptr) {
+        g_keypad_control->set_pressed_keys(g_host_keypad_pressed_keys);
+    }
 }
 
 extern "C" int oracis_bus_validate_dispatch(

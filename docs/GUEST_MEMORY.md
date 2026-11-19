@@ -90,7 +90,7 @@ O dispositivo aceita transferências alinhadas de 32 bits nesses endereços e fa
 | `0x04000130` | `KEYINPUT` | Leitura compartilhada pelos dois processadores; bits 0–9 ativos em nível baixo, bits reservados 10–15 lidos como zero |
 | `0x04000132` | `KEYCNT` | Leitura/escrita independente por CPU; bits 0–9 selecionam botões, bit 14 habilita IRQ e bit 15 escolhe OR (0) ou AND (1) |
 
-O host fornece o estado físico por `set_pressed_keys(mask)`, usando bits ativos em nível alto para botões pressionados. O dispositivo converte para o formato ativo-baixo de KEYINPUT e limita a máscara aos dez botões. X/Y, toque e tampa não fazem parte deste bloco: pertencem ao registrador ARM7 `EXTKEYIN`, ainda não implementado.
+O host fornece o estado físico por `set_pressed_keys(mask)`, usando bits ativos em nível alto para botões pressionados. O dispositivo converte para o formato ativo-baixo de KEYINPUT e limita a máscara aos dez botões. A ponte C `oracis_host_set_keypad_state(mask)` mantém a última máscara mesmo antes de o dispositivo ser conectado ao barramento; `oracis_bus_bind_keypad_control()` aplica esse estado no vínculo. O host SDL3 envia pressionamentos/liberações pela ponte, limpa as teclas ao perder foco e usa o mapa X/Z (A/B), Enter/Backspace (Start/Select), setas (direcional) e Q/W (L/R). X/Y, toque e tampa não fazem parte deste bloco: pertencem ao registrador ARM7 `EXTKEYIN`, ainda não implementado.
 
 Quando a condição selecionada se torna ativa com o bit 14 habilitado, o dispositivo solicita o IF bit 12 da CPU correspondente. OR significa pelo menos uma tecla selecionada pressionada; AND exige todas as teclas selecionadas. A condição é latcheada na transição para ativa para não gerar solicitações repetidas enquanto o mesmo conjunto permanece pressionado. Uma seleção vazia não gera uma condição de tecla. A entrega da exceção IRQ continua sob responsabilidade futura do scheduler.
 
@@ -135,7 +135,7 @@ Implementação: `src/memory/guest_memory.cpp`
 - `NdsTimerControl::advance_bus_cycles(n)`: avança as duas banks ARM9/ARM7 pelo mesmo número de ticks do clock global do barramento.
 - `NdsKeypadControl::read/write(cpu, address, width, value)`: implementa KEYINPUT e KEYCNT, com KEYINPUT físico compartilhado e KEYCNT/condição de IRQ separados por CPU.
 - `NdsKeypadControl::set_pressed_keys(mask)`: atualiza os dez botões físicos e solicita IRQ bit 12 quando a condição KEYCNT habilitada se torna ativa.
-- `oracis_bus_bind_keypad_control()` / `oracis_bus_unbind_keypad_control()`: conecta/desconecta o teclado depois do GuestMemory e de NdsInterruptControl.
+- `oracis_bus_bind_keypad_control()` / `oracis_bus_unbind_keypad_control()`: conecta/desconecta o teclado depois do GuestMemory e de NdsInterruptControl; o estado de entrada armazenado pela ponte host é aplicado no vínculo.\n- `oracis_host_set_keypad_state(mask)`: recebe os dez botões em formato ativo-alto e encaminha ao dispositivo conectado, retendo também o estado quando ele está temporariamente desvinculado.
 - `oracis_bus_bind_interrupt_control()` / `oracis_bus_unbind_interrupt_control()`: conecta/desconecta o controlador de interrupções ao barramento C.
 - `oracis_bus_bind_wram_control()` / `oracis_bus_unbind_wram_control()`: conecta e desconecta o dispositivo ao barramento C.
 - `read(cpu, address, width)`: leitura little-endian de 1, 2 ou 4 bytes.

@@ -73,6 +73,9 @@ int main()
     ArmCpuState arm7{};
     arm9.cpsr = ORACIS_ARM_MODE_SYSTEM;
     arm7.cpsr = ORACIS_ARM_MODE_SYSTEM;
+
+    /* Host events can arrive before the machine binds its keypad device. */
+    oracis_host_set_keypad_state(static_cast<uint16_t>(key_a | key_start));
     if (!oracis_arm_runtime_bind_cpus(&arm9, &arm7) ||
         !oracis_bus_bind_memory(&memory) ||
         !oracis_bus_bind_interrupt_control(&interrupts) ||
@@ -87,15 +90,14 @@ int main()
         return fail("a backing device was unbound while keypad remained bound");
     }
 
-    /* KEYINPUT is the same physical ten-button state as seen by both CPUs. */
-    keypad.set_pressed_keys(static_cast<uint16_t>(key_a | key_start));
+    /* KEYINPUT receives the host state cached before device binding. */
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9) ||
         bus_read_u16(NdsKeypadControl::KeyInputAddress) != 0x03F6u ||
         !oracis_arm_runtime_select_cpu(NDS_ARM7) ||
         bus_read_u16(NdsKeypadControl::KeyInputAddress) != 0x03F6u) {
         return fail("KEYINPUT active-low state was not shared across CPUs");
     }
-    keypad.set_pressed_keys(0u);
+    oracis_host_set_keypad_state(0u);
 
     /* ARM9: OR mode requests IRQ when any selected key is pressed. */
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9))
@@ -110,7 +112,7 @@ int main()
         return fail("ARM9 KEYCNT control bits did not read back correctly");
     }
 
-    keypad.set_pressed_keys(key_b);
+    oracis_host_set_keypad_state(key_b);
     if (bus_read_u32(NdsInterruptControl::IfAddress) != key_irq ||
         !interrupts.irq_asserted(NDS_ARM9)) {
         return fail("KEYCNT OR condition did not request ARM9 keypad IRQ");
@@ -118,12 +120,12 @@ int main()
 
     /* A held matching combination does not relatch IRQ after IF acknowledgement. */
     bus_write_u32(NdsInterruptControl::IfAddress, key_irq);
-    keypad.set_pressed_keys(key_b);
+    oracis_host_set_keypad_state(key_b);
     if (bus_read_u32(NdsInterruptControl::IfAddress) != 0u) {
         return fail("held key combination incorrectly repeated keypad IRQ");
     }
-    keypad.set_pressed_keys(0u);
-    keypad.set_pressed_keys(key_b);
+    oracis_host_set_keypad_state(0u);
+    oracis_host_set_keypad_state(key_b);
     if (bus_read_u32(NdsInterruptControl::IfAddress) != key_irq) {
         return fail("a fresh OR-condition keypress did not relatch keypad IRQ");
     }
@@ -135,7 +137,7 @@ int main()
             NdsKeypadControl::KeyControlMask) {
         return fail("KEYCNT reserved bits were not masked");
     }
-    keypad.set_pressed_keys(0u);
+    oracis_host_set_keypad_state(0u);
     bus_write_u16(NdsKeypadControl::KeyControlAddress, 0u);
     if (bus_read_u32(NdsInterruptControl::IfAddress) != 0u) {
         return fail("ARM9 keypad IF did not remain acknowledged after release");
@@ -158,12 +160,12 @@ int main()
         return fail("ARM7 and ARM9 KEYCNT state was not independent");
     }
 
-    keypad.set_pressed_keys(key_a);
+    oracis_host_set_keypad_state(key_a);
     if (bus_read_u32(NdsInterruptControl::IfAddress) != 0u) {
         return fail("KEYCNT AND condition fired with only one selected key");
     }
 
-    keypad.set_pressed_keys(select_a_b);
+    oracis_host_set_keypad_state(select_a_b);
     if (bus_read_u32(NdsInterruptControl::IfAddress) != key_irq ||
         !interrupts.irq_asserted(NDS_ARM7)) {
         return fail("KEYCNT AND condition did not request ARM7 keypad IRQ");
@@ -185,8 +187,23 @@ int main()
         return fail("ARM7 keypad IF acknowledgement failed");
     }
 
-    if (!oracis_bus_unbind_keypad_control(&keypad) ||
-        !oracis_bus_unbind_interrupt_control(&interrupts) ||
+    if (!oracis_bus_unbind_keypad_control(&keypad)) {
+        return fail("keypad bus unbind failed");
+    }
+
+    /* Changes made while unbound are applied when the device is rebound. */
+    oracis_host_set_keypad_state(key_start);
+    if (!oracis_bus_bind_keypad_control(&keypad) ||
+        !oracis_arm_runtime_select_cpu(NDS_ARM7) ||
+        bus_read_u16(NdsKeypadControl::KeyInputAddress) != 0x03F7u) {
+        return fail("cached host keypad state was not applied on rebind");
+    }
+    if (!oracis_bus_unbind_keypad_control(&keypad)) {
+        return fail("keypad second unbind failed");
+    }
+
+    oracis_host_set_keypad_state(0u);
+    if (!oracis_bus_unbind_interrupt_control(&interrupts) ||
         !oracis_bus_unbind_memory(&memory)) {
         return fail("keypad bus teardown failed");
     }
