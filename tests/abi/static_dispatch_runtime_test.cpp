@@ -22,12 +22,14 @@ const NdsStaticValidation validation = {
 };
 
 int accept_expected_validation(
+    NdsCpu cpu,
     const NdsStaticValidation *candidate,
     uint32_t pc,
     uint32_t thumb,
     void *user)
 {
-    return candidate == user &&
+    return cpu == NDS_ARM9 &&
+           candidate == user &&
            pc == 0x02001000u &&
            thumb == 0u;
 }
