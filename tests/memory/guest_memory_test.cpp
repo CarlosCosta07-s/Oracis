@@ -172,6 +172,68 @@ int main()
     if (memory.validate_execute(NDS_ARM9, 0x02000000u, 4u) != Status::Ok)
         return fail("executable RAM validation failed");
 
+    /* Bulk segment writes preserve identity through the canonical map/alias. */
+    const uint8_t bulk_segment[] = {0xA1u, 0xB2u, 0xC3u, 0xD4u};
+    if (memory.write_bytes(
+            NDS_ARM9, 0x02400010u, bulk_segment,
+            static_cast<uint32_t>(sizeof(bulk_segment))) != Status::Ok ||
+        memory.read(NDS_ARM7, 0x02000010u, 4u).value !=
+            UINT32_C(0xD4C3B2A1) ||
+        memory.validate_identity(
+            NDS_ARM9, 0x02000010u,
+            static_cast<uint32_t>(sizeof(bulk_segment)), bulk_segment) !=
+            Status::Ok ||
+        memory.validate_identity(
+            NDS_ARM7, 0x02400010u,
+            static_cast<uint32_t>(sizeof(bulk_segment)), bulk_segment) !=
+            Status::Ok) {
+        return fail("bulk write did not preserve bytes/provenance through RAM aliases");
+    }
+
+    if (memory.write_bytes(
+            NDS_ARM9, 0x02000FFFu, bulk_segment,
+            static_cast<uint32_t>(sizeof(bulk_segment))) !=
+            Status::CrossesRegion ||
+        memory.write_bytes(
+            NDS_ARM9, 0xFFFFFFFEu, bulk_segment,
+            static_cast<uint32_t>(sizeof(bulk_segment))) !=
+            Status::AddressOverflow ||
+        memory.write_bytes(NDS_ARM9, 0x02000000u, nullptr, 4u) !=
+            Status::InvalidRegion ||
+        memory.write_bytes(NDS_ARM9, 0x02000000u, bulk_segment, 0u) !=
+            Status::InvalidWidth) {
+        return fail("bulk write accepted invalid pointer/size/guest range");
+    }
+
+    /* A write spanning a periodic mirror boundary wraps the physical backing. */
+    GuestMemory periodic_memory;
+    const uint8_t periodic_rw = static_cast<uint8_t>(
+        oracis::memory::Readable | oracis::memory::Writable);
+    if (periodic_memory.map_ram(
+            0x30000000u, 4u, periodic_rw, "periodic physical backing",
+            oracis::memory::CpuAccessBoth) != Status::Ok ||
+        periodic_memory.map_mirror(
+            0x30001000u, 0x30000000u, 4u, 8u,
+            "periodic guest view", oracis::memory::CpuAccessBoth) !=
+            Status::Ok) {
+        return fail("periodic backing/view setup failed");
+    }
+    const uint8_t wrap_source[] = {0xA1u, 0xA2u, 0xA3u, 0xA4u};
+    const uint8_t wrapped_backing[] = {0xA3u, 0xA4u, 0xA1u, 0xA2u};
+    if (periodic_memory.write_bytes(
+            NDS_ARM9, 0x30001002u, wrap_source,
+            static_cast<uint32_t>(sizeof(wrap_source))) != Status::Ok ||
+        periodic_memory.validate_identity(
+            NDS_ARM7, 0x30000000u,
+            static_cast<uint32_t>(sizeof(wrapped_backing)),
+            wrapped_backing) != Status::Ok ||
+        periodic_memory.validate_identity(
+            NDS_ARM9, 0x30001002u,
+            static_cast<uint32_t>(sizeof(wrap_source)), wrap_source) !=
+            Status::Ok) {
+        return fail("bulk write did not wrap a periodic mirror/provenance correctly");
+    }
+
     if (memory.map_ram(0x03000000u, 0x100u,
                        static_cast<uint8_t>(oracis::memory::Readable),
                        "read-only") != Status::Ok) {
