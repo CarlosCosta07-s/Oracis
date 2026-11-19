@@ -37,7 +37,8 @@ jobs:
         run: |
           python3 -m py_compile \
             tools/ndsrecomp/build_recompiler.py \
-            tools/ndsrecomp/extract_nds_programs.py
+            tools/ndsrecomp/extract_nds_programs.py \
+            tools/ndsrecomp/emit_platinum_banks.py
           python3 -m unittest discover \
             --start-directory tests/tools \
             --pattern 'test_*.py' \
