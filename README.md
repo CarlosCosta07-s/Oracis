@@ -47,7 +47,7 @@ O Oracis já contém:
 - contadores de ciclos e controle cooperativo de fatias ARM9/ARM7 por orçamento, yield e unwind;
 - entradas `runtime_link_*` encaminhadas ao dispatcher normal; otimização de slots e folhas inline ainda desabilitada.
 
-O CMake registra dezenove testes CTest, incluindo o mapa de RAM do NDS retail e os quatro modos WRAMCNT. **A execução dos testes para o estado atual ainda não foi confirmada**; a consulta aos status checks do último commit não retornou verificações. O mapa cobre RAM principal/WRAM e permite reconfigurar as janelas Shared WRAM por API. Ainda faltam o handler MMIO de WRAMCNT/WRAMSTAT, CP15/TCM, BIOS, VRAM, OAM, temporização de memória, IRQ/SWI e serviços NitroSDK para executar bancos reais.
+O CMake registra vinte testes CTest, incluindo o mapa NDS retail, os quatro modos Shared WRAM e o acesso MMIO de WRAMCNT. **A execução dos testes para o estado atual ainda não foi confirmada**; a consulta aos status checks do último commit não retornou verificações. O mapa cobre RAM principal/WRAM e permite reconfigurar as janelas Shared WRAM por API. Ainda faltam WRAMSTAT, os demais handlers MMIO, CP15/TCM, BIOS, VRAM, OAM, temporização de memória, IRQ/SWI e serviços NitroSDK para executar bancos reais.
 
 A extração local da USA Rev 1 teve offsets, limites e hashes ARM9/ARM7 verificados. A execução integral do extrator versionado e a emissão de bancos continuam pendentes.
 
