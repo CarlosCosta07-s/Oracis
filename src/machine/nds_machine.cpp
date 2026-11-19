@@ -77,6 +77,7 @@ NdsMachineStatus NdsMachine::initialize() noexcept
     oracis_scheduler_reset(NDS_ARM9);
     oracis_scheduler_reset(NDS_ARM7);
     idle_core_cycles_offset_.fill(0u);
+    next_round_first_cpu_ = NDS_ARM9;
 
     const auto rollback = [this](NdsMachineStatus cause) noexcept {
         return shutdown() == NdsMachineStatus::Ok
@@ -201,6 +202,7 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
     system_clock_.reset();
     run_states_.fill(NdsCpuRunState::Running);
     idle_core_cycles_offset_.fill(0u);
+    next_round_first_cpu_ = NDS_ARM9;
     initialized_ = false;
     return NdsMachineStatus::Ok;
 }
@@ -252,31 +254,178 @@ NdsMachineStatus NdsMachine::end_cpu_slice(NdsCpu cpu) noexcept
 NdsMachineStatus NdsMachine::report_idle_bus_cycles(
     NdsCpu cpu, uint64_t elapsed_bus_cycles) noexcept
 {
-    if (!initialized_) return NdsMachineStatus::NotInitialized;
-    if (!valid_cpu(cpu)) return NdsMachineStatus::InvalidCpu;
-    if (slice_active_[0] || slice_active_[1]) {
-        return NdsMachineStatus::SliceAlreadyActive;
+    if (cpu != NDS_ARM9 && cpu != NDS_ARM7) {
+        return initialized_
+            ? NdsMachineStatus::InvalidCpu
+            : NdsMachineStatus::NotInitialized;
     }
 
-    const unsigned index = cpu_index(cpu);
     const uint64_t core_cycles_per_bus_tick = cpu == NDS_ARM9 ? 2u : 1u;
     if (elapsed_bus_cycles >
         std::numeric_limits<uint64_t>::max() / core_cycles_per_bus_tick) {
         return NdsMachineStatus::ClockReportFailed;
     }
 
-    const uint64_t idle_core_cycles =
-        elapsed_bus_cycles * core_cycles_per_bus_tick;
+    return report_idle_core_cycles(
+        cpu, elapsed_bus_cycles * core_cycles_per_bus_tick);
+}
+
+NdsMachineStatus NdsMachine::report_idle_core_cycles(
+    NdsCpu cpu, uint64_t elapsed_core_cycles) noexcept
+{
+    if (!initialized_) return NdsMachineStatus::NotInitialized;
+    if (!valid_cpu(cpu)) return NdsMachineStatus::InvalidCpu;
+    if (slice_active_[0] || slice_active_[1]) {
+        return NdsMachineStatus::SliceAlreadyActive;
+    }
+    if (elapsed_core_cycles == 0u) return NdsMachineStatus::Ok;
+
+    const unsigned index = cpu_index(cpu);
+    const uint64_t scheduler_cycles = oracis_scheduler_cycle_count(cpu);
     if (idle_core_cycles_offset_[index] >
-        std::numeric_limits<uint64_t>::max() - idle_core_cycles) {
+        std::numeric_limits<uint64_t>::max() - scheduler_cycles) {
         return NdsMachineStatus::ClockReportFailed;
     }
 
-    if (!oracis_bus_report_idle_bus_cycles(cpu, elapsed_bus_cycles)) {
+    const uint64_t reported_cycles =
+        scheduler_cycles + idle_core_cycles_offset_[index];
+    if (elapsed_core_cycles >
+        std::numeric_limits<uint64_t>::max() - reported_cycles ||
+        elapsed_core_cycles >
+        std::numeric_limits<uint64_t>::max() -
+            idle_core_cycles_offset_[index]) {
         return NdsMachineStatus::ClockReportFailed;
     }
 
-    idle_core_cycles_offset_[index] += idle_core_cycles;
+    const uint64_t next_reported_cycles =
+        reported_cycles + elapsed_core_cycles;
+    if (!oracis_bus_report_cpu_cycles(cpu, next_reported_cycles)) {
+        return NdsMachineStatus::ClockReportFailed;
+    }
+
+    idle_core_cycles_offset_[index] += elapsed_core_cycles;
+    return NdsMachineStatus::Ok;
+}
+
+NdsMachineStatus NdsMachine::run_dual_core_round(
+    uint64_t bus_cycle_budget,
+    NdsMachineSliceExecutor execute_slice,
+    NdsMachineIrqContextProvider irq_context,
+    void *context) noexcept
+{
+    if (!initialized_) return NdsMachineStatus::NotInitialized;
+    if (execute_slice == nullptr) return NdsMachineStatus::SliceExecutionFailed;
+    if (bus_cycle_budget == 0u) return NdsMachineStatus::InvalidCycleBudget;
+
+    const uint64_t current_bus_cycles = system_clock_.global_bus_cycles();
+    if (bus_cycle_budget >
+            std::numeric_limits<uint64_t>::max() - current_bus_cycles) {
+        return NdsMachineStatus::InvalidCycleBudget;
+    }
+
+    const uint64_t target_bus_cycles =
+        current_bus_cycles + bus_cycle_budget;
+    if (target_bus_cycles > std::numeric_limits<uint64_t>::max() / 2u) {
+        return NdsMachineStatus::InvalidCycleBudget;
+    }
+
+    const std::array<NdsCpu, 2> order = next_round_first_cpu_ == NDS_ARM9
+        ? std::array<NdsCpu, 2>{NDS_ARM9, NDS_ARM7}
+        : std::array<NdsCpu, 2>{NDS_ARM7, NDS_ARM9};
+
+    const auto service_irq = [this, irq_context, context](
+        NdsCpu cpu) noexcept -> NdsMachineStatus {
+        if (!cpu_can_execute(cpu)) return NdsMachineStatus::Ok;
+
+        const ArmCpuState *state = cpu_state(cpu);
+        if (state == nullptr) return NdsMachineStatus::InvalidCpu;
+        if (!interrupt_control_.irq_asserted(cpu) ||
+            (state->cpsr & CPSR_I_BIT) != 0u) {
+            return NdsMachineStatus::Ok;
+        }
+        if (irq_context == nullptr) {
+            return NdsMachineStatus::IrqContextUnavailable;
+        }
+
+        uint32_t return_address = 0u;
+        uint32_t vector_base = 0u;
+        bool supplied = false;
+        try {
+            supplied = irq_context(
+                context, cpu, state, &return_address, &vector_base);
+        } catch (...) {
+            return NdsMachineStatus::IrqContextFailed;
+        }
+        if (!supplied) return NdsMachineStatus::IrqContextFailed;
+
+        const NdsMachineStatus result = try_deliver_pending_irq(
+            cpu, return_address, vector_base);
+        return result == NdsMachineStatus::IrqEntered
+            ? NdsMachineStatus::Ok
+            : result;
+    };
+
+    /* Service requests already pending at the start of this safe round. */
+    for (const NdsCpu cpu : order) {
+        const NdsMachineStatus result = service_irq(cpu);
+        if (result != NdsMachineStatus::Ok) return result;
+    }
+
+    const uint64_t target_arm9_cycles = target_bus_cycles * 2u;
+    const std::array<uint64_t, 2> target_cycles = {
+        target_arm9_cycles,
+        target_bus_cycles
+    };
+
+    for (const NdsCpu cpu : order) {
+        const unsigned index = cpu_index(cpu);
+        const uint64_t current_cycles =
+            system_clock_.cpu_cycle_count(cpu);
+        const uint64_t target = target_cycles[index];
+        if (current_cycles >= target) continue;
+
+        const uint64_t remaining_cycles = target - current_cycles;
+        if (cpu_can_execute(cpu)) {
+            const NdsMachineStatus begin =
+                begin_cpu_slice(cpu, remaining_cycles);
+            if (begin != NdsMachineStatus::Ok) return begin;
+
+            bool executed = false;
+            try {
+                executed = execute_slice(
+                    context, cpu, cpu_state(cpu), remaining_cycles);
+            } catch (...) {
+                executed = false;
+            }
+
+            const NdsMachineStatus end = end_cpu_slice(cpu);
+            if (end != NdsMachineStatus::Ok) return end;
+            if (!executed) return NdsMachineStatus::SliceExecutionFailed;
+        }
+
+        /*
+         * A halted core or a core that yielded before the common watermark
+         * still advances in elapsed clock time. Keep the exact core-cycle
+         * remainder, including ARM9 half-bus ticks, instead of rounding.
+         */
+        const uint64_t after_execution =
+            system_clock_.cpu_cycle_count(cpu);
+        if (after_execution < target) {
+            const NdsMachineStatus idle = report_idle_core_cycles(
+                cpu, target - after_execution);
+            if (idle != NdsMachineStatus::Ok) return idle;
+        }
+    }
+
+    /* Timer/device IRQs raised while the common watermark advanced are now
+       visible to both cores and are entered only at this safe boundary. */
+    for (const NdsCpu cpu : order) {
+        const NdsMachineStatus result = service_irq(cpu);
+        if (result != NdsMachineStatus::Ok) return result;
+    }
+
+    next_round_first_cpu_ =
+        next_round_first_cpu_ == NDS_ARM9 ? NDS_ARM7 : NDS_ARM9;
     return NdsMachineStatus::Ok;
 }
 
