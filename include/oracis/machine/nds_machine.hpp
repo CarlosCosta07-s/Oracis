@@ -184,6 +184,9 @@ private:
     static int runtime_power_handler(
         void *context, NdsCpu cpu,
         uint32_t operation, uint32_t value);
+    static int runtime_validate_dispatch_bytes(
+        const NdsStaticValidation *validation,
+        uint32_t pc, uint32_t thumb, void *context);
 
     memory::GuestMemory memory_;
     ArmCpuState arm9_state_{};
@@ -207,6 +210,7 @@ private:
     bool timer_bound_ = false;
     bool keypad_bound_ = false;
     bool clock_bound_ = false;
+    bool validation_bound_ = false;
     bool initialized_ = false;
 };
 
