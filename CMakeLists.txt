@@ -79,6 +79,7 @@ if(BUILD_TESTING)
         src/runtime/arm_psr_ops.cpp
         src/runtime/arm_exception_ops.cpp
         src/runtime/arm_flags.cpp
+        src/runtime/recomp_abi.cpp
     )
     target_include_directories(oracis_arm_state PUBLIC include)
     target_compile_features(oracis_arm_state PUBLIC cxx_std_20)
@@ -106,4 +107,11 @@ if(BUILD_TESTING)
     )
     target_link_libraries(oracis_arm_flags_test PRIVATE oracis_arm_state)
     add_test(NAME oracis_arm_flags_test COMMAND oracis_arm_flags_test)
+
+    add_executable(oracis_runtime_abi_bridge_test
+        tests/abi/runtime_abi_bridge_test.cpp
+    )
+    target_link_libraries(oracis_runtime_abi_bridge_test PRIVATE oracis_arm_state)
+    target_include_directories(oracis_runtime_abi_bridge_test PRIVATE include/oracis/recomp)
+    add_test(NAME oracis_runtime_abi_bridge_test COMMAND oracis_runtime_abi_bridge_test)
 endif()
