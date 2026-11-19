@@ -59,6 +59,7 @@ int NdsMachine::runtime_power_handler(
 }
 
 int NdsMachine::runtime_validate_dispatch_bytes(
+    NdsCpu cpu,
     const NdsStaticValidation *validation,
     uint32_t pc,
     uint32_t thumb,
@@ -66,10 +67,10 @@ int NdsMachine::runtime_validate_dispatch_bytes(
 {
     auto *machine = static_cast<NdsMachine *>(context);
     if (machine == nullptr || !machine->initialized_ ||
+        !valid_cpu(cpu) || g_nds_active != cpu ||
+        machine->cpu_state(cpu) != oracis_active_cpu_state ||
         validation == nullptr || validation->expected == nullptr ||
-        validation->size == 0u || thumb > 1u ||
-        !valid_cpu(g_nds_active) ||
-        machine->cpu_state(g_nds_active) != oracis_active_cpu_state) {
+        validation->size == 0u || thumb > 1u) {
         return 0;
     }
     memory::GuestMemory *guest_memory = &machine->memory_;
