@@ -32,6 +32,8 @@ As regiões TCM têm prioridade sobre o mapa de RAM subjacente. Ao desativar o T
 
 Esses caminhos permitem inicializar TCM por cargas e stores normais: leituras de origem vão para a memória externa e as escritas de destino alimentam o armazenamento privado. O ITCM continua servindo buscas de instruções enquanto seu caminho de leitura de dados está em load mode. O DTCM não atende busca de instruções.
 
+O custo do fetch de instruções é documentado separadamente em [ARM9_TIMING.md](ARM9_TIMING.md); a existência de backing e de load modes não implica modelo completo de wait states/cache para acessos de dados.
+
 ## Testes e limitações
 
 Os testes cobrem ID/TCM size, valores iniciais das regiões, exigência de base não zero para DTCM, janelas e alinhamento, privacidade do ITCM, preservação da RAM subjacente, habilitação/desabilitação, redimensionamento, load modes e roteamento separado entre leitura, escrita e busca.

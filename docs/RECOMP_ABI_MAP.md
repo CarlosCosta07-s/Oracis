@@ -1,6 +1,6 @@
 # NDSRecomp — mapa do contrato de bancos gerados
 
-**Estado:** ABI parcial implementada; CP15 ARM9 inclui TCM/load modes testados e a ABI de tracing usa buffer circular por CPU. Bancos USA Rev 1 foram emitidos localmente e os quatro arquivos C foram compilados em objetos C99; ainda não foram ligados ao runtime nem executados.
+**Estado:** ABI parcial implementada; CP15 ARM9 inclui TCM/load modes testados, tracing usa buffer circular por CPU e `runtime_code_cycles` cobre fetch uncached em um subconjunto de regiões ARM9. Bancos USA Rev 1 foram emitidos localmente e os quatro arquivos C foram compilados em objetos C99; ainda não foram ligados ao runtime nem executados.
 
 
 **Revisão upstream examinada:** `14b7e15023e9affc9dc375e4e611ac703f5c76ab`.
@@ -130,13 +130,14 @@ Os corpos C gerados usam um contrato adicional de timing:
 - `g_insn_hook_armed` inicia desarmado. `runtime_insn_slow()` falha explicitamente até haver um consumidor de tracing registrado.
 - `NDS_ARM9_CODE_K` emite o sentinel que desativa o fast path packed; `nds_code_numc()` encaminha ao provedor `runtime_code_cycles()`.
 - `arm9_cycle_combine()` implementa a combinação aritmética entre fetch, acesso de dados e ciclos internos.
-- `runtime_code_cycles()`, `runtime_mem_cycles()`, `runtime_mul_cycles()`, `arm7_refill_cycles()`, `arm9_refill_cycles()` e `arm7_cycle_combine()` têm símbolos definidos fail-closed: abortam com diagnóstico até que o modelo de timing de hardware correspondente seja implementado. Nenhum custo inventado é retornado.
+- `runtime_code_cycles()` implementa fetch uncached ARM9 em ITCM (1 ciclo core), Main RAM (18), WRAM/BIOS/I/O/OAM (8); Thumb divide o fetch em duas metades, sendo a segunda sem custo adicional. ARM7 retorna 0 nesse helper porque seu fetch já está incorporado ao custo-base gerado. Os valores são em ciclos core ARM9 (66 MHz), derivados do clock de barramento de 33 MHz e das tabelas N32. VRAM/Palette, Gamecard, cache e outras regiões permanecem fail-closed.
+- `runtime_mem_cycles()`, `runtime_mul_cycles()`, `arm7_refill_cycles()`, `arm9_refill_cycles()` e `arm7_cycle_combine()` ainda abortam com diagnóstico: timing de dados, multiply, pipeline refill e combinação ARM7 não estão implementados. Nenhum custo inventado é retornado. Veja [ARM9_TIMING.md](ARM9_TIMING.md).
 
 ## 8. Declarações e serviços ainda sem comportamento funcional
 
 O header fornece o contrato C99 necessário para compilar os bancos emitidos, e os helpers de timing acima permitem a ligação fail-closed. Os seguintes grupos ainda precisam de implementações funcionais:
 
-- custos de hardware por região, cache/TCM e acesso: os entry points existem, mas interrompem a execução;
+- timing de dados, multiplicação e refill: `runtime_mem_cycles`, `runtime_mul_cycles`, `arm7_refill_cycles`, `arm9_refill_cycles` e `arm7_cycle_combine` continuam fail-closed. `runtime_code_cycles` cobre apenas o subconjunto uncached ARM9 documentado em [ARM9_TIMING.md](ARM9_TIMING.md);
 - otimização de transferências: resolução/cache de link slots e admissão de folhas inline (os símbolos atuais fazem dispatch conservador e não usam cache);
 - exceções geradas: `runtime_swi` atende HALT (0x06) e CustomHalt ARM7 (0x1F); os demais SWIs ainda falham de forma explícita. O helper `runtime_irq` permanece sem provider arquitetural completo;
 - coprocessador: runtime_coproc_read/write fazem dispatch fail-closed por registrador; ARM9 CP15 implementa c0 ID/TCM size, c1 Control.V + enable/load-mode de ITCM/DTCM e c9 regiões dos TCM. Os backings de 32 KB ITCM e 16 KB DTCM usam janelas overlay com máscaras independentes de leitura/escrita/busca; MPU, cache e demais operações CP15 continuam sem implementação. WFI via c7,c0,4/c7,c8,2 segue separado; veja docs/ARM9_TCM.md;
@@ -156,13 +157,13 @@ Também ficam fora da integração:
 
 ## 10. Testes registrados
 
-O CMake registra **30 testes C99/C++20**. A CI da revisão `3f52e1c` passou em 30/30 CTests desktop; o smoke de bancos sintéticos passou em 1/1; o tooling Python passou em 15 testes; runtime ARM, Android ARM64 e o build do NDSRecomp também passaram. O grupo novo testa a fila de tracing: isolamento ARM9/ARM7, ordenação, cursor de leitura, overflow, contador de descarte e API C99. A máquina também testa CP15 ID/size/regions, TCM, preservação da RAM subjacente e load modes. A CI não recebe ROM, segmentos nem bancos reais. [Execução da CI](https://github.com/CarlosCosta07-s/Oracis/actions/runs/44620734864).
+O CMake registra **31 testes C99/C++20**. A CI da revisão `3bb7598` passou em 31/31 CTests desktop; o smoke de bancos sintéticos passou em 1/1; o tooling Python passou em 15 testes; runtime ARM, Android ARM64 e o build do NDSRecomp também passaram. Os testes incluem tracing por CPU, CP15/TCM/load modes e fetch ARM9 ARM/Thumb em ITCM, Main RAM uncached, WRAM, BIOS, I/O e OAM. A CI não recebe ROM, segmentos nem bancos reais. [Execução da CI](https://github.com/CarlosCosta07-s/Oracis/actions/runs/44622864047).
 
 
 ## 11. Prova de integração ainda exigida
 
 1. Ligar os quatro objetos corpo/dispatch às bibliotecas Oracis e confirmar a resolução dos 48 símbolos externos inventariados.
-2. Implementar provedores de timing reais para fetch de código, leitura/escrita de dados, multiply, refill e combinação ARM7; preservar a falha explícita até os valores estarem sustentados por modelo e testes.
+2. Expandir os provedores de timing: data read/write, multiply, pipeline refill e combinação ARM7; fetch uncached ARM9 já tem cobertura parcial de ITCM/Main RAM/WRAM/BIOS/I/O/OAM. Preservar a falha explícita em regiões sem modelo.
 3. Auditar e implementar alvos indiretos e overlays desconhecidos; manter dispatch fechado para qualquer endereço sem banco válido.
 4. Registrar os bancos no runtime, validar bytes/dependências contra GuestMemory e exercitar entradas sem iniciar rounds completos.
 5. Completar os SWIs e serviços BIOS/NitroSDK requeridos pelo fluxo real de inicialização, além de DMA/IPC/MMIO.
