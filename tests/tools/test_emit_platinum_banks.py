@@ -4,16 +4,27 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 
-from emit_platinum_banks import (
-    BANK_PREFIX,
-    EXPECTED_ROM_SHA1,
-    emit_banks,
+ROOT = Path(__file__).resolve().parents[2]
+SCRIPT = ROOT / "tools" / "ndsrecomp" / "emit_platinum_banks.py"
+SPEC = importlib.util.spec_from_file_location(
+    "oracis_emit_platinum_banks_test_target", SCRIPT
 )
+if SPEC is None or SPEC.loader is None:
+    raise RuntimeError(f"Cannot load bank emitter module: {SCRIPT}")
+emitter = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = emitter
+SPEC.loader.exec_module(emitter)
+
+BANK_PREFIX = emitter.BANK_PREFIX
+EXPECTED_ROM_SHA1 = emitter.EXPECTED_ROM_SHA1
+emit_banks = emitter.emit_banks
 
 
 class EmitPlatinumBanksTests(unittest.TestCase):
