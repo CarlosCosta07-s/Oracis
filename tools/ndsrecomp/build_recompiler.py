@@ -86,6 +86,14 @@ def ensure_checkout(source: Path) -> None:
     if head != PINNED_REVISION:
         raise RuntimeError(f"Pin mismatch: expected {PINNED_REVISION}, got {head}")
 
+    status = git(source, "status", "--porcelain")
+    if status:
+        raise RuntimeError(
+            "The external NDSRecomp checkout has local modifications. "
+            "The bootstrap will not build from a dirty source tree; use a "
+            "clean checkout at the pinned revision."
+        )
+
     # The compiler uses this MIT-licensed ARM core submodule. Do not initialize
     # freebios or any runtime/oracle dependencies.
     run([
