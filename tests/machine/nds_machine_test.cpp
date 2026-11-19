@@ -256,6 +256,111 @@ int main()
         return fail("ARM9 CP15 WFI did not resume after its IRQ line asserted");
     }
 
+    /*
+     * IRQ delivery is deliberately performed only after both CPU slices have
+     * ended. The helper must preserve pending IF and use the caller's exact
+     * architectural LR/vector base rather than deriving either from R15.
+     */
+    constexpr uint32_t machine_irq = UINT32_C(1);
+    auto *arm9 = machine.cpu_state(NDS_ARM9);
+    auto *arm7 = machine.cpu_state(NDS_ARM7);
+    if (arm9 == nullptr || arm7 == nullptr) {
+        return fail("machine did not expose both CPU states for IRQ delivery");
+    }
+
+    /* ARM9: IME and CPSR.I independently gate exception entry. */
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IfAddress, 4u, UINT32_MAX);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IeAddress, 4u, machine_irq);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 0u);
+    machine.interrupt_control().request_irq(NDS_ARM9, machine_irq);
+    arm9->cpsr = ORACIS_ARM_MODE_SYSTEM | CPSR_T_BIT | CPSR_Z_BIT;
+    arm9->R[15] = UINT32_C(0x02004000);
+    const uint32_t arm9_original_cpsr = arm9->cpsr;
+    if (machine.try_deliver_pending_irq(
+            NDS_ARM9, UINT32_C(0x02004006), UINT32_C(0xFFFF0000)) !=
+            NdsMachineStatus::IrqNotEligible ||
+        arm9->cpsr != arm9_original_cpsr ||
+        arm9->R[15] != UINT32_C(0x02004000)) {
+        return fail("ARM9 entered IRQ while IME was disabled or mutated state");
+    }
+
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 1u);
+    arm9->cpsr |= CPSR_I_BIT;
+    const uint32_t arm9_masked_cpsr = arm9->cpsr;
+    if (machine.try_deliver_pending_irq(
+            NDS_ARM9, UINT32_C(0x02004006), UINT32_C(0xFFFF0000)) !=
+            NdsMachineStatus::IrqNotEligible ||
+        arm9->cpsr != arm9_masked_cpsr) {
+        return fail("ARM9 entered IRQ while CPSR.I was set");
+    }
+
+    arm9->cpsr &= ~CPSR_I_BIT;
+    if (machine.begin_cpu_slice(NDS_ARM9, 1u) != NdsMachineStatus::Ok ||
+        machine.try_deliver_pending_irq(
+            NDS_ARM9, UINT32_C(0x02004006), UINT32_C(0xFFFF0000)) !=
+            NdsMachineStatus::SliceAlreadyActive ||
+        machine.end_cpu_slice(NDS_ARM9) != NdsMachineStatus::Ok) {
+        return fail("IRQ delivery was not blocked during an active CPU slice");
+    }
+
+    const uint32_t arm9_irq_cpsr = arm9->cpsr;
+    if (machine.try_deliver_pending_irq(
+            NDS_ARM9, UINT32_C(0x02004006), UINT32_C(0xFFFF0000)) !=
+            NdsMachineStatus::IrqEntered ||
+        (arm9->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_IRQ ||
+        (arm9->cpsr & CPSR_T_BIT) != 0u ||
+        (arm9->cpsr & CPSR_I_BIT) == 0u ||
+        arm9->banked_spsr[ARM_BANK_IRQ] != arm9_irq_cpsr ||
+        arm9->R[14] != UINT32_C(0x02004006) ||
+        arm9->R[15] != UINT32_C(0xFFFF0018) ||
+        (machine.interrupt_control().read(
+            NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value &
+            machine_irq) == 0u ||
+        g_nds_active != NDS_ARM9) {
+        return fail("ARM9 IRQ entry did not save context/use supplied LR and vector");
+    }
+
+    /* ARM7 wakes from HALT on IE&IF, but CPSR.I still blocks entry. */
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::IfAddress, 4u, UINT32_MAX);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::IeAddress, 4u, machine_irq);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::ImeAddress, 4u, 1u);
+    machine.interrupt_control().request_irq(NDS_ARM7, machine_irq);
+    arm7->cpsr = ORACIS_ARM_MODE_SYSTEM | CPSR_T_BIT | CPSR_Z_BIT | CPSR_I_BIT;
+    arm7->R[15] = UINT32_C(0x02005000);
+    const uint32_t arm7_masked_cpsr = arm7->cpsr;
+    if (machine.try_deliver_pending_irq(
+            NDS_ARM7, UINT32_C(0x02005002), 0u) !=
+            NdsMachineStatus::IrqNotEligible ||
+        machine.cpu_is_halted(NDS_ARM7) ||
+        arm7->cpsr != arm7_masked_cpsr) {
+        return fail("ARM7 did not wake on IE&IF while keeping CPSR.I entry mask");
+    }
+
+    arm7->cpsr &= ~CPSR_I_BIT;
+    const uint32_t arm7_irq_cpsr = arm7->cpsr;
+    if (machine.try_deliver_pending_irq(
+            NDS_ARM7, UINT32_C(0x02005002), 0u) !=
+            NdsMachineStatus::IrqEntered ||
+        (arm7->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_IRQ ||
+        (arm7->cpsr & CPSR_T_BIT) != 0u ||
+        (arm7->cpsr & CPSR_I_BIT) == 0u ||
+        arm7->banked_spsr[ARM_BANK_IRQ] != arm7_irq_cpsr ||
+        arm7->R[14] != UINT32_C(0x02005002) ||
+        arm7->R[15] != UINT32_C(0x00000018) ||
+        (machine.interrupt_control().read(
+            NDS_ARM7, NdsInterruptControl::IfAddress, 4u).value &
+            machine_irq) == 0u ||
+        g_nds_active != NDS_ARM7) {
+        return fail("ARM7 IRQ entry did not wake/enter with supplied LR and vector");
+    }
+
     {
         NdsMachine competing_machine(SharedWramMode::Arm9All32K);
         if (competing_machine.initialize() !=
