@@ -9,7 +9,8 @@
 | Recompilação estática ARM7/ARM9 | **NDSRecomp** (revisão fixada) | Traduzir código guest ARMv4T/ARMv5TE em bancos de código nativo |
 | Código emitido | C/C++ gerado pelo compilador | Unidades nativas locais; formato exato será validado no primeiro banco |
 | Runtime nativo | **C++20** | Estado guest, dispatch, scheduler dual-CPU e serviços nativos |
-| ABI dos bancos | Contrato C ABI próprio | Ponte estável entre código recompilado e runtime Oracis |
+| ABI dos bancos | Contrato C ABI próprio | Ponte estável entre bancos gerados e runtime Oracis |
+| Dispatch estático | Registry C++20 + fachada C | Registro por CPU, lookup ARM/Thumb, validação de conteúdo e miss fail-closed |
 | Memória guest/barramento | GuestMemory C++20 + ABI C bus_* | RAM/aliases configuráveis e wrappers dos bancos; MMIO/mapa físico DS pendentes |
 | Ferramentas de extração/validação | **Python** | Ler header NDS, extrair segmentos locais e gerar TOML de entrada |
 | Build | **CMake + Ninja** | Build do host e integração das ferramentas |
@@ -36,6 +37,8 @@ O Oracis não utilizará o runtime do NDSRecomp. Será criada uma implementaçã
 
 Responsabilidades previstas:
 - estado de registradores para ARM9 e ARM7;
+- registro/lookup estático de bancos C por CPU e estado ARM/Thumb;
+- verificação da identidade dos bytes do banco e suas dependências antes da execução;
 - flags CPSR, banked registers e transições ARM/Thumb;
 - execução/dispatch de bancos estáticos por CPU;
 - interface de memória guest com regiões configuráveis e aliases explícitos;
@@ -49,7 +52,7 @@ Não será incluído um interpretador ARM geral como fallback. Código executáv
 
 `oracis_memory` fornece `GuestMemory` e os wrappers C bus_read_*/bus_write_*. A camada faz regiões de armazenamento guest de 32 bits, aliases compartilhados, permissões e acessos little-endian de 8/16/32 bits; os wrappers encaminham para o armazenamento da CPU ativa e falham de forma explícita em regiões não mapeadas. O host liga a biblioteca junto do runtime ARM.
 
-A camada ainda não define o mapa Nintendo DS da revisão USA Rev 1, não implementa MMIO/DMA/IPC, custos de ciclos, mirrors automáticos ou rotação de acessos desalinhados ARM. O próximo passo é adicionar handlers MMIO e timing por faixa, preservando os wrappers RAM já implementados.
+A camada ainda não define o mapa Nintendo DS da revisão USA Rev 1, não implementa MMIO/DMA/IPC, custos de ciclos, mirrors automáticos ou rotação de acessos desalinhados ARM. O registry pode despachar funções que tenham sido registradas pelo host, mas ainda não há carregador que registre bancos reais emitidos para Platinum, nem scheduler/chamadas/retornos.
 
 Referência do contrato: [GUEST_MEMORY.md](GUEST_MEMORY.md).
 
