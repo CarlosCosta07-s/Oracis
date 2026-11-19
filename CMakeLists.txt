@@ -85,6 +85,7 @@ add_library(oracis_memory STATIC
     src/memory/bus_abi.cpp
     src/memory/nds_retail_map.cpp
     src/memory/nds_wram_control.cpp
+    src/memory/nds_interrupt_control.cpp
 )
 target_link_libraries(oracis_memory PUBLIC
     oracis_generated_bank_abi
