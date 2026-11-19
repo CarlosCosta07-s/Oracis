@@ -67,11 +67,18 @@ O runtime C++ implementa wrappers C para:
 
 O código gerado pelo perfil ARMv5TE atual expande os shifts de operand2 inline, cobrindo as formas imediatas e por registrador e os casos especiais de LSR/ASR #0 e ROR #0 (RRX). Por isso, não adicionamos uma segunda implementação de shifter ao runtime. A compatibilidade com bancos antigos que chamem símbolos `arm_shift_*` ainda não é uma meta do primeiro pipeline.
 
-## 5. Declarações ainda sem implementação
+## 5. Memória e barramento C ABI
+
+A camada `oracis_memory` já implementa os seis símbolos C `bus_read_u8/u16/u32` e `bus_write_u8/u16/u32`. Eles usam o seletor `g_nds_active`, encaminham a transferência para `GuestMemory` e falham com diagnóstico quando a região não está mapeada ou a permissão não permite o acesso.
+
+Essa ponte cobre apenas RAM/aliases explicitamente configurados. O mapa físico DS, mirrors específicos por hardware, MMIO, DMA, IPC, wait states e efeitos colaterais dos registradores ainda não existem. O codegen ARMv5TE alinha LDR/STR e aplica a rotação/sign-extension fora do wrapper; o wrapper não tenta duplicar essa semântica.
+
+Consulte [GUEST_MEMORY.md](GUEST_MEMORY.md) para o contrato completo.
+
+## 6. Declarações ainda sem implementação
 
 O header também declara os serviços que o código gerado precisa, mas não fornece stubs vazios. Os seguintes grupos ainda precisam de implementações reais:
 
-- memória e MMIO: `bus_read_*`, `bus_write_*`;
 - ciclos: `runtime_tick`, `runtime_should_yield`, `runtime_code_cycles`, `runtime_mem_cycles`, `runtime_mul_cycles`;
 - dispatch: `runtime_dispatch*`, `runtime_link_*`, misses e validação de entradas;
 - transferências/retornos: `runtime_call_*`, `runtime_live_transfer`;
@@ -81,7 +88,7 @@ O header também declara os serviços que o código gerado precisa, mas não for
 
 Um banco pode incluir o header e compilar sintaticamente, mas continuará sem poder ligar enquanto todos os símbolos efetivamente referenciados não tiverem uma implementação. Não fornecemos no-op stubs para simular progresso.
 
-## 6. Opção de geração excluída
+## 7. Opção de geração excluída
 
 O parâmetro `--flat-execution` altera os corpos gerados para usar `NdsExecRegion`, `execution_region.h` e serviços do runtime upstream. **Oracis não usa essa opção.** Usaremos emissão padrão por função.
 
@@ -91,30 +98,25 @@ Também ficam fora da integração:
 - JIT ou interpretador ARM como fallback;
 - HLE manifests e live-overlay compilation até que a necessidade seja mapeada.
 
-## 7. Memória guest versus barramento
+## 9. Testes feitos
 
-A biblioteca independente `oracis_memory` fornece armazenamento guest configurável, aliases compartilhados, permissões e transferências little-endian. Ela foi separada dos wrappers C da ABI: não define ainda o mapa DS da revisão, MMIO, DMA, custos de ciclos, rotação ARM nem os símbolos `bus_read_*`/`bus_write_*`.
-
-Consulte [GUEST_MEMORY.md](GUEST_MEMORY.md) para o contrato e os limites atuais.
-
-## 8. Testes feitos
-
-O harness runtime-only local, reconstruído a partir dos arquivos versionados, compilou com Clang/CMake/Ninja e passou em onze testes:
+O harness runtime-only local, reconstruído a partir dos arquivos versionados, compilou com Clang/CMake/Ninja e passou em doze testes:
 1. RAM guest: little-endian, aliases, permissões, limites e overflow;
-2. layout ABI C99;
-3. layout ABI C++20;
-4. bancos e troca de modos ARM;
-5. CPSR/SPSR e privilégios;
-6. entrada e retorno de exceções;
-7. condições e flags NZCV;
-8. ponte C++ para o estado ativo;
-9. ponte C99 para o estado ativo;
-10. especialização estática ARM9 (`NDS_STATIC_CPU=0`);
-11. especialização estática ARM7 (`NDS_STATIC_CPU=1`).
+2. C ABI bus_* sobre GuestMemory, com seleção ARM9/ARM7;
+3. layout ABI C99;
+4. layout ABI C++20;
+5. bancos e troca de modos ARM;
+6. CPSR/SPSR e privilégios;
+7. entrada e retorno de exceções;
+8. condições e flags NZCV;
+9. ponte C++ para o estado ativo;
+10. ponte C99 para o estado ativo;
+11. especialização estática ARM9 (`NDS_STATIC_CPU=0`);
+12. especialização estática ARM7 (`NDS_STATIC_CPU=1`).
 
 Uma configuração separada com `BUILD_TESTING=OFF` também compilou `liboracis_arm_state.a` e `liboracis_memory.a`. Isso valida as duas bibliotecas no harness local, não o build completo com SDL3 nem os bancos NDSRecomp.
 
-## 9. Prova de integração ainda exigida
+## 10. Prova de integração ainda exigida
 
 1. Compilar o executável `nds_recompile` na revisão fixada.
 2. Emitir os bancos C ARM9 e ARM7 da cópia USA Rev 1, sem `--flat-execution`.
