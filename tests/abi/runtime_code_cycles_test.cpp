@@ -115,6 +115,7 @@ int main()
     if (!oracis_arm_runtime_select_cpu(NDS_ARM7)) {
         return fail("ARM7 selection failed");
     }
+    /* ARM7 may use VRAM C/D as work RAM at both 128KB bank offsets. */
     if (runtime_code_cycles(UINT32_C(0x02380000)) != 0u ||
         runtime_mem_cycles(UINT32_C(0x02000000), 4u, 0u) != 10u ||
         runtime_mem_cycles(UINT32_C(0x02000000), 4u, 1u) != 2u ||
@@ -124,13 +125,15 @@ int main()
         runtime_mem_cycles(UINT32_C(0x00000000), 2u, 0u) != 1u ||
         runtime_mem_cycles(UINT32_C(0x06000000), 4u, 1u) != 2u ||
         runtime_mem_cycles(UINT32_C(0x06000000), 2u, 0u) != 1u ||
+        runtime_mem_cycles(UINT32_C(0x06020000), 4u, 1u) != 2u ||
+        runtime_mem_cycles(UINT32_C(0x06020000), 2u, 0u) != 1u ||
         arm7_refill_cycles(UINT32_C(0x00000000)) != 2u ||
         arm7_refill_cycles(UINT32_C(0x02000000)) != 4u ||
         arm7_refill_cycles(UINT32_C(0x02000001)) != 2u ||
         arm7_refill_cycles(UINT32_C(0x03000000)) != 2u ||
         arm7_refill_cycles(UINT32_C(0x04000200)) != 2u ||
-        arm7_refill_cycles(UINT32_C(0x05000000)) != 4u ||
-        arm7_refill_cycles(UINT32_C(0x05000001)) != 2u ||
+        arm7_refill_cycles(UINT32_C(0x06020000)) != 4u ||
+        arm7_refill_cycles(UINT32_C(0x06020001)) != 2u ||
         arm7_refill_cycles(UINT32_C(0x06000000)) != 4u ||
         arm7_refill_cycles(UINT32_C(0x06000001)) != 2u ||
         arm7_refill_cycles(UINT32_C(0x07000000)) != 2u ||

@@ -281,7 +281,7 @@ extern "C" uint32_t runtime_mem_cycles(
         return 1u;
     }
     if (range_contains(addr, width, UINT32_C(0x06000000),
-                       UINT32_C(0x01000000))) {
+                       UINT32_C(0x00040000))) {
         if (width >= 4u && sequential == 0u) {
             timing_unavailable(
                 "ARM7 nonsequential 32-bit VRAM timing is not established",
@@ -381,8 +381,12 @@ uint32_t arm7_sequential_code_fetch_cycles(
         (address - UINT32_C(0x07000000)) < UINT32_C(0x00004000)) {
         return 1u; /* BIOS, WRAM, I/O and OAM: S16=S32=1 */
     }
-    if ((address - UINT32_C(0x05000000)) < UINT32_C(0x02000000)) {
-        return thumb ? 1u : 2u; /* Palette/VRAM: S16=1, S32=2 */
+    /*
+     * NDS7 has no standard Palette RAM mapping. VRAM C/D can be assigned
+     * to ARM7 as work RAM in the 0x06000000..0x0603FFFF aperture.
+     */
+    if ((address - UINT32_C(0x06000000)) < UINT32_C(0x00040000)) {
+        return thumb ? 1u : 2u; /* ARM7 VRAM C/D: S16=1, S32=2 */
     }
 
     timing_unavailable(

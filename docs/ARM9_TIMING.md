@@ -49,9 +49,9 @@ O ARM7TDMI refaz o pipeline por dois fetches sequenciais após a instrução de 
 |---|---:|---:|
 | Main RAM | 4 | 2 |
 | WRAM, BIOS, I/O, OAM | 2 | 2 |
-| Palette/VRAM | 4 | 2 |
+| VRAM C/D atribuída como Work RAM ARM7 | 4 | 2 |
 
-Os custos por fetch vêm da tabela NDS7/CODE: Main RAM S32=2/S16=1; WRAM/BIOS/I/O/OAM S32=S16=1; Palette/VRAM S32=2/S16=1. O provider classifica cada fetch isoladamente, inclusive quando cruza a fronteira entre Main RAM e WRAM. Wi-Fi e Gamecard não são aceitos porque seus wait states dependem de configuração externa.
+Os custos por fetch vêm da tabela NDS7/CODE: Main RAM S32=2/S16=1; WRAM/BIOS/I/O/OAM S32=S16=1; VRAM S32=2/S16=1. A Palette RAM (`0x05000000`) não faz parte do mapa ARM7. Somente VRAM C/D podem ser atribuídas ao ARM7 como Work RAM, cada banco com 128 KB no intervalo potencial `0x06000000–0x0603FFFF`. O helper classifica apenas essa janela potencial; a visibilidade efetiva depende de VRAMCNT_C/VRAMCNT_D e ainda precisa ser imposta pelo controlador de memória. Cada fetch é classificado isoladamente, inclusive ao cruzar fronteiras, e endereços fora dessa janela falham fechado. Wi-Fi e Gamecard continuam sem suporte por dependerem de wait states configuráveis.
 
 ## Timing de acesso a dados
 
@@ -63,15 +63,15 @@ Os custos por fetch vêm da tabela NDS7/CODE: Main RAM S32=2/S16=1; WRAM/BIOS/I/
 | ARM9 Main RAM | 20 | 4 | 18 | 2 |
 | ARM7 WRAM/BIOS/I/O/OAM | 1 | 1 | 1 | 1 |
 | ARM9 WRAM/BIOS/I/O/OAM | 8 | 2 | 8 | 2 |
-| ARM7 Palette/VRAM | não estabelecido | 2 | 1 | 1 |
+| ARM7 VRAM C/D como Work RAM | não estabelecido | 2 | 1 | 1 |
 | ARM9 Palette/VRAM | 10 | 4 | 8 | 2 |
 | ARM9 ITCM/DTCM normal | 1 | 1 | 1 | 1 |
 
-A tabela usa os custos-base documentados de NDS7/DATA e NDS9/DATA. Main RAM abrange a janela guest `0x02000000–0x02FFFFFF`; WRAM, BIOS, a janela de I/O suportada (`0x04000000–0x04000FFF`) e OAM usam as classes de barramento de 32-bit; Palette/VRAM usa sua classe de 16-bit. TCM normal custa um ciclo core ARM9 por acesso.
+A tabela usa os custos-base documentados de NDS7/DATA e NDS9/DATA. Main RAM abrange `0x02000000–0x02FFFFFF`; WRAM, BIOS, a janela de I/O suportada (`0x04000000–0x04000FFF`) e OAM usam as classes de barramento de 32-bit. No ARM9, Palette/VRAM usa sua classe de 16-bit; no ARM7, somente VRAM C/D atribuída como Work RAM usa a classe VRAM, na janela potencial `0x06000000–0x0603FFFF`. TCM normal custa um ciclo core ARM9 por acesso.
 
 **Limitação da ABI:** o contrato fixado de `runtime_mem_cycles` só recebe endereço, largura e flag sequencial; não informa se a operação é load ou store. A implementação aplica os custos-base DATA uniformemente e não tenta inventar diferenças de write-buffer ou de direção. Quando ITCM/DTCM está em load mode, leituras são encaminhadas à memória externa enquanto stores continuam alimentando o TCM privado; como a ABI não informa direção, qualquer acesso na janela TCM em load mode falha explicitamente. O snapshot de regiões e modos CP15 é publicado pela `NdsMachine` a cada alteração em Control/c9.
 
-Gamecard/GBA slot e Wi-Fi dependem de EXMEMCNT/WIFIWAITCNT e continuam fail-closed. O N32 não sequencial ARM7 de VRAM também permanece bloqueado porque o valor da tabela é incerto. Contenção com PPU, wait states de cache e write-buffer não estão modelados. Isto é timing-base por classe de região, não um modelo de arbitragem global do barramento.
+Gamecard/GBA slot e Wi-Fi dependem de EXMEMCNT/WIFIWAITCNT e continuam fail-closed. O N32 não sequencial ARM7 para VRAM C/D também permanece bloqueado porque o valor da tabela é incerto. Palette RAM não é mapeada no ARM7. Contenção com PPU, wait states de cache e write-buffer não estão modelados. Isto é timing-base por classe de região, não um modelo de arbitragem global do barramento.
 
 ## Multiply ARM7TDMI
 
