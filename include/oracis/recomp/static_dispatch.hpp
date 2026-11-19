@@ -80,6 +80,18 @@ public:
         std::string bank_name);
 
     /*
+     * Remove exactly the registered table identified by its original pointer
+     * and length. The caller must ensure no generated function from that bank
+     * is currently executing before unregistering it.
+     */
+    bool unregister_bank(
+        NdsCpu cpu,
+        const NdsDispatchEntry *table,
+        std::size_t length) noexcept;
+
+    void clear() noexcept;
+
+    /*
      * Look up the target address with ARM/Thumb state taken from CPSR.T.
      * The low bit of target_pc is stripped like the generated-bank contract;
      * CPSR.T is authoritative for selecting the table row.
