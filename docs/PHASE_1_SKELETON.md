@@ -20,10 +20,11 @@
 - `include/oracis/memory/nds_retail_map.hpp` e `src/memory/nds_retail_map.cpp`: Main RAM 4MB/mirrors, WRAM ARM7 privada e modos WRAMCNT 0–3.
 - `src/memory/bus_abi.cpp`: wrappers C bus_read_*/bus_write_* ligados ao estado ARM9/ARM7 ativo, ao GuestMemory e aos dispositivos MMIO WRAMCNT e IME/IE/IF.
 - `include/oracis/memory/nds_wram_control.hpp` e `src/memory/nds_wram_control.cpp`: WRAMCNT ARM9 de 8 bits, remapeamento Shared WRAM no barramento; WRAMSTAT permanece pendente.
-- `include/oracis/memory/nds_interrupt_control.hpp` e `src/memory/nds_interrupt_control.cpp`: IME/IE/IF independentes por CPU, request flags latcheadas, IF W1C e linha IRQ consultável; a exceção ainda não é entregue pelo scheduler.
-- `tests/abi/` e `tests/memory/`: vinte e um alvos CTest registrados, incluindo ABI, dispatch, pilha de retorno, User bank, CLZ, identidade da memória, WRAMCNT e IME/IE/IF. A CI da revisão d7e9e23 passou em 20/20 testes; o novo teste de interrupções aguarda execução.
+- `include/oracis/memory/nds_interrupt_control.hpp` e `src/memory/nds_interrupt_control.cpp`: IME/IE/IF independentes por CPU, IF W1C e `try_enter_irq()` com máscara CPSR.I e LR/vetor explícitos; chamada automática pelo scheduler pendente.
+- `include/oracis/memory/nds_timer_control.hpp` e `src/memory/nds_timer_control.cpp`: Timer 0–3 de 16 bits por CPU, reload/start, prescalers, cascata e IRQ; avanço em ciclos de barramento aguarda integração ao scheduler.
+- `tests/abi/` e `tests/memory/`: vinte e dois alvos CTest registrados, incluindo ABI, dispatch, User bank, GuestMemory, WRAMCNT, IME/IE/IF, entrada IRQ e timers. A CI da revisão `480651a` passou nos quatro jobs e em 21/21 testes; o novo teste de temporizadores aguarda execução.
 
-O runtime usa um ponteiro global para o estado ativo. A futura execução será serial/cooperativa nesta primeira versão: o scheduler deve selecionar ARM9 ou ARM7 antes de chamar um banco. Execução concorrente dos dois bancos em threads ainda não é suportada. GuestMemory instala o mapa de RAM do NDS retail; WRAMCNT=0 também espelha a WRAM privada ARM7 na janela Shared WRAM ARM7. `set_shared_wram_mode()` altera transacionalmente as máscaras de CPU das sete janelas Shared WRAM pré-mapeadas, depois de validar o mapa completo, sem alocação/desalocação nem perda dos bancos físicos; o MMIO WRAMCNT ARM9 de 8 bits já chama essa API. IME/IE/IF agora possuem controlador independente por CPU com IF W1C e linha IRQ consultável; ainda falta ligar a entrada de exceção ao scheduler. WRAMSTAT, demais MMIO, DMA, CP15/TCM, BIOS, VRAM/OAM e timing por região continuam pendentes. Os wrappers bus_* operam apenas sobre regiões RAM explicitamente mapeadas e falham quando o endereço não existe.
+O runtime usa um ponteiro global para o estado ativo. A futura execução será serial/cooperativa nesta primeira versão: o scheduler deve selecionar ARM9 ou ARM7 antes de chamar um banco. Execução concorrente dos dois bancos em threads ainda não é suportada. GuestMemory instala o mapa de RAM do NDS retail; WRAMCNT=0 também espelha a WRAM privada ARM7 na janela Shared WRAM ARM7. `set_shared_wram_mode()` altera transacionalmente as máscaras de CPU das sete janelas Shared WRAM pré-mapeadas, depois de validar o mapa completo, sem alocação/desalocação nem perda dos bancos físicos; o MMIO WRAMCNT ARM9 de 8 bits já chama essa API. IME/IE/IF possuem controlador independente por CPU; `try_enter_irq()` faz entrada condicionada a CPSR.I com LR/vetor explícitos. Timer 0–3 por CPU implementa prescalers, cascata e requests IF. WRAMSTAT, demais MMIO, DMA, CP15/TCM, BIOS, VRAM/OAM e timing por região continuam pendentes. Os wrappers bus_* operam apenas sobre regiões RAM explicitamente mapeadas e falham quando o endereço não existe.
 
 ## Preparar o recompilador
 
@@ -45,9 +46,9 @@ A validação local da cópia conferiu SHA-1, offsets, limites e hashes dos dois
 
 ## Limites atuais
 
-- O mapa NDS retail cobre Main RAM e WRAM. O barramento reconhece WRAMCNT e IME/IE/IF; ainda não há WRAMSTAT, exceção IRQ ligada ao scheduler, demais MMIO, CP15/TCM, BIOS, VRAM/OAM ou timing por região.
+- O mapa NDS retail cobre Main RAM e WRAM. O barramento reconhece WRAMCNT, IME/IE/IF e TM0–TM3; ainda não há WRAMSTAT, avanço automático de timers ou entrega de IRQ pelo scheduler, demais MMIO, CP15/TCM, BIOS, VRAM/OAM ou timing por região.
 - O registry/runtime_dispatch e a pilha de retorno guest estão implementados para tabelas registradas. Os link slots permanecem sem cache/resolução direta; o controle de fatias existe, mas o scheduler DS com eventos, timers e sincronização ainda não existe.
-- Ciclos, timers, DMA, IPC, entrada de exceção IRQ, SWI/CP15 e serviços NitroSDK continuam pendentes.
+- A integração do avanço dos timers e da entrega IRQ ao scheduler, DMA, IPC, SWI/CP15 e serviços NitroSDK continuam pendentes.
 - O código gerado ainda não foi emitido nem ligado.
 - O host SDL3 continua um frontend experimental sem runtime de jogo conectado.
 - Nenhuma ROM ou dado derivado entra no Git, CI ou releases.

@@ -86,6 +86,7 @@ add_library(oracis_memory STATIC
     src/memory/nds_retail_map.cpp
     src/memory/nds_wram_control.cpp
     src/memory/nds_interrupt_control.cpp
+    src/memory/nds_timer_control.cpp
 )
 target_link_libraries(oracis_memory PUBLIC
     oracis_generated_bank_abi
@@ -127,6 +128,12 @@ if(BUILD_TESTING)
     )
     target_link_libraries(oracis_nds_interrupt_control_test PRIVATE oracis_memory)
     add_test(NAME oracis_nds_interrupt_control_test COMMAND oracis_nds_interrupt_control_test)
+
+    add_executable(oracis_nds_timer_control_test
+        tests/memory/nds_timer_control_test.cpp
+    )
+    target_link_libraries(oracis_nds_timer_control_test PRIVATE oracis_memory)
+    add_test(NAME oracis_nds_timer_control_test COMMAND oracis_nds_timer_control_test)
 
     add_executable(oracis_guest_memory_bus_abi_test
         tests/memory/guest_memory_bus_abi_test.cpp

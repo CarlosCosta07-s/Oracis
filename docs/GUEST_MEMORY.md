@@ -79,7 +79,25 @@ Os bytes físicos das duas banks são armazenados em um backing interno com `Cpu
 | `0x04000210` | `IE` | Máscara de fontes habilitadas |
 | `0x04000214` | `IF` | Flags de solicitação; escrever 1 limpa somente os bits correspondentes |
 
-O dispositivo aceita transferências alinhadas de 32 bits nesses endereços e falha de forma explícita para larguras não suportadas. Os dispositivos de hardware chamam `request_irq(cpu, mask)` para latchear uma fonte em IF. `irq_asserted(cpu)` calcula `IME.bit0 && (IE & IF) != 0`. A classe ainda não injeta a exceção ARM IRQ por conta própria: o scheduler/event loop deverá consultar a linha pendente e chamar o caminho de exceção no limite arquitetural correto.
+O dispositivo aceita transferências alinhadas de 32 bits nesses endereços e falha de forma explícita para larguras não suportadas. Os dispositivos de hardware chamam `request_irq(cpu, mask)` para latchear uma fonte em IF. `irq_asserted(cpu)` calcula `IME.bit0 && (IE & IF) != 0`. A classe oferece `try_enter_irq(cpu, state, return_address, vector_base)`: se IME/IE/IF mantiver a linha ativa e `CPSR.I` estiver limpo, a função entra em IRQ usando o retorno e o vetor fornecidos pelo chamador. Ela não apaga IF; o guest reconhece a solicitação. O scheduler ainda precisa invocar essa função no limite seguro após um bloco recompilado.
+
+### Temporizadores ARM9/ARM7
+
+`NdsTimerControl` modela quatro timers de 16 bits para cada processador:
+
+| Timer | Contador/recarga | Controle |
+|---:|---:|---:|
+| 0 | `0x04000100` | `0x04000102` |
+| 1 | `0x04000104` | `0x04000106` |
+| 2 | `0x04000108` | `0x0400010A` |
+| 3 | `0x0400010C` | `0x0400010E` |
+
+O registro baixo lê o contador atual e recebe a recarga em escritas. A recarga é carregada no contador ao iniciar (borda 0→1) e após cada overflow. O controle implementa divisores 1/64/256/1024, cascata por overflow do timer anterior, IRQ de overflow e start/stop. Timer 0 não aceita cascata. Os overflows dos quatro canais solicitam IF bits 3–6 da CPU correspondente.
+
+Escrita de 32 bits iniciada no registro baixo atualiza recarga e controle na mesma operação, preservando o caso em que reload e start são escritos juntos. As operações de 16 bits também são suportadas; outras larguras falham explicitamente.
+
+`advance_bus_cycles(cpu, n)` recebe ciclos do barramento NDS, não ciclos de instrução ARM. A fonte dos temporizadores é 33,513982 MHz para NDS9 e NDS7; como o núcleo ARM9 pode operar internamente a 66 MHz, a conversão deve ficar no scheduler. **O controlador não avança sozinho via `runtime_tick` nesta etapa**: o scheduler precisa fornecer explicitamente os ciclos de barramento transcorridos.
+
 
 ## 4. API principal do GuestMemory
 
@@ -96,7 +114,10 @@ Implementação: `src/memory/guest_memory.cpp`
 - `NdsWramControl::install()`: instala o mapa inicial e mantém o modo atual do dispositivo.
 - `NdsWramControl::read/write(cpu, address, width, value)`: implementa WRAMCNT para o ARM9; outros endereços não são consumidos por esse dispositivo.
 - `NdsInterruptControl::read/write(cpu, address, width, value)`: implementa IME/IE/IF para ambas as CPUs, em 32 bits, com IF write-one-to-clear.
-- `NdsInterruptControl::request_irq(cpu, mask)` / `irq_asserted(cpu)`: latcheia fontes IF e calcula a linha de interrupção habilitada por IME/IE; não executa a exceção ARM IRQ.
+- `NdsInterruptControl::request_irq(cpu, mask)` / `irq_asserted(cpu)`: latcheia fontes IF e calcula a linha habilitada por IME/IE.
+- `NdsInterruptControl::try_enter_irq(cpu, state, return_address, vector_base)`: entra em IRQ apenas quando a linha está ativa e `CPSR.I` está limpo; o chamador fornece LR e vetor; IF não é apagado.
+- `NdsTimerControl::read/write(cpu, address, width, value)`: implementa Timer 0–3 de cada CPU, com operações de 16 bits e acesso combinado de 32 bits ao par contador/controle.
+- `NdsTimerControl::advance_bus_cycles(cpu, n)`: avança prescalers, contadores, cascatas e requests IF em ciclos explícitos do barramento.
 - `oracis_bus_bind_interrupt_control()` / `oracis_bus_unbind_interrupt_control()`: conecta/desconecta o controlador de interrupções ao barramento C.
 - `oracis_bus_bind_wram_control()` / `oracis_bus_unbind_wram_control()`: conecta e desconecta o dispositivo ao barramento C.
 - `read(cpu, address, width)`: leitura little-endian de 1, 2 ou 4 bytes.
@@ -139,6 +160,7 @@ Ainda não são regiões GuestMemory funcionais:
 - VRAM, paletas, OAM e VRAM usada como WRAM;
 - Wi-Fi RAM/registradores;
 - GBA slot e Game Card;
+- avanço automático de temporizadores e demais eventos; `advance_bus_cycles` ainda precisa ser chamado pelo scheduler;
 - wait states, prioridades de barramento e penalidades de contenção Main RAM.
 
 O runtime de ciclos atual apenas soma ciclos enviados por `runtime_tick`; não calcula ainda `runtime_mem_cycles` ou `runtime_code_cycles` a partir do hardware.

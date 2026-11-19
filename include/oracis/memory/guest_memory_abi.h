@@ -26,6 +26,10 @@ int oracis_bus_unbind_wram_control(void *control);
 int oracis_bus_bind_interrupt_control(void *control);
 int oracis_bus_unbind_interrupt_control(void *control);
 
+/* Bind a live NdsTimerControl after its matching interrupt controller. */
+int oracis_bus_bind_timer_control(void *control);
+int oracis_bus_unbind_timer_control(void *control);
+
 /*
  * Validation callback suitable for oracis_static_dispatch_set_validation_callback.
  * user is the live GuestMemory object that backs the generated CPU bus.
