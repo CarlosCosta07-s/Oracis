@@ -13,7 +13,8 @@
 - `docs/NDSRECOMP_INTEGRATION.md`: separação de licenças, componentes permitidos, hashes dos segmentos e runtime próprio.
 - `include/oracis/recomp/arm_cpu_state.h`: layout POD de registradores/flags compartilhável entre C99 e C++20.
 - `src/runtime/arm_cpu_state_ops.cpp`: mapeamento dos modos ARM e troca de registradores bancados, sem importar o runtime upstream.
-- `tests/abi/`: testes C/C++ do layout e das transições de modo, registrados no CTest.
+- `src/runtime/arm_psr_ops.cpp`: leitura/escrita de SPSR, escrita de CPSR por máscara de campos e retorno de exceção.
+- `tests/abi/`: testes C/C++ do layout, transições de modo e operações PSR, registrados no CTest.
 
 O checkout externo não materializa `runner/` nem `oracle/`: o sparse checkout limita a árvore aos diretórios necessários para o compilador e seu núcleo ARM MIT. O checkout não é submódulo e não é distribuído junto do Oracis.
 
