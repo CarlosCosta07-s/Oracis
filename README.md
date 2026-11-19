@@ -36,7 +36,7 @@ O runtime do Oracis será escrito separadamente. Não serão incorporados runner
 
 A auditoria da descompilação [pret/pokeplatinum](https://github.com/pret/pokeplatinum) permanece documentada, mas nenhum código ou recurso dela foi copiado. O licenciamento da descompilação continua pendente.
 
-O host SDL3 existente é apenas um frontend experimental; ainda não foi conectado aos bancos recompilados. O Oracis já possui a base independente de estado ARM, troca de registradores bancados e operações CPSR/SPSR, cobertas por testes C99/C++20; a ABI completa dos bancos gerados, o dispatch e o scheduler ainda estão em desenvolvimento. Consulte o [mapa da ABI](docs/RECOMP_ABI_MAP.md), o [registro da Fase 1](docs/PHASE_1_SKELETON.md) e o [roteiro](docs/DEVELOPMENT_ROADMAP.md).
+O host SDL3 existente é apenas um frontend experimental; ainda não foi conectado aos bancos recompilados. O Oracis já possui a base independente de estado ARM, registradores bancados, operações CPSR/SPSR e primitivas de entrada/retorno de exceções, cobertas por testes C99/C++20. A ligação com o scheduler, o controlador de IRQ, o dispatch e os bancos reais ainda está pendente. Consulte o [mapa da ABI](docs/RECOMP_ABI_MAP.md), a [implementação de exceções ARM](docs/ARM_EXCEPTION_HANDLING.md), o [registro da Fase 1](docs/PHASE_1_SKELETON.md) e o [roteiro](docs/DEVELOPMENT_ROADMAP.md).
 
 ## Princípios
 
