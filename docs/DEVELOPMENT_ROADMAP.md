@@ -21,7 +21,7 @@ Cada fase deve produzir uma entrega pequena, compilável, executável e verific�
 | 2 | Extração e bancos | Extrair ARM9/ARM7 e emitir bancos C | Metadados e hashes dos segmentos verificados localmente; emissão pendente |
 | 3 | ABI e estado ARM | Estado ARM, CPSR/SPSR, exceções, flags e ponte C ABI | Estado/flags e ponte C implementados; testes registrados, execução recente não confirmada |
 | 4 | Memória e serviços base | Barramento, MMIO, IRQ, timers, DMA, IPC, CP15 e NitroSDK | GuestMemory + wrappers C bus_* testados sobre RAM configurada; mapa físico DS, MMIO/timing e serviços pendentes |
-| 5 | Dispatch e scheduler | Tabelas por CPU, validação de conteúdo, interworking e scheduler dual-core cooperativo | Registry por CPU, lookup ARM/Thumb, runtime_dispatch e callback de identidade implementados; carregador de bancos, calls/returns, link slots e scheduler pendentes |
+| 5 | Dispatch e scheduler | Tabelas por CPU, validação de conteúdo, interworking e scheduler dual-core cooperativo | Registry, validação de bytes, runtime_dispatch e pilha de retorno por CPU implementados; carregador de bancos, cache de link slots e scheduler pendentes |
 | 6 | Boot visível e vídeo 2D | Primeiro quadro, VRAM, BGs, sprites, OAM e blending | Não iniciada |
 | 7 | Vídeo 3D | Geometry Engine, transformações, iluminação, texturas e fog | Não iniciada |
 | 8 | Áudio | SDAT, SSEQ/SBNK/SWAR/STRM, canais e mixagem | Não iniciada |
