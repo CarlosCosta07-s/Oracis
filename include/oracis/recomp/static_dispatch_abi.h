@@ -20,6 +20,25 @@ typedef int (*OracisDispatchValidationFn)(
     uint32_t thumb,
     void *user);
 
+typedef enum OracisDispatchRegisterStatus {
+    ORACIS_DISPATCH_REGISTER_OK = 0,
+    ORACIS_DISPATCH_REGISTER_INVALID_CPU = 1,
+    ORACIS_DISPATCH_REGISTER_INVALID_TABLE = 2,
+    ORACIS_DISPATCH_REGISTER_INVALID_ENTRY = 3,
+    ORACIS_DISPATCH_REGISTER_INVALID_VALIDATION = 4,
+    ORACIS_DISPATCH_REGISTER_UNSORTED_TABLE = 5,
+    ORACIS_DISPATCH_REGISTER_DUPLICATE_ENTRY_KEY = 6,
+    ORACIS_DISPATCH_REGISTER_DUPLICATE_BANK_NAME = 7
+} OracisDispatchRegisterStatus;
+
+typedef enum OracisDispatchLookupStatus {
+    ORACIS_DISPATCH_LOOKUP_FOUND = 0,
+    ORACIS_DISPATCH_LOOKUP_INVALID_CPU = 1,
+    ORACIS_DISPATCH_LOOKUP_CPU_NOT_REGISTERED = 2,
+    ORACIS_DISPATCH_LOOKUP_MISS = 3,
+    ORACIS_DISPATCH_LOOKUP_MISALIGNED_TARGET = 4
+} OracisDispatchLookupStatus;
+
 int oracis_static_dispatch_register_bank(
     NdsCpu cpu,
     const NdsDispatchEntry *table,
