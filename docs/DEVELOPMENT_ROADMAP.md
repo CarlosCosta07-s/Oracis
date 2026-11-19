@@ -21,7 +21,7 @@ Cada fase deve produzir uma entrega pequena, compilável, executável e verific�
 | 2 | Extração e bancos | Extrair ARM9/ARM7 e emitir bancos C | Metadados e hashes dos segmentos verificados localmente; emissão pendente |
 | 3 | ABI e estado ARM | Estado ARM, CPSR/SPSR, exceções, flags e ponte C ABI | Estado/flags, User-bank helpers e CLZ implementados; CI multiplataforma e 21/21 testes confirmados na revisão 480651a |
 | 4 | Memória e serviços base | Barramento, MMIO, IRQ, timers, DMA, IPC, CP15 e NitroSDK | Mapa inicial NDS retail: Main RAM 4MB/mirrors, WRAM ARM7 e modos WRAMCNT 0–3 (incluindo mirror ARM7 privado no modo 0); WRAMCNT ARM9 MMIO e troca transacional, sem alocação, das máscaras das sete janelas Shared WRAM, com validação integral antes da aplicação nos quatro modos implementados; IME/IE/IF, entrada IRQ condicional via `try_enter_irq` e Timer 0–3 por CPU implementados; `advance_bus_cycles(n)` avança as duas banks pelo mesmo clock global explícito; `NdsSystemClock` sincroniza os watermarks cumulativos ARM9/ARM7 na razão 2:1 e alimenta timers uma única vez pelos ciclos de barramento completos; `NdsMachine::run_dual_core_round()` agora reporta os dois cores até um watermark comum e trata HALT/yield como tempo ocioso; entrega IRQ na fronteira usando o provider de LR/vetor do host; ordenação geral dos demais eventos DS continua pendente; KEYINPUT compartilhado, KEYCNT independente por CPU e IRQ de teclado OR/AND implementados; `NdsMachine` reúne os estados ARM e dispositivos base, vincula/desvincula o barramento por dependência e reporta ciclos cumulativos ao relógio no fim de cada fatia; o orquestrador agora delimita/alternar as fatias em rounds e informa ciclos ociosos por core, com precisão de meio ciclo ARM9; HALT/wake básico por CPU (ARM7 via IE&IF, ARM9 via IME&IE&IF); conectado ao SWI NDS 06, SWI ARM7 1F CustomHalt (parâmetro R2) e CP15 WFI ARM9, com yield da fatia; HALTCNT MMIO direto, SLEEP/STOP e GBA mode não suportados; `NdsMachine::try_deliver_pending_irq()` implementado para fronteira segura, respeitando HALT wake, IME/IE/IF, CPSR.I, LR e vector_base fornecidos pelo driver; `run_dual_core_round()` agora consulta/entrega IRQs no início e no fim do round; host ainda precisa fornecer o executor real e o provider arquitetural; VRAMCNT_B, demais MMIO, CP15/TCM, VRAM e timing pendentes |
-| 5 | Dispatch e scheduler | Tabelas por CPU, validação de conteúdo, interworking e scheduler dual-core cooperativo | Registry, validação de bytes, pilha de retorno e orçamento/yield por CPU implementados; `run_dual_core_round()` sincroniza ARM9/ARM7 em 2:1, alterna a ordem inicial, contabiliza HALT/yield e entrega IRQ via provider; `execute_registered_bank_slice()` liga a fatia ao `runtime_dispatch()`; testes sintéticos de bancos ARM9/ARM7 adicionados; host ainda não chama o round/provider, e scheduler geral de eventos DS, carregador de bancos e cache de links continuam pendentes |
+| 5 | Dispatch e scheduler | Tabelas por CPU, validação de conteúdo, interworking e scheduler dual-core cooperativo | Registry, validação de bytes, pilha de retorno e orçamento/yield por CPU implementados; `run_dual_core_round()` sincroniza ARM9/ARM7 em 2:1, alterna a ordem inicial, contabiliza HALT/yield e entrega IRQ via provider; `execute_registered_bank_slice()` liga a fatia ao `runtime_dispatch()`; a ponte C `oracis_host_runtime_run_round()` verifica a presença de bancos ARM9/ARM7 e aceita provider IRQ; testes sintéticos via C e C++ cobrem as fatias; SDL ainda não inicia rounds com bancos reais/provider arquitetural; scheduler geral de eventos DS, carregador de bancos e cache de links continuam pendentes |
 | 6 | Boot visível e vídeo 2D | Primeiro quadro, VRAM, BGs, sprites, OAM e blending | Não iniciada |
 | 7 | Vídeo 3D | Geometry Engine, transformações, iluminação, texturas e fog | Não iniciada |
 | 8 | Áudio | SDAT, SSEQ/SBNK/SWAR/STRM, canais e mixagem | Não iniciada |
@@ -35,13 +35,13 @@ Cada fase deve produzir uma entrega pequena, compilável, executável e verific�
 
 ## Próxima ordem de implementação
 
-1. Conectar `run_dual_core_round()` ao host com um executor que chame `runtime_dispatch()` e respeite o yield cooperativo.
-2. Implementar o provider arquitetural de IRQ a partir do ponto de execução real (ARM/Thumb), CP15 e base vetorial configurada; validar o LR de retorno.
-3. Implementar ordenação de eventos DS e integrar DMA/IPC sem avançar dispositivos fora do watermark comum.
-4. Compilar o NDSRecomp fixado e emitir os bancos reais ARM9/ARM7.
-5. Inventariar símbolos indefinidos e integrar bancos validados ao registro estático.
-6. Mapear os segmentos reais de memória e completar MMIO/CP15/TCM e temporização necessários ao boot.
-7. Só então avançar para vídeo, áudio, saves e UX do jogo.
+1. Implementar o provider arquitetural de IRQ a partir do estado real ARM/Thumb e CP15; validar LR e base vetorial em testes de exceção.
+2. Executar o pipeline NDSRecomp fixado e emitir os bancos reais ARM9/ARM7 para Pokémon Platinum USA Rev 1.
+3. Inventariar símbolos indefinidos e implementar os serviços/runtime exigidos pelos bancos.
+4. Criar o carregador local dos bancos, validar hashes/dependências e registrá-los no dispatcher sem incluir arquivos derivados no Git.
+5. Acionar `oracis_host_runtime_run_round()` no loop SDL após a carga dos dois bancos e instalar o provider IRQ validado.
+6. Implementar ordenação geral de eventos DS e integrar DMA/IPC sem avançar dispositivos fora do watermark comum.
+7. Completar MMIO/CP15/TCM e temporização necessários ao boot; só então avançar para vídeo, áudio, saves e UX.
 
 ## Código dinâmico e overlays
 
