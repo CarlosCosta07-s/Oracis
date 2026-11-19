@@ -12,7 +12,59 @@ namespace {
 int fail(const char *message)
 {
     std::fprintf(stderr, "nds_machine_test: %s\n", message);
+
     return 1;
+}
+
+struct SchedulerFixture {
+    uint32_t calls[2]{};
+    uint64_t budgets[2]{};
+    bool yield_early_arm9 = false;
+    uint32_t irq_context_calls[2]{};
+};
+
+bool execute_test_slice(
+    void *opaque, NdsCpu cpu, ArmCpuState *state, uint64_t cycle_budget)
+{
+    auto *fixture = static_cast<SchedulerFixture *>(opaque);
+    if (fixture == nullptr || state == nullptr ||
+        (cpu != NDS_ARM9 && cpu != NDS_ARM7) ||
+        cycle_budget > UINT32_MAX) {
+        return false;
+    }
+
+    const unsigned index = static_cast<unsigned>(cpu);
+    ++fixture->calls[index];
+    fixture->budgets[index] = cycle_budget;
+
+    if (cpu == NDS_ARM9 && fixture->yield_early_arm9 &&
+        cycle_budget > 1u) {
+        runtime_tick(static_cast<uint32_t>(cycle_budget / 2u));
+        return oracis_scheduler_request_yield(cpu) != 0 &&
+               runtime_should_yield();
+    }
+
+    runtime_tick(static_cast<uint32_t>(cycle_budget));
+    return runtime_should_yield();
+}
+
+bool provide_test_irq_context(
+    void *opaque, NdsCpu cpu, const ArmCpuState *state,
+    uint32_t *return_address, uint32_t *vector_base)
+{
+    auto *fixture = static_cast<SchedulerFixture *>(opaque);
+    if (fixture == nullptr || state == nullptr ||
+        return_address == nullptr || vector_base == nullptr ||
+        (cpu != NDS_ARM9 && cpu != NDS_ARM7)) {
+        return false;
+    }
+
+    ++fixture->irq_context_calls[static_cast<unsigned>(cpu)];
+    *return_address = cpu == NDS_ARM7
+        ? UINT32_C(0x02005002)
+        : UINT32_C(0x02004006);
+    *vector_base = 0u;
+    return true;
 }
 
 } // namespace
