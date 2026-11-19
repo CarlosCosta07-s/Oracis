@@ -21,6 +21,11 @@ int main(void)
         return 1;
     }
 
+    if (bus_read_u16(UINT32_C(0x04000130)) != UINT16_C(0x03FE)) {
+        fprintf(stderr, "pre-bind host key state did not reach KEYINPUT\\n");
+        return 1;
+    }
+
     if (oracis_host_runtime_initialize() !=
         ORACIS_HOST_RUNTIME_ALREADY_INITIALIZED) {
         fprintf(stderr, "C host bridge accepted a duplicate initialization\n");
