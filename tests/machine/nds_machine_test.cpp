@@ -847,18 +847,43 @@ int main()
     /* The global validator must be cleared before this machine's memory dies. */
     validation_status = UINT32_MAX;
     inactive_candidate = nullptr;
-    if (oracis_static_dispatch_lookup(
-            NDS_ARM9, validated_arm9_pc, arm9->cpsr,
-            &validation_status, &validation_candidates,
-            &inactive_candidate) != nullptr ||
-        validation_status != ORACIS_DISPATCH_LOOKUP_MISS ||
-        inactive_candidate != validated_arm9_bank ||
-        oracis_static_dispatch_lookup(
-            NDS_ARM7, validated_arm7_pc | 1u, arm7->cpsr,
-            &validation_status, &validation_candidates,
-            &inactive_candidate) != nullptr ||
-        validation_status != ORACIS_DISPATCH_LOOKUP_MISS ||
-        inactive_candidate != validated_arm7_bank) {
+    const NdsDispatchEntry *post_shutdown_arm9 = oracis_static_dispatch_lookup(
+        NDS_ARM9, validated_arm9_pc, arm9->cpsr,
+        &validation_status, &validation_candidates, &inactive_candidate);
+    const uint32_t post_shutdown_arm9_status = validation_status;
+    const uint32_t post_shutdown_arm9_candidates = validation_candidates;
+    const NdsDispatchEntry *post_shutdown_arm9_inactive = inactive_candidate;
+
+    const NdsDispatchEntry *post_shutdown_arm7 = oracis_static_dispatch_lookup(
+        NDS_ARM7, validated_arm7_pc | 1u, arm7->cpsr,
+        &validation_status, &validation_candidates, &inactive_candidate);
+    const uint32_t post_shutdown_arm7_status = validation_status;
+    const uint32_t post_shutdown_arm7_candidates = validation_candidates;
+    const NdsDispatchEntry *post_shutdown_arm7_inactive = inactive_candidate;
+
+    if (post_shutdown_arm9 != nullptr ||
+        post_shutdown_arm9_status != ORACIS_DISPATCH_LOOKUP_MISS ||
+        post_shutdown_arm9_candidates != 1u ||
+        post_shutdown_arm9_inactive != validated_arm9_bank ||
+        post_shutdown_arm7 != nullptr ||
+        post_shutdown_arm7_status != ORACIS_DISPATCH_LOOKUP_MISS ||
+        post_shutdown_arm7_candidates != 1u ||
+        post_shutdown_arm7_inactive != validated_arm7_bank) {
+        std::fprintf(stderr,
+            "post-shutdown dispatch diagnostics: "
+            "ARM9 selected=%p status=%u candidates=%u inactive=%p expected=%p; "
+            "ARM7 selected=%p status=%u candidates=%u inactive=%p expected=%p; "
+            "active_state=%p active_cpu=%u\n",
+            static_cast<const void *>(post_shutdown_arm9),
+            post_shutdown_arm9_status, post_shutdown_arm9_candidates,
+            static_cast<const void *>(post_shutdown_arm9_inactive),
+            static_cast<const void *>(validated_arm9_bank),
+            static_cast<const void *>(post_shutdown_arm7),
+            post_shutdown_arm7_status, post_shutdown_arm7_candidates,
+            static_cast<const void *>(post_shutdown_arm7_inactive),
+            static_cast<const void *>(validated_arm7_bank),
+            static_cast<void *>(oracis_arm_runtime_current_state()),
+            static_cast<unsigned>(g_nds_active));
         return fail("shutdown left the process-global GuestMemory validator installed");
     }
     if (oracis_static_dispatch_unregister_bank(
