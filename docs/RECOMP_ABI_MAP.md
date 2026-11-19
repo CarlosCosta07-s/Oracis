@@ -138,12 +138,12 @@ O header fornece o contrato C99 necessário para compilar os bancos emitidos, e 
 
 - custos de hardware por região, cache/TCM e acesso: os entry points existem, mas interrompem a execução;
 - otimização de transferências: resolução/cache de link slots e admissão de folhas inline (os símbolos atuais fazem dispatch conservador e não usam cache);
-- observabilidade de transferências: `runtime_live_transfer`;
-- exceções geradas: `runtime_swi`, `runtime_irq`;
+- exceções geradas: `runtime_swi` atende HALT (0x06) e CustomHalt ARM7 (0x1F); os demais SWIs ainda falham de forma explícita. O helper `runtime_irq` permanece sem provider arquitetural completo;
 - coprocessador: runtime_coproc_read/write fazem dispatch fail-closed por registrador; ARM9 CP15 implementa c0 ID/TCM size, c1 Control.V + enable/load-mode de ITCM/DTCM e c9 regiões dos TCM. Os backings de 32 KB ITCM e 16 KB DTCM usam janelas overlay com máscaras independentes de leitura/escrita/busca; MPU, cache e demais operações CP15 continuam sem implementação. WFI via c7,c0,4/c7,c8,2 segue separado; veja docs/ARM9_TCM.md;
 - observabilidade: `runtime_trace_event` e `runtime_live_transfer` gravam eventos em uma fila circular de 512 entradas por CPU; a API C permite consultar, ler por cursor, limpar e obter a contagem de eventos descartados. O hook `runtime_insn_slow` segue fail-closed se for armado sem consumidor dedicado.
 
 A emissão real USA Rev 1 produziu 78 funções ARM9 e 957 ARM7 (8 Thumb) em dois conjuntos C/dispatch locais. O relatório do compiler encerrou a varredura ARM9 por limite de passos, com 12 leituras não mapeadas e 10 alvos indiretos desconhecidos; ARM7 encerrou ao sair do módulo, com 388 leituras não mapeadas e 30 alvos indiretos desconhecidos. Isso é cobertura parcial, não cobertura integral do jogo. Os quatro arquivos C gerados foram compilados localmente em C99 contra a ABI Oracis e agrupados em objetos. O inventário encontrou 40 referências externas ARM9, 45 ARM7 e 48 nomes únicos no conjunto; `runtime_live_transfer` e `runtime_trace_event`, que não tinham definições, agora são implementados pelo runtime próprio. A ligação completa às bibliotecas de runtime ainda não foi executada, e os provedores de timing seguem fail-closed. Nenhum segmento ou banco derivado da ROM foi adicionado ao Git/CI.
+
 ## 9. Opção de geração excluída
 
 O parâmetro `--flat-execution` altera os corpos gerados para usar `NdsExecRegion`, `execution_region.h` e serviços do runtime upstream. **Oracis não usa essa opção.** Usaremos emissão padrão por função.
@@ -161,13 +161,13 @@ O CMake registra **30 testes C99/C++20**. A CI da revisão `3f52e1c` passou em 3
 
 ## 11. Prova de integração ainda exigida
 
-1. Ligar os quatro objetos corpo/dispatch às bibliotecas Oracis e confirmar a resolução dos 48 símbolos externos do inventário.
-2. Completar os provedores de timing fail-closed: fetch de código, dados, multiply, refill e combinação ARM7, sem inventar custos.
-3. Auditar e implementar os alvos indiretos/overlays desconhecidos, mantendo dispatch fechado para qualquer endereço sem banco válido.
-4. Registrar os bancos reais no runtime, validar bytes/dependências contra GuestMemory e exercitar entradas sem iniciar rounds completos.
-5. Implementar a sequência mínima de boot: BIOS/SWI necessários, MMIO, DMA/IPC e inicialização dos serviços de vídeo.
-5. Completar a sincronização de ciclos globais e os demais handlers MMIO (incluindo VRAMCNT_B); a entrega IRQ já é verificada nas fronteiras do round.
-6. Completar CP15/TCM, BIOS, VRAM/OAM, scheduler de dispositivos e timing por região.
-7. Demonstrar que um endereço guest sem banco gera falha detalhada, sem execução interpretada.
+1. Ligar os quatro objetos corpo/dispatch às bibliotecas Oracis e confirmar a resolução dos 48 símbolos externos inventariados.
+2. Implementar provedores de timing reais para fetch de código, leitura/escrita de dados, multiply, refill e combinação ARM7; preservar a falha explícita até os valores estarem sustentados por modelo e testes.
+3. Auditar e implementar alvos indiretos e overlays desconhecidos; manter dispatch fechado para qualquer endereço sem banco válido.
+4. Registrar os bancos no runtime, validar bytes/dependências contra GuestMemory e exercitar entradas sem iniciar rounds completos.
+5. Completar os SWIs e serviços BIOS/NitroSDK requeridos pelo fluxo real de inicialização, além de DMA/IPC/MMIO.
+6. Implementar o provider arquitetural de LR IRQ ARM/Thumb e testar a entrada/saída de exceção nas duas CPUs.
+7. Só então habilitar rounds reais e avançar para primeiro quadro, áudio e saves.
 
-Até a emissão, compilação e execução de bancos reais existir, o Oracis ainda não inicializa Pokémon Platinum.
+
+Até a ligação dos bancos reais ao runtime e a execução verificável da sequência de inicialização, o Oracis ainda não inicializa Pokémon Platinum.

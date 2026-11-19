@@ -9,7 +9,7 @@
 
 <p align="center"><strong>Reconstruindo Sinnoh para além do hardware original.</strong></p>
 
-> **Status:** Pokémon Platinum USA Rev 1 foi validado, extraído e recompilado localmente em 19/11/2026. O NDSRecomp fixado gerou os bancos C/dispatch ARM9 e ARM7: 78 funções ARM9 e 957 ARM7 (incluindo 8 Thumb). Os quatro arquivos C gerados (corpo e dispatch de cada CPU) foram compilados localmente em C99 contra a ABI Oracis e agrupados em objetos; os objetos e bancos permanecem fora do Git e da CI. Ainda não foram ligados ao runtime, registrados no dispatcher nem executados. A varredura ARM9 terminou por limite de passos com 12 leituras não mapeadas e 10 alvos indiretos desconhecidos; ARM7 terminou ao sair do módulo com 388 leituras não mapeadas e 30 alvos indiretos desconhecidos: a cobertura permanece parcial. O CP15 ARM9 tem suporte parcial a ID, TCM size, ITCM/DTCM e load modes; MPU/cache seguem pendentes. A ABI de observabilidade inclui buffer circular de 512 eventos por CPU para tracing e transferências, com contador de eventos descartados. A CI da revisão `3f52e1c` passou nos quatro jobs: 30/30 CTests, smoke de bancos sintéticos 1/1, 15 testes Python, runtime ARM, Android ARM64 e compilador fixado. Nenhum ROM, segmento ou banco comercial entrou no Git ou na CI.
+> **Status:** Pokémon Platinum USA Rev 1 foi validado, extraído e recompilado localmente em 19/11/2026. O NDSRecomp fixado gerou os bancos C/dispatch ARM9 e ARM7: 78 funções ARM9 e 957 ARM7 (incluindo 8 Thumb). Os quatro arquivos C gerados (corpo e dispatch de cada CPU) foram compilados localmente em C99 contra a ABI Oracis e agrupados em objetos; os objetos e bancos permanecem fora do Git e da CI. Ainda não foram ligados ao runtime, registrados no dispatcher nem executados. A varredura ARM9 terminou por limite de passos com 12 leituras não mapeadas e 10 alvos indiretos desconhecidos; ARM7 terminou ao sair do módulo com 388 leituras não mapeadas e 30 alvos indiretos desconhecidos: a cobertura permanece parcial. O CP15 ARM9 tem suporte parcial a ID, TCM size, ITCM/DTCM e load modes; MPU/cache seguem pendentes. A ABI de observabilidade inclui um buffer circular de 512 eventos por CPU para tracing e transferências, com contador de eventos descartados. A CI da revisão `3f52e1c` passou nos quatro jobs: 30/30 CTests, smoke de bancos sintéticos 1/1, 15 testes Python, runtime ARM, Android ARM64 e compilador fixado. Nenhuma ROM, segmento ou banco comercial entrou no Git ou na CI.
 
 
 ## O projeto
@@ -25,7 +25,7 @@ Oracis busca executar Pokémon Platinum como código nativo em computadores mode
 - **Python** para extração local e validação da cópia de jogo.
 - **Rust** permanece apenas no gerador isolado do ícone.
 
-Consulte [docs/TECH_STACK.md](docs/TECH_STACK.md), [docs/NDSRECOMP_INTEGRATION.md](docs/NDSRECOMP_INTEGRATION.md), [documentação do scheduler dual-core](docs/DUAL_CORE_SCHEDULER.md), o [mapa da ABI dos bancos](docs/RECOMP_ABI_MAP.md), o [contrato GuestMemory](docs/GUEST_MEMORY.md) e a [decisão ADR 0001](docs/adr/0001-ndsrecomp-static-compiler.md).
+Consulte [docs/TECH_STACK.md](docs/TECH_STACK.md), [docs/NDSRECOMP_INTEGRATION.md](docs/NDSRECOMP_INTEGRATION.md), [documentação do scheduler dual-core](docs/DUAL_CORE_SCHEDULER.md), o [mapa da ABI dos bancos](docs/RECOMP_ABI_MAP.md), o [contrato GuestMemory](docs/GUEST_MEMORY.md), a [documentação parcial do ARM9 TCM](docs/ARM9_TCM.md) e a [decisão ADR 0001](docs/adr/0001-ndsrecomp-static-compiler.md).
 
 ## Estado atual
 

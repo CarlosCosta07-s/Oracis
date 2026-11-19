@@ -19,9 +19,9 @@ Cada fase deve produzir uma entrega pequena, compilável, executável e verific�
 | 0 | Baseline | Revisão/região e direitos avaliados | USA Rev 1 identificada; licença geral de pret/pokeplatinum não confirmada |
 | 1 | NDSRecomp | Checkout fixado e compilação isolada | Bootstrap e alvo nds_recompile validados na revisão fixada; CI produz artefato temporário com compilador + scripts + headers ABI Oracis e checksum; identidade nds-codegen-v3 exigida pelo emissor; compilador usado localmente em 19/11 para emitir os bancos USA Rev 1 |
 | 2 | Extração e bancos | Extrair ARM9/ARM7 e emitir bancos C | ROM USA Rev 1 identificada/extraída; emissão real local: 78 funções ARM9 e 957 ARM7 (8 Thumb); scan parcial (ARM9 12 leituras não mapeadas/10 indiretos desconhecidos; ARM7 388 leituras não mapeadas/30 indiretos desconhecidos); os quatro arquivos C corpo/dispatch foram compilados em C99 contra a ABI Oracis e agrupados em objetos locais; inventário: 40 referências externas ARM9, 45 ARM7, 48 nomes únicos; ligação ao runtime pendente; nenhum banco/segmento no Git ou CI |
-| 3 | ABI e estado ARM | Estado ARM, CPSR/SPSR, exceções, flags e ponte C ABI | Estado/flags, User-bank helpers e CLZ implementados; CI multiplataforma e 21/21 testes confirmados na revisão 480651a |
+| 3 | ABI e estado ARM | Estado ARM, CPSR/SPSR, exceções, flags e ponte C ABI | Estado/flags, User-bank helpers e CLZ implementados; tracing e transferência dinâmica registram em buffer circular de 512 eventos por CPU; CI 30/30 CTests e builds multiplataforma confirmados |
 | 4 | Memória e serviços base | Barramento, MMIO, IRQ, timers, DMA, IPC, CP15 e NitroSDK | Mapa NDS retail e WRAMCNT/WRAMSTAT; IME/IE/IF, IRQ fronteira, timers 0–3 por CPU, clock dual-core 2:1, HALT/wake básico; ARM9 CP15 parcial: ID/TCM size c0, V + ITCM/DTCM enable/load mode c1, regiões c9 e backings 32 KB ITCM/16 KB DTCM com espelhos e máscaras read/write/execute independentes; testes de load-mode e preservação da RAM subjacente passam; MPU, cache, callback LR arquitetural, VRAMCNT_B, demais MMIO, VRAM e timing pendentes |
-| 5 | Dispatch e scheduler | Tabelas por CPU, validação de conteúdo, interworking e scheduler dual-core cooperativo | Registry, validação de bytes, pilha de retorno e orçamento/yield por CPU implementados; `run_dual_core_round()` sincroniza ARM9/ARM7 em 2:1 e contabiliza HALT/yield; a ponte C registra/remover tabelas locais opcionais e verifica presença dos bancos; CMake compila bancos locais; smoke test com fixtures sintéticas valida ligação e ciclo registro/remoção; API de carga em memória e carregador local verificado (tamanho/SHA-1 de ambos os segmentos antes de escrever) implementados; testes cobrem falta, truncamento, hash divergente e preservação do estado; host SDL desktop tenta carregar os segmentos no início quando bancos estáticos estão ligados; Android ainda não possui seleção de arquivos/diretório local; nenhuma plataforma executa rounds; provider arquitetural de LR ARM/Thumb, scheduler geral DS e cache de links pendentes |
+| 5 | Dispatch e scheduler | Tabelas por CPU, validação de conteúdo, interworking e scheduler dual-core cooperativo | Registry, validação de bytes, pilha de retorno e orçamento/yield por CPU implementados; `run_dual_core_round()` sincroniza ARM9/ARM7 em 2:1 e contabiliza HALT/yield; a ponte C registra/remover tabelas locais opcionais e verifica presença dos bancos; CMake compila bancos locais; smoke test com fixtures sintéticas valida ligação e ciclo registro/remoção; API de tracing/live-transfer com buffer circular por CPU; API de carga em memória e carregador local verificado (tamanho/SHA-1 de ambos os segmentos antes de escrever) implementados; testes cobrem falta, truncamento, hash divergente e preservação do estado; host SDL desktop tenta carregar os segmentos no início quando bancos estáticos estão ligados; Android ainda não possui seleção de arquivos/diretório local; nenhuma plataforma executa rounds; provider arquitetural de LR ARM/Thumb, scheduler geral DS e cache de links pendentes |
 | 6 | Boot visível e vídeo 2D | Primeiro quadro, VRAM, BGs, sprites, OAM e blending | Não iniciada |
 | 7 | Vídeo 3D | Geometry Engine, transformações, iluminação, texturas e fog | Não iniciada |
 | 8 | Áudio | SDAT, SSEQ/SBNK/SWAR/STRM, canais e mixagem | Não iniciada |
@@ -35,13 +35,14 @@ Cada fase deve produzir uma entrega pequena, compilável, executável e verific�
 
 ## Próxima ordem de implementação
 
-1. Ligar os quatro objetos corpo/dispatch às bibliotecas Oracis e confirmar a resolução dos 48 símbolos externos do inventário.
-2. Completar os provedores de timing fail-closed (fetch, dados, multiply, refill e combinação ARM7) sem inventar custos; auditar alvos indiretos e overlays desconhecidos.
-3. Implementar e testar os helpers exigidos pelos bancos: bus, contagem de ciclos, exceções/CP15, DMA, IPC e serviços BIOS/NitroSDK.
-4. Implementar o provider arquitetural de LR IRQ para ARM/Thumb e validar exceções em ambas as CPUs; a seleção do vetor ARM9 via CP15 Control.V já está ligada à máquina.
-5. Executar e auditar a inicialização desktop com os artefatos reais; adicionar seleção segura de ROM/segmentos e caminho de armazenamento no Android.
-6. Acionar rounds apenas quando imagem, bancos, serviços e provider IRQ estiverem prontos; manter a falha explícita para dispatch ausente.
-7. Completar ordenação geral de eventos DS, MMIO/TCM e temporização para avançar ao boot visível; vídeo, áudio, saves e UX vêm depois.
+1. Ligar os quatro objetos corpo/dispatch locais às bibliotecas Oracis e confirmar a resolução dos 48 símbolos externos do inventário.
+2. Completar os provedores de timing fail-closed: fetch de código, leitura/escrita de dados, multiply, refill e combinação ARM7, com valores apoiados por testes e documentação de hardware.
+3. Auditar e implementar os alvos indiretos/overlays desconhecidos e os SWIs/serviços BIOS/NitroSDK requeridos pela inicialização; completar DMA, IPC e MMIO.
+4. Implementar o provider arquitetural de LR IRQ para ARM/Thumb e validar exceções nas duas CPUs.
+5. Registrar os bancos reais, confirmar identidade das entradas e executar testes controlados de dispatch sem abrir rounds de jogo.
+6. Habilitar rounds somente após os serviços mínimos de boot estarem presentes e observáveis.
+7. Implementar VRAM/PPU e apresentar o primeiro quadro; áudio, saves e UX avançam depois.
+
 
 ## Código dinâmico e overlays
 
@@ -59,11 +60,12 @@ Código executável materializado em RAM deverá ser identificado, recompilado e
 
 ### Verificação local da ROM USA Rev 1 (19/11/2026)
 
-O script versionado `tools/ndsrecomp/extract_nds_programs.py` foi executado sobre a cópia local fornecida para desenvolvimento. A identidade completa conferiu (`0862ec35b24de5c7e2dcb88c9eea0873110d755c`), e o script gerou os dois segmentos fora da árvore Git, verificando os arquivos após a gravação:
+O script versionado `tools/ndsrecomp/extract_nds_programs.py` foi executado sobre a cópia local fornecida para desenvolvimento. A identidade da ROM conferiu (`0862ec35b24de5c7e2dcb88c9eea0873110d755c`), e os segmentos foram verificados depois da gravação, sempre fora da árvore Git:
 
 - ARM9: offset `0x00004000`, load `0x02000000`, entry `0x02000800` (ARM), tamanho `0x001023F8`, SHA-1 `7ec963e737f0f61efcbbf5c7a3d33cbf378143f8`.
 - ARM7: offset `0x00409800`, load `0x02380000`, entry `0x02380000` (ARM), tamanho `0x000277FC`, SHA-1 `082bb349ae7d057edbbd91a07316b1402b18b803`.
 
-Os arquivos `.bin`, TOML e manifesto permaneceram no ambiente local e não foram enviados ao repositório ou à CI. Esta etapa confirma a extração dos segmentos, não a recompilação: ainda falta construir o NDSRecomp fixado, emitir os bancos reais, compilá-los e auditar os símbolos/serviços exigidos.
+O NDSRecomp fixado gerou 78 funções ARM9 e 957 ARM7 (8 Thumb) em bancos C/dispatch. A varredura foi parcial: ARM9 atingiu step-cap com 12 leituras não mapeadas e 10 alvos indiretos desconhecidos; ARM7 saiu do módulo com 388 leituras não mapeadas e 30 alvos indiretos desconhecidos. Os quatro arquivos C gerados foram compilados localmente em C99 contra a ABI Oracis e agrupados em objetos. A análise `nm -u` encontrou 40 referências externas ARM9 e 45 ARM7 (48 nomes únicos). Nenhum segmento, banco ou objeto gerado foi enviado ao repositório ou à CI. A emissão e a compilação C são marcos reais, mas não demonstram ligação ou boot.
+
 
 Não anunciar compatibilidade, desempenho ou conclusão de subsistemas sem testes reproduzíveis.
