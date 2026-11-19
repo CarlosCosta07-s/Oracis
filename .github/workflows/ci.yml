@@ -108,6 +108,35 @@ jobs:
             --source "$RUNNER_TEMP/ndsrecomp-source" \
             --build-dir "$RUNNER_TEMP/ndsrecomp-build"
 
+      # This artifact is the pinned developer compiler only. The job never
+      # receives a ROM, extracted segment, generated bank, or game-derived file.
+      - name: Stage pinned compiler binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          compiler="$(find "$RUNNER_TEMP/ndsrecomp-build" -type f \
+            -name nds_recompile -perm -u+x -print -quit)"
+          test -n "$compiler"
+          output="$RUNNER_TEMP/oracis-ndsrecomp-artifact"
+          mkdir -p "$output"
+          install -m 0755 "$compiler" "$output/nds_recompile"
+          cat > "$output/README.txt" <<'EOF'
+          Oracis local tooling artifact: pinned NDSRecomp static compiler.
+          Upstream revision: 14b7e15023e9affc9dc375e4e611ac703f5c76ab
+          This archive contains the compiler executable only.
+          No ROM, BIOS, extracted segment, generated bank or game data is included.
+          EOF
+          sha256sum "$output/nds_recompile" > "$output/SHA256SUMS"
+
+      - name: Upload pinned compiler for local bank generation
+        uses: actions/upload-artifact@v4
+        with:
+          name: ndsrecomp-static-compiler-linux-x86_64
+          path: ${{ runner.temp }}/oracis-ndsrecomp-artifact/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
   android-arm64:
     name: Android ARM64 native library
     runs-on: ubuntu-24.04

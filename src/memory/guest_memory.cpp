@@ -349,7 +349,8 @@ Status GuestMemory::map_mirror(uint32_t alias_base,
         !valid_range(canonical_base, period) ||
         period == 0u ||
         name.empty() ||
-        !valid_cpu_access(cpu_access)) {
+        (cpu_access != CpuAccessInherit &&
+         !valid_cpu_access(cpu_access))) {
         return Status::InvalidRegion;
     }
     if (has_region_name(name)) return Status::InvalidRegion;
@@ -359,8 +360,15 @@ Status GuestMemory::map_mirror(uint32_t alias_base,
         return target.status;
     }
 
-    const uint8_t effective_access = cpu_access == CpuAccessInherit
+    const bool inherit_access = cpu_access == CpuAccessInherit;
+    const uint8_t effective_access = inherit_access
         ? target.region->cpu_access : cpu_access;
+    const uint8_t effective_read = inherit_access
+        ? target.region->read_access : effective_access;
+    const uint8_t effective_write = inherit_access
+        ? target.region->write_access : effective_access;
+    const uint8_t effective_execute = inherit_access
+        ? target.region->execute_access : effective_access;
     if (overlaps(alias_base, window_size, effective_access)) {
         return Status::Overlap;
     }
@@ -372,9 +380,9 @@ Status GuestMemory::map_mirror(uint32_t alias_base,
         mirror.backing_offset = target.backing_offset;
         mirror.permissions = target.region->permissions;
         mirror.cpu_access = effective_access;
-        mirror.read_access = effective_access;
-        mirror.write_access = effective_access;
-        mirror.execute_access = effective_access;
+        mirror.read_access = effective_read;
+        mirror.write_access = effective_write;
+        mirror.execute_access = effective_execute;
         mirror.backing_period = period;
         mirror.name = std::move(name);
         mirror.backing = target.region->backing;
