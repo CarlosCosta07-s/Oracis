@@ -116,9 +116,9 @@ Os símbolos \`runtime_link_call/branch/fallthrough\` já existem, mas não reso
 \`src/runtime/scheduler_core.cpp\` fornece o primeiro núcleo de contabilização de ciclos e yield por CPU:
 
 - \`runtime_tick(cycles)\` incrementa o contador de ciclos da CPU ativa.
-- \`runtime_should_yield()\` e \`runtime_slice_yield()\` verificam pedido de yield ou vencimento do orçamento da fatia.
-- \`runtime_unwinding()\` consulta o estado de unwind explícito da CPU ativa.
-- \`oracis_scheduler_begin_slice/end_slice\`, \`request_yield\`, \`set_unwinding\`, \`cycle_count\` e \`reset\` permitem ao host controlar cada CPU.
+- \`runtime_should_yield()\` e \`runtime_slice_yield()\` verificam pedido de yield ou vencimento do orçamento; ao retornar verdadeiro, marcam automaticamente o estado de unwind da CPU ativa.
+- \`runtime_unwinding()\` consulta o estado de unwind enquanto os frames C gerados retornam ao host, permitindo que os caminhos BL/BLX preservem frames guest pendentes durante a preempção.
+- \`oracis_scheduler_begin_slice/end_slice\`, \`request_yield\`, \`set_unwinding\`, \`cycle_count\` e \`reset\` permitem ao host controlar cada CPU. O fim da fatia limpa o unwind somente depois que o callback já retornou ao host.
 
 Os contadores e deadlines ARM9/ARM7 são independentes. O runtime não executa automaticamente a outra CPU: o host ainda precisa selecionar a CPU e iniciar a próxima fatia.
 
