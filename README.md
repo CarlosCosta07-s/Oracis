@@ -9,7 +9,7 @@
 
 <p align="center"><strong>Reconstruindo Sinnoh para além do hardware original.</strong></p>
 
-> **Status:** `NdsMachine` possui um orquestrador de fatias dual-core que avança ARM9/ARM7 até um watermark comum na razão 2:1, contabiliza ciclos ociosos após HALT/yield e consulta IRQs nas fronteiras seguras por meio de um provider arquitetural de LR/vetor. O host SDL3 ainda não instancia a máquina nem conecta o executor nativo/provider; ordenação geral de eventos DS, Sleep/Stop e bancos reais continuam pendentes. A revisão `8636590` passou nos quatro jobs da CI (runtime 25/25, Linux, Android ARM64 e NDSRecomp estático); os commits mais novos ainda aguardam validação própria.
+> **Status:** `NdsMachine` possui um orquestrador de fatias dual-core que avança ARM9/ARM7 até um watermark comum na razão 2:1, contabiliza ciclos ociosos após HALT/yield e consulta IRQs nas fronteiras seguras por meio de um provider arquitetural de LR/vetor; `execute_registered_bank_slice()` liga uma fatia ao `runtime_dispatch()`. O host SDL3 ainda não instancia a máquina nem conecta o executor nativo/provider; ordenação geral de eventos DS, Sleep/Stop e bancos reais continuam pendentes. A revisão `8636590` passou nos quatro jobs da CI (runtime 25/25, Linux, Android ARM64 e NDSRecomp estático); os commits mais novos ainda aguardam validação própria.
 
 ## O projeto
 
@@ -24,7 +24,7 @@ Oracis busca executar Pokémon Platinum como código nativo em computadores mode
 - **Python** para extração local e validação da cópia de jogo.
 - **Rust** permanece apenas no gerador isolado do ícone.
 
-Consulte [docs/TECH_STACK.md](docs/TECH_STACK.md), [docs/NDSRECOMP_INTEGRATION.md](docs/NDSRECOMP_INTEGRATION.md), o [mapa da ABI dos bancos](docs/RECOMP_ABI_MAP.md), o [contrato GuestMemory](docs/GUEST_MEMORY.md) e a [decisão ADR 0001](docs/adr/0001-ndsrecomp-static-compiler.md).
+Consulte [docs/TECH_STACK.md](docs/TECH_STACK.md), [docs/NDSRECOMP_INTEGRATION.md](docs/NDSRECOMP_INTEGRATION.md), [documentação do scheduler dual-core](docs/DUAL_CORE_SCHEDULER.md), o [mapa da ABI dos bancos](docs/RECOMP_ABI_MAP.md), o [contrato GuestMemory](docs/GUEST_MEMORY.md) e a [decisão ADR 0001](docs/adr/0001-ndsrecomp-static-compiler.md).
 
 ## Estado atual
 
