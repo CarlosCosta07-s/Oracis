@@ -165,15 +165,14 @@ O CMake registra **31 testes C99/C++20**. A CI da revisão `1038a01` passou nos 
 ## 11. Prova de integração ainda exigida
 
 1. Ligar os quatro objetos corpo/dispatch às bibliotecas Oracis e confirmar a resolução dos 48 símbolos externos inventariados.
-2. Implementar `runtime_mem_cycles` para leitura/escrita de dados com largura e sequência, separando classes de barramento que tenham custo publicado; manter TCM/load-mode e regiões dinâmicas fora até que a ABI represente todos os fatores.
-3. Implementar `runtime_mul_cycles` com tempos por família ARM7TDMI/ARM946E-S e early termination documentados.
-4. Implementar `arm7_cycle_combine` com os parâmetros e semântica exatos requeridos pelo banco gerado.
-5. Expandir fetch/refill ARM9 para cache/MPU e outras regiões dinâmicas somente com modelo e testes.
-6. Auditar alvos indiretos e overlays desconhecidos; manter dispatch fechado para qualquer endereço sem banco válido.
-7. Registrar os bancos no runtime, validar bytes/dependências contra GuestMemory e exercitar entradas sem iniciar rounds completos.
-8. Completar SWIs e serviços BIOS/NitroSDK requeridos pelo boot, além de DMA/IPC/MMIO.
-9. Implementar o provider arquitetural de LR IRQ ARM/Thumb e testar entrada/saída de exceção nas duas CPUs.
-10. Só então habilitar rounds reais e avançar para primeiro quadro, áudio e saves.
+2. Implementar `runtime_mul_cycles` com tempos por família ARM7TDMI/ARM946E-S e early termination documentados.
+3. Implementar `arm7_cycle_combine` com os parâmetros e semântica exatos requeridos pelo banco gerado.
+4. Auditar alvos indiretos e overlays desconhecidos; manter dispatch fechado para qualquer endereço sem banco válido.
+5. Registrar os bancos no runtime, validar bytes/dependências contra GuestMemory e exercitar entradas sem iniciar rounds completos.
+6. Completar SWIs e serviços BIOS/NitroSDK requeridos pelo boot, além de DMA/IPC/MMIO.
+7. Expandir fetch/refill ARM9 para cache/MPU e regiões dinâmicas somente quando houver modelo e testes.
+8. Implementar o provider arquitetural de LR IRQ ARM/Thumb e testar entrada/saída de exceção nas duas CPUs.
+9. Só então habilitar rounds reais e avançar para primeiro quadro, áudio e saves.
 
 
 Até a ligação dos bancos reais ao runtime e a execução verificável da sequência de inicialização, o Oracis ainda não inicializa Pokémon Platinum.
