@@ -95,6 +95,8 @@ int main()
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9))
         return fail("ARM9 selection before mode 3 write failed");
     bus_write_u8(NdsWramControl::WramCntAddress, 3u);
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM7))
+        return fail("ARM7 selection for mode 3 verification failed");
     if (bus_read_u32(0x03000000u) != bank0 ||
         bus_read_u32(0x03004000u) != bank1) {
         return fail("WRAMCNT mode 3 did not expose both ARM7 banks");
