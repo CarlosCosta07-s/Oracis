@@ -777,6 +777,12 @@ int main()
      * callback deliberately reports the low base; the machine must use CP15.
      */
     constexpr uint32_t cp15_vector_select = UINT32_C(1) << 13u;
+    uint32_t unsupported_cp15_control = 1u;
+    if (oracis_arm_runtime_coprocessor_transfer(
+            1u, 15u, 0u, 1u, 0u, 0u, &unsupported_cp15_control) != 0 ||
+        machine.exception_vector_base(NDS_ARM9) != 0u) {
+        return fail("unsupported ARM9 CP15 MPU/cache control bits were silently accepted");
+    }
     arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
     arm9->R[15] = UINT32_C(0x02006000);
     arm7->cpsr = ORACIS_ARM_MODE_SYSTEM;
