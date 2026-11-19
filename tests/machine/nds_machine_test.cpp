@@ -21,7 +21,7 @@ uint32_t g_static_dispatch_calls[2]{};
 void static_arm9_test_bank()
 {
     ++g_static_dispatch_calls[0];
-    runtime_tick(2u);
+    runtime_tick(1u);
 }
 
 void static_arm7_test_bank()
@@ -552,7 +552,7 @@ int main()
         &provide_test_irq_context, &scheduler_fixture);
     const bool banks_dispatched =
         static_round == NdsMachineStatus::Ok &&
-        g_static_dispatch_calls[0] == 1u &&
+        g_static_dispatch_calls[0] == 2u &&
         g_static_dispatch_calls[1] == 1u &&
         machine.global_bus_cycles() == 6u;
 
