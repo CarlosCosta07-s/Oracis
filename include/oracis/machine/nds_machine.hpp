@@ -131,6 +131,8 @@ private:
 
     std::array<bool, 2> slice_active_{};
     std::array<NdsCpuRunState, 2> run_states_{};
+    /* Core-cycle equivalents already reported through explicit idle time. */
+    std::array<uint64_t, 2> idle_core_cycles_offset_{};
     bool runtime_bound_ = false;
     bool power_handler_bound_ = false;
     bool memory_bound_ = false;

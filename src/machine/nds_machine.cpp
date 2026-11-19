@@ -5,6 +5,7 @@
 #include "oracis/recomp/runtime_scheduler.h"
 
 #include <exception>
+#include <limits>
 
 namespace oracis::machine {
 
@@ -75,6 +76,7 @@ NdsMachineStatus NdsMachine::initialize() noexcept
 
     oracis_scheduler_reset(NDS_ARM9);
     oracis_scheduler_reset(NDS_ARM7);
+    idle_core_cycles_offset_.fill(0u);
 
     const auto rollback = [this](NdsMachineStatus cause) noexcept {
         return shutdown() == NdsMachineStatus::Ok
@@ -198,6 +200,7 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
     oracis_scheduler_reset(NDS_ARM7);
     system_clock_.reset();
     run_states_.fill(NdsCpuRunState::Running);
+    idle_core_cycles_offset_.fill(0u);
     initialized_ = false;
     return NdsMachineStatus::Ok;
 }
@@ -233,8 +236,15 @@ NdsMachineStatus NdsMachine::end_cpu_slice(NdsCpu cpu) noexcept
     oracis_scheduler_end_slice(cpu);
     slice_active_[index] = false;
 
-    return oracis_bus_report_cpu_cycles(
-        cpu, oracis_scheduler_cycle_count(cpu))
+    const uint64_t scheduler_cycles = oracis_scheduler_cycle_count(cpu);
+    if (idle_core_cycles_offset_[index] >
+        std::numeric_limits<uint64_t>::max() - scheduler_cycles) {
+        return NdsMachineStatus::ClockReportFailed;
+    }
+    const uint64_t cumulative_core_cycles =
+        scheduler_cycles + idle_core_cycles_offset_[index];
+
+    return oracis_bus_report_cpu_cycles(cpu, cumulative_core_cycles)
         ? NdsMachineStatus::Ok
         : NdsMachineStatus::ClockReportFailed;
 }
@@ -248,9 +258,26 @@ NdsMachineStatus NdsMachine::report_idle_bus_cycles(
         return NdsMachineStatus::SliceAlreadyActive;
     }
 
-    return oracis_bus_report_idle_bus_cycles(cpu, elapsed_bus_cycles)
-        ? NdsMachineStatus::Ok
-        : NdsMachineStatus::ClockReportFailed;
+    const unsigned index = cpu_index(cpu);
+    const uint64_t core_cycles_per_bus_tick = cpu == NDS_ARM9 ? 2u : 1u;
+    if (elapsed_bus_cycles >
+        std::numeric_limits<uint64_t>::max() / core_cycles_per_bus_tick) {
+        return NdsMachineStatus::ClockReportFailed;
+    }
+
+    const uint64_t idle_core_cycles =
+        elapsed_bus_cycles * core_cycles_per_bus_tick;
+    if (idle_core_cycles_offset_[index] >
+        std::numeric_limits<uint64_t>::max() - idle_core_cycles) {
+        return NdsMachineStatus::ClockReportFailed;
+    }
+
+    if (!oracis_bus_report_idle_bus_cycles(cpu, elapsed_bus_cycles)) {
+        return NdsMachineStatus::ClockReportFailed;
+    }
+
+    idle_core_cycles_offset_[index] += idle_core_cycles;
+    return NdsMachineStatus::Ok;
 }
 
 NdsMachineStatus NdsMachine::enter_cpu_halt(NdsCpu cpu) noexcept

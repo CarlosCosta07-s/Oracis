@@ -206,7 +206,7 @@ int main()
         halt_swi_end != NdsMachineStatus::Ok) {
         std::fprintf(stderr,
             "HALT SWI diagnostic: yield=%d halted=%d IE&IF=0x%08X IF=0x%08X "
-            "active_cpu=%u end_status=%u\\n",
+            "active_cpu=%u end_status=%u\n",
             halt_swi_yielded ? 1 : 0,
             halt_swi_halted ? 1 : 0,
             halt_swi_pending,
