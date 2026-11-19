@@ -1,10 +1,14 @@
 #include "oracis/host/runtime_bridge.h"
+#include "oracis/memory/guest_memory_abi.h"
 
 #include <stdint.h>
 #include <stdio.h>
 
 int main(void)
 {
+    /* Host input can arrive before NdsMachine binds its keypad device. */
+    oracis_host_set_keypad_state(UINT16_C(1));
+
     if (oracis_host_runtime_is_initialized() != 0) {
         fprintf(stderr, "host runtime was initialized before the test\n");
         return 1;
@@ -35,6 +39,7 @@ int main(void)
         return 1;
     }
 
-    puts("C host runtime bridge lifecycle tests passed");
+    oracis_host_set_keypad_state(0u);
+    puts("C host runtime bridge lifecycle/keypad tests passed");
     return 0;
 }
