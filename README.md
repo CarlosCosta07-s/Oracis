@@ -9,42 +9,48 @@
 
 <p align="center"><strong>Reconstruindo Sinnoh para além do hardware original.</strong></p>
 
-> **Status: Fase 1 — Esqueleto multiplataforma em implementação.** A revisão-alvo USA Rev 1 foi identificada. O primeiro host SDL3 e a CI para desktop/Android estão sendo preparados; ainda não há build validado nem versão jogável.
+> **Status: Fase 1 — Integração do NDSRecomp em andamento.** A revisão USA Rev 1 foi identificada e o bootstrap do compilador estático foi adicionado. Ainda não há banco recompilado integrado nem runtime jogável.
 
 ## O projeto
 
-Oracis busca levar Pokémon Platinum a uma execução nativa em computadores e dispositivos móveis. Não é um emulador de Nintendo DS: o objetivo é compilar a lógica do jogo para plataformas modernas e substituir os serviços específicos do console por implementações nativas.
+Oracis busca executar Pokémon Platinum como código nativo em computadores modernos. O projeto utilizará recompilação estática dos códigos ARM7/ARM9 e um runtime independente para os serviços necessários do Nintendo DS. Não será um emulador com uma CPU guest interpretada como caminho principal.
 
 ## Direção técnica
 
-- **C99** para a lógica do jogo e os serviços nativos, condicionados à autorização de reutilização da descompilação.
-- **CMake + Ninja + Clang** para o build host e cross-build Android.
-- **SDL3** para janela, eventos, controles e saída de áudio.
-- **bgfx (API C99)** como renderizador multiplataforma preferido, ainda sujeito a um protótipo desktop + Android.
-- **Python** para ferramentas auxiliares; o gerador do ícone permanece uma ferramenta Rust isolada.
+- **NDSRecomp estático** para emissão de bancos nativos ARM7/ARM9, em checkout externo e revisão fixada.
+- **C99 + C++20** para unidades geradas e runtime independente.
+- **CMake + Ninja** para o build.
+- **SDL3** para janela, eventos, controles, toque e saída de áudio.
+- **Python** para extração local, validação de ROM e configuração dos bancos.
+- **Rust** permanece apenas no gerador isolado do ícone.
 
-Veja [docs/TECH_STACK.md](docs/TECH_STACK.md) para decisões e referências.
+Consulte [docs/TECH_STACK.md](docs/TECH_STACK.md) e [docs/NDSRECOMP_INTEGRATION.md](docs/NDSRECOMP_INTEGRATION.md).
 
 ## Estado atual
 
-A primeira revisão-alvo é **Pokémon Platinum USA Rev 1**. A cópia fornecida para identificação teve SHA-1 calculado localmente e correspondente ao hash Rev 1 documentado; a ROM não foi incorporada ao repositório ou à CI.
+A primeira revisão-alvo é **Pokémon Platinum USA Rev 1**. A cópia fornecida para identificação teve SHA-1 calculado localmente e correspondente ao hash Rev 1 documentado. A ROM e quaisquer arquivos derivados permanecem fora do Git, da CI e das releases.
 
-A auditoria de [pret/pokeplatinum](https://github.com/pret/pokeplatinum) identificou uma descompilação em andamento cujo build atual produz uma ROM de Nintendo DS, não um executável host. Na auditoria de 19/11/2026, a referência não declarava uma licença geral; por isso nenhum código ou recurso foi incorporado ao Oracis. Consulte o [relatório de baseline](docs/PHASE_0_BASELINE.md).
+Foi adicionado [um script para preparar o NDSRecomp](tools/ndsrecomp/build_recompiler.py), fixado no commit `14b7e15023e9affc9dc375e4e611ac703f5c76ab`. Ele configura e compila apenas o alvo `nds_recompile`; não compila o runner upstream.
 
-A Fase 1 está começando com um host SDL3 vazio, duas áreas de apresentação de 256 × 192 e compilação Android ARM64 na CI. Consulte o [registro do esqueleto](docs/PHASE_1_SKELETON.md) e o [roteiro completo](docs/DEVELOPMENT_ROADMAP.md).
+O runtime do Oracis será escrito separadamente. Não serão incorporados runner, oracle, frontend nem componentes derivados de melonDS. A interface C ABI do recompilador será estudada para criar um contrato independente.
+
+A auditoria da descompilação [pret/pokeplatinum](https://github.com/pret/pokeplatinum) permanece documentada, mas nenhum código ou recurso dela foi copiado. O licenciamento da descompilação continua pendente.
+
+O host SDL3 existente é apenas um frontend experimental; ainda não foi conectado aos bancos recompilados. Consulte o [registro da Fase 1](docs/PHASE_1_SKELETON.md) e o [roteiro](docs/DEVELOPMENT_ROADMAP.md).
 
 ## Princípios
 
-- Port nativo, não emulação de hardware Nintendo DS.
-- Código e serviços independentes, com fronteiras explícitas.
-- ROMs, firmware, dados extraídos, saves e patches binários ficam fora do repositório, CI e releases.
-- Não incorporar código ou recursos de emuladores de terceiros.
-- Não presumir autorização a partir da disponibilidade pública de um repositório.
+- Recompilação estática e execução nativa; sem interpretador ARM geral como fallback.
+- Runtime, scheduler e dispositivos implementados independentemente.
+- Não incorporar código ou assets de emuladores terceiros.
+- Não incorporar código derivado de melonDS, direta ou indiretamente.
+- ROM, BIOS, firmware, dados extraídos, bancos recompilados e saves ficam fora do repositório, CI e releases.
+- Não presumir autorização a partir da disponibilidade pública de uma descompilação.
 - Não declarar compatibilidade, desempenho ou conclusão sem testes reproduzíveis.
 
 ## Plataformas planejadas
 
-Windows x64 e Linux x86-64 são os primeiros ambientes de desenvolvimento. Android ARM64 está no escopo do esqueleto inicial; iOS vem depois da estabilização da camada multiplataforma.
+Windows x64 e Linux x86-64 são os primeiros alvos. Android ARM64 será considerado após a validação do runtime desktop.
 
 ## Identidade visual
 
