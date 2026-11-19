@@ -9,7 +9,7 @@ use std::{
     process::ExitCode,
 };
 
-const ICON_SVG: &str = r##<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+const ICON_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <title>Oracis</title>
   <defs>
     <linearGradient id="background" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
@@ -70,7 +70,7 @@ const ICON_SVG: &str = r##<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1
   <circle cx="438" cy="338" r="16" fill="#FFFFFF" fill-opacity="0.72"/>
   <path d="M696 290 L709 324 L743 337 L709 350 L696 384 L683 350 L649 337 L683 324 Z" fill="#E9F4FF" fill-opacity="0.70"/>
   <circle cx="332" cy="700" r="9" fill="#E8D39A" fill-opacity="0.78"/><circle cx="700" cy="760" r="7" fill="#B7E8F1" fill-opacity="0.72"/>
-</svg>##;
+</svg>"##;
 
 fn repository_root() -> PathBuf {
     env::args_os().nth(1).map(PathBuf::from).unwrap_or_else(|| {
