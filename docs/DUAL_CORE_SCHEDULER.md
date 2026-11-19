@@ -15,7 +15,7 @@ A ordem inicial alterna a cada round concluído. Se um core já estiver à frent
 
 O host fornece um `NdsMachineSliceExecutor`. O callback recebe CPU, estado ARM e orçamento restante em ciclos de core. A máquina já selecionou o core e abriu uma fatia cooperativa.
 
-O callback deve executar código nativo e retornar apenas em uma fronteira segura de instrução/dispatch, respeitando `runtime_should_yield()`. Há um adaptador pronto para os bancos estáticos:
+O callback deve executar código nativo e retornar apenas em uma fronteira segura de instrução/dispatch, respeitando `runtime_should_yield()`. Quando um poll retorna verdadeiro, a ABI marca `runtime_unwinding()` até a pilha C gerada retornar ao host; `end_cpu_slice()` encerra essa janela antes da próxima fatia. Há um adaptador pronto para os bancos estáticos:
 
 ```cpp
 NdsMachine::execute_registered_bank_slice
