@@ -165,6 +165,7 @@ Implementação: `src/memory/guest_memory.cpp`
 - `oracis_bus_bind_wram_control()` / `oracis_bus_unbind_wram_control()`: conecta e desconecta o dispositivo ao barramento C.
 - `read(cpu, address, width)`: leitura little-endian de 1, 2 ou 4 bytes.
 - `write(cpu, address, width, value)`: escrita little-endian de 1, 2 ou 4 bytes.
+- `write_bytes(cpu, address, contents, size)`: copia uma faixa arbitrária para uma região já mapeada; valida o span completo e a permissão antes de alterar qualquer byte, preserva aliases/mirrors e marca proveniência por byte. Em espelhos periódicos, a cópia cruza o fim do backing físico com wrap correto.
 - `validate_execute(cpu, address, size)`: verifica mapeamento e permissão de execução.
 - `validate_identity(cpu, address, size, expected)`: exige bytes materializados e compara o conteúdo.
 
@@ -186,7 +187,7 @@ O wrapper executa apenas a transferência little-endian da largura solicitada. O
 
 Cada backing mantém um marcador de proveniência por byte:
 - `map_ram` cria bytes vazios com proveniência zero;
-- `write` (incluindo os wrappers C `bus_write_*`) marca os bytes atingidos;
+- `write`, `write_bytes` e os wrappers C `bus_write_*` marcam os bytes atingidos;
 - `map_image` copia os bytes fonte e marca toda a faixa;
 - `validate_identity` recusa bytes sem proveniência e depois compara o conteúdo.
 
@@ -211,7 +212,7 @@ O runtime mantém contadores cumulativos locais via `runtime_tick`; `NdsSystemCl
 ## 8. Testes registrados
 
 O CMake registra testes separados para:
-- regiões/aliases/proveniência genéricas;
+- regiões/aliases/proveniência genéricas, incluindo `write_bytes` transacional, acesso via alias, wrap de espelhos periódicos, permissões e rejeição de spans inválidos;
 - wrappers C do barramento;
 - Main RAM compartilhada e seus três espelhos;
 - WRAM ARM7 privada;
