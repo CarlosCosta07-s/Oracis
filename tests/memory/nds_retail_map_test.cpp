@@ -66,9 +66,17 @@ int test_main_ram_and_arm7_private_wram()
         UINT32_C(0xA7A7A7A7)) {
         return fail("ARM7 private WRAM readback failed");
     }
-    if (!expect_cpu_denied(memory, NDS_ARM9,
-                           NdsRetailRamMap::Arm7WramBase)) {
-        return fail("ARM9 was allowed to access ARM7-private WRAM");
+    /*
+     * The same numeric address is intentionally CPU-scoped: ARM7 sees its
+     * private WRAM while ARM9's 16MB Shared-WRAM window overlays that range.
+     */
+    if (memory.write(NDS_ARM9, NdsRetailRamMap::Arm7WramBase,
+                     4u, UINT32_C(0xA9A9A9A9)) != Status::Ok ||
+        memory.read(NDS_ARM9, NdsRetailRamMap::Arm7WramBase, 4u).value !=
+            UINT32_C(0xA9A9A9A9) ||
+        memory.read(NDS_ARM7, NdsRetailRamMap::Arm7WramBase, 4u).value !=
+            UINT32_C(0xA7A7A7A7)) {
+        return fail("ARM9 Shared WRAM overlay corrupted ARM7 private WRAM");
     }
 
     /* With WRAMCNT=0, ARM7's Shared-WRAM window aliases private WRAM. */
