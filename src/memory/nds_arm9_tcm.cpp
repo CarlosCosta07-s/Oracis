@@ -60,20 +60,38 @@ uint32_t NdsArm9Tcm::size_register() const noexcept
     return (UINT32_C(5) << 18u) | (UINT32_C(6) << 6u);
 }
 
-uint32_t NdsArm9Tcm::itcm_code_window_size() const noexcept
+NdsArm9Tcm::TimingState NdsArm9Tcm::timing_state() const noexcept
 {
-    if (!installed_ || !itcm_mapped_ ||
-        (control_ & ItcmEnableMask) == 0u) {
-        return 0u;
+    TimingState state{};
+    if (!installed_) return state;
+
+    if (itcm_mapped_ && (control_ & ItcmEnableMask) != 0u) {
+        uint32_t base = 0u;
+        uint32_t window_size = 0u;
+        if (decode_region(true, itcm_region_control_, base, window_size) &&
+            base == 0u) {
+            state.itcm_window_size = window_size;
+            state.itcm_load_mode =
+                (control_ & ItcmLoadModeMask) != 0u;
+        }
     }
 
-    uint32_t base = 0u;
-    uint32_t window_size = 0u;
-    if (!decode_region(true, itcm_region_control_, base, window_size) ||
-        base != 0u) {
-        return 0u;
+    if (dtcm_mapped_ && (control_ & DtcmEnableMask) != 0u) {
+        uint32_t base = 0u;
+        uint32_t window_size = 0u;
+        if (decode_region(false, dtcm_region_control_, base, window_size)) {
+            state.dtcm_base = base;
+            state.dtcm_window_size = window_size;
+            state.dtcm_load_mode =
+                (control_ & DtcmLoadModeMask) != 0u;
+        }
     }
-    return window_size;
+    return state;
+}
+
+uint32_t NdsArm9Tcm::itcm_code_window_size() const noexcept
+{
+    return timing_state().itcm_window_size;
 }
 
 bool NdsArm9Tcm::decode_region(

@@ -15,6 +15,13 @@ namespace oracis::memory {
 
 class NdsArm9Tcm final {
 public:
+    struct TimingState {
+        uint32_t itcm_window_size = 0u;
+        uint32_t dtcm_base = 0u;
+        uint32_t dtcm_window_size = 0u;
+        bool itcm_load_mode = false;
+        bool dtcm_load_mode = false;
+    };
     static constexpr uint32_t ItcmPhysicalSize = UINT32_C(0x00008000);
     static constexpr uint32_t DtcmPhysicalSize = UINT32_C(0x00004000);
     static constexpr uint32_t ItcmBackingBase = UINT32_C(0xF1000000);
@@ -38,6 +45,7 @@ public:
     uint32_t control() const noexcept { return control_; }
     uint32_t size_register() const noexcept;
     uint32_t itcm_code_window_size() const noexcept;
+    TimingState timing_state() const noexcept;
 
     bool set_control(uint32_t value) noexcept;
     bool read_region(bool instruction, uint32_t &value) const noexcept;

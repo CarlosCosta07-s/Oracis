@@ -198,6 +198,7 @@ bool runtime_should_yield(void);
 bool runtime_unwinding(void);
 bool runtime_slice_yield(void);
 uint32_t runtime_code_cycles(uint32_t pc);
+/* NDS/DATA bus timing; width=1/2/4, sequential=0/1. */
 uint32_t runtime_mem_cycles(uint32_t addr, uint32_t width, uint32_t sequential);
 uint32_t runtime_mul_cycles(uint32_t rs_value, uint32_t signed_variant, uint32_t extra);
 uint32_t runtime_clz(uint32_t value);
@@ -227,7 +228,12 @@ void runtime_insn_slow(void);
  * Zero means ITCM is disabled. Only NdsMachine's CP15/TCM controller updates
  * this process-wide value.
  */
-void oracis_runtime_set_arm9_itcm_code_window(uint32_t size);
+void oracis_runtime_set_arm9_tcm_timing_state(
+    uint32_t itcm_window_size,
+    uint32_t dtcm_base,
+    uint32_t dtcm_window_size,
+    uint32_t itcm_load_mode,
+    uint32_t dtcm_load_mode);
 
 static inline uint32_t nds_code_numc(uint32_t pc, uint32_t packed_cost)
 {

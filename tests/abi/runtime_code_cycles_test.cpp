@@ -23,8 +23,8 @@ int main()
         return fail("CPU binding failed");
     }
 
-    /* No active ITCM before the machine publishes a valid CP15 window. */
-    oracis_runtime_set_arm9_itcm_code_window(0u);
+    /* No active TCM before the machine publishes a valid CP15 window. */
+    oracis_runtime_set_arm9_tcm_timing_state(0u, 0u, 0u, 0u, 0u);
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
         return fail("ARM9 selection failed");
     }
@@ -39,6 +39,24 @@ int main()
         return fail("ARM9 ARM-state fetch costs did not match the supported regions");
     }
 
+    /* NDS9/DATA bus-cycle values are converted to 66MHz ARM9 core cycles. */
+    if (runtime_mem_cycles(UINT32_C(0x02000000), 4u, 0u) != 20u ||
+        runtime_mem_cycles(UINT32_C(0x02000000), 4u, 1u) != 4u ||
+        runtime_mem_cycles(UINT32_C(0x02000000), 2u, 0u) != 18u ||
+        runtime_mem_cycles(UINT32_C(0x02000000), 2u, 1u) != 2u ||
+        runtime_mem_cycles(UINT32_C(0x03000000), 4u, 0u) != 8u ||
+        runtime_mem_cycles(UINT32_C(0x03000000), 4u, 1u) != 2u ||
+        runtime_mem_cycles(UINT32_C(0x04000000), 2u, 0u) != 8u ||
+        runtime_mem_cycles(UINT32_C(0x04000000), 2u, 1u) != 2u ||
+        runtime_mem_cycles(UINT32_C(0x07000000), 4u, 0u) != 8u ||
+        runtime_mem_cycles(UINT32_C(0x05000000), 4u, 0u) != 10u ||
+        runtime_mem_cycles(UINT32_C(0x05000000), 4u, 1u) != 4u ||
+        runtime_mem_cycles(UINT32_C(0x06000000), 2u, 0u) != 8u ||
+        runtime_mem_cycles(UINT32_C(0x06000000), 2u, 1u) != 2u ||
+        runtime_mem_cycles(UINT32_C(0xFFFF0000), 1u, 0u) != 8u) {
+        return fail("ARM9 data access timings did not match NDS9/DATA classes");
+    }
+
     arm9.cpsr |= CPSR_T_BIT;
     if (runtime_code_cycles(UINT32_C(0x02000000)) != 18u ||
         runtime_code_cycles(UINT32_C(0x02000002)) != 0u ||
@@ -49,8 +67,14 @@ int main()
         return fail("ARM9 Thumb double-fetch timing was not split by halfword");
     }
 
+    if (runtime_mem_cycles(UINT32_C(0x02000000), 2u, 1u) != 2u ||
+        runtime_mem_cycles(UINT32_C(0x05000000), 2u, 0u) != 8u) {
+        return fail("ARM9 Thumb state changed data-bus wait-state costs");
+    }
+
     /* The ITCM region aperture can be smaller than its 32KB physical store. */
-    oracis_runtime_set_arm9_itcm_code_window(UINT32_C(0x00001000));
+    oracis_runtime_set_arm9_tcm_timing_state(
+        UINT32_C(0x00001000), 0u, 0u, 0u, 0u);
     arm9.cpsr = ORACIS_ARM_MODE_SYSTEM;
     if (runtime_code_cycles(UINT32_C(0x00000800)) != 1u) {
         return fail("4KB ITCM aperture was not accepted by the timing provider");
@@ -70,9 +94,13 @@ int main()
     }
 
     /* The 32MB firmware ITCM mirror also covers the 0x01FF8000 boot window. */
-    oracis_runtime_set_arm9_itcm_code_window(UINT32_C(0x02000000));
+    oracis_runtime_set_arm9_tcm_timing_state(
+        UINT32_C(0x02000000), UINT32_C(0x027C0000),
+        UINT32_C(0x00004000), 0u, 0u);
     arm9.cpsr = ORACIS_ARM_MODE_SYSTEM;
     if (runtime_code_cycles(UINT32_C(0x01FF8000)) != 1u ||
+        runtime_mem_cycles(UINT32_C(0x01FF8000), 4u, 0u) != 1u ||
+        runtime_mem_cycles(UINT32_C(0x027C0000), 4u, 0u) != 1u ||
         arm9_refill_cycles(UINT32_C(0x01FF8000)) != 2u) {
         return fail("ARM9 code fetch/refill in the active ITCM mirror was incorrect");
     }
@@ -88,6 +116,14 @@ int main()
         return fail("ARM7 selection failed");
     }
     if (runtime_code_cycles(UINT32_C(0x02380000)) != 0u ||
+        runtime_mem_cycles(UINT32_C(0x02000000), 4u, 0u) != 10u ||
+        runtime_mem_cycles(UINT32_C(0x02000000), 4u, 1u) != 2u ||
+        runtime_mem_cycles(UINT32_C(0x02000000), 2u, 0u) != 9u ||
+        runtime_mem_cycles(UINT32_C(0x02000000), 2u, 1u) != 1u ||
+        runtime_mem_cycles(UINT32_C(0x03000000), 4u, 0u) != 1u ||
+        runtime_mem_cycles(UINT32_C(0x00000000), 2u, 0u) != 1u ||
+        runtime_mem_cycles(UINT32_C(0x06000000), 4u, 1u) != 2u ||
+        runtime_mem_cycles(UINT32_C(0x06000000), 2u, 0u) != 1u ||
         arm7_refill_cycles(UINT32_C(0x00000000)) != 2u ||
         arm7_refill_cycles(UINT32_C(0x02000000)) != 4u ||
         arm7_refill_cycles(UINT32_C(0x02000001)) != 2u ||
@@ -105,7 +141,7 @@ int main()
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
         return fail("ARM9 reselection failed");
     }
-    oracis_runtime_set_arm9_itcm_code_window(0u);
+    oracis_runtime_set_arm9_tcm_timing_state(0u, 0u, 0u, 0u, 0u);
     if (!oracis_arm_runtime_unbind_cpus(&arm9, &arm7)) {
         return fail("CPU unbinding failed");
     }

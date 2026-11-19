@@ -218,6 +218,7 @@ public:
 private:
     static bool valid_cpu(NdsCpu cpu) noexcept;
     static unsigned cpu_index(NdsCpu cpu) noexcept;
+    void sync_arm9_tcm_timing_state() noexcept;
     static int runtime_power_handler(
         void *context, NdsCpu cpu,
         uint32_t operation, uint32_t value);

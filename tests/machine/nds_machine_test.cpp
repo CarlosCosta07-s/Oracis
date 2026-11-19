@@ -146,7 +146,9 @@ int main()
     if (runtime_coproc_read(15u, 0u, 9u, 1u, 1u) != UINT32_C(0x20) ||
         runtime_coproc_read(15u, 0u, 9u, 1u, 0u) != UINT32_C(0x027C000A) ||
         runtime_coproc_read(15u, 0u, 1u, 0u, 0u) != tcm_control ||
-        runtime_code_cycles(UINT32_C(0x01FF8000)) != 1u) {
+        runtime_code_cycles(UINT32_C(0x01FF8000)) != 1u ||
+        runtime_mem_cycles(UINT32_C(0x01FF8000), 4u, 0u) != 1u ||
+        runtime_mem_cycles(UINT32_C(0x027C0000), 4u, 0u) != 1u) {
         return fail("CP15 did not preserve the supported ARM9 TCM registers");
     }
 
@@ -205,7 +207,8 @@ int main()
     runtime_coproc_write(15u, 0u, 1u, 0u, 0u, dtcm_disabled_control);
     if (machine.guest_memory().read(
             NDS_ARM9, UINT32_C(0x027C0000), 4u).value !=
-            UINT32_C(0x11223344)) {
+            UINT32_C(0x11223344) ||
+        runtime_mem_cycles(UINT32_C(0x027C0000), 4u, 0u) != 20u) {
         return fail("disabling DTCM did not reveal the underlying RAM mirror");
     }
     runtime_coproc_write(15u, 0u, 1u, 0u, 0u, tcm_control);

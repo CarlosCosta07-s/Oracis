@@ -42,6 +42,18 @@ unsigned NdsMachine::cpu_index(NdsCpu cpu) noexcept
     return cpu == NDS_ARM9 ? 0u : 1u;
 }
 
+void NdsMachine::sync_arm9_tcm_timing_state() noexcept
+{
+    const memory::NdsArm9Tcm::TimingState state =
+        arm9_tcm_.timing_state();
+    oracis_runtime_set_arm9_tcm_timing_state(
+        state.itcm_window_size,
+        state.dtcm_base,
+        state.dtcm_window_size,
+        state.itcm_load_mode ? 1u : 0u,
+        state.dtcm_load_mode ? 1u : 0u);
+}
+
 int NdsMachine::runtime_power_handler(
     void *context, NdsCpu cpu, uint32_t operation, uint32_t value)
 {
@@ -86,8 +98,7 @@ int NdsMachine::runtime_coprocessor_handler(
     if (crn == 1u && crm == 0u && op2 == 0u) {
         if (is_write != 0u) {
             if (!machine->arm9_tcm_.set_control(*value)) return 0;
-            oracis_runtime_set_arm9_itcm_code_window(
-                machine->arm9_tcm_.itcm_code_window_size());
+            machine->sync_arm9_tcm_timing_state();
             return 1;
         }
         *value = machine->arm9_tcm_.control();
@@ -98,10 +109,7 @@ int NdsMachine::runtime_coprocessor_handler(
         const bool instruction = op2 == 1u;
         if (is_write != 0u) {
             if (!machine->arm9_tcm_.write_region(instruction, *value)) return 0;
-            if (instruction) {
-                oracis_runtime_set_arm9_itcm_code_window(
-                    machine->arm9_tcm_.itcm_code_window_size());
-            }
+            machine->sync_arm9_tcm_timing_state();
             return 1;
         }
         return machine->arm9_tcm_.read_region(instruction, *value) ? 1 : 0;
@@ -189,7 +197,7 @@ NdsMachineStatus NdsMachine::initialize() noexcept
     oracis_scheduler_reset(NDS_ARM7);
     idle_core_cycles_offset_.fill(0u);
     next_round_first_cpu_ = NDS_ARM9;
-    oracis_runtime_set_arm9_itcm_code_window(0u);
+    oracis_runtime_set_arm9_tcm_timing_state(0u, 0u, 0u, 0u, 0u);
 
     const auto rollback = [this](NdsMachineStatus cause) noexcept {
         return shutdown() == NdsMachineStatus::Ok
@@ -212,8 +220,7 @@ NdsMachineStatus NdsMachine::initialize() noexcept
         arm9_tcm_.install() != memory::Status::Ok) {
         return rollback(NdsMachineStatus::MemoryMapFailed);
     }
-    oracis_runtime_set_arm9_itcm_code_window(
-        arm9_tcm_.itcm_code_window_size());
+    sync_arm9_tcm_timing_state();
 
     if (!oracis_bus_bind_memory(&memory_)) {
         return rollback(NdsMachineStatus::BusBindingFailed);
@@ -436,7 +443,7 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
         }
         runtime_bound_ = false;
     }
-    oracis_runtime_set_arm9_itcm_code_window(0u);
+    oracis_runtime_set_arm9_tcm_timing_state(0u, 0u, 0u, 0u, 0u);
 
     oracis_scheduler_reset(NDS_ARM9);
     oracis_scheduler_reset(NDS_ARM7);

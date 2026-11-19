@@ -36,6 +36,46 @@ namespace {
 namespace {
 
 uint32_t g_arm9_itcm_code_window_size = 0u;
+uint32_t g_arm9_dtcm_base = 0u;
+uint32_t g_arm9_dtcm_window_size = 0u;
+bool g_arm9_itcm_load_mode = false;
+bool g_arm9_dtcm_load_mode = false;
+
+bool range_contains(
+    uint32_t address, uint32_t width,
+    uint32_t base, uint32_t size) noexcept
+{
+    if (size == 0u) return false;
+    const uint64_t access_begin = address;
+    const uint64_t access_end = access_begin + width;
+    const uint64_t region_begin = base;
+    const uint64_t region_end = region_begin + size;
+    return access_begin >= region_begin && access_end <= region_end;
+}
+
+bool range_overlaps(
+    uint32_t address, uint32_t width,
+    uint32_t base, uint32_t size) noexcept
+{
+    if (size == 0u) return false;
+    const uint64_t access_begin = address;
+    const uint64_t access_end = access_begin + width;
+    const uint64_t region_begin = base;
+    const uint64_t region_end = region_begin + size;
+    return access_begin < region_end && region_begin < access_end;
+}
+
+uint32_t select_bus_timing(
+    uint32_t width,
+    uint32_t sequential,
+    uint32_t n32,
+    uint32_t s32,
+    uint32_t n16,
+    uint32_t s16) noexcept
+{
+    if (width >= 4u) return sequential != 0u ? s32 : n32;
+    return sequential != 0u ? s16 : n16;
+}
 
 uint32_t arm9_uncached_code_fetch_cycles(uint32_t pc)
 {
@@ -65,16 +105,43 @@ uint32_t arm9_uncached_code_fetch_cycles(uint32_t pc)
 
 } // namespace
 
-extern "C" void oracis_runtime_set_arm9_itcm_code_window(uint32_t size)
+extern "C" void oracis_runtime_set_arm9_tcm_timing_state(
+    uint32_t itcm_window_size,
+    uint32_t dtcm_base,
+    uint32_t dtcm_window_size,
+    uint32_t itcm_load_mode,
+    uint32_t dtcm_load_mode)
 {
-    if (size != 0u &&
-        (size < UINT32_C(0x00001000) ||
-         size > UINT32_C(0x02000000) ||
-         (size & (size - 1u)) != 0u)) {
+    const auto valid_window = [](uint32_t size) noexcept {
+        return size == 0u ||
+            (size >= UINT32_C(0x00001000) &&
+             size <= UINT32_C(0x02000000) &&
+             (size & (size - 1u)) == 0u);
+    };
+    const uint64_t dtcm_end =
+        static_cast<uint64_t>(dtcm_base) + dtcm_window_size;
+    if (!valid_window(itcm_window_size) ||
+        !valid_window(dtcm_window_size) ||
+        itcm_load_mode > 1u || dtcm_load_mode > 1u ||
+        (dtcm_window_size == 0u &&
+         (dtcm_base != 0u || dtcm_load_mode != 0u)) ||
+        (dtcm_window_size != 0u &&
+         (dtcm_base == 0u ||
+          (static_cast<uint64_t>(dtcm_base) &
+              (dtcm_window_size - 1u)) != 0u ||
+          dtcm_end > UINT64_C(0x1'0000'0000))) {
         timing_unavailable(
-            "invalid ARM9 ITCM code window", 0u, size, 0u, 0u);
+            "invalid ARM9 TCM timing state",
+            dtcm_base, itcm_window_size, dtcm_window_size,
+            (itcm_load_mode & 0xFFFFu) |
+                ((dtcm_load_mode & 0xFFFFu) << 16u));
     }
-    g_arm9_itcm_code_window_size = size;
+
+    g_arm9_itcm_code_window_size = itcm_window_size;
+    g_arm9_dtcm_base = dtcm_base;
+    g_arm9_dtcm_window_size = dtcm_window_size;
+    g_arm9_itcm_load_mode = itcm_load_mode != 0u;
+    g_arm9_dtcm_load_mode = dtcm_load_mode != 0u;
 }
 
 extern "C" uint32_t runtime_code_cycles(uint32_t pc)
@@ -106,8 +173,135 @@ extern "C" uint32_t runtime_code_cycles(uint32_t pc)
 extern "C" uint32_t runtime_mem_cycles(
     uint32_t addr, uint32_t width, uint32_t sequential)
 {
+    if (oracis_active_cpu_state == nullptr ||
+        (g_nds_active != NDS_ARM9 && g_nds_active != NDS_ARM7)) {
+        timing_unavailable(
+            "runtime_mem_cycles without active CPU", addr, width,
+            sequential, 0u);
+    }
+    if ((width != 1u && width != 2u && width != 4u) || sequential > 1u) {
+        timing_unavailable(
+            "runtime_mem_cycles invalid width/sequence", addr,
+            width, sequential, 0u);
+    }
+
+    const uint64_t access_end = static_cast<uint64_t>(addr) + width;
+    if (access_end > UINT64_C(0x1'0000'0000)) {
+        timing_unavailable(
+            "runtime_mem_cycles address overflow", addr,
+            width, sequential, 0u);
+    }
+
+    if (g_nds_active == NDS_ARM9) {
+        const bool in_itcm = range_contains(
+            addr, width, 0u, g_arm9_itcm_code_window_size);
+        const bool overlaps_itcm = range_overlaps(
+            addr, width, 0u, g_arm9_itcm_code_window_size);
+        if (overlaps_itcm && !in_itcm) {
+            timing_unavailable(
+                "ARM9 data access crosses ITCM timing boundary",
+                addr, width, sequential, g_arm9_itcm_code_window_size);
+        }
+        if (in_itcm) {
+            if (g_arm9_itcm_load_mode) {
+                timing_unavailable(
+                    "ITCM load-mode data timing needs read/write direction",
+                    addr, width, sequential, 1u);
+            }
+            return 1u;
+        }
+
+        const bool in_dtcm = range_contains(
+            addr, width, g_arm9_dtcm_base, g_arm9_dtcm_window_size);
+        const bool overlaps_dtcm = range_overlaps(
+            addr, width, g_arm9_dtcm_base, g_arm9_dtcm_window_size);
+        if (overlaps_dtcm && !in_dtcm) {
+            timing_unavailable(
+                "ARM9 data access crosses DTCM timing boundary",
+                addr, width, sequential, g_arm9_dtcm_window_size);
+        }
+        if (in_dtcm) {
+            if (g_arm9_dtcm_load_mode) {
+                timing_unavailable(
+                    "DTCM load-mode data timing needs read/write direction",
+                    addr, width, sequential, 1u);
+            }
+            return 1u;
+        }
+
+        /* NDS9/DATA values are 33MHz bus cycles; ARM9 runs at 66MHz. */
+        uint32_t bus_cycles = 0u;
+        if (range_contains(
+                addr, width, UINT32_C(0x02000000), UINT32_C(0x01000000))) {
+            bus_cycles = select_bus_timing(
+                width, sequential, 10u, 2u, 9u, 1u);
+        } else if (
+            range_contains(addr, width, UINT32_C(0x03000000),
+                           UINT32_C(0x01000000)) ||
+            range_contains(addr, width, UINT32_C(0x04000000),
+                           UINT32_C(0x00001000)) ||
+            range_contains(addr, width, UINT32_C(0x07000000),
+                           UINT32_C(0x00004000)) ||
+            range_contains(addr, width, UINT32_C(0xFFFF0000),
+                           UINT32_C(0x00008000))) {
+            bus_cycles = select_bus_timing(
+                width, sequential, 4u, 1u, 4u, 1u);
+        } else if (
+            range_contains(addr, width, UINT32_C(0x05000000),
+                           UINT32_C(0x02000000))) {
+            bus_cycles = select_bus_timing(
+                width, sequential, 5u, 2u, 4u, 1u);
+        } else if (
+            (addr >= UINT32_C(0x08000000) &&
+             addr < UINT32_C(0x0B000000))) {
+            timing_unavailable(
+                "ARM9 Gamecard/GBA-slot data wait states are dynamic",
+                addr, width, sequential, 0u);
+        } else {
+            timing_unavailable(
+                "runtime_mem_cycles unsupported ARM9 data region",
+                addr, width, sequential, 0u);
+        }
+        return bus_cycles * 2u;
+    }
+
+    /* NDS7/DATA uses the 33MHz ARM7 clock directly. */
+    if (range_contains(
+            addr, width, UINT32_C(0x02000000), UINT32_C(0x01000000))) {
+        return select_bus_timing(
+            width, sequential, 10u, 2u, 9u, 1u);
+    }
+    if (range_contains(addr, width, 0u, UINT32_C(0x00004000)) ||
+        range_contains(addr, width, UINT32_C(0x03000000),
+                       UINT32_C(0x01000000)) ||
+        range_contains(addr, width, UINT32_C(0x04000000),
+                       UINT32_C(0x00001000)) ||
+        range_contains(addr, width, UINT32_C(0x07000000),
+                       UINT32_C(0x00004000))) {
+        return 1u;
+    }
+    if (range_contains(addr, width, UINT32_C(0x06000000),
+                       UINT32_C(0x01000000))) {
+        if (width >= 4u && sequential == 0u) {
+            timing_unavailable(
+                "ARM7 nonsequential 32-bit VRAM timing is not established",
+                addr, width, sequential, 0u);
+        }
+        return select_bus_timing(
+            width, sequential, 1u, 2u, 1u, 1u);
+    }
+    if ((addr >= UINT32_C(0x04800000) &&
+         addr < UINT32_C(0x04810000)) ||
+        (addr >= UINT32_C(0x08000000) &&
+         addr < UINT32_C(0x0B000000))) {
+        timing_unavailable(
+            "ARM7 Wi-Fi/Gamecard data wait states are dynamic",
+            addr, width, sequential, 0u);
+    }
+
     timing_unavailable(
-        "runtime_mem_cycles", addr, width, sequential, 0u);
+        "runtime_mem_cycles unsupported ARM7 data region",
+        addr, width, sequential, 0u);
 }
 
 extern "C" uint32_t runtime_mul_cycles(
