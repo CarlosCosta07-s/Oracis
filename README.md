@@ -9,7 +9,7 @@
 
 <p align="center"><strong>Reconstruindo Sinnoh para além do hardware original.</strong></p>
 
-> **Status:** `NdsMachine` possui um orquestrador de fatias dual-core que avança ARM9/ARM7 até um watermark comum na razão 2:1, contabiliza ciclos ociosos após HALT/yield e consulta IRQs nas fronteiras seguras por meio de um provider arquitetural de LR/vetor; `execute_registered_bank_slice()` liga uma fatia ao `runtime_dispatch()`. O host SDL3 agora inicializa/encerra `NdsMachine` por uma ponte C ABI e encaminha o teclado ao `NdsKeypadControl`; ainda não chama rounds de execução porque os bancos reais e o provider arquitetural de IRQ não estão integrados. Ordenação geral de eventos DS, Sleep/Stop e bancos reais continuam pendentes. A revisão `8636590` passou nos quatro jobs da CI (runtime 25/25, Linux, Android ARM64 e NDSRecomp estático); os commits mais novos ainda aguardam validação própria.
+> **Status:** `NdsMachine` possui um orquestrador de fatias dual-core que avança ARM9/ARM7 até um watermark comum na razão 2:1, contabiliza ciclos ociosos após HALT/yield e consulta IRQs nas fronteiras seguras por meio de um provider arquitetural de LR/vetor; `execute_registered_bank_slice()` liga uma fatia ao `runtime_dispatch()`. O host SDL3 agora inicializa/encerra `NdsMachine` por uma ponte C ABI e encaminha o teclado ao `NdsKeypadControl`; ainda não chama rounds de execução porque os bancos reais e o provider arquitetural de IRQ não estão integrados. Ordenação geral de eventos DS, Sleep/Stop e bancos reais continuam pendentes. A revisão `2becf46` passou nos quatro jobs da CI: desktop Linux, Android ARM64, runtime 26/26 e NDSRecomp estático. A revisão seguinte adiciona a integração sintética de extração/emissão e aguarda CI própria.
 
 ## O projeto
 
@@ -53,7 +53,7 @@ O Oracis já contém:
 
 O CMake registra 26 testes CTest, incluindo propriedade/integração de `NdsMachine`, critérios HALT/wake dos dois cores, entrada IRQ e rounds de sincronização dual-core com yield antecipado. A revisão `8636590` passou nos quatro jobs da CI (desktop Linux, Android ARM64, NDSRecomp estático e runtime 25/25). Os commits posteriores adicionaram testes de IRQ nas duas CPUs e do novo orquestrador; a validação de CI dessas revisões ainda não foi confirmada. O host SDL3 já instancia/encerra a máquina pela ponte C e conecta o teclado; ainda não chama `run_dual_core_round`. Também faltam ordenação geral de eventos, Sleep/Stop, HALTCNT MMIO direto, VRAMCNT_B e demais handlers MMIO, DMA, IPC, CP15/TCM, BIOS, VRAM, OAM, temporização de memória e serviços NitroSDK para executar bancos reais.
 
-A extração local da USA Rev 1 teve offsets, limites e hashes ARM9/ARM7 verificados. A execução integral do extrator versionado e a emissão de bancos continuam pendentes.
+A CI passou nos seis testes sintéticos do extrator, além dos 26 CTests do runtime e dos jobs Android/NDSRecomp. A nova prova extrator→NDSRecomp com imagens ARM/Thumb sintéticas está sendo adicionada. A extração da ROM USA Rev 1 e a emissão de seus bancos reais continuam pendentes.
 
 ## Princípios
 
