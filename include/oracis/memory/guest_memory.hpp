@@ -65,6 +65,17 @@ public:
                    std::string name);
 
     /*
+     * Map a host-provided image (for example, bytes loaded from the user's
+     * local game image). Contents are copied into the backing and marked as
+     * materialized. The image must be readable; it may also be executable.
+     */
+    Status map_image(uint32_t base,
+                     const uint8_t *contents,
+                     uint32_t size,
+                     uint8_t permissions,
+                     std::string name);
+
+    /*
      * Map a guest alias onto a previously mapped canonical range. Reads and
      * writes through either address operate on the same backing bytes.
      * Aliases inherit the target region's permissions.
