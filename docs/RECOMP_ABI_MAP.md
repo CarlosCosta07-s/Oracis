@@ -73,7 +73,7 @@ O código gerado pelo perfil ARMv5TE atual expande os shifts de operand2 inline,
 
 A camada `oracis_memory` já implementa os seis símbolos C `bus_read_u8/u16/u32` e `bus_write_u8/u16/u32`. Eles usam o seletor `g_nds_active`, encaminham a transferência para `GuestMemory` e falham com diagnóstico quando a região não está mapeada ou a permissão não permite o acesso.
 
-Essa ponte cobre apenas RAM/aliases explicitamente configurados. O mapa físico DS, mirrors específicos por hardware, MMIO, DMA, IPC, wait states e efeitos colaterais dos registradores ainda não existem. O codegen ARMv5TE alinha LDR/STR e aplica a rotação/sign-extension fora do wrapper; o wrapper não tenta duplicar essa semântica.
+Essa ponte cobre RAM/aliases explicitamente configurados. `NdsRetailRamMap` agora instala Main RAM retail 4MB compartilhada com espelhos em 0x02400000/0x02800000/0x02C00000, WRAM privada ARM7 64KB em 0x03800000 e Shared WRAM segundo os quatro modos de WRAMCNT. As regiões sobrepostas de Shared WRAM usam máscaras de CPU disjuntas e espelhos periódicos. MMIO, DMA, IPC, wait states e efeitos colaterais dos registradores ainda não existem. O codegen ARMv5TE alinha LDR/STR e aplica rotação/sign-extension fora do wrapper.
 
 Consulte [GUEST_MEMORY.md](GUEST_MEMORY.md) para o contrato completo.
 
@@ -149,10 +149,9 @@ Também ficam fora da integração:
 
 ## 10. Testes registrados
 
-O CMake registra dezessete testes C99/C++20 para o runtime e ABI. A lista inclui memória, identidade/proveniência, layout ARM, CPSR/SPSR, exceções, flags, registry ranking/misses, ponte de dispatch C/C++ e especialização estática ARM9/ARM7. A execução de todos os quinze testes para o estado atual ainda não foi confirmada:
-Os dezoito alvos registrados são: RAM guest; ponte C bus_* e validação por GuestMemory; layouts ABI C99/C++20; bancos ARM e modos; CPSR/SPSR; exceções; flags; acesso ao User bank e CLZ; pilha de retorno guest; controle de fatias; registry de dispatch; runtime dispatch C++ e ABI dispatch C99; ponte ARM9/ARM7 C/C++; especialização estática ARM9 e ARM7.
+O CMake registra dezenove testes C99/C++20 para o runtime e ABI, incluindo o mapa NDS retail e os quatro modos de Shared WRAM. A execução da versão atual ainda não foi confirmada. Os alvos registrados são: RAM guest; mapa NDS retail (Main RAM/mirrors, WRAM privada e Shared WRAM modes); ponte C bus_* e validação por GuestMemory; layouts ABI C99/C++20; bancos ARM e modos; CPSR/SPSR; exceções; flags; acesso ao User bank e CLZ; pilha de retorno guest; controle de fatias; registry de dispatch; runtime dispatch C++ e ABI dispatch C99; ponte ARM9/ARM7 C/C++; especialização estática ARM9 e ARM7.
 
-Não há status check atual confirmado para o último commit; portanto, não declarar esses quinze testes como aprovados. O CMake também inclui as bibliotecas de produto independentemente de `BUILD_TESTING`, mas o build completo com SDL3 e a ligação de bancos NDSRecomp continuam pendentes.
+Não há status check atual confirmado para o último commit; portanto, não declarar os testes como aprovados. O CMake também inclui as bibliotecas de produto independentemente de `BUILD_TESTING`, mas o build completo com SDL3 e a ligação de bancos NDSRecomp continuam pendentes.
 
 ## 11. Prova de integração ainda exigida
 
@@ -160,7 +159,8 @@ Não há status check atual confirmado para o último commit; portanto, não dec
 2. Emitir os bancos C ARM9 e ARM7 da cópia USA Rev 1, sem `--flat-execution`.
 3. Compilar os bancos usando somente o header e a biblioteca ABI Oracis.
 4. Inspecionar símbolos indefinidos e implementar as funções necessárias.
-5. Completar barramento DS/MMIO, scheduler, ciclos, chamadas/retornos, IRQ/SWI/CP15 e serviços de timing.
+5. Implementar MMIO para WRAMCNT/WRAMSTAT e reconfiguração dinâmica das janelas Shared WRAM.
+6. Completar MMIO/CP15/TCM, BIOS, VRAM/OAM, scheduler de dispositivos e timing por região.
 6. Demonstrar que um endereço guest sem banco gera falha detalhada, sem execução interpretada.
 
 Até a emissão, compilação e execução de bancos reais existir, o Oracis ainda não inicializa Pokémon Platinum.
