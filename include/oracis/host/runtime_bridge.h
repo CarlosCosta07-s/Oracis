@@ -15,9 +15,8 @@ extern "C" {
 
 typedef enum OracisHostRuntimeStatus {
     ORACIS_HOST_RUNTIME_OK = 0,
-    ORACIS_HOST_RUNTIME_NOT_INITIALIZED = 1,
-    ORACIS_HOST_RUNTIME_ALREADY_INITIALIZED = 2,
-    ORACIS_HOST_RUNTIME_MACHINE_ERROR = 3
+    ORACIS_HOST_RUNTIME_ALREADY_INITIALIZED = 1,
+    ORACIS_HOST_RUNTIME_MACHINE_ERROR = 2
 } OracisHostRuntimeStatus;
 
 /* Initializes the process-wide NDS machine and binds its base devices. */
