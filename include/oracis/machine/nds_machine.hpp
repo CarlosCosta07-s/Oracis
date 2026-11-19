@@ -69,8 +69,9 @@ using NdsMachineSliceExecutor = bool (*)(
     uint64_t cycle_budget);
 
 /*
- * Supplies architecture-specific IRQ state. The callback must calculate the
- * IRQ LR for the exact boundary and select the active low/high vector base.
+ * Supplies the architecture-correct IRQ LR for the exact boundary.
+ * The legacy vector_base output is retained for API compatibility; NdsMachine
+ * selects the real base from ARM9 CP15 Control.V (ARM7 always uses zero).
  */
 using NdsMachineIrqContextProvider = bool (*)(
     void *context, NdsCpu cpu, const ArmCpuState *state,
@@ -192,6 +193,9 @@ public:
         NdsCpu cpu, uint32_t return_address,
         uint32_t vector_base) noexcept;
 
+    /* ARM9 CP15 Control.V selects high exception vectors; ARM7 is fixed low. */
+    uint32_t exception_vector_base(NdsCpu cpu) const noexcept;
+
     uint64_t global_bus_cycles() const noexcept {
         return system_clock_.global_bus_cycles();
     }
@@ -216,6 +220,10 @@ private:
     static int runtime_power_handler(
         void *context, NdsCpu cpu,
         uint32_t operation, uint32_t value);
+    static int runtime_coprocessor_handler(
+        void *context, NdsCpu cpu, uint32_t is_write,
+        uint32_t cp_num, uint32_t op1, uint32_t crn,
+        uint32_t crm, uint32_t op2, uint32_t *value);
     static int runtime_validate_dispatch_bytes(
         NdsCpu cpu, const NdsStaticValidation *validation,
         uint32_t pc, uint32_t thumb, void *context);
@@ -229,6 +237,9 @@ private:
     memory::NdsKeypadControl keypad_control_;
     memory::NdsSystemClock system_clock_;
 
+    /* ARM946E-S CP15 Control register; only Alternate Vector Select is modeled. */
+    uint32_t arm9_cp15_control_ = 0u;
+
     std::array<bool, 2> slice_active_{};
     std::array<NdsCpuRunState, 2> run_states_{};
     /* Core-cycle equivalents already reported through explicit idle time. */
@@ -236,6 +247,7 @@ private:
     NdsCpu next_round_first_cpu_ = NDS_ARM9;
     bool runtime_bound_ = false;
     bool power_handler_bound_ = false;
+    bool coprocessor_handler_bound_ = false;
     bool memory_bound_ = false;
     bool wram_bound_ = false;
     bool interrupt_bound_ = false;
