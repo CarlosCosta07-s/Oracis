@@ -56,7 +56,7 @@ Não será incluído um interpretador ARM geral como fallback. Código executáv
 
 `oracis_memory` fornece `GuestMemory`, os wrappers C bus_read_*/bus_write_* e `NdsRetailRamMap`. O mapa inicial cobre 4MB de Main RAM compartilhada em 0x02000000 e os três espelhos retail, 64KB de WRAM privada ARM7 em 0x03800000 e os quatro modos Shared WRAM derivados de WRAMCNT. As regiões têm visibilidade explícita por CPU e as janelas Shared WRAM repetem seus bancos físicos de 16KB/32KB; quando o modo 0 desaloja Shared WRAM do ARM7, sua janela espelha a WRAM privada de 64KB.
 
-O modo WRAM inicial é fornecido explicitamente pelo host, e a API `set_shared_wram_mode()` pode remapear os quatro modos preservando os bancos; o mapa ainda não reage a escritas guest em WRAMCNT/WRAMSTAT. MMIO WRAMCNT/WRAMSTAT, DMA/IPC, CP15/TCM, BIOS, VRAM, OAM e custos de ciclos por região continuam pendentes. O registry ainda não tem carregador de bancos reais emitidos para Platinum.
+O modo WRAM inicial é fornecido explicitamente pelo host; `NdsWramControl` trata a escrita/leitura de 8 bits em WRAMCNT no barramento ARM9 e remapeia os quatro modos preservando os bancos. WRAMSTAT e os demais dispositivos MMIO ainda não estão implementados. WRAMSTAT, restante do MMIO, DMA/IPC, CP15/TCM, BIOS, VRAM, OAM e custos de ciclos por região continuam pendentes. O registry ainda não tem carregador de bancos reais emitidos para Platinum.
 
 Referência do contrato: [GUEST_MEMORY.md](GUEST_MEMORY.md).
 
