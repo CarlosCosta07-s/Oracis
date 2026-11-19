@@ -4,6 +4,14 @@
 #include "oracis/recomp/static_dispatch.hpp"
 #include "oracis/recomp/static_dispatch_abi.h"
 
+#include <array>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include <system_error>
+#include <vector>
+
 #ifdef ORACIS_WITH_PLATINUM_STATIC_BANKS
 extern "C" {
 extern const NdsDispatchEntry
@@ -82,6 +90,168 @@ bool has_both_program_banks() noexcept
            registry.bank_count(NDS_ARM7) != 0u;
 }
 
+struct ExpectedLocalSegment {
+    NdsCpu cpu;
+    uint32_t load_address;
+    uint32_t size;
+    uint32_t entry_pc;
+    const char *sha1;
+};
+
+constexpr ExpectedLocalSegment kExpectedArm9{
+    NDS_ARM9, 0x02000000u, 0x001023F8u, 0x02000800u,
+    "7ec963e737f0f61efcbbf5c7a3d33cbf378143f8"
+};
+constexpr ExpectedLocalSegment kExpectedArm7{
+    NDS_ARM7, 0x02380000u, 0x000277FCu, 0x02380000u,
+    "082bb349ae7d057edbbd91a07316b1402b18b803"
+};
+
+uint32_t rotate_left(uint32_t value, unsigned amount) noexcept
+{
+    return (value << amount) | (value >> (32u - amount));
+}
+
+std::array<uint8_t, 20> sha1_digest(
+    const std::vector<uint8_t> &input)
+{
+    const uint64_t bit_length = static_cast<uint64_t>(input.size()) * 8u;
+    const std::size_t padded_size =
+        ((input.size() + 9u + 63u) / 64u) * 64u;
+    std::vector<uint8_t> padded(padded_size, 0u);
+    std::copy(input.begin(), input.end(), padded.begin());
+    padded[input.size()] = 0x80u;
+    for (unsigned index = 0u; index < 8u; ++index) {
+        padded[padded_size - 1u - index] =
+            static_cast<uint8_t>(bit_length >> (index * 8u));
+    }
+
+    uint32_t h0 = 0x67452301u;
+    uint32_t h1 = 0xEFCDAB89u;
+    uint32_t h2 = 0x98BADCFEu;
+    uint32_t h3 = 0x10325476u;
+    uint32_t h4 = 0xC3D2E1F0u;
+
+    for (std::size_t offset = 0u; offset < padded.size(); offset += 64u) {
+        uint32_t words[80]{};
+        for (unsigned index = 0u; index < 16u; ++index) {
+            const std::size_t byte = offset + index * 4u;
+            words[index] =
+                (static_cast<uint32_t>(padded[byte]) << 24u) |
+                (static_cast<uint32_t>(padded[byte + 1u]) << 16u) |
+                (static_cast<uint32_t>(padded[byte + 2u]) << 8u) |
+                static_cast<uint32_t>(padded[byte + 3u]);
+        }
+        for (unsigned index = 16u; index < 80u; ++index) {
+            words[index] = rotate_left(
+                words[index - 3u] ^ words[index - 8u] ^
+                words[index - 14u] ^ words[index - 16u], 1u);
+        }
+
+        uint32_t a = h0;
+        uint32_t b = h1;
+        uint32_t cword = h2;
+        uint32_t d = h3;
+        uint32_t e = h4;
+        for (unsigned index = 0u; index < 80u; ++index) {
+            uint32_t function = 0u;
+            uint32_t constant = 0u;
+            if (index < 20u) {
+                function = (b & cword) | ((~b) & d);
+                constant = 0x5A827999u;
+            } else if (index < 40u) {
+                function = b ^ cword ^ d;
+                constant = 0x6ED9EBA1u;
+            } else if (index < 60u) {
+                function = (b & cword) | (b & d) | (cword & d);
+                constant = 0x8F1BBCDCu;
+            } else {
+                function = b ^ cword ^ d;
+                constant = 0xCA62C1D6u;
+            }
+            const uint32_t temporary =
+                rotate_left(a, 5u) + function + e + constant + words[index];
+            e = d;
+            d = cword;
+            cword = rotate_left(b, 30u);
+            b = a;
+            a = temporary;
+        }
+
+        h0 += a;
+        h1 += b;
+        h2 += cword;
+        h3 += d;
+        h4 += e;
+    }
+
+    const uint32_t state[5]{h0, h1, h2, h3, h4};
+    std::array<uint8_t, 20> digest{};
+    for (unsigned word = 0u; word < 5u; ++word) {
+        for (unsigned byte = 0u; byte < 4u; ++byte) {
+            digest[word * 4u + byte] =
+                static_cast<uint8_t>(state[word] >> (24u - byte * 8u));
+        }
+    }
+    return digest;
+}
+
+std::string sha1_hex(const std::vector<uint8_t> &bytes)
+{
+    static constexpr char kHex[] = "0123456789abcdef";
+    const auto digest = sha1_digest(bytes);
+    std::string result;
+    result.reserve(40u);
+    for (const uint8_t byte : digest) {
+        result.push_back(kHex[byte >> 4u]);
+        result.push_back(kHex[byte & 0x0fu]);
+    }
+    return result;
+}
+
+int read_verified_segment(
+    const std::filesystem::path &path,
+    const ExpectedLocalSegment &expected,
+    std::vector<uint8_t> &contents)
+{
+    std::error_code error;
+    const auto file_status = std::filesystem::status(path, error);
+    if (error == std::errc::no_such_file_or_directory ||
+        file_status.type() == std::filesystem::file_type::not_found) {
+        return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_MISSING;
+    }
+    if (error) return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR;
+    if (!std::filesystem::is_regular_file(file_status)) {
+        return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID;
+    }
+
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream) return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR;
+
+    contents.resize(expected.size);
+    stream.read(
+        reinterpret_cast<char *>(contents.data()),
+        static_cast<std::streamsize>(contents.size()));
+    if (stream.gcount() != static_cast<std::streamsize>(contents.size())) {
+        return stream.bad()
+            ? ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR
+            : ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID;
+    }
+    if (stream.bad()) return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR;
+
+    char extra_byte = 0;
+    stream.read(&extra_byte, 1);
+    if (stream.gcount() != 0) {
+        return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID;
+    }
+    if (stream.bad()) return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR;
+
+    if (sha1_hex(contents) != expected.sha1) {
+        return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID;
+    }
+    return ORACIS_HOST_RUNTIME_OK;
+}
+
 } // namespace
 
 extern "C" int oracis_host_runtime_initialize(void)
@@ -141,6 +311,53 @@ extern "C" int oracis_host_runtime_load_program_segments(
     return status == oracis::machine::NdsMachineStatus::Ok
         ? ORACIS_HOST_RUNTIME_OK
         : ORACIS_HOST_RUNTIME_MACHINE_ERROR;
+}
+
+extern "C" int oracis_host_runtime_load_local_platinum_segments(
+    const char *directory)
+{
+    if (!host_machine().initialized()) {
+        return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+    }
+
+    try {
+        const std::filesystem::path root = directory == nullptr
+            ? std::filesystem::path(
+                ".oracis/local/pokemon-platinum-usa-rev1")
+            : std::filesystem::path(directory);
+        if (root.empty()) return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR;
+
+        std::vector<uint8_t> arm9_bytes;
+        std::vector<uint8_t> arm7_bytes;
+        int status = read_verified_segment(
+            root / "arm9.bin", kExpectedArm9, arm9_bytes);
+        if (status != ORACIS_HOST_RUNTIME_OK) return status;
+        status = read_verified_segment(
+            root / "arm7.bin", kExpectedArm7, arm7_bytes);
+        if (status != ORACIS_HOST_RUNTIME_OK) return status;
+
+        const OracisHostProgramSegment arm9{
+            kExpectedArm9.load_address,
+            kExpectedArm9.size,
+            kExpectedArm9.entry_pc,
+            0u,
+            arm9_bytes.data()
+        };
+        const OracisHostProgramSegment arm7{
+            kExpectedArm7.load_address,
+            kExpectedArm7.size,
+            kExpectedArm7.entry_pc,
+            0u,
+            arm7_bytes.data()
+        };
+        return oracis_host_runtime_load_program_segments(&arm9, &arm7);
+    } catch (const std::bad_alloc &) {
+        return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR;
+    } catch (const std::filesystem::filesystem_error &) {
+        return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR;
+    } catch (...) {
+        return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR;
+    }
 }
 
 extern "C" int oracis_host_runtime_program_loaded(void)
