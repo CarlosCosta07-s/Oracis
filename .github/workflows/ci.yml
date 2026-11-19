@@ -53,7 +53,7 @@ jobs:
 
       - name: Build only nds_recompile
         run: |
-          python3 tools/ndsrecomp/build_recompiler.py \
+          CC=clang CXX=clang++ python3 tools/ndsrecomp/build_recompiler.py \
             --source "$RUNNER_TEMP/ndsrecomp-source" \
             --build-dir "$RUNNER_TEMP/ndsrecomp-build"
 
