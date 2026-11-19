@@ -20,6 +20,7 @@ from typing import Callable
 
 ROOT = Path(__file__).resolve().parents[2]
 EXPECTED_ROM_SHA1 = "0862ec35b24de5c7e2dcb88c9eea0873110d755c"
+EXPECTED_CODEGEN_IDENTITY = "nds-codegen-v3"
 BANK_PREFIX = "pokemon_platinum_usa_rev1"
 CPUS = ("arm9", "arm7")
 EXPECTED_SEGMENTS = {
@@ -52,14 +53,23 @@ def sha1_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def run_command(command: list[str]) -> None:
+def run_command(command: list[str]) -> str:
     print("+", " ".join(str(part) for part in command), flush=True)
-    completed = subprocess.run(command, check=False)
+    completed = subprocess.run(
+        command,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    if completed.stdout:
+        print(completed.stdout, end="", flush=True)
     if completed.returncode != 0:
         raise RuntimeError(
             f"Command failed with exit code {completed.returncode}: "
             + " ".join(str(part) for part in command)
         )
+    return completed.stdout
 
 
 def validate_extraction(extracted_dir: Path) -> tuple[dict, dict[str, dict]]:
@@ -175,12 +185,20 @@ def emit_banks(
     recompiler: Path,
     extracted_dir: Path,
     output_dir: Path,
-    runner: Callable[[list[str]], None] = run_command,
+    runner: Callable[[list[str]], str] = run_command,
 ) -> dict:
     if not recompiler.is_file():
         raise FileNotFoundError(f"NDSRecomp executable not found: {recompiler}")
 
     manifest, segments = validate_extraction(extracted_dir)
+    identity_output = runner([str(recompiler), "--codegen-identity"])
+    actual_identity = identity_output.strip()
+    if actual_identity != EXPECTED_CODEGEN_IDENTITY:
+        raise RuntimeError(
+            "NDSRecomp codegen identity mismatch: "
+            f"expected {EXPECTED_CODEGEN_IDENTITY}, received {actual_identity or '<empty>'}"
+        )
+
     output_dir.parent.mkdir(parents=True, exist_ok=True)
 
     emitted: dict[str, dict] = {}
