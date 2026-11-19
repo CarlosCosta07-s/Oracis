@@ -196,11 +196,14 @@ int main()
         return fail("stale larger candidate was not ignored");
     }
 
-    /* Without a validation callback, mutable/validated candidates stay
-       inactive; the immutable lower-ranked row remains eligible. */
+    /* Both rows carry validation metadata and must remain inactive when
+       no live identity callback is installed. Never dispatch unverified code. */
     result = registry.lookup(NDS_ARM9, 0x02001000u, 0u);
-    if (!result || result.selected->fn != arm9_entry_a) {
-        return fail("validated candidate ran without a validation callback");
+    if (result.status != DispatchLookupStatus::Miss ||
+        result.selected != nullptr ||
+        result.inactive == nullptr ||
+        result.candidate_count != 2u) {
+        return fail("validated candidate was not kept inactive without a callback");
     }
 
     const NdsDispatchEntry unsorted[] = {
