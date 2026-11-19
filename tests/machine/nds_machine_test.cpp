@@ -566,6 +566,129 @@ int main()
         return fail("dual-core rounds did not invoke both registered static banks");
     }
 
+    /*
+     * Generated-bank validation must consult the machine's live GuestMemory.
+     * Test both instruction bytes and the dependent immutable data closure.
+     */
+    constexpr uint32_t validated_arm9_pc = UINT32_C(0x02007000);
+    constexpr uint32_t validated_arm9_data = UINT32_C(0x02007100);
+    constexpr uint32_t validated_arm7_pc = UINT32_C(0x02382000);
+    const uint8_t validated_arm9_code[] = {0x00u, 0x00u, 0xA0u, 0xE1u};
+    const uint8_t validated_arm9_data_bytes[] = {
+        0x11u, 0x22u, 0x33u, 0x44u
+    };
+    const uint8_t validated_arm7_code[] = {0x70u, 0x47u};
+    if (machine.guest_memory().write_bytes(
+            NDS_ARM9, validated_arm9_pc, validated_arm9_code,
+            static_cast<uint32_t>(sizeof(validated_arm9_code))) !=
+            oracis::memory::Status::Ok ||
+        machine.guest_memory().write_bytes(
+            NDS_ARM9, validated_arm9_data, validated_arm9_data_bytes,
+            static_cast<uint32_t>(sizeof(validated_arm9_data_bytes))) !=
+            oracis::memory::Status::Ok ||
+        machine.guest_memory().write_bytes(
+            NDS_ARM7, validated_arm7_pc, validated_arm7_code,
+            static_cast<uint32_t>(sizeof(validated_arm7_code))) !=
+            oracis::memory::Status::Ok) {
+        return fail("validated static-bank fixture bytes could not be materialized");
+    }
+
+    const NdsStaticValidationRange arm9_dependency[] = {{
+        validated_arm9_data,
+        static_cast<uint32_t>(sizeof(validated_arm9_data_bytes)),
+        validated_arm9_data_bytes
+    }};
+    const NdsStaticValidation arm9_validation = {
+        validated_arm9_pc,
+        static_cast<uint32_t>(sizeof(validated_arm9_code)),
+        validated_arm9_code,
+        arm9_dependency,
+        1u
+    };
+    const NdsStaticValidation arm7_validation = {
+        validated_arm7_pc,
+        static_cast<uint32_t>(sizeof(validated_arm7_code)),
+        validated_arm7_code,
+        nullptr,
+        0u
+    };
+    const NdsDispatchEntry validated_arm9_bank[] = {{
+        validated_arm9_pc, 0u, &static_arm9_test_bank, &arm9_validation
+    }};
+    const NdsDispatchEntry validated_arm7_bank[] = {{
+        validated_arm7_pc, 1u, &static_arm7_test_bank, &arm7_validation
+    }};
+    if (oracis_static_dispatch_register_bank(
+            NDS_ARM9, validated_arm9_bank, 1u,
+            "machine-validated-arm9") != ORACIS_DISPATCH_REGISTER_OK ||
+        oracis_static_dispatch_register_bank(
+            NDS_ARM7, validated_arm7_bank, 1u,
+            "machine-validated-arm7") != ORACIS_DISPATCH_REGISTER_OK) {
+        oracis_static_dispatch_clear();
+        return fail("validated static banks could not be registered");
+    }
+
+    uint32_t validation_status = UINT32_MAX;
+    uint32_t validation_candidates = 0u;
+    const NdsDispatchEntry *inactive_candidate = nullptr;
+    arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9) ||
+        oracis_static_dispatch_lookup(
+            NDS_ARM9, validated_arm9_pc, arm9->cpsr,
+            &validation_status, &validation_candidates,
+            &inactive_candidate) != validated_arm9_bank ||
+        validation_status != ORACIS_DISPATCH_LOOKUP_FOUND ||
+        validation_candidates != 1u || inactive_candidate != nullptr) {
+        return fail("live ARM9 code and dependency bytes did not validate");
+    }
+
+    const uint8_t altered_dependency[] = {
+        0x11u, 0x22u, 0x99u, 0x44u
+    };
+    if (machine.guest_memory().write_bytes(
+            NDS_ARM9, validated_arm9_data, altered_dependency,
+            static_cast<uint32_t>(sizeof(altered_dependency))) !=
+            oracis::memory::Status::Ok ||
+        oracis_static_dispatch_lookup(
+            NDS_ARM9, validated_arm9_pc, arm9->cpsr,
+            &validation_status, &validation_candidates,
+            &inactive_candidate) != nullptr ||
+        validation_status != ORACIS_DISPATCH_LOOKUP_MISS ||
+        inactive_candidate != validated_arm9_bank) {
+        return fail("changed ARM9 dependency bytes were accepted by dispatch");
+    }
+
+    if (machine.guest_memory().write_bytes(
+            NDS_ARM9, validated_arm9_data, validated_arm9_data_bytes,
+            static_cast<uint32_t>(sizeof(validated_arm9_data_bytes))) !=
+            oracis::memory::Status::Ok) {
+        return fail("ARM9 dependency fixture could not be restored");
+    }
+    const uint8_t altered_arm9_code[] = {0x00u, 0x00u, 0xA1u, 0xE1u};
+    if (machine.guest_memory().write_bytes(
+            NDS_ARM9, validated_arm9_pc, altered_arm9_code,
+            static_cast<uint32_t>(sizeof(altered_arm9_code))) !=
+            oracis::memory::Status::Ok ||
+        oracis_static_dispatch_lookup(
+            NDS_ARM9, validated_arm9_pc, arm9->cpsr,
+            &validation_status, &validation_candidates,
+            &inactive_candidate) != nullptr ||
+        validation_status != ORACIS_DISPATCH_LOOKUP_MISS ||
+        inactive_candidate != validated_arm9_bank) {
+        return fail("changed ARM9 instruction bytes were accepted by dispatch");
+    }
+
+    arm7->cpsr = ORACIS_ARM_MODE_SYSTEM | CPSR_T_BIT;
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM7) ||
+        oracis_static_dispatch_lookup(
+            NDS_ARM7, validated_arm7_pc | 1u, arm7->cpsr,
+            &validation_status, &validation_candidates,
+            &inactive_candidate) != validated_arm7_bank ||
+        validation_status != ORACIS_DISPATCH_LOOKUP_FOUND ||
+        inactive_candidate != nullptr) {
+        return fail("live ARM7 Thumb code did not validate against ARM7 memory");
+    }
+
     {
         NdsMachine competing_machine(SharedWramMode::Arm9All32K);
         if (competing_machine.initialize() !=
