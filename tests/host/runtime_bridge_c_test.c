@@ -48,6 +48,12 @@ int main(void)
         return 1;
     }
 
+    if (oracis_host_runtime_register_compiled_banks() !=
+        ORACIS_HOST_RUNTIME_NO_COMPILED_BANKS) {
+        fprintf(stderr, "test build unexpectedly exposed compiled Platinum banks\n");
+        return 1;
+    }
+
     const uint8_t arm9_program[] = {0x00u, 0x00u, 0xA0u, 0xE1u};
     const uint8_t arm7_program[] = {0x70u, 0x47u};
     const OracisHostProgramSegment arm9_image = {
