@@ -88,7 +88,7 @@ O identificador pode ser usado na validação local. O conteúdo da ROM, os bin�
 
 ### Segmentos verificados localmente
 
-A cópia local USA Rev 1 foi inspecionada com uma rotina de extração de trabalho. O SHA-1 completo conferiu com o identificador esperado, os offsets/tamanhos dos segmentos estavam dentro do arquivo e ARM9/ARM7 não se sobrepunham. Os valores abaixo vieram dessa verificação local; o script versionado `tools/ndsrecomp/extract_nds_programs.py` ainda aguarda sua primeira execução integral após publicação.
+O script versionado `tools/ndsrecomp/extract_nds_programs.py` foi executado localmente em 19/11/2026 contra a cópia fornecida. A identidade completa conferiu com o SHA-1 esperado, os offsets/tamanhos ficaram dentro do arquivo, ARM9/ARM7 não se sobrepuseram e os arquivos gravados foram reabertos para verificação de SHA-1. A execução foi repetida usando o mesmo Git blob do `main` (`1283f60`); ROM, binários, TOMLs e manifesto ficaram fora do Git e da CI.
 
 | Segmento | Offset na ROM | Load address | Entry PC | Tamanho | SHA-1 do segmento |
 |---|---:|---:|---:|---:|---|
@@ -131,16 +131,16 @@ Requer Python 3.10 ou mais recente. Todos os arquivos de saída são locais e ig
 
 ## 9. Resultados de validação em 19/11/2026
 
-A revisão `a3032f13ca8a11130ccc17fe8c6f871ee253d24e` passou na execução completa da CI:
+A revisão `90d45fe430b50a4f2ba968cb62fed5bb41d7e2b0` passou na execução completa da CI:
 
 - Desktop Linux x86-64: configuração e build bem-sucedidos; **28/28 CTests** aprovados.
 - Integração opcional de bancos: os dois objetos de bancos sintéticos foram ligados e o ciclo de registro/remoção passou (**1/1**).
 - Runtime ARM sem SDL3: build e testes aprovados, incluindo os novos testes do carregador local e SHA-1.
 - Android ARM64: biblioteca nativa compilada.
 - NDSRecomp estático: alvo `nds_recompile` compilado na revisão upstream fixada.
-- Tooling Python: **11 testes** aprovados, incluindo a rejeição de uma identidade de codegen diferente de `nds-codegen-v3`.
+- Tooling Python: **15 testes** aprovados, incluindo identidade de codegen e cenários de publicação transacional/rollback do emissor.
 
-[Execução da CI](https://github.com/CarlosCosta07-s/Oracis/actions/runs/44604378710).
+[Execução da CI](https://github.com/CarlosCosta07-s/Oracis/actions/runs/44611707658).
 
 Esses resultados validam o pipeline sintético, a ligação/remoção de tabelas e a integridade do carregador com casos de erro. **Não** validam a emissão do código real de Pokémon Platinum nem o boot do jogo. A extração e a emissão comercial continuam dependendo da ROM fornecida pelo usuário e ainda não foram executadas pelo pipeline versionado.
 
@@ -157,7 +157,7 @@ cmake -S . -B build \
 cmake --build build --parallel
 ```
 
-O extrator só aceita a identidade de ROM documentada e grava os segmentos e metadados em `.oracis/local/pokemon-platinum-usa-rev1`. O emissor confere novamente tamanho, hash, load address, entry point, modo e TOMLs; consulta `nds_recompile --codegen-identity`; exige `nds-codegen-v3`; e só publica o conjunto quando ARM9 e ARM7 foram emitidos e validados. Os arquivos gerados permanecem ignorados pelo Git.
+O extrator só aceita a identidade de ROM documentada e grava os segmentos e metadados em `.oracis/local/pokemon-platinum-usa-rev1`. O emissor confere novamente tamanho, hash, load address, entry point, modo e TOMLs; consulta `nds_recompile --codegen-identity`; exige `nds-codegen-v3`; gera ARM9 e ARM7 em staging e publica o diretório completo com rollback da versão anterior. Recusa symlinks, destinos que se sobreponham à pasta de extração ou diretórios com arquivos não relacionados; ao substituir uma saída anterior, remove bancos obsoletos do conjunto antigo. Os arquivos gerados permanecem ignorados pelo Git.
 
 Quando `ORACIS_LOCAL_BANK_DIR` aponta para os bancos locais, o CMake compila os corpos e tabelas de dispatch como objetos e liga-os ao runtime. Na inicialização, o host pode registrar as tabelas por meio de `oracis_host_runtime_register_compiled_banks()`. O smoke test da CI valida essa ligação e o ciclo de registro/remoção com fixtures sintéticas.
 
