@@ -24,13 +24,26 @@ Status install_shared_wram(GuestMemory &memory, SharedWramMode mode)
 
     switch (mode) {
     case SharedWramMode::Arm9All32K:
-        return memory.map_mirror(
+        status = memory.map_mirror(
             NdsRetailRamMap::SharedWramBase,
             kSharedWramBackingBase,
             NdsRetailRamMap::SharedWramSize,
             NdsRetailRamMap::Arm9SharedWramWindow,
             "ARM9 Shared WRAM 32KB window",
             CpuAccessArm9);
+        if (status != Status::Ok) return status;
+
+        /*
+         * WRAMCNT mode 0 allocates no Shared WRAM to ARM7. On the ARM7
+         * window, the hardware instead mirrors its private 64KB WRAM.
+         */
+        return memory.map_mirror(
+            NdsRetailRamMap::SharedWramBase,
+            NdsRetailRamMap::Arm7WramBase,
+            NdsRetailRamMap::Arm7WramSize,
+            NdsRetailRamMap::Arm7SharedWramWindow,
+            "ARM7 private WRAM mirror in deallocated Shared WRAM window",
+            CpuAccessArm7);
 
     case SharedWramMode::Arm9Bank1Arm7Bank0:
         status = memory.map_mirror(
