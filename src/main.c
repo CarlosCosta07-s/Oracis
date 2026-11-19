@@ -185,10 +185,35 @@ int main(int argc, char *argv[])
         );
         goto cleanup;
     }
+#if !defined(__ANDROID__)
+    const int image_status =
+        oracis_host_runtime_load_local_platinum_segments(NULL);
+    if (image_status == ORACIS_HOST_RUNTIME_OK) {
+        SDL_Log(
+            "Local Platinum USA Rev 1 ARM9/ARM7 images were size/hash verified "
+            "and loaded into guest memory. Native execution remains disabled "
+            "until the IRQ provider and required runtime services are complete."
+        );
+    } else if (image_status == ORACIS_HOST_RUNTIME_LOCAL_IMAGE_MISSING) {
+        SDL_Log(
+            "Local Platinum images were not found. The host remains in "
+            "prototype mode; expected .oracis/local/pokemon-platinum-usa-rev1."
+        );
+    } else {
+        SDL_LogCritical(
+            SDL_LOG_CATEGORY_APPLICATION,
+            "Local Platinum image loading failed (bridge=%d, machine=%d).",
+            image_status,
+            oracis_host_runtime_last_machine_status()
+        );
+        goto cleanup;
+    }
+#else
     SDL_Log(
-        "Oracis host started: NDS machine initialized; "
-        "local Platinum ARM9/ARM7 banks registered. Program images still need loading."
+        "Local Platinum ARM9/ARM7 banks registered. Android file selection "
+        "and local program-image loading are not wired yet."
     );
+#endif
 #else
     SDL_Log(
         "Oracis host started: NDS machine initialized; "
