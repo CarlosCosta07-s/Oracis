@@ -1,4 +1,5 @@
 #include "oracis/memory/nds_interrupt_control.hpp"
+#include "oracis/recomp/arm_cpu_state_ops.h"
 
 namespace oracis::memory {
 
@@ -91,6 +92,24 @@ bool NdsInterruptControl::irq_asserted(NdsCpu cpu) const noexcept
     const CpuRegisters &registers = cpu_registers_[cpu_index(cpu)];
     return (registers.ime & UINT32_C(1)) != 0u &&
            (registers.ie & registers.flags) != 0u;
+}
+
+bool NdsInterruptControl::try_enter_irq(
+    NdsCpu cpu,
+    ArmCpuState &state,
+    uint32_t return_address,
+    uint32_t vector_base) const noexcept
+{
+    if (!valid_cpu(cpu) || !irq_asserted(cpu)) return false;
+
+    /* CPSR.I masks IRQ at the CPU core even when the hardware line is high. */
+    if ((state.cpsr & CPSR_I_BIT) != 0u) return false;
+
+    return oracis_arm_cpu_enter_exception(
+        &state,
+        ORACIS_ARM_EXCEPTION_IRQ,
+        return_address,
+        vector_base) != 0;
 }
 
 } // namespace oracis::memory
