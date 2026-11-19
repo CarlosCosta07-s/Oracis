@@ -9,34 +9,39 @@
 
 <p align="center"><strong>Reconstruindo Sinnoh para além do hardware original.</strong></p>
 
-> **Status: Fase 1 — Integração do NDSRecomp em andamento.** A revisão USA Rev 1 foi identificada e o bootstrap do compilador estático foi adicionado. Ainda não há banco recompilado integrado nem runtime jogável.
+> **Status: runtime ARM inicial e ponte C ABI em implementação.** O estado/PSR/exceções/flags e o seletor ARM9/ARM7 passaram em testes isolados. O NDSRecomp ainda não foi compilado neste ambiente e nenhum banco real foi emitido ou ligado.
 
 ## O projeto
 
-Oracis busca executar Pokémon Platinum como código nativo em computadores modernos. O projeto utilizará recompilação estática dos códigos ARM7/ARM9 e um runtime independente para os serviços necessários do Nintendo DS. Não será um emulador com uma CPU guest interpretada como caminho principal.
+Oracis busca executar Pokémon Platinum como código nativo em computadores modernos. O projeto utiliza recompilação estática dos códigos ARM7/ARM9 e um runtime independente para os serviços necessários do Nintendo DS. Não é um emulador com uma CPU guest interpretada como caminho principal.
 
 ## Direção técnica
 
-- **NDSRecomp estático** para emissão de bancos nativos ARM7/ARM9, em checkout externo e revisão fixada.
-- **C99 + C++20** para unidades geradas e runtime independente.
+- **NDSRecomp estático** para gerar bancos C ARM7/ARM9, em checkout externo e revisão fixada.
+- **C99 + C++20** para bancos gerados e runtime independente.
 - **CMake + Ninja** para o build.
 - **SDL3** para janela, eventos, controles, toque e saída de áudio.
-- **Python** para extração local, validação de ROM e configuração dos bancos.
+- **Python** para extração local e validação da cópia de jogo.
 - **Rust** permanece apenas no gerador isolado do ícone.
 
-Consulte [docs/TECH_STACK.md](docs/TECH_STACK.md), [docs/NDSRECOMP_INTEGRATION.md](docs/NDSRECOMP_INTEGRATION.md), o [mapa da ABI dos bancos](docs/RECOMP_ABI_MAP.md) e a [decisão de arquitetura ADR 0001](docs/adr/0001-ndsrecomp-static-compiler.md).
+Consulte [docs/TECH_STACK.md](docs/TECH_STACK.md), [docs/NDSRECOMP_INTEGRATION.md](docs/NDSRECOMP_INTEGRATION.md), o [mapa da ABI dos bancos](docs/RECOMP_ABI_MAP.md) e a [decisão ADR 0001](docs/adr/0001-ndsrecomp-static-compiler.md).
 
 ## Estado atual
 
-A primeira revisão-alvo é **Pokémon Platinum USA Rev 1**. A cópia fornecida para identificação teve SHA-1 calculado localmente e correspondente ao hash Rev 1 documentado. A ROM e quaisquer arquivos derivados permanecem fora do Git, da CI e das releases.
+A primeira revisão-alvo é **Pokémon Platinum USA Rev 1**, identificada localmente por SHA-1. ROM e arquivos derivados permanecem fora do Git, da CI e das releases.
 
-Foi adicionado [um script para preparar o NDSRecomp](tools/ndsrecomp/build_recompiler.py), fixado no commit `14b7e15023e9affc9dc375e4e611ac703f5c76ab`. Ele configura e compila apenas o alvo `nds_recompile`; não compila o runner upstream. Também foi criado um [extrator ARM9/ARM7](tools/ndsrecomp/extract_nds_programs.py). A verificação local confirmou os metadados e hashes dos segmentos; a execução integral do script versionado e a emissão de bancos ainda estão pendentes.
+O bootstrap do NDSRecomp está fixado no commit `14b7e15023e9affc9dc375e4e611ac703f5c76ab` e limita o checkout a `recompiler/`, `cmake/` e ao núcleo ARM MIT. O runtime/oracle/frontend upstream e os componentes derivados de melonDS não são incorporados.
 
-O runtime do Oracis será escrito separadamente. Não serão incorporados runner, oracle, frontend nem componentes derivados de melonDS. A interface C ABI do recompilador será estudada para criar um contrato independente.
+O Oracis já contém:
+- estado ARM com registradores bancados e asserts de layout C99;
+- operações CPSR/SPSR e entrada/retorno de exceções;
+- avaliação de condições e atualização de flags NZCV;
+- ponte ABI C para selecionar o estado ARM9 ou ARM7 via `g_cpu`, wrappers de flags/PSR e especialização `NDS_STATIC_CPU`;
+- asserts do layout de `NdsStaticValidation`, `NdsDispatchEntry` e `NdsLinkSlot`.
 
-A auditoria da descompilação [pret/pokeplatinum](https://github.com/pret/pokeplatinum) permanece documentada, mas nenhum código ou recurso dela foi copiado. O licenciamento da descompilação continua pendente.
+O harness runtime-only local passou em dez testes C99/C++20 e uma compilação separada com `BUILD_TESTING=OFF` produziu a biblioteca estática do runtime. Isso não significa que bancos NDSRecomp ou o jogo já executem: barramento, dispatch, scheduler, ciclos, IRQ/SWI/CP15 e serviços NitroSDK ainda não estão implementados.
 
-O host SDL3 existente é apenas um frontend experimental; ainda não foi conectado aos bancos recompilados. O Oracis já possui a base independente de estado ARM, registradores bancados, operações CPSR/SPSR e primitivas de entrada/retorno de exceções, cobertas por testes C99/C++20. A ligação com o scheduler, o controlador de IRQ, o dispatch e os bancos reais ainda está pendente. Consulte o [mapa da ABI](docs/RECOMP_ABI_MAP.md), a [implementação de exceções ARM](docs/ARM_EXCEPTION_HANDLING.md), o [registro da Fase 1](docs/PHASE_1_SKELETON.md) e o [roteiro](docs/DEVELOPMENT_ROADMAP.md).
+A extração local da USA Rev 1 teve offsets, limites e hashes ARM9/ARM7 verificados. A execução integral do extrator versionado e a emissão de bancos continuam pendentes.
 
 ## Princípios
 
@@ -44,17 +49,13 @@ O host SDL3 existente é apenas um frontend experimental; ainda não foi conecta
 - Runtime, scheduler e dispositivos implementados independentemente.
 - Não incorporar código ou assets de emuladores terceiros.
 - Não incorporar código derivado de melonDS, direta ou indiretamente.
-- ROM, BIOS, firmware, dados extraídos, bancos recompilados e saves ficam fora do repositório, CI e releases.
+- ROM, BIOS, firmware, extrações, bancos gerados e saves ficam fora do repositório, CI e releases.
 - Não presumir autorização a partir da disponibilidade pública de uma descompilação.
 - Não declarar compatibilidade, desempenho ou conclusão sem testes reproduzíveis.
 
 ## Plataformas planejadas
 
-Windows x64 e Linux x86-64 são os primeiros alvos. Android ARM64 será considerado após a validação do runtime desktop.
-
-## Identidade visual
-
-O símbolo Oracis é um sigilo celeste original: uma estrela facetada em platina atravessada por um anel orbital dourado. O desenho é vetorial e gerado por código. Consulte [docs/VISUAL_IDENTITY.md](docs/VISUAL_IDENTITY.md).
+Windows x64 e Linux x86-64 são os primeiros alvos. Android ARM64 será integrado depois de validar o runtime desktop.
 
 ## Aviso
 
