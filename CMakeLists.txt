@@ -76,6 +76,7 @@ add_library(oracis_arm_state STATIC
     src/runtime/static_dispatch_abi.cpp
     src/runtime/call_return_stack.cpp
     src/runtime/scheduler_core.cpp
+    src/runtime/cycle_accounting.cpp
 )
 target_link_libraries(oracis_arm_state PUBLIC oracis_generated_bank_abi)
 target_compile_features(oracis_arm_state PUBLIC cxx_std_20)
