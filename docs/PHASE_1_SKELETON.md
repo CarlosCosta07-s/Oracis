@@ -41,7 +41,7 @@ A validação local da cópia conferiu SHA-1, offsets, limites e hashes dos dois
 ## Limites atuais
 
 - GuestMemory e os wrappers C bus_* oferecem RAM/aliases genéricos com identidade de bytes; ainda não são o mapa DS e não implementam MMIO.
-- O registry e runtime_dispatch estão implementados para tabelas registradas, mas não há carregador de bancos reais, chamada/retorno, link slots ou scheduler.
+- O registry/runtime_dispatch e a pilha de retorno guest estão implementados para tabelas registradas. Os link slots permanecem sem cache/resolução direta; não há carregador de bancos reais nem scheduler.
 - Ciclos, timers, DMA, IPC, IRQ/SWI/CP15 e serviços NitroSDK continuam pendentes.
 - O código gerado ainda não foi emitido nem ligado.
 - O host SDL3 continua um frontend experimental sem runtime de jogo conectado.
