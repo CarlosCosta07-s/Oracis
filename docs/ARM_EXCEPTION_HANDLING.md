@@ -33,7 +33,7 @@ A rotina faz:
 6. limpar CPSR.T, definir o modo de destino e aplicar I/F;
 7. colocar em R15 o endereço do vetor.
 
-A implementação atual não modela Reset, vectores de interrupção acelerados por periférico (vectored interrupt), prioridades, latência nem a decisão temporal de aceitar IRQ/FIQ. O suporte CP15 ainda é parcial: a máquina modela somente ARM9 CP15 Control (`MRC/MCR p15,0,Rd,c1,c0,0`) e o bit 13 `V`; operações CP15 restantes, incluindo MPU, caches e TCM, continuam sem implementação e falham explicitamente. A ARM7 não possui essa seleção por CP15 no modelo e usa a base baixa.
+A implementação atual não modela Reset, vectores de interrupção acelerados por periférico (vectored interrupt), prioridades, latência nem a decisão temporal de aceitar IRQ/FIQ. O suporte CP15 ainda é parcial: a máquina modela somente ARM9 CP15 Control (`MRC/MCR p15,0,Rd,c1,c0,0`) e o bit 13 `V`; operações CP15 restantes, incluindo MPU, caches e TCM, continuam sem implementação e falham explicitamente. O estado inicial da máquina segue o reset do Nintendo DS: ARM9 com `V=1` (vetores em `0xFFFF0000`) e ARM7 com vetores em `0x00000000`; depois o guest pode reprogramar ARM9 por CP15. A ARM7 não possui essa seleção por CP15 no modelo e permanece na base baixa. Referências: [ARM946E-S Technical Reference Manual — bit V/VINITHI](https://documentation-service.arm.com/static/5f032835cafe527e86f5b8ad) e [Nintendo DS Architecture — mapeamento dos vetores BIOS](https://www.copetti.org/writings/consoles/nintendo-ds/).
 
 ## 3. Vetores normais e altos
 
