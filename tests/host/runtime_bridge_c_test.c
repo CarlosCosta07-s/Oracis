@@ -117,9 +117,14 @@ int main(void)
     if (oracis_host_runtime_load_program_segments(
             &arm9_image, &arm7_image) != ORACIS_HOST_RUNTIME_OK ||
         oracis_host_runtime_program_loaded() != 1 ||
-        bus_read_u32(UINT32_C(0x02001000)) != UINT32_C(0xE1A00000) ||
-        bus_read_u16(UINT32_C(0x02381000)) != UINT16_C(0x4770)) {
-        fprintf(stderr, "C host bridge failed to load and verify ARM9/ARM7 images\n");
+        bus_read_u32(UINT32_C(0x02001000)) != UINT32_C(0xE1A00000)) {
+        fprintf(stderr, "C host bridge failed to load and verify ARM9 image\n");
+        return 1;
+    }
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM7) ||
+        bus_read_u16(UINT32_C(0x02381000)) != UINT16_C(0x4770) ||
+        !oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        fprintf(stderr, "C host bridge failed to load/verify ARM7 private image\n");
         return 1;
     }
     if (oracis_host_runtime_load_program_segments(
