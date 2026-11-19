@@ -38,6 +38,27 @@ typedef int (*OracisHostIrqContextProvider)(
     uint32_t *return_address, uint32_t *vector_base);
 
 /*
+ * Host-provided, already-extracted program segment. entry_pc is aligned and
+ * has the Thumb marker removed; entry_thumb carries the execution mode.
+ */
+typedef struct OracisHostProgramSegment {
+    uint32_t load_address;
+    uint32_t size;
+    uint32_t entry_pc;
+    uint32_t entry_thumb;
+    const uint8_t *contents;
+} OracisHostProgramSegment;
+
+/*
+ * Preflight and load one ARM9 and one ARM7 image into the retail RAM map.
+ * This loads bytes and seeds PC/CPSR.T; it does not emulate BIOS boot setup.
+ */
+int oracis_host_runtime_load_program_segments(
+    const OracisHostProgramSegment *arm9,
+    const OracisHostProgramSegment *arm7);
+int oracis_host_runtime_program_loaded(void);
+
+/*
  * Execute one synchronized ARM9/ARM7 round through the registered static
  * banks. Returns NO_PROGRAM_BANKS until both CPUs have at least one bank.
  */
