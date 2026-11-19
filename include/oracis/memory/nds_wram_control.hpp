@@ -21,7 +21,7 @@ public:
     NdsWramControl(const NdsWramControl &) = delete;
     NdsWramControl &operator=(const NdsWramControl &) = delete;
 
-    Status install() noexcept;
+    Status install();
 
     ReadResult read(NdsCpu cpu,
                     uint32_t address,
