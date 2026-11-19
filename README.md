@@ -34,7 +34,7 @@ O bootstrap do NDSRecomp está fixado no commit `14b7e15023e9affc9dc375e4e611ac7
 
 O Oracis já contém:
 - estado ARM com registradores bancados e asserts de layout C99;
-- GuestMemory: mapa de RAM NDS retail, Main RAM compartilhada/mirrors, WRAM ARM7 privada e quatro modos WRAMCNT; as sete janelas Shared WRAM são pré-mapeadas e suas máscaras de visibilidade por CPU são trocadas atomicamente, sem desalocação nem perda dos bytes físicos;
+- GuestMemory: mapa de RAM NDS retail, Main RAM compartilhada/mirrors, WRAM ARM7 privada e quatro modos WRAMCNT; as sete janelas Shared WRAM são pré-mapeadas e suas máscaras de visibilidade por CPU são atualizadas de forma transacional, com o mapa validado antes da aplicação, sem desalocação nem perda dos bytes físicos;
 - wrappers C bus_read_*/bus_write_* que encaminham para RAM guest mapeada e falham com diagnóstico em endereços inválidos;
 - operações CPSR/SPSR e entrada/retorno de exceções;
 - avaliação de condições e atualização de flags NZCV;
