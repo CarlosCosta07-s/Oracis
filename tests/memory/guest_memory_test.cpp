@@ -205,6 +205,15 @@ int main()
         return fail("bulk write accepted invalid pointer/size/guest range");
     }
 
+    /* A failed cross-region transfer must not modify even its valid prefix. */
+    const uint8_t untouched_tail = 0u;
+    if (memory.read(NDS_ARM7, 0x02000FFFu, 1u).value != untouched_tail ||
+        memory.validate_identity(
+            NDS_ARM9, 0x02000FFFu, 1u, &untouched_tail) !=
+            Status::MissingWriteProvenance) {
+        return fail("failed bulk write partially changed bytes or provenance");
+    }
+
     /* A write spanning a periodic mirror boundary wraps the physical backing. */
     GuestMemory periodic_memory;
     const uint8_t periodic_rw = static_cast<uint8_t>(
