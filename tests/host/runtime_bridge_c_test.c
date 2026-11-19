@@ -69,7 +69,7 @@ int main(void)
             ORACIS_HOST_RUNTIME_MACHINE_ERROR ||
         oracis_host_runtime_program_loaded() != 0 ||
         bus_read_u32(UINT32_C(0x02001000)) != UINT32_C(0)) {
-        fprintf(stderr, "C host bridge partially loaded an invalid ARM9/ARM7 pair\\n");
+        fprintf(stderr, "C host bridge partially loaded an invalid ARM9/ARM7 pair\n");
         return 1;
     }
 
@@ -85,12 +85,12 @@ int main(void)
         oracis_host_runtime_program_loaded() != 1 ||
         bus_read_u32(UINT32_C(0x02001000)) != UINT32_C(0xE1A00000) ||
         bus_read_u16(UINT32_C(0x02381000)) != UINT16_C(0x4770)) {
-        fprintf(stderr, "C host bridge failed to load and verify ARM9/ARM7 images\\n");
+        fprintf(stderr, "C host bridge failed to load and verify ARM9/ARM7 images\n");
         return 1;
     }
     if (oracis_host_runtime_load_program_segments(
             &arm9_image, &arm7_image) != ORACIS_HOST_RUNTIME_MACHINE_ERROR) {
-        fprintf(stderr, "C host bridge accepted a duplicate program load\\n");
+        fprintf(stderr, "C host bridge accepted a duplicate program load\n");
         return 1;
     }
 
