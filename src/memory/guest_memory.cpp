@@ -1,5 +1,7 @@
 #include "oracis/memory/guest_memory.hpp"
 
+#include <algorithm>
+#include <cstring>
 #include <limits>
 #include <utility>
 
@@ -61,6 +63,36 @@ Status GuestMemory::map_ram(uint32_t base,
         region.permissions = permissions;
         region.name = std::move(name);
         region.backing = std::make_shared<Backing>(size);
+        regions_.push_back(std::move(region));
+    } catch (...) {
+        return Status::InvalidRegion;
+    }
+    return Status::Ok;
+}
+
+Status GuestMemory::map_image(uint32_t base,
+                              const uint8_t *contents,
+                              uint32_t size,
+                              uint8_t permissions,
+                              std::string name)
+{
+    if (!valid_range(base, size) || contents == nullptr || name.empty() ||
+        (permissions & ~kKnownPermissions) != 0u ||
+        !has_permission(permissions, Readable)) {
+        return Status::InvalidRegion;
+    }
+    if (overlaps(base, size)) return Status::Overlap;
+
+    try {
+        Region region;
+        region.base = base;
+        region.size = size;
+        region.permissions = permissions;
+        region.name = std::move(name);
+        region.backing = std::make_shared<Backing>(size);
+        std::memcpy(region.backing->bytes.data(), contents, size);
+        std::fill(region.backing->write_provenance.begin(),
+                  region.backing->write_provenance.end(), 1u);
         regions_.push_back(std::move(region));
     } catch (...) {
         return Status::InvalidRegion;
@@ -234,16 +266,13 @@ Status GuestMemory::validate_identity(
     const uint32_t offset = result.backing_offset;
 
     /*
-     * Writable RAM is not trusted merely because its zero-filled initial
-     * backing happens to match an all-zero validation record. Every byte in
-     * the validated span must have been materialized by a guest/host bus write
-     * before it can identify an executable generation.
+     * Empty mappings are never identities, even when zero-filled RAM happens
+     * to match an all-zero validation record. Bytes become materialized only
+     * through bus writes or map_image() with host-provided source contents.
      */
-    if (has_permission(result.region->permissions, Writable)) {
-        for (uint32_t index = 0u; index < size; ++index) {
-            if (provenance[offset + index] == 0u) {
-                return Status::MissingWriteProvenance;
-            }
+    for (uint32_t index = 0u; index < size; ++index) {
+        if (provenance[offset + index] == 0u) {
+            return Status::MissingWriteProvenance;
         }
     }
 
