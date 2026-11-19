@@ -71,4 +71,16 @@ if(BUILD_TESTING)
     target_include_directories(oracis_abi_cpp_test PRIVATE include)
     target_compile_features(oracis_abi_cpp_test PRIVATE cxx_std_20)
     add_test(NAME oracis_abi_cpp_test COMMAND oracis_abi_cpp_test)
+
+    add_library(oracis_arm_state STATIC
+        src/runtime/arm_cpu_state_ops.cpp
+    )
+    target_include_directories(oracis_arm_state PUBLIC include)
+    target_compile_features(oracis_arm_state PUBLIC cxx_std_20)
+
+    add_executable(oracis_arm_state_ops_test
+        tests/abi/arm_cpu_state_ops_test.cpp
+    )
+    target_link_libraries(oracis_arm_state_ops_test PRIVATE oracis_arm_state)
+    add_test(NAME oracis_arm_state_ops_test COMMAND oracis_arm_state_ops_test)
 endif()
