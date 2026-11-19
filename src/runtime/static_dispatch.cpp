@@ -224,7 +224,7 @@ DispatchLookupResult StaticDispatchRegistry::lookup(
             ++result.candidate_count;
             if (entry->validation != nullptr &&
                 (validation_live == nullptr ||
-                 !validation_live(entry->validation, address, thumb, user))) {
+                 !validation_live(cpu, entry->validation, address, thumb, user))) {
                 result.inactive = entry;
                 continue;
             }
