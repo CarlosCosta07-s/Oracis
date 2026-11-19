@@ -97,7 +97,7 @@ O callback \`oracis_bus_validate_dispatch\` é instalado quando \`oracis_bus_bin
 
 Essa camada ainda não implementa o carregador de bancos do Pokémon Platinum, cache por revisão, ciclo de vida de overlays ou proteção contra descarga enquanto uma função do banco ainda está em execução. O chamador precisa manter tabelas, metadados e funções válidos enquanto registrados.
 
-## 6. Declarações ainda sem implementação
+## 7. Declarações ainda sem implementação
 
 O header também declara os serviços que o código gerado precisa, mas não fornece stubs vazios. Os seguintes grupos ainda precisam de implementações reais:
 
@@ -110,7 +110,7 @@ O header também declara os serviços que o código gerado precisa, mas não for
 
 Um banco pode incluir o header e compilar sintaticamente, mas continuará sem poder ligar enquanto todos os símbolos efetivamente referenciados não tiverem uma implementação. Não fornecemos no-op stubs para simular progresso.
 
-## 7. Opção de geração excluída
+## 8. Opção de geração excluída
 
 O parâmetro `--flat-execution` altera os corpos gerados para usar `NdsExecRegion`, `execution_region.h` e serviços do runtime upstream. **Oracis não usa essa opção.** Usaremos emissão padrão por função.
 
@@ -120,7 +120,7 @@ Também ficam fora da integração:
 - JIT ou interpretador ARM como fallback;
 - HLE manifests e live-overlay compilation até que a necessidade seja mapeada.
 
-## 10. Testes registrados
+## 9. Testes registrados
 
 O CMake registra quinze testes C99/C++20 para o runtime e ABI. A lista inclui memória, identidade/proveniência, layout ARM, CPSR/SPSR, exceções, flags, registry ranking/misses, ponte de dispatch C/C++ e especialização estática ARM9/ARM7. A execução de todos os quinze testes para o estado atual ainda não foi confirmada:
 Os quinze alvos registrados são: RAM guest; ponte C bus_* e validação por GuestMemory; layouts ABI C99/C++20; bancos ARM e modos; CPSR/SPSR; exceções; flags; registry de dispatch; runtime dispatch C++ e ABI dispatch C99; ponte ARM9/ARM7 C/C++; especialização estática ARM9 e ARM7.
