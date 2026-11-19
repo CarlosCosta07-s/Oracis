@@ -118,15 +118,22 @@ jobs:
             -name nds_recompile -perm -u+x -print -quit)"
           test -n "$compiler"
           output="$RUNNER_TEMP/oracis-ndsrecomp-artifact"
-          mkdir -p "$output"
+          mkdir -p "$output/tools/ndsrecomp"
           install -m 0755 "$compiler" "$output/nds_recompile"
+          install -m 0644 tools/ndsrecomp/extract_nds_programs.py "$output/tools/ndsrecomp/"
+          install -m 0644 tools/ndsrecomp/emit_platinum_banks.py "$output/tools/ndsrecomp/"
           cat > "$output/README.txt" <<'EOF'
-          Oracis local tooling artifact: pinned NDSRecomp static compiler.
+          Oracis local tooling artifact: pinned NDSRecomp static compiler and local scripts.
           Upstream revision: 14b7e15023e9affc9dc375e4e611ac703f5c76ab
-          This archive contains the compiler executable only.
+          Includes the compiler executable and the Oracis extraction/emission scripts.
           No ROM, BIOS, extracted segment, generated bank or game data is included.
+          The scripts only read user-provided local game files and write generated output locally.
           EOF
-          sha256sum "$output/nds_recompile" > "$output/SHA256SUMS"
+          (
+            cd "$output"
+            sha256sum nds_recompile tools/ndsrecomp/extract_nds_programs.py \
+              tools/ndsrecomp/emit_platinum_banks.py > SHA256SUMS
+          )
 
       - name: Upload pinned compiler for local bank generation
         uses: actions/upload-artifact@v4
