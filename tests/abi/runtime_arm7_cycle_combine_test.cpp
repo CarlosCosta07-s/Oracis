@@ -90,7 +90,7 @@ int main()
     if (!check("main/main load", 19u,
                arm7_cycle_combine(1u + main_data, main_data, 1u, 0u)) ||
         !check("main/main store", 19u,
-               arm7_cycle_combine(1u + thumb_main_data, thumb_main_data, 0u, 0u))) {
+               arm7_cycle_combine(1u + main_data, main_data, 0u, 0u))) {
         return fail("main/main data overlap timing was incorrect");
     }
 
@@ -112,7 +112,8 @@ int main()
     const uint32_t main_data_after_wram_code =
         runtime_mem_cycles(UINT32_C(0x02000000), 4u, 0u);
     if (!check("WRAM/main store", 10u,
-               arm7_cycle_combine(1u + main_data, main_data, 0u, 0u)) ||
+               arm7_cycle_combine(1u + main_data_after_wram_code,
+                                  main_data_after_wram_code, 0u, 0u)) ||
         !check("WRAM/main load", 11u,
                arm7_cycle_combine(1u + main_data_after_wram_code,
                                   main_data_after_wram_code, 1u, 0u))) {
@@ -156,7 +157,8 @@ int main()
     const uint32_t thumb_main_data =
         runtime_mem_cycles(UINT32_C(0x02000000), 4u, 0u);
     if (!check("main Thumb/main data", 18u,
-               arm7_cycle_combine(1u + main_data, main_data, 0u, 0u))) {
+               arm7_cycle_combine(1u + thumb_main_data,
+                                  thumb_main_data, 0u, 0u))) {
         return fail("main Thumb/main data timing was incorrect");
     }
 
