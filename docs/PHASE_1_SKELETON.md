@@ -16,11 +16,12 @@
 - `src/runtime/recomp_abi.cpp`: acesso aos registradores User e `runtime_clz` para o codegen.
 - `include/oracis/recomp/runtime_scheduler.h` e `src/runtime/scheduler_core.cpp`: contadores de ciclos e controle de fatias/yield/unwind cooperativo por CPU.
 - `include/oracis/recomp/runtime_arm.h` e `src/runtime/recomp_abi.cpp`: ponte parcial para o C gerado, estado ativo ARM9/ARM7, wrappers de flags/PSR/exceção e falhas fail-closed.
-- `include/oracis/memory/guest_memory.hpp` e `src/memory/guest_memory.cpp`: regiões guest configuráveis, aliases e acessos little-endian com permissões e limites.
+- `include/oracis/memory/guest_memory.hpp` e `src/memory/guest_memory.cpp`: regiões guest configuráveis, aliases, mirrors periódicos e visibilidade por CPU.
+- `include/oracis/memory/nds_retail_map.hpp` e `src/memory/nds_retail_map.cpp`: Main RAM 4MB/mirrors, WRAM ARM7 privada e modos WRAMCNT 0–3.
 - `src/memory/bus_abi.cpp`: wrappers C bus_read_*/bus_write_* ligados ao estado ARM9/ARM7 ativo e ao backing GuestMemory.
-- `tests/abi/` e `tests/memory/`: dezoito alvos CTest registrados, incluindo ABI, dispatch, pilha de retorno, User bank, CLZ, identidade da memória e especialização ARM9/ARM7. A execução da versão atual ainda não foi confirmada.
+- `tests/abi/` e `tests/memory/`: dezenove alvos CTest registrados, incluindo ABI, dispatch, pilha de retorno, User bank, CLZ, identidade da memória e especialização ARM9/ARM7. A execução da versão atual ainda não foi confirmada.
 
-O runtime usa um ponteiro global para o estado ativo. A futura execução será serial/cooperativa nesta primeira versão: o scheduler deve selecionar ARM9 ou ARM7 antes de chamar um banco. Execução concorrente dos dois bancos em threads ainda não é suportada. GuestMemory agora instala o mapa de RAM do NDS retail; ainda não implementa MMIO, reconfiguração dinâmica WRAMCNT, DMA, CP15/TCM, BIOS, VRAM/OAM ou timing por região. Os wrappers bus_* operam apenas sobre regiões RAM explicitamente mapeadas e falham quando o endereço não existe.
+O runtime usa um ponteiro global para o estado ativo. A futura execução será serial/cooperativa nesta primeira versão: o scheduler deve selecionar ARM9 ou ARM7 antes de chamar um banco. Execução concorrente dos dois bancos em threads ainda não é suportada. GuestMemory instala o mapa de RAM do NDS retail; WRAMCNT=0 também espelha a WRAM privada ARM7 na janela Shared WRAM ARM7. Ainda não há MMIO, reconfiguração dinâmica WRAMCNT, DMA, CP15/TCM, BIOS, VRAM/OAM ou timing por região. Os wrappers bus_* operam apenas sobre regiões RAM explicitamente mapeadas e falham quando o endereço não existe.
 
 ## Preparar o recompilador
 
