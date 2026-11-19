@@ -20,6 +20,7 @@
 #include "oracis/memory/nds_system_clock.hpp"
 #include "oracis/memory/nds_timer_control.hpp"
 #include "oracis/memory/nds_wram_control.hpp"
+#include "oracis/memory/nds_vram_control.hpp"
 
 /* Forward-declared here to keep the machine header independent of runtime_arm.h. */
 struct NdsStaticValidation;
@@ -203,6 +204,7 @@ public:
 
     memory::GuestMemory &guest_memory() noexcept { return memory_; }
     memory::NdsWramControl &wram_control() noexcept { return wram_control_; }
+    memory::NdsVramControl &vram_control() noexcept { return vram_control_; }
     memory::NdsInterruptControl &interrupt_control() noexcept {
         return interrupt_control_;
     }
@@ -235,6 +237,7 @@ private:
     ArmCpuState arm7_state_{};
     memory::NdsArm9Tcm arm9_tcm_;
     memory::NdsWramControl wram_control_;
+    memory::NdsVramControl vram_control_;
     memory::NdsInterruptControl interrupt_control_;
     memory::NdsTimerControl timer_control_;
     memory::NdsKeypadControl keypad_control_;
@@ -250,6 +253,7 @@ private:
     bool coprocessor_handler_bound_ = false;
     bool memory_bound_ = false;
     bool wram_bound_ = false;
+    bool vram_bound_ = false;
     bool interrupt_bound_ = false;
     bool timer_bound_ = false;
     bool keypad_bound_ = false;

@@ -22,6 +22,10 @@ int oracis_bus_unbind_memory(void *memory);
 int oracis_bus_bind_wram_control(void *control);
 int oracis_bus_unbind_wram_control(void *control);
 
+/* Bind the NDS VRAM C/D bank controller after its GuestMemory backing. */
+int oracis_bus_bind_vram_control(void *control);
+int oracis_bus_unbind_vram_control(void *control);
+
 /* Bind a live NdsInterruptControl device after binding its GuestMemory object. */
 int oracis_bus_bind_interrupt_control(void *control);
 int oracis_bus_unbind_interrupt_control(void *control);

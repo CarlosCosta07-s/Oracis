@@ -13,6 +13,7 @@ namespace oracis::machine {
 NdsMachine::NdsMachine(memory::SharedWramMode initial_wram_mode) noexcept
     : arm9_tcm_(memory_),
       wram_control_(memory_, initial_wram_mode),
+      vram_control_(memory_),
       interrupt_control_(memory_),
       timer_control_(memory_, interrupt_control_),
       keypad_control_(memory_, interrupt_control_),
@@ -176,7 +177,8 @@ int NdsMachine::runtime_validate_dispatch_bytes(
 
 NdsMachineStatus NdsMachine::initialize() noexcept
 {
-    if (initialized_ || wram_control_.installed()) {
+    if (initialized_ || wram_control_.installed() ||
+        vram_control_.installed()) {
         return NdsMachineStatus::AlreadyInitialized;
     }
 
@@ -217,6 +219,7 @@ NdsMachineStatus NdsMachine::initialize() noexcept
     coprocessor_handler_bound_ = true;
 
     if (wram_control_.install() != memory::Status::Ok ||
+        vram_control_.install() != memory::Status::Ok ||
         arm9_tcm_.install() != memory::Status::Ok) {
         return rollback(NdsMachineStatus::MemoryMapFailed);
     }
@@ -231,6 +234,11 @@ NdsMachineStatus NdsMachine::initialize() noexcept
         return rollback(NdsMachineStatus::BusBindingFailed);
     }
     wram_bound_ = true;
+
+    if (!oracis_bus_bind_vram_control(&vram_control_)) {
+        return rollback(NdsMachineStatus::BusBindingFailed);
+    }
+    vram_bound_ = true;
 
     if (!oracis_bus_bind_interrupt_control(&interrupt_control_)) {
         return rollback(NdsMachineStatus::BusBindingFailed);
@@ -366,7 +374,7 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
     const bool owns_runtime =
         runtime_bound_ || power_handler_bound_ ||
         coprocessor_handler_bound_ || memory_bound_ ||
-        wram_bound_ || interrupt_bound_ || timer_bound_ ||
+        wram_bound_ || vram_bound_ || interrupt_bound_ || timer_bound_ ||
         keypad_bound_ || clock_bound_ || validation_bound_;
     if (!owns_runtime && !initialized_) {
         return NdsMachineStatus::Ok;
@@ -410,6 +418,12 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
             return NdsMachineStatus::ShutdownFailed;
         }
         interrupt_bound_ = false;
+    }
+    if (vram_bound_) {
+        if (!oracis_bus_unbind_vram_control(&vram_control_)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        vram_bound_ = false;
     }
     if (wram_bound_) {
         if (!oracis_bus_unbind_wram_control(&wram_control_)) {
