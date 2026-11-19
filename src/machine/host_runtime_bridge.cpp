@@ -2,6 +2,20 @@
 
 #include "oracis/machine/nds_machine.hpp"
 #include "oracis/recomp/static_dispatch.hpp"
+#include "oracis/recomp/static_dispatch_abi.h"
+
+#ifdef ORACIS_WITH_PLATINUM_STATIC_BANKS
+extern "C" {
+extern const NdsDispatchEntry
+    g_dispatch_pokemon_platinum_usa_rev1_arm9[];
+extern const unsigned
+    g_dispatch_pokemon_platinum_usa_rev1_arm9_len;
+extern const NdsDispatchEntry
+    g_dispatch_pokemon_platinum_usa_rev1_arm7[];
+extern const unsigned
+    g_dispatch_pokemon_platinum_usa_rev1_arm7_len;
+}
+#endif
 
 namespace {
 
@@ -14,6 +28,34 @@ oracis::machine::NdsMachine &host_machine() noexcept
 
 int g_last_machine_status =
     static_cast<int>(oracis::machine::NdsMachineStatus::Ok);
+
+#ifdef ORACIS_WITH_PLATINUM_STATIC_BANKS
+bool unregister_compiled_banks() noexcept
+{
+    bool success = true;
+    if (g_arm7_compiled_bank_registered) {
+        if (oracis_static_dispatch_unregister_bank(
+                NDS_ARM7,
+                g_dispatch_pokemon_platinum_usa_rev1_arm7,
+                g_dispatch_pokemon_platinum_usa_rev1_arm7_len) != 0) {
+            g_arm7_compiled_bank_registered = false;
+        } else {
+            success = false;
+        }
+    }
+    if (g_arm9_compiled_bank_registered) {
+        if (oracis_static_dispatch_unregister_bank(
+                NDS_ARM9,
+                g_dispatch_pokemon_platinum_usa_rev1_arm9,
+                g_dispatch_pokemon_platinum_usa_rev1_arm9_len) != 0) {
+            g_arm9_compiled_bank_registered = false;
+        } else {
+            success = false;
+        }
+    }
+    return success;
+}
+#endif
 
 struct IrqProviderContext {
     OracisHostIrqContextProvider provider = nullptr;
@@ -58,9 +100,15 @@ extern "C" int oracis_host_runtime_shutdown(void)
     auto &machine = host_machine();
     const auto status = machine.shutdown();
     g_last_machine_status = static_cast<int>(status);
-    return status == oracis::machine::NdsMachineStatus::Ok
-        ? ORACIS_HOST_RUNTIME_OK
-        : ORACIS_HOST_RUNTIME_MACHINE_ERROR;
+    if (status != oracis::machine::NdsMachineStatus::Ok) {
+        return ORACIS_HOST_RUNTIME_MACHINE_ERROR;
+    }
+#ifdef ORACIS_WITH_PLATINUM_STATIC_BANKS
+    if (!unregister_compiled_banks()) {
+        return ORACIS_HOST_RUNTIME_BANK_REGISTRATION_FAILED;
+    }
+#endif
+    return ORACIS_HOST_RUNTIME_OK;
 }
 
 extern "C" int oracis_host_runtime_load_program_segments(
@@ -96,6 +144,42 @@ extern "C" int oracis_host_runtime_program_loaded(void)
 {
     return host_machine().initialized() && host_machine().program_loaded()
         ? 1 : 0;
+}
+
+extern "C" int oracis_host_runtime_register_compiled_banks(void)
+{
+    auto &machine = host_machine();
+    if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+#ifdef ORACIS_WITH_PLATINUM_STATIC_BANKS
+    if (g_arm9_compiled_bank_registered ||
+        g_arm7_compiled_bank_registered) {
+        return ORACIS_HOST_RUNTIME_BANKS_ALREADY_REGISTERED;
+    }
+
+    const int arm9_status = oracis_static_dispatch_register_bank(
+        NDS_ARM9,
+        g_dispatch_pokemon_platinum_usa_rev1_arm9,
+        g_dispatch_pokemon_platinum_usa_rev1_arm9_len,
+        "pokemon-platinum-usa-rev1-arm9");
+    if (arm9_status != ORACIS_DISPATCH_REGISTER_OK) {
+        return ORACIS_HOST_RUNTIME_BANK_REGISTRATION_FAILED;
+    }
+    g_arm9_compiled_bank_registered = true;
+
+    const int arm7_status = oracis_static_dispatch_register_bank(
+        NDS_ARM7,
+        g_dispatch_pokemon_platinum_usa_rev1_arm7,
+        g_dispatch_pokemon_platinum_usa_rev1_arm7_len,
+        "pokemon-platinum-usa-rev1-arm7");
+    if (arm7_status != ORACIS_DISPATCH_REGISTER_OK) {
+        (void)unregister_compiled_banks();
+        return ORACIS_HOST_RUNTIME_BANK_REGISTRATION_FAILED;
+    }
+    g_arm7_compiled_bank_registered = true;
+    return ORACIS_HOST_RUNTIME_OK;
+#else
+    return ORACIS_HOST_RUNTIME_NO_COMPILED_BANKS;
+#endif
 }
 
 extern "C" int oracis_host_runtime_run_round(
