@@ -140,8 +140,8 @@ int main()
         control.write(NDS_ARM7, NdsVramControl::VramStatAddress, 1u, 1u) !=
             Status::PermissionDenied ||
         control.read(NDS_ARM9, NdsVramControl::VramStatAddress, 1u).status !=
-            Status::Unmapped) {
-        return fail("VRAMSTAT access width, write protection or ARM9 alias failed");
+            Status::PermissionDenied) {
+        return fail("VRAMSTAT/VRAMCNT_A access width, write protection or CPU ownership failed");
     }
 
     /* MST=0 exposes C/D to ARM9 at their fixed LCDC physical addresses. */
