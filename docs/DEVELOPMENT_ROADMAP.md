@@ -19,7 +19,7 @@ Cada fase deve produzir uma entrega pequena, compilável, executável e verific�
 |---:|---|---|---|
 | 0 | Baseline | Revisão/região identificada; fontes e direitos avaliados | USA Rev 1 identificada; pret/pokeplatinum continua sem licença geral confirmada |
 | 1 | NDSRecomp | Checkout externo fixado e compilação apenas do alvo nds_recompile | Script de bootstrap adicionado; execução/build pendentes |
-| 2 | Extração e bancos | Validar header/segmentos ARM9 e ARM7; gerar TOMLs próprios; emitir e compilar bancos | Não iniciada |
+| 2 | Extração e bancos | Validar header/segmentos ARM9 e ARM7; gerar TOMLs próprios; emitir e compilar bancos | Extração e hashes dos dois segmentos validados; emissão dos bancos pendente |
 | 3 | Runtime e ABI | ABI C independente, estados ARM9/ARM7, dispatch estático e scheduler dual-CPU | Não iniciada |
 | 4 | Serviços base | Memória, exceções, IRQ, timers, DMA, IPC e serviços NitroSDK essenciais | Não iniciada |
 | 5 | Boot visível e vídeo 2D | Primeiro quadro real; VRAM, paletas, BGs, sprites, OAM, janelas e blending | Não iniciada |
