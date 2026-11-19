@@ -1,5 +1,6 @@
 #include "oracis/recomp/runtime_arm.h"
 
+#include <bit>
 #include <cstdio>
 #include <cstdlib>
 
@@ -144,6 +145,77 @@ void runtime_restore_cpsr_from_spsr(void)
     if (oracis_active_cpu_state == nullptr) abi_failure("runtime_restore_cpsr_from_spsr");
     if (!oracis_arm_cpu_restore_cpsr_from_spsr(&g_cpu))
         abi_failure("runtime_restore_cpsr_from_spsr (current mode has no SPSR)");
+}
+
+uint32_t runtime_read_user_reg(uint32_t reg)
+{
+    if (oracis_active_cpu_state == nullptr)
+        abi_failure("runtime_read_user_reg");
+    if (reg > 15u)
+        abi_failure("runtime_read_user_reg (register index out of range)");
+
+    const uint32_t mode = g_cpu.cpsr & ORACIS_ARM_MODE_MASK;
+    uint32_t current_bank = 0u;
+    if (!oracis_arm_cpu_mode_bank(mode, &current_bank))
+        abi_failure("runtime_read_user_reg (invalid CPSR mode)");
+
+    if (reg <= 7u || reg == 15u) return g_cpu.R[reg];
+
+    if (reg >= 8u && reg <= 12u && mode == ORACIS_ARM_MODE_FIQ) {
+        return g_cpu.r8_12_user[reg - 8u];
+    }
+
+    if (reg == 13u || reg == 14u) {
+        if (current_bank == ARM_BANK_USER) return g_cpu.R[reg];
+        return reg == 13u
+            ? g_cpu.banked_sp[ARM_BANK_USER]
+            : g_cpu.banked_lr[ARM_BANK_USER];
+    }
+
+    /* R8-R12 are shared in every mode except FIQ. */
+    return g_cpu.R[reg];
+}
+
+void runtime_write_user_reg(uint32_t reg, uint32_t value)
+{
+    if (oracis_active_cpu_state == nullptr)
+        abi_failure("runtime_write_user_reg");
+    if (reg > 15u)
+        abi_failure("runtime_write_user_reg (register index out of range)");
+
+    const uint32_t mode = g_cpu.cpsr & ORACIS_ARM_MODE_MASK;
+    uint32_t current_bank = 0u;
+    if (!oracis_arm_cpu_mode_bank(mode, &current_bank))
+        abi_failure("runtime_write_user_reg (invalid CPSR mode)");
+
+    if (reg <= 7u || reg == 15u) {
+        g_cpu.R[reg] = value;
+        return;
+    }
+
+    if (reg >= 8u && reg <= 12u && mode == ORACIS_ARM_MODE_FIQ) {
+        g_cpu.r8_12_user[reg - 8u] = value;
+        return;
+    }
+
+    if (reg == 13u || reg == 14u) {
+        if (current_bank == ARM_BANK_USER) {
+            g_cpu.R[reg] = value;
+        } else if (reg == 13u) {
+            g_cpu.banked_sp[ARM_BANK_USER] = value;
+        } else {
+            g_cpu.banked_lr[ARM_BANK_USER] = value;
+        }
+        return;
+    }
+
+    /* R8-R12 are shared in every mode except FIQ. */
+    g_cpu.R[reg] = value;
+}
+
+uint32_t runtime_clz(uint32_t value)
+{
+    return static_cast<uint32_t>(std::countl_zero(value));
 }
 
 void runtime_unimplemented_op(const char *op_name, uint32_t pc)
