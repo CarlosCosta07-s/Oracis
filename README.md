@@ -9,7 +9,7 @@
 
 <p align="center"><strong>Reconstruindo Sinnoh para além do hardware original.</strong></p>
 
-> **Status:** `NdsMachine` reúne os estados ARM9/ARM7 e os dispositivos base, sincroniza as fronteiras de fatia e modela HALT/wake por core. SWI `0x06`, SWI7 `CustomHalt` (`0x1F`) e CP15 WFI do ARM9 já solicitam essa transição; execução dual-core, entrega automática de IRQ, Sleep/Stop e bancos reais continuam pendentes. A revisão `8636590` passou nos quatro jobs da CI (runtime 25/25, Linux, Android ARM64 e NDSRecomp estático).
+> **Status:** `NdsMachine` reúne os estados ARM9/ARM7 e os dispositivos base, sincroniza as fronteiras de fatia e modela HALT/wake por core. SWI `0x06`, SWI7 `CustomHalt` (`0x1F`) e CP15 WFI do ARM9 já solicitam HALT; `try_deliver_pending_irq` oferece entrada IRQ nas fronteiras com LR/base vetorial explícitos. Execução dual-core, chamada automática do helper IRQ pelo host, Sleep/Stop e bancos reais continuam pendentes. A revisão `8636590` passou nos quatro jobs da CI (runtime 25/25, Linux, Android ARM64 e NDSRecomp estático).
 
 ## O projeto
 
@@ -50,7 +50,7 @@ O Oracis já contém:
 - `NdsKeypadControl` com KEYINPUT compartilhado, KEYCNT independente por CPU, condições OR/AND e IRQ de teclado; o host SDL3 mapeia X/Z, Enter/Backspace, setas e Q/W, limpa entradas ao perder foco e encaminha estado pela ponte C;
 - entradas `runtime_link_*` encaminhadas ao dispatcher normal; otimização de slots e folhas inline ainda desabilitada.
 
-O CMake registra 25 testes CTest, incluindo propriedade/integração de `NdsMachine` e os critérios HALT/wake dos dois cores. A revisão `8636590` passou nos quatro jobs da CI (desktop Linux, Android ARM64, NDSRecomp estático e runtime 25/25). A revisão seguinte acrescenta os caminhos SWI `0x06`, SWI7 `0x1F` e CP15 WFI; a validação dela ocorre na CI do próprio commit. O host SDL3 ainda não instancia uma máquina nem executa um loop dual-core. Ainda faltam entrega automática de IRQ pelo scheduler, ordenação geral de eventos, integração completa de Sleep/Stop, HALTCNT MMIO direto, VRAMCNT_B e demais handlers MMIO, DMA, IPC, CP15/TCM, BIOS, VRAM, OAM, temporização de memória e serviços NitroSDK para executar bancos reais.
+O CMake registra 25 testes CTest, incluindo propriedade/integração de `NdsMachine` e os critérios HALT/wake dos dois cores. A revisão `8636590` passou nos quatro jobs da CI (desktop Linux, Android ARM64, NDSRecomp estático e runtime 25/25). A revisão seguinte acrescenta os caminhos SWI `0x06`, SWI7 `0x1F`, CP15 WFI e o helper de entrada IRQ com endereço LR/base vetorial explícitos; a validação dela ocorre na CI do próprio commit. O host SDL3 ainda não instancia uma máquina nem executa um loop dual-core. Ainda faltam entrega automática de IRQ pelo scheduler, ordenação geral de eventos, integração completa de Sleep/Stop, HALTCNT MMIO direto, VRAMCNT_B e demais handlers MMIO, DMA, IPC, CP15/TCM, BIOS, VRAM, OAM, temporização de memória e serviços NitroSDK para executar bancos reais.
 
 A extração local da USA Rev 1 teve offsets, limites e hashes ARM9/ARM7 verificados. A execução integral do extrator versionado e a emissão de bancos continuam pendentes.
 

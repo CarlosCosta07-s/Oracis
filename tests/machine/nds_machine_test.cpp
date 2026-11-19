@@ -234,8 +234,8 @@ int main()
         return fail("ARM7 CustomHalt SWI did not write HALTCNT and yield");
     }
     machine.interrupt_control().request_irq(NDS_ARM7, 1u);
-    if (!machine.cpu_can_execute(NDS_ARM7)) {
-        return fail("ARM7 CustomHalt did not resume after interrupt");
+    if (!machine.cpu_is_halted(NDS_ARM7)) {
+        return fail("ARM7 CustomHalt left HALT before the IRQ boundary check");
     }
 
     /* ARM9 CP15 WFI is wired to the same machine state transition. */

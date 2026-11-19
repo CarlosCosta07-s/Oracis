@@ -39,6 +39,9 @@ enum class NdsMachineStatus : uint8_t {
     SchedulerFailure,
     ClockReportFailed,
     CpuHalted,
+    IrqNotEligible,
+    IrqEntered,
+    IrqEntryFailed,
     UnsupportedPowerMode,
     ShutdownFailed
 };
@@ -94,6 +97,16 @@ public:
     NdsMachineStatus write_arm7_halt_control(uint8_t value) noexcept;
     bool cpu_can_execute(NdsCpu cpu) noexcept;
     bool cpu_is_halted(NdsCpu cpu) const noexcept;
+
+    /*
+     * Attempt IRQ entry only at a safe inter-slice boundary. return_address
+     * must already contain the architecture-correct IRQ LR (the machine never
+     * guesses ARM/Thumb pipeline adjustment); vector_base is the active vector
+     * base selected by the caller/CP15 state (low or high vectors).
+     */
+    NdsMachineStatus try_deliver_pending_irq(
+        NdsCpu cpu, uint32_t return_address,
+        uint32_t vector_base) noexcept;
 
     uint64_t global_bus_cycles() const noexcept {
         return system_clock_.global_bus_cycles();

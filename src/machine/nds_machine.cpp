@@ -353,6 +353,37 @@ bool NdsMachine::cpu_is_halted(NdsCpu cpu) const noexcept
         run_states_[cpu_index(cpu)] == NdsCpuRunState::Halted;
 }
 
+NdsMachineStatus NdsMachine::try_deliver_pending_irq(
+    NdsCpu cpu, uint32_t return_address, uint32_t vector_base) noexcept
+{
+    if (!initialized_) return NdsMachineStatus::NotInitialized;
+    if (!valid_cpu(cpu)) return NdsMachineStatus::InvalidCpu;
+    if (slice_active_[0] || slice_active_[1]) {
+        return NdsMachineStatus::SliceAlreadyActive;
+    }
+
+    /* First apply the core-specific HALT wake rule. */
+    if (!cpu_can_execute(cpu)) return NdsMachineStatus::CpuHalted;
+
+    ArmCpuState *state = cpu_state(cpu);
+    if (state == nullptr) return NdsMachineStatus::InvalidCpu;
+
+    /* IE/IF/IME and CPSR.I are separate gates: wake does not imply IRQ entry. */
+    if (!interrupt_control_.irq_asserted(cpu) ||
+        (state->cpsr & CPSR_I_BIT) != 0u) {
+        return NdsMachineStatus::IrqNotEligible;
+    }
+
+    if (!oracis_arm_runtime_select_cpu(cpu)) {
+        return NdsMachineStatus::SchedulerFailure;
+    }
+
+    return interrupt_control_.try_enter_irq(
+        cpu, *state, return_address, vector_base)
+        ? NdsMachineStatus::IrqEntered
+        : NdsMachineStatus::IrqEntryFailed;
+}
+
 ArmCpuState *NdsMachine::cpu_state(NdsCpu cpu) noexcept
 {
     if (!valid_cpu(cpu)) return nullptr;
