@@ -158,6 +158,12 @@ if(BUILD_TESTING)
     target_link_libraries(oracis_call_return_stack_test PRIVATE oracis_arm_state)
     add_test(NAME oracis_call_return_stack_test COMMAND oracis_call_return_stack_test)
 
+    add_executable(oracis_user_register_abi_test
+        tests/abi/user_register_abi_test.cpp
+    )
+    target_link_libraries(oracis_user_register_abi_test PRIVATE oracis_arm_state)
+    add_test(NAME oracis_user_register_abi_test COMMAND oracis_user_register_abi_test)
+
     add_executable(oracis_static_dispatch_test
         tests/abi/static_dispatch_test.cpp
     )
