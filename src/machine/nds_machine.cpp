@@ -254,11 +254,8 @@ NdsMachineStatus NdsMachine::end_cpu_slice(NdsCpu cpu) noexcept
 NdsMachineStatus NdsMachine::report_idle_bus_cycles(
     NdsCpu cpu, uint64_t elapsed_bus_cycles) noexcept
 {
-    if (cpu != NDS_ARM9 && cpu != NDS_ARM7) {
-        return initialized_
-            ? NdsMachineStatus::InvalidCpu
-            : NdsMachineStatus::NotInitialized;
-    }
+    if (!initialized_) return NdsMachineStatus::NotInitialized;
+    if (!valid_cpu(cpu)) return NdsMachineStatus::InvalidCpu;
 
     const uint64_t core_cycles_per_bus_tick = cpu == NDS_ARM9 ? 2u : 1u;
     if (elapsed_bus_cycles >
