@@ -4,10 +4,12 @@
 #include "oracis/recomp/static_dispatch.hpp"
 #include "oracis/recomp/static_dispatch_abi.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <new>
 #include <string>
 #include <system_error>
 #include <vector>
