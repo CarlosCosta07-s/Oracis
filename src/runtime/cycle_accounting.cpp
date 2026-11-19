@@ -96,6 +96,9 @@ extern "C" uint32_t runtime_code_cycles(uint32_t pc)
      */
     if (thumb && (pc & 2u) != 0u) return 0u;
 
+    /* ITCM is one ARM9 core cycle per 32-bit fetch, even in Thumb state. */
+    if (pc < g_arm9_itcm_code_window_size) return 1u;
+
     const uint32_t word_fetch_cycles =
         arm9_uncached_code_fetch_cycles(pc);
     return thumb ? word_fetch_cycles / 2u : word_fetch_cycles;
