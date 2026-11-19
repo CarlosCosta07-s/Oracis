@@ -189,8 +189,6 @@ void NdsTimerControl::advance_core_cycles(
         bus_cycles = (cycles >> 1u) + (half_total >> 1u);
         arm9_core_cycle_remainder_ =
             static_cast<uint8_t>(half_total & UINT64_C(1));
-    } else {
-        arm9_core_cycle_remainder_ = 0u;
     }
 
     if (bus_cycles != 0u) advance_bus_cycles(cpu, bus_cycles);

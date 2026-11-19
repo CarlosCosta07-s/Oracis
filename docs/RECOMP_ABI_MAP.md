@@ -149,9 +149,9 @@ Também ficam fora da integração:
 
 ## 10. Testes registrados
 
-O CMake registra vinte e dois testes C99/C++20 para o runtime e ABI, incluindo o mapa NDS retail, os quatro modos de WRAMCNT, IME/IE/IF e timers. A CI da revisão `854a6f7` passou em desktop Linux, Android ARM64, NDSRecomp e 22/22 testes de runtime. Esta revisão adiciona o observador de clock e a conversão ARM9/ARM7. Os alvos registrados são: RAM guest; mapa NDS retail; WRAMCNT MMIO; controlador IME/IE/IF; TM0–TM3, prescalers, cascata e rota bus_*; ponte C bus_* e validação por GuestMemory; layouts ABI C99/C++20; bancos ARM e modos; CPSR/SPSR; exceções; flags; acesso ao User bank e CLZ; pilha de retorno guest; controle de fatias; registry de dispatch; runtime dispatch C++ e ABI dispatch C99; ponte ARM9/ARM7 C/C++; especialização estática ARM9 e ARM7.
+O CMake registra vinte e dois testes C99/C++20 para o runtime e ABI, incluindo o mapa NDS retail, os quatro modos de WRAMCNT, IME/IE/IF e timers. A CI da revisão `bc3b2ed` passou em desktop Linux, Android ARM64, NDSRecomp e 22/22 testes de runtime. Esta revisão adiciona cobertura para intercalação ARM9/ARM7 sem perda da fase do timer. Os alvos registrados são: RAM guest; mapa NDS retail; WRAMCNT MMIO; controlador IME/IE/IF; TM0–TM3, prescalers, cascata e rota bus_*; ponte C bus_* e validação por GuestMemory; layouts ABI C99/C++20; bancos ARM e modos; CPSR/SPSR; exceções; flags; acesso ao User bank e CLZ; pilha de retorno guest; controle de fatias; registry de dispatch; runtime dispatch C++ e ABI dispatch C99; ponte ARM9/ARM7 C/C++; especialização estática ARM9 e ARM7.
 
-A execução completa da CI na revisão `854a6f7` passou nos quatro jobs e em 22/22 testes de runtime. A revisão atual integra o avanço dos timers ao observador de ciclos por CPU. O CMake também inclui as bibliotecas de produto independentemente de `BUILD_TESTING`, mas o build completo com SDL3 e a ligação de bancos NDSRecomp continuam pendentes.
+A execução completa da CI na revisão `bc3b2ed` passou nos quatro jobs e em 22/22 testes de runtime. A revisão atual corrige a preservação da meia-fase ARM9 ao intercalar ARM7 e adiciona regressão específica. O CMake também inclui as bibliotecas de produto independentemente de `BUILD_TESTING`, mas o build completo com SDL3 e a ligação de bancos NDSRecomp continuam pendentes.
 
 ## 11. Prova de integração ainda exigida
 

@@ -200,11 +200,27 @@ int main()
     if (bus_read_u16(timer0_low) != 0xFFFFu ||
         bus_read_u32(NdsInterruptControl::IfAddress) != 0u)
         return fail("one ARM9 core cycle incorrectly advanced the bus timer");
+
+    /*
+     * Interleave the other CPU while ARM9 has a half-tick pending. ARM7 must
+     * advance independently and must not discard ARM9's fractional phase.
+     */
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM7))
+        return fail("ARM7 select failed during ARM9 fractional-cycle test");
+    bus_write_u16(timer0_high, 0u);
+    bus_write_u32(timer0_low, UINT32_C(0x0080BEE0));
+    runtime_tick(1u);
+    if (bus_read_u16(timer0_low) != 0xBEE1u ||
+        bus_read_u32(NdsInterruptControl::IfAddress) != 0u)
+        return fail("ARM7 tick failed during ARM9 fractional-cycle test");
+
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9))
+        return fail("ARM9 reselection failed during fractional-cycle test");
     runtime_tick(1u);
     if (bus_read_u16(timer0_low) != 0xFFFFu ||
         (bus_read_u32(NdsInterruptControl::IfAddress) & timer0_irq) == 0u ||
         !interrupts.irq_asserted(NDS_ARM9))
-        return fail("two ARM9 core cycles did not advance a peripheral tick");
+        return fail("ARM9 half-tick was lost across ARM7 execution");
 
     if (!oracis_arm_runtime_select_cpu(NDS_ARM7))
         return fail("ARM7 select failed for timer bus test");

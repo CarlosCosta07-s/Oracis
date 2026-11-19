@@ -9,7 +9,7 @@
 
 <p align="center"><strong>Reconstruindo Sinnoh para além do hardware original.</strong></p>
 
-> **Status: runtime ARM, RAM guest, WRAMCNT, controlador MMIO IME/IE/IF e dispatch estático inicial implementados; integração com bancos reais pendente.** A CI confirmou desktop Linux, Android ARM64, NDSRecomp estático e 21/21 testes de runtime na revisão `480651a`; a camada de timers está em validação.
+> **Status: runtime ARM, RAM guest, WRAMCNT, controlador MMIO IME/IE/IF e dispatch estático inicial implementados; integração com bancos reais pendente.** A CI confirmou desktop Linux, Android ARM64, NDSRecomp estático e 22/22 testes de runtime na revisão `bc3b2ed`; timers avançam via observador de `runtime_tick`.
 
 ## O projeto
 
@@ -49,7 +49,7 @@ O Oracis já contém:
 - contadores de ciclos e controle cooperativo de fatias ARM9/ARM7 por orçamento, yield e unwind;
 - entradas `runtime_link_*` encaminhadas ao dispatcher normal; otimização de slots e folhas inline ainda desabilitada.
 
-O CMake registra vinte e dois testes CTest, incluindo mapa NDS retail, Shared WRAM, WRAMCNT, IME/IE/IF e timers. A CI da revisão `480651a` passou em desktop Linux, Android ARM64, NDSRecomp e 21/21 testes; o novo teste dos timers aguarda execução. O mapa cobre RAM principal/WRAM e permite reconfigurar as janelas Shared WRAM por API. Ainda faltam WRAMSTAT, ordenação geral de eventos e entrega de IRQ pelo scheduler, demais handlers MMIO, DMA, IPC, CP15/TCM, BIOS, VRAM, OAM, temporização de memória, SWI e serviços NitroSDK para executar bancos reais.
+O CMake registra vinte e dois testes CTest, incluindo mapa NDS retail, Shared WRAM, WRAMCNT, IME/IE/IF e timers. A CI da revisão `bc3b2ed` passou em desktop Linux, Android ARM64, NDSRecomp e 22/22 testes. Ainda faltam WRAMSTAT, agregação/ordenação geral de eventos, entrega de IRQ pelo scheduler, demais handlers MMIO, DMA, IPC, CP15/TCM, BIOS, VRAM, OAM, temporização de memória, SWI e serviços NitroSDK para executar bancos reais. O mapa cobre RAM principal/WRAM e permite reconfigurar as janelas Shared WRAM por API. Ainda faltam WRAMSTAT, ordenação geral de eventos e entrega de IRQ pelo scheduler, demais handlers MMIO, DMA, IPC, CP15/TCM, BIOS, VRAM, OAM, temporização de memória, SWI e serviços NitroSDK para executar bancos reais.
 
 A extração local da USA Rev 1 teve offsets, limites e hashes ARM9/ARM7 verificados. A execução integral do extrator versionado e a emissão de bancos continuam pendentes.
 

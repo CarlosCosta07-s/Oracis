@@ -96,7 +96,7 @@ O registro baixo lê o contador atual e recebe a recarga em escritas. A recarga 
 
 Escrita de 32 bits iniciada no registro baixo atualiza recarga e controle na mesma operação, preservando o caso em que reload e start são escritos juntos. As operações de 16 bits também são suportadas; outras larguras falham explicitamente.
 
-`advance_bus_cycles(cpu, n)` recebe ciclos brutos do barramento NDS. Os periféricos usam 33,513982 MHz; `advance_core_cycles(cpu, n)` converte os custos enviados por `runtime_tick`: ARM9 usa dois ciclos de core por tick de barramento e acumula a meia-fase entre instruções; ARM7 usa um para um. Quando vinculado ao barramento, o timer registra o observador e avança em cada limite de instrução. Isso alimenta os contadores, mas não implementa a ordenação geral de eventos nem entrega automaticamente a exceção IRQ.
+`advance_bus_cycles(cpu, n)` recebe ciclos brutos do barramento NDS. `advance_core_cycles(cpu, n)` converte os custos enviados por `runtime_tick`: ARM9 usa dois ciclos de core por tick de barramento e acumula a meia-fase entre instruções; ARM7 usa um para um. A meia-fase ARM9 permanece intacta enquanto ARM7 executa. Quando vinculado ao barramento, o timer registra o único observador de ciclos disponível e avança em cada limite de instrução. Outros dispositivos ainda precisarão de um agregador de eventos. Isso não implementa a ordenação geral de eventos nem entrega automaticamente a exceção IRQ.
 
 
 ## 4. API principal do GuestMemory
@@ -179,4 +179,4 @@ O CMake registra testes separados para:
 - leitura/escrita de `WRAMCNT` pelo ARM9 via `bus_read_u8`/`bus_write_u8`, rejeição de acesso pelo ARM7 e ligação/desligamento do dispositivo;
 - `IME`/`IE`/`IF` independentes por CPU, IME master gate, máscara IE, IF write-one-to-clear, requests latcheados e roteamento por `bus_read_u32`/`bus_write_u32`.
 
-**Na revisão d7e9e23, a CI confirmou os 20 testes existentes e todos passaram.** O teste do controlador de interrupções é o 21º alvo; sua primeira execução está na CI da revisão atual.
+**Na revisão `bc3b2ed`, a CI passou nos quatro jobs**, incluindo desktop Linux, Android ARM64, NDSRecomp e 22/22 testes de runtime. A revisão seguinte acrescenta a regressão que intercalará ARM9/ARM7 enquanto a meia-fase ARM9 está pendente.
