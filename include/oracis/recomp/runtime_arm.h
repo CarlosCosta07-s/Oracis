@@ -186,6 +186,9 @@ int runtime_inline_leaf_admit(const NdsLinkSlot *slot, void (*expected)(void));
 void runtime_call_push_return(uint32_t return_pc);
 int runtime_call_should_return(uint32_t target_pc);
 void runtime_call_cancel_return(uint32_t return_pc);
+uint32_t runtime_call_stack_depth(void);
+const uint32_t *runtime_call_stack_data(void);
+void runtime_call_stack_restore(const uint32_t *entries, uint32_t depth);
 void runtime_live_transfer(uint32_t source_pc, uint32_t target_pc, uint32_t transfer_type);
 void runtime_insn_slow(void);
 void runtime_trace_event(uint32_t kind, uint32_t pc, uint32_t addr,
