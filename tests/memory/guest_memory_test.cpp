@@ -30,6 +30,13 @@ int main()
     if (memory.region_count() != 1u)
         return fail("region count did not increase");
 
+    if (memory.map_ram(
+            0x04000000u, 0x100u,
+            static_cast<uint8_t>(oracis::memory::Readable),
+            "main RAM") != Status::InvalidRegion) {
+        return fail("duplicate GuestMemory region name was accepted");
+    }
+
     /*
      * CPU-disjoint regions may occupy the same guest address, as happens
      * when ARM9 and ARM7 select different Shared WRAM banks.
