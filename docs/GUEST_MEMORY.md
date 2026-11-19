@@ -65,7 +65,7 @@ A API recebe explicitamente um valor de `SharedWramMode`, correspondente aos bit
 
 Os bancos de 16 KB são espelhados pelas janelas de endereço documentadas: janela ARM9 de 16 MB e janela ARM7 de 8 MB, com a faixa privada ARM7 começando em `0x03800000`. Os modos 1 e 2 são modelados com regiões sobrepostas no mesmo endereço virtual e máscaras de CPU disjuntas.
 
-No modo 0, o mapa não deixa o espaço ARM7 vazio: conforme o comportamento documentado de desalocação, a janela ARM7 espelha a WRAM privada de 64 KB em `0x03800000`. A instalação inicial recebe o modo explicitamente. `NdsRetailRamMap::set_shared_wram_mode()` substitui as janelas ARM9/ARM7 sem remover o backing dos dois bancos de 16 KB nem perder seu conteúdo. `NdsWramControl` conecta essa API ao endereço `0x04000247`: o ARM9 pode ler e escrever apenas 8 bits; a escrita usa os bits 0–1 e ignora os bits reservados 2–7. A escrita ARM7 é rejeitada. `WRAMSTAT` em `0x04000241` é um registrador distinto, somente leitura no ARM7; sua semântica de valor ainda não está implementada. No mapa ARM9, `0x04000241` pertence a `VRAMCNT_B`, não a `WRAMSTAT`.
+No modo 0, o mapa não deixa o espaço ARM7 vazio: conforme o comportamento documentado de desalocação, a janela ARM7 espelha a WRAM privada de 64 KB em `0x03800000`. A instalação inicial recebe o modo explicitamente. `NdsRetailRamMap::install()` pré-mapeia as sete visões possíveis. `set_shared_wram_mode()` troca de forma atômica as máscaras de CPU dessas regiões preexistentes; nenhuma janela é desalocada ou recriada, e os backings dos dois bancos de 16 KB permanecem intactos. `NdsWramControl` conecta essa API ao endereço `0x04000247`: o ARM9 pode ler e escrever apenas 8 bits; a escrita usa os bits 0–1 e ignora os bits reservados 2–7. A escrita ARM7 é rejeitada. `WRAMSTAT` em `0x04000241` é um registrador distinto, somente leitura no ARM7; sua semântica de valor ainda não está implementada. No mapa ARM9, `0x04000241` pertence a `VRAMCNT_B`, não a `WRAMSTAT`.
 
 Os bytes físicos das duas banks são armazenados em um backing interno com `CpuAccessNone`; os processadores acessam somente os mirrors que o modo WRAMCNT lhes atribui.
 
@@ -79,7 +79,8 @@ Implementação: `src/memory/guest_memory.cpp`
 - `map_alias(alias_base, canonical_base, size, name, cpu_access)`: cria uma janela linear para o mesmo backing.
 - `map_mirror(alias_base, canonical_base, period, window_size, name, cpu_access)`: cria uma janela maior que repete um backing físico de período menor.
 - `unmap_region(name)`: remove uma janela guest pelo nome, mantendo vivos backings ainda referenciados por outros aliases.
-- `NdsRetailRamMap::set_shared_wram_mode(memory, mode)`: recria somente as janelas Shared WRAM e preserva os dois bancos físicos.
+- `update_cpu_access(updates, count)`: valida o mapa resultante e troca atomicamente as máscaras de visibilidade de várias regiões existentes, sem alocação.
+- `NdsRetailRamMap::set_shared_wram_mode(memory, mode)`: troca atomicamente a visibilidade das sete janelas Shared WRAM pré-mapeadas e preserva os bancos físicos.
 - `NdsWramControl::install()`: instala o mapa inicial e mantém o modo atual do dispositivo.
 - `NdsWramControl::read/write(cpu, address, width, value)`: implementa WRAMCNT para o ARM9; outros endereços não são consumidos por esse dispositivo.
 - `oracis_bus_bind_wram_control()` / `oracis_bus_unbind_wram_control()`: conecta e desconecta o dispositivo ao barramento C.
