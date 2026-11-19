@@ -102,8 +102,10 @@ int main()
     if (oracis_arm_runtime_current_state() != machine.cpu_state(NDS_ARM9) ||
         g_nds_active != NDS_ARM9 ||
         machine.cpu_state(NDS_ARM9)->cpsr != ORACIS_ARM_MODE_SYSTEM ||
-        machine.cpu_state(NDS_ARM7)->cpsr != ORACIS_ARM_MODE_SYSTEM) {
-        return fail("machine did not bind and initialize both CPU states");
+        machine.cpu_state(NDS_ARM7)->cpsr != ORACIS_ARM_MODE_SYSTEM ||
+        machine.exception_vector_base(NDS_ARM9) != UINT32_C(0xFFFF0000) ||
+        machine.exception_vector_base(NDS_ARM7) != 0u) {
+        return fail("machine did not bind CPU states or apply NDS reset vector bases");
     }
 
     if (machine.guest_memory().region_count() == 0u ||
@@ -783,7 +785,7 @@ int main()
     uint32_t unsupported_cp15_control = 1u;
     if (oracis_arm_runtime_coprocessor_transfer(
             1u, 15u, 0u, 1u, 0u, 0u, &unsupported_cp15_control) != 0 ||
-        machine.exception_vector_base(NDS_ARM9) != 0u) {
+        machine.exception_vector_base(NDS_ARM9) != UINT32_C(0xFFFF0000)) {
         return fail("unsupported ARM9 CP15 MPU/cache control bits were silently accepted");
     }
     arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
