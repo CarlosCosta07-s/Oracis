@@ -49,6 +49,6 @@ O round só alterna sua CPU inicial depois de terminar com sucesso.
 
 ## Limites atuais
 
-O SDL host agora inicializa e encerra `NdsMachine` por meio da ponte C em `oracis/host/runtime_bridge.h`, e o input do teclado é encaminhado ao dispositivo vinculado. O host ainda não chama `run_dual_core_round()`. Os bancos reais ARM9/ARM7 ainda não foram emitidos pelo pipeline NDSRecomp. A implementação também ainda não ordena eventos DS concorrentes nem substitui a necessidade de integrar DMA, IPC, vídeo, áudio e tempos de acesso ao barramento.
+O SDL host agora inicializa e encerra `NdsMachine` por meio da ponte C em `oracis/host/runtime_bridge.h`, e o input do teclado é encaminhado ao dispositivo vinculado. A ponte oferece `oracis_host_runtime_run_round()`, que só executa quando ambos os bancos estão registrados e aceita um provider C para LR/base IRQ. O loop SDL ainda não chama essa função porque os bancos reais e o provider arquitetural não estão prontos. Os bancos reais ARM9/ARM7 ainda não foram emitidos pelo pipeline NDSRecomp. A implementação também ainda não ordena eventos DS concorrentes nem substitui a necessidade de integrar DMA, IPC, vídeo, áudio e tempos de acesso ao barramento.
 
 Os testes de `nds_machine_test` exercitam a razão 2:1, yield antecipado, avanço ocioso durante HALT, despertar/entrega IRQ ARM7 e o adaptador `runtime_dispatch()` usando bancos estáticos sintéticos. Esses testes precisam passar na CI antes de este marco ser considerado validado.
