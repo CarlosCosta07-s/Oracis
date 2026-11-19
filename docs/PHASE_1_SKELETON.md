@@ -63,6 +63,6 @@ Esse cross-build produz o binário nativo, não um APK instalável. O projeto Gr
 2. CI compila `libmain.so` para Android `arm64-v8a`.
 3. Janela desktop mostra as duas áreas com proporção lógica preservada ao redimensionar.
 4. APK de teste inicia em Android ARM64 e mostra as duas áreas.
-5. O loop trata fechamento, encerramento e tecla Escape sem travar.
+5. O loop trata eventos de fechamento e tecla Escape sem travar. O ciclo de vida Android (pausa, retomada, baixa memória e encerramento via event watch) será validado quando o projeto APK/Activity for integrado.
 
 Até que os resultados estejam disponíveis, esta etapa permanece **em implementação**.
