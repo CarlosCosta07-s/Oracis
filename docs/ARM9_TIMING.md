@@ -1,6 +1,6 @@
-# Timing parcial de fetch e refill do Nintendo DS
+# Timing parcial de fetch, dados e refill do Nintendo DS
 
-**Estado:** o timing implementado cobre fetch uncached ARM9 e refill ARM9/ARM7 em um subconjunto de regiões com custos publicados. Não é o modelo completo do Nintendo DS e não permite executar o jogo inteiro.
+**Estado:** o timing implementado cobre fetch uncached ARM9, custos-base NDS/DATA em classes estáticas e refill ARM9/ARM7 num subconjunto de regiões documentadas. Cache, contenção e wait states dinâmicos continuam fora do modelo; isto não permite executar o jogo inteiro.
 
 ## Contrato da ABI
 
@@ -53,10 +53,29 @@ O ARM7TDMI refaz o pipeline por dois fetches sequenciais após a instrução de 
 
 Os custos por fetch vêm da tabela NDS7/CODE: Main RAM S32=2/S16=1; WRAM/BIOS/I/O/OAM S32=S16=1; Palette/VRAM S32=2/S16=1. O provider classifica cada fetch isoladamente, inclusive quando cruza a fronteira entre Main RAM e WRAM. Wi-Fi e Gamecard não são aceitos porque seus wait states dependem de configuração externa.
 
+## Timing de acesso a dados
+
+`runtime_mem_cycles(addr,width,sequential)` usa as colunas N32/S32/N16/S16 da tabela NDS/DATA. `width` aceita 1, 2 ou 4 bytes: 8/16-bit usam N16/S16 e 32-bit usam N32/S32. Os custos ARM9 são convertidos do barramento de 33 MHz para ciclos core de 66 MHz; ARM7 já opera na escala de 33 MHz.
+
+| CPU / região | N32 | S32 | N16 | S16 |
+|---|---:|---:|---:|---:|
+| ARM7 Main RAM | 10 | 2 | 9 | 1 |
+| ARM9 Main RAM | 20 | 4 | 18 | 2 |
+| ARM7 WRAM/BIOS/I/O/OAM | 1 | 1 | 1 | 1 |
+| ARM9 WRAM/BIOS/I/O/OAM | 8 | 2 | 8 | 2 |
+| ARM7 Palette/VRAM | não estabelecido | 2 | 1 | 1 |
+| ARM9 Palette/VRAM | 10 | 4 | 8 | 2 |
+| ARM9 ITCM/DTCM normal | 1 | 1 | 1 | 1 |
+
+A tabela usa os custos-base documentados de NDS7/DATA e NDS9/DATA. Main RAM abrange a janela guest `0x02000000–0x02FFFFFF`; WRAM, BIOS, a janela de I/O suportada (`0x04000000–0x04000FFF`) e OAM usam as classes de barramento de 32-bit; Palette/VRAM usa sua classe de 16-bit. TCM normal custa um ciclo core ARM9 por acesso.
+
+**Limitação da ABI:** o contrato fixado de `runtime_mem_cycles` só recebe endereço, largura e flag sequencial; não informa se a operação é load ou store. A implementação aplica os custos-base DATA uniformemente e não tenta inventar diferenças de write-buffer ou de direção. Quando ITCM/DTCM está em load mode, leituras são encaminhadas à memória externa enquanto stores continuam alimentando o TCM privado; como a ABI não informa direção, qualquer acesso na janela TCM em load mode falha explicitamente. O snapshot de regiões e modos CP15 é publicado pela `NdsMachine` a cada alteração em Control/c9.
+
+Gamecard/GBA slot e Wi-Fi dependem de EXMEMCNT/WIFIWAITCNT e continuam fail-closed. O N32 não sequencial ARM7 de VRAM também permanece bloqueado porque o valor da tabela é incerto. Contenção com PPU, wait states de cache e write-buffer não estão modelados. Isto é timing-base por classe de região, não um modelo de arbitragem global do barramento.
+
 ## Limites deliberados
 
 Os seguintes helpers continuam fail-closed:
-- `runtime_mem_cycles`: custo de leitura/escrita de dados por região e direção;
 - `runtime_mul_cycles`: multiplicação e early termination;
 - `arm7_cycle_combine`: combinação de fetch/dados/ciclos internos ARM7;
 - fetch de código em regiões cacheadas e Gamecard, além de wait states dinâmicos não representados no modelo atual.
@@ -67,4 +86,4 @@ O timing parcial não declara precisão temporal global, boot funcional ou compa
 
 - ARM946E-S Technical Reference Manual, branch/PC write e fetch pipeline: https://documentation-service.arm.com/static/5e8e3ee588295d1e18d353cf
 - ARM7TDMI Technical Reference Manual, branch, branch-and-exchange e ciclos sequenciais: https://documentation-service.arm.com/static/5e8e1323fd977155116a3129
-- GBATEK, Nintendo DS Memory Timings, clocks e NDS7/NDS9 CODE tables: https://problemkaputt.de/gbatek.htm
+- GBATEK, Nintendo DS Memory Timings, clocks e NDS7/NDS9 CODE/DATA tables: https://problemkaputt.de/gbatek.htm
