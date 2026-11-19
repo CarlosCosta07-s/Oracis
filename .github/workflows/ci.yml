@@ -21,7 +21,13 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install --yes clang ninja-build
+          sudo apt-get install --yes clang ninja-build python3
+
+      - name: Validate Python tooling
+        run: |
+          python3 -m py_compile \
+            tools/ndsrecomp/build_recompiler.py \
+            tools/ndsrecomp/extract_nds_programs.py
 
       - name: Configure
         run: |
@@ -32,6 +38,24 @@ jobs:
 
       - name: Build
         run: cmake --build build --parallel
+
+  ndsrecomp-static-compiler:
+    name: Pinned NDSRecomp static compiler (no runner)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out Oracis
+        uses: actions/checkout@v4
+
+      - name: Install compiler build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang ninja-build python3
+
+      - name: Build only nds_recompile
+        run: |
+          python3 tools/ndsrecomp/build_recompiler.py \
+            --source "$RUNNER_TEMP/ndsrecomp-source" \
+            --build-dir "$RUNNER_TEMP/ndsrecomp-build"
 
   android-arm64:
     name: Android ARM64 native library
