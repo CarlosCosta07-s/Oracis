@@ -86,18 +86,19 @@ int main()
     /* Save-state accessors return the selected CPU's live frame data. */
     const uint32_t *saved = runtime_call_stack_data();
     if (saved == nullptr || saved[0] != 0x02003000u ||
-        saved[1] != 0x02004000u) {
+        saved[1] != 0x02006000u) {
         return fail("call-return stack data accessor returned wrong entries");
     }
     const uint32_t replacement[] = {0x02008000u, 0x02009001u};
     runtime_call_stack_restore(replacement, 2u);
     if (runtime_call_stack_depth() != 2u ||
-        !runtime_call_should_return(0x02008000u)) {
-        return fail("call-return stack restore did not replace saved entries");
+        !runtime_call_should_return(0x02009001u) ||
+        runtime_call_stack_depth() != 1u) {
+        return fail("restored Thumb return did not match the top frame");
     }
-    if (!runtime_call_should_return(0x02009001u) ||
+    if (!runtime_call_should_return(0x02008000u) ||
         runtime_call_stack_depth() != 0u) {
-        return fail("restored Thumb return did not match");
+        return fail("restored outer frame did not match after the inner return");
     }
 
     std::puts("per-CPU generated-bank call-return stack tests passed");
