@@ -45,7 +45,7 @@ O contrato de tipos compartilhados do núcleo ARM declara um estado POD com os s
 
 As seis posições bancadas correspondem a User, FIQ, IRQ, Supervisor, Abort e Undefined. As constantes CPSR incluem N/Z/C/V/Q, I/F e T.
 
-O Oracis implementará o layout necessário em um header próprio sob `runtime/abi/`, com tamanhos fixos e asserts de tamanho/offset. O header terá os nomes de tipo/campos que o código gerado precisa, mas não conterá a implementação do runtime upstream. A definição deverá preservar os avisos MIT do contrato de tipos caso o conteúdo do header seja reutilizado diretamente; preferimos reescrever a declaração a partir dos requisitos de ABI e documentar a compatibilidade.
+O Oracis começou a implementar o layout em `include/oracis/recomp/arm_cpu_state.h`. O header define o POD `ArmCpuState`, os seis índices bancados e os bits CPSR, com asserts C99 de tamanho/offset. A definição foi escrita no Oracis e não inclui implementação do runtime upstream. O layout foi comparado com o contrato de tipos MIT do núcleo ARM compartilhado para garantir compatibilidade.
 
 ## 4. Famílias de helper
 
@@ -100,4 +100,4 @@ A ABI não será considerada concluída com base apenas na leitura do header. El
 5. executar testes unitários de estado/flags, memória, dispatch e transferências ARM/Thumb;
 6. provar que um endereço sem banco gera falha explícita, sem execução guest interpretada.
 
-Até essa prova existir, esta página é um mapa técnico preliminar e a ABI Oracis permanece em implementação.
+A estrutura `ArmCpuState` já compila em C99 e C++20 e seus testes de layout passam. Até a emissão/compilação de bancos reais existir, esta página continua sendo um mapa técnico preliminar e a ABI de funções Oracis permanece em implementação.
