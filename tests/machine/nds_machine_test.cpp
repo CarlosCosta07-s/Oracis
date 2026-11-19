@@ -642,6 +642,21 @@ int main()
         return fail("live ARM9 code and dependency bytes did not validate");
     }
 
+    /* The registry CPU must match the runtime-selected CPU before validation. */
+    arm7->cpsr = ORACIS_ARM_MODE_SYSTEM | CPSR_T_BIT;
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM7) ||
+        oracis_static_dispatch_lookup(
+            NDS_ARM9, validated_arm9_pc, arm9->cpsr,
+            &validation_status, &validation_candidates,
+            &inactive_candidate) != nullptr ||
+        validation_status != ORACIS_DISPATCH_LOOKUP_MISS ||
+        inactive_candidate != validated_arm9_bank) {
+        return fail("ARM9 bank validation was allowed while ARM7 was selected");
+    }
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 runtime state could not be reselected after CPU mismatch test");
+    }
+
     const uint8_t altered_dependency[] = {
         0x11u, 0x22u, 0x99u, 0x44u
     };
