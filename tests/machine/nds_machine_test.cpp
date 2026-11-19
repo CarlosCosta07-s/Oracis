@@ -104,6 +104,7 @@ int main()
         machine.cpu_state(NDS_ARM9)->cpsr != ORACIS_ARM_MODE_SYSTEM ||
         machine.cpu_state(NDS_ARM7)->cpsr != ORACIS_ARM_MODE_SYSTEM ||
         machine.exception_vector_base(NDS_ARM9) != UINT32_C(0xFFFF0000) ||
+        runtime_coproc_read(15u, 0u, 1u, 0u, 0u) != (UINT32_C(1) << 13u) ||
         machine.exception_vector_base(NDS_ARM7) != 0u) {
         return fail("machine did not bind CPU states or apply NDS reset vector bases");
     }
