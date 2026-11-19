@@ -1,6 +1,6 @@
 # Mapa de desenvolvimento do Oracis
 
-Este roteiro segue o guia de port nativo fornecido para o projeto. Cada etapa deve produzir uma entrega pequena, compilável, executável e verificável. Nenhuma fase será considerada concluída apenas porque stubs ou interfaces foram criados.
+Este roteiro segue o guia de desenvolvimento fornecido para o projeto. Cada etapa deve produzir uma entrega pequena, compilável, executável e verificável. Nenhuma fase será considerada concluída apenas porque stubs ou interfaces foram criados.
 
 ## Regras permanentes
 
@@ -14,20 +14,20 @@ Este roteiro segue o guia de port nativo fornecido para o projeto. Cada etapa de
 
 ## Fases
 
-| Fase | Área | Entrega principal |
-|---:|---|---|
-| 0 | Baseline | Estado, revisão/região, build e direitos de reutilização identificados |
-| 1 | Esqueleto multiplataforma | Janela SDL3 com duas telas de teste 256 × 192 no desktop e Android |
-| 2 | Compilação nativa do jogo | Código C compilando e linkando para x86-64 e ARM64, com stubs explícitos para serviços ainda ausentes |
-| 3 | NitroSDK / HLE | Serviços OS, MI/DMA/MATH, FS/NitroFS, CARD, PAD/TP/RTC e stubs offline |
-| 4 | Boot visível | Primeiro logo/aviso e, depois, tela de título |
-| 5 | Vídeo 2D | VRAM, paletas, OAM, BGs, sprites, janelas, blending e efeitos por scanline |
-| 6 | Vídeo 3D | Geometry Engine, transformações, iluminação, atributos, texturas, transparência, fog e rasterização |
-| 7 | Áudio | SDAT, SSEQ/SBNK/SWAR/STRM, canais e mixagem |
-| 8 | Entrada e UX | Teclado, gamepad, toque, controles virtuais e configurações |
-| 9 | Testes automatizados | Input movies, comparações de frames, testes unitários e sanitizadores |
-| 10 | Performance mobile | Profiling, batching, cache e meta de 60 FPS em aparelho intermediário |
-| 11 | Empacotamento | Windows, Linux, macOS, Android e posteriormente iOS |
+| Fase | Área | Entrega principal | Estado |
+|---:|---|---|---|
+| 0 | Baseline | Estado, revisão/região, build e direitos de reutilização identificados | Revisão USA Rev 1 identificada; licença/build upstream ainda pendentes |
+| 1 | Esqueleto multiplataforma | Janela SDL3 com duas telas de teste 256 × 192 no desktop e Android | Em implementação; código e CI iniciais adicionados, validação pendente |
+| 2 | Compilação nativa do jogo | Código C compilando e linkando para x86-64 e ARM64, com stubs explícitos para serviços ainda ausentes | Bloqueada até esclarecer reutilização/licença |
+| 3 | NitroSDK / HLE | Serviços OS, MI/DMA/MATH, FS/NitroFS, CARD, PAD/TP/RTC e stubs offline | Não iniciada |
+| 4 | Boot visível | Primeiro logo/aviso e, depois, tela de título | Não iniciada |
+| 5 | Vídeo 2D | VRAM, paletas, OAM, BGs, sprites, janelas, blending e efeitos por scanline | Não iniciada |
+| 6 | Vídeo 3D | Geometry Engine, transformações, iluminação, atributos, texturas, transparência, fog e rasterização | Não iniciada |
+| 7 | Áudio | SDAT, SSEQ/SBNK/SWAR/STRM, canais e mixagem | Não iniciada |
+| 8 | Entrada e UX | Teclado, gamepad, toque, controles virtuais e configurações | Não iniciada |
+| 9 | Testes automatizados | Input movies, comparações de frames, testes unitários e sanitizadores | Não iniciada |
+| 10 | Performance mobile | Profiling, batching, cache e meta de 60 FPS em aparelho intermediário | Não iniciada |
+| 11 | Empacotamento | Windows, Linux, macOS, Android e posteriormente iOS | Não iniciada |
 
 ## Ordem interna da camada NitroSDK
 
