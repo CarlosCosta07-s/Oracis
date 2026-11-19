@@ -20,6 +20,9 @@
 #include "oracis/memory/nds_timer_control.hpp"
 #include "oracis/memory/nds_wram_control.hpp"
 
+/* Forward-declared here to keep the machine header independent of runtime_arm.h. */
+struct NdsStaticValidation;
+
 namespace oracis::machine {
 
 enum class NdsCpuRunState : uint8_t {
