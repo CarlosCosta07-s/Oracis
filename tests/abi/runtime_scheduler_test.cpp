@@ -33,8 +33,9 @@ int main()
         return fail("ARM9 yielded before its cycle budget");
     runtime_tick(6u);
     if (!runtime_should_yield() || !runtime_slice_yield() ||
+        !runtime_unwinding() ||
         oracis_scheduler_cycle_count(NDS_ARM9) != 10u) {
-        return fail("ARM9 did not yield at the configured cycle deadline");
+        return fail("ARM9 did not enter unwind after its cycle deadline");
     }
 
     if (!oracis_arm_runtime_select_cpu(NDS_ARM7))
@@ -42,9 +43,9 @@ int main()
     if (!oracis_scheduler_begin_slice(NDS_ARM7, 5u))
         return fail("ARM7 slice configuration failed");
     runtime_tick(5u);
-    if (!runtime_should_yield() ||
+    if (!runtime_should_yield() || !runtime_unwinding() ||
         oracis_scheduler_cycle_count(NDS_ARM7) != 5u) {
-        return fail("ARM7 cycle budget did not expire");
+        return fail("ARM7 did not enter unwind when its budget expired");
     }
 
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9))
@@ -82,13 +83,17 @@ int main()
     }
 
     oracis_scheduler_end_slice(NDS_ARM9);
-    if (runtime_should_yield())
-        return fail("end_slice did not consume the slice yield request");
+    if (runtime_should_yield() || runtime_unwinding())
+        return fail("end_slice did not clear yield and unwind after host return");
 
     if (!oracis_scheduler_begin_slice(NDS_ARM9, 0u) ||
-        !runtime_should_yield()) {
-        return fail("zero-budget slice must yield immediately");
+        !runtime_should_yield() || !runtime_unwinding()) {
+        return fail("zero-budget slice must yield and mark stack unwind immediately");
     }
+    oracis_scheduler_end_slice(NDS_ARM9);
+    if (runtime_unwinding())
+        return fail("zero-budget slice left the CPU in unwind state after end");
+
     if (oracis_scheduler_begin_slice(static_cast<NdsCpu>(9), 1u) ||
         oracis_scheduler_request_yield(static_cast<NdsCpu>(9)) ||
         oracis_scheduler_set_unwinding(static_cast<NdsCpu>(9), 1)) {
