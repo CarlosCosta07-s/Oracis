@@ -106,6 +106,7 @@ extern "C" int oracis_host_runtime_run_round(
     auto &machine = host_machine();
     if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
     if (!has_both_program_banks()) return ORACIS_HOST_RUNTIME_NO_PROGRAM_BANKS;
+    if (!machine.program_loaded()) return ORACIS_HOST_RUNTIME_NO_PROGRAM_LOADED;
 
     oracis::machine::NdsMachineStatus status;
     if (irq_context == nullptr) {
