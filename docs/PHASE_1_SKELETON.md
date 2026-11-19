@@ -32,7 +32,7 @@ Por padrão, o checkout esparso ficará em `../ndsrecomp` e a compilação em `.
 python tools/ndsrecomp/extract_nds_programs.py "/caminho/Pokemon - Platinum Version (USA) (Rev 1).nds"
 ```
 
-A execução local conferiu o SHA-1 da ROM e gerou configurações TOML válidas. Os metadados e hashes dos segmentos estão em [NDSRECOMP_INTEGRATION.md](NDSRECOMP_INTEGRATION.md). Os binários extraídos permanecem em `.oracis/local/`, fora do Git.
+A validação local da cópia conferiu SHA-1, offsets, limites e hashes dos dois segmentos; uma rotina de trabalho também produziu TOMLs válidos. O script versionado ainda aguarda sua primeira execução integral após publicação. Os metadados e hashes estão em [NDSRECOMP_INTEGRATION.md](NDSRECOMP_INTEGRATION.md). Os binários extraídos permanecem fora do Git.
 
 ## Host SDL3
 
