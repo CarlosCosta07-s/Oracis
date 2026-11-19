@@ -129,17 +129,46 @@ O extrator aceita somente o SHA-1 USA Rev 1 esperado, valida os limites dos dois
 
 Requer Python 3.10 ou mais recente. Todos os arquivos de saída são locais e ignorados pelo Git.
 
-## 9. Validação ainda pendente
+## 9. Resultados de validação em 19/11/2026
 
-A rotina local de extração de trabalho validou o SHA-1 da ROM, os limites/overlap dos segmentos, os hashes de ARM9/ARM7 e a estrutura dos TOMLs. O script versionado ainda não foi executado integralmente depois de publicado; a CI fará pelo menos a validação de sintaxe Python. **Ainda não validado para o jogo real:** executar o compilador com os segmentos ARM9/ARM7 extraídos da cópia USA Rev 1, emitir os bancos comerciais e compilá-los com a ABI Oracis. O teste sintético comprova somente o contrato do extrator com o compilador.
+A revisão `f24aa5ea201de866d8a574183647f399b14c79c5` passou na execução completa da CI:
 
-## 10. Próximos marcos
+- Desktop Linux x86-64: configuração e build bem-sucedidos; **26/26 CTests** aprovados.
+- Integração opcional de bancos: os dois objetos de bancos sintéticos foram ligados e o teste de ciclo de registro/remoção passou (**1/1**).
+- Runtime ARM sem SDL3: build e testes aprovados.
+- Android ARM64: biblioteca nativa compilada.
+- NDSRecomp estático: o alvo `nds_recompile` foi compilado na revisão externa fixada.
 
-1. Executar o bootstrap e registrar a versão/hash real do executável `nds_recompile`.
-2. Rodar o compilador contra os TOMLs/binários ARM9 e ARM7 já validados e resolver eventuais incompatibilidades de schema.
-3. Emitir os primeiros bancos C e suas tabelas de dispatch, sem `--flat-execution`.
-4. Compilar um banco de cada CPU contra o header/contrato de ABI Oracis e revisar os símbolos indefinidos.
-5. Implementar dispatch e runtime ARM9/ARM7 próprios, sem importar o runtime upstream.
-6. Só então ligar serviços de memória, interrupções, timers, DMA, vídeo, áudio e save.
+O tooling Python executa 11 testes, incluindo validação estrita dos metadados dos segmentos, integridade dos binários, emissão transacional e rejeição de uma identidade de codegen incompatível. A identidade esperada é `nds-codegen-v3`.
 
-A etapa 1 não estará concluída apenas porque o executável do recompilador foi compilado: o primeiro banco real precisa ser emitido e compilado com sucesso.
+Esses resultados validam o pipeline sintético, o vínculo dos símbolos/tabelas e o build multiplataforma. **Não** validam a emissão do código real de Pokémon Platinum nem o boot do jogo. A extração/emissão comercial permanece uma etapa local que depende da ROM fornecida pelo usuário.
+
+## 10. Pipeline local completo
+
+Com a cópia USA Rev 1 fornecida pelo usuário, o fluxo esperado é:
+
+```sh
+python tools/ndsrecomp/extract_nds_programs.py "/caminho/Pokemon - Platinum Version (USA) (Rev 1).nds"
+python tools/ndsrecomp/build_recompiler.py
+python tools/ndsrecomp/emit_platinum_banks.py
+cmake -S . -B build \
+  -DORACIS_LOCAL_BANK_DIR=.oracis/generated/pokemon-platinum-usa-rev1
+cmake --build build --parallel
+```
+
+O extrator só aceita a identidade de ROM documentada e grava os segmentos e metadados em `.oracis/local/pokemon-platinum-usa-rev1`. O emissor confere novamente tamanho, hash, load address, entry point, modo e TOMLs; consulta `nds_recompile --codegen-identity`; exige `nds-codegen-v3`; e só publica o conjunto quando ARM9 e ARM7 foram emitidos e validados. Os arquivos gerados permanecem ignorados pelo Git.
+
+Quando `ORACIS_LOCAL_BANK_DIR` aponta para os bancos locais, o CMake compila os corpos e tabelas de dispatch como objetos e liga-os ao runtime. Na inicialização, o host pode registrar as tabelas por meio de `oracis_host_runtime_register_compiled_banks()`. O smoke test da CI valida essa ligação e o ciclo de registro/remoção com fixtures sintéticas.
+
+**Limite atual do host:** a ponte possui `oracis_host_runtime_load_program_segments()`, que recebe buffers já residentes no processo e carrega bytes na memória guest. Ela ainda não lê automaticamente `arm9.bin` e `arm7.bin` do diretório local. O host SDL3 também não chama `oracis_host_runtime_run_round()`; registrar bancos não é o mesmo que carregar a imagem executável, resolver todos os serviços ou iniciar o jogo.
+
+## 11. Próximos marcos técnicos
+
+1. Criar um carregador local estrito para ARM9/ARM7, com tamanhos e SHA-1 fixos, leitura integral e falha sem mutação da máquina quando algum arquivo estiver ausente ou corrompido.
+2. Executar o extrator versionado e o NDSRecomp fixado contra os segmentos reais da cópia USA Rev 1; guardar localmente os logs, hashes e manifesto de saída.
+3. Compilar os bancos reais e inventariar símbolos indefinidos, chamadas de runtime e dependências entre bancos.
+4. Implementar somente os helpers/serviços efetivamente exigidos, com contratos e testes próprios: ciclos, bus, exceções/CP15, IRQ, DMA, IPC, BIOS/NitroSDK e código dinâmico/overlays.
+5. Implementar e testar o provider arquitetural de IRQ, incluindo LR correto, modo ARM/Thumb e base de vetor CP15.
+6. Ligar a carga de imagem e execução ao host apenas depois desses requisitos; não executar rounds sem ambos os bancos, imagens validadas e provider IRQ correto.
+
+O critério de primeiro boot nativo continua sendo a execução observável e reproduzível dos dois cores até a apresentação do primeiro quadro, sem interpretador ARM genérico e sem componentes de runtime derivados de melonDS.
