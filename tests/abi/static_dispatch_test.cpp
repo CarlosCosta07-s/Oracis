@@ -212,6 +212,45 @@ int main()
         return fail("unsorted dispatch table was accepted");
     }
 
+    /* Equal addresses are sorted by the mode byte (ARM=0, Thumb=1). */
+    const NdsDispatchEntry same_address_modes[] = {
+        {0x02005000u, 0u, arm9_entry_a, nullptr},
+        {0x02005000u, 1u, thumb_entry, nullptr},
+    };
+    if (registry.register_bank(
+            NDS_ARM9, same_address_modes, 2u, "same-address-modes") !=
+        RegisterBankStatus::Ok) {
+        return fail("same-address ARM/Thumb rows should be accepted in key order");
+    }
+    result = registry.lookup(NDS_ARM9, 0x02005000u, 0u);
+    if (!result || result.selected->fn != arm9_entry_a) {
+        return fail("ARM row for a shared address was not selected");
+    }
+    result = registry.lookup(NDS_ARM9, 0x02005001u, CPSR_T_BIT);
+    if (!result || result.selected->fn != thumb_entry) {
+        return fail("Thumb row for a shared address was not selected");
+    }
+
+    const NdsDispatchEntry unsorted_same_address[] = {
+        {0x02006000u, 1u, thumb_entry, nullptr},
+        {0x02006000u, 0u, arm9_entry_a, nullptr},
+    };
+    if (registry.register_bank(
+            NDS_ARM9, unsorted_same_address, 2u, "unsorted-mode-key") !=
+        RegisterBankStatus::UnsortedTable) {
+        return fail("same-address rows with reversed mode key were accepted");
+    }
+
+    const NdsDispatchEntry duplicate_key[] = {
+        {0x02007000u, 0u, arm9_entry_a, nullptr},
+        {0x02007000u, 0u, arm9_entry_b, nullptr},
+    };
+    if (registry.register_bank(
+            NDS_ARM9, duplicate_key, 2u, "duplicate-key") !=
+        RegisterBankStatus::DuplicateEntryKey) {
+        return fail("duplicate address/mode key within a bank was accepted");
+    }
+
     const NdsDispatchEntry bad_fn[] = {
         {0x02003000u, 0u, nullptr, nullptr},
     };
