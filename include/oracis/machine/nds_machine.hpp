@@ -1,8 +1,9 @@
 /*
  * Oracis Nintendo DS machine context.
  *
- * Owns the CPU states and the initial set of memory/MMIO devices, and binds
- * them to the generated-bank C ABI. This is not yet the dual-core event loop.
+ * Owns both CPU states and the base memory/MMIO devices, and exposes a
+ * synchronized dual-core scheduling round. The complete DS event scheduler
+ * and integration with the SDL host remain separate implementation steps.
  */
 #ifndef ORACIS_MACHINE_NDS_MACHINE_HPP
 #define ORACIS_MACHINE_NDS_MACHINE_HPP
