@@ -156,6 +156,20 @@ if(BUILD_TESTING)
     target_link_libraries(oracis_static_dispatch_test PRIVATE oracis_arm_state)
     add_test(NAME oracis_static_dispatch_test COMMAND oracis_static_dispatch_test)
 
+    add_executable(oracis_static_dispatch_runtime_test
+        tests/abi/static_dispatch_runtime_test.cpp
+    )
+    target_link_libraries(oracis_static_dispatch_runtime_test PRIVATE oracis_arm_state)
+    add_test(NAME oracis_static_dispatch_runtime_test COMMAND oracis_static_dispatch_runtime_test)
+
+    add_executable(oracis_static_dispatch_abi_c_test
+        tests/abi/static_dispatch_abi_c_test.c
+    )
+    target_link_libraries(oracis_static_dispatch_abi_c_test PRIVATE oracis_arm_state)
+    target_compile_features(oracis_static_dispatch_abi_c_test PRIVATE c_std_99)
+    set_target_properties(oracis_static_dispatch_abi_c_test PROPERTIES LINKER_LANGUAGE CXX)
+    add_test(NAME oracis_static_dispatch_abi_c_test COMMAND oracis_static_dispatch_abi_c_test)
+
     add_executable(oracis_runtime_abi_bridge_test
         tests/abi/runtime_abi_bridge_test.cpp
     )
