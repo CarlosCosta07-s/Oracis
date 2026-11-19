@@ -35,7 +35,7 @@ int main()
     for (const ExceptionCase &entry : cases) {
         ArmCpuState state{};
         const uint32_t original_cpsr =
-            ORACIS_ARM_MODE_SYSTEM | CPSR_T_BIT | CPSR_Z_BIT | CPSR_F_BIT;
+            ORACIS_ARM_MODE_SYSTEM | CPSR_T_BIT | CPSR_Z_BIT;
         state.cpsr = original_cpsr;
         state.R[13] = UINT32_C(0x0207FFFC);
         state.R[14] = UINT32_C(0x02001000);
@@ -108,6 +108,26 @@ int main()
     }
     if (oracis_arm_cpu_return_from_exception(&invalid, 0x44u)) {
         return fail("User/System mode must not return through an SPSR");
+    }
+
+    /* IRQ must preserve an already-set F mask; it only forces I. */
+    ArmCpuState irq_with_f_mask{};
+    irq_with_f_mask.cpsr = ORACIS_ARM_MODE_SYSTEM | CPSR_F_BIT;
+    if (!oracis_arm_cpu_enter_exception(
+            &irq_with_f_mask, ORACIS_ARM_EXCEPTION_IRQ, 0x200u, 0u) ||
+        (irq_with_f_mask.cpsr & (CPSR_I_BIT | CPSR_F_BIT)) !=
+            (CPSR_I_BIT | CPSR_F_BIT)) {
+        return fail("IRQ entry did not preserve an already-set F mask");
+    }
+
+    /* A corrupted current mode must be rejected without partial entry. */
+    ArmCpuState bad_mode{};
+    bad_mode.cpsr = UINT32_C(0x16);
+    const ArmCpuState before_bad_mode = bad_mode;
+    if (oracis_arm_cpu_enter_exception(
+            &bad_mode, ORACIS_ARM_EXCEPTION_SWI, 0x300u, 0u) ||
+        std::memcmp(&bad_mode, &before_bad_mode, sizeof(bad_mode)) != 0) {
+        return fail("invalid current mode must reject exception entry");
     }
 
     ArmCpuState misaligned{};
