@@ -3,6 +3,7 @@
 #include "oracis/memory/guest_memory_abi.h"
 #include "oracis/recomp/runtime_arm.h"
 #include "oracis/recomp/runtime_scheduler.h"
+#include "oracis/recomp/static_dispatch_abi.h"
 
 #include <exception>
 #include <limits>
@@ -55,6 +56,58 @@ int NdsMachine::runtime_power_handler(
             static_cast<uint8_t>(value)) == NdsMachineStatus::Ok ? 1 : 0;
     }
     return 0;
+}
+
+int NdsMachine::runtime_validate_dispatch_bytes(
+    const NdsStaticValidation *validation,
+    uint32_t pc,
+    uint32_t thumb,
+    void *context)
+{
+    auto *guest_memory = static_cast<memory::GuestMemory *>(context);
+    if (guest_memory == nullptr || validation == nullptr ||
+        validation->expected == nullptr || validation->size == 0u ||
+        thumb > 1u || !valid_cpu(g_nds_active)) {
+        return 0;
+    }
+
+    const uint64_t validation_begin = validation->addr;
+    const uint64_t validation_end =
+        validation_begin + static_cast<uint64_t>(validation->size);
+    const uint64_t instruction_size = thumb != 0u ? 2u : 4u;
+    const uint64_t instruction_end =
+        static_cast<uint64_t>(pc) + instruction_size;
+    if (pc < validation_begin || instruction_end > validation_end) {
+        return 0;
+    }
+
+    const NdsCpu cpu = g_nds_active;
+    if (guest_memory->validate_execute(
+            cpu, validation->addr, validation->size) != memory::Status::Ok ||
+        guest_memory->validate_identity(
+            cpu, validation->addr, validation->size,
+            validation->expected) != memory::Status::Ok) {
+        return 0;
+    }
+
+    if (validation->dependency_count != 0u &&
+        validation->dependencies == nullptr) {
+        return 0;
+    }
+    for (uint32_t index = 0u;
+         index < validation->dependency_count;
+         ++index) {
+        const NdsStaticValidationRange &dependency =
+            validation->dependencies[index];
+        if (dependency.expected == nullptr || dependency.size == 0u ||
+            guest_memory->validate_identity(
+                cpu, dependency.addr, dependency.size,
+                dependency.expected) != memory::Status::Ok) {
+            return 0;
+        }
+    }
+
+    return 1;
 }
 
 NdsMachineStatus NdsMachine::initialize() noexcept
@@ -124,6 +177,10 @@ NdsMachineStatus NdsMachine::initialize() noexcept
     }
     clock_bound_ = true;
 
+    oracis_static_dispatch_set_validation_callback(
+        &NdsMachine::runtime_validate_dispatch_bytes, &memory_);
+    validation_bound_ = true;
+
     initialized_ = true;
     return NdsMachineStatus::Ok;
 }
@@ -133,7 +190,7 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
     const bool owns_runtime =
         runtime_bound_ || power_handler_bound_ || memory_bound_ ||
         wram_bound_ || interrupt_bound_ || timer_bound_ ||
-        keypad_bound_ || clock_bound_;
+        keypad_bound_ || clock_bound_ || validation_bound_;
     if (!owns_runtime && !initialized_) {
         return NdsMachineStatus::Ok;
     }
@@ -145,6 +202,12 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
     if (slice_active_[1]) {
         oracis_scheduler_end_slice(NDS_ARM7);
         slice_active_[1] = false;
+    }
+
+    /* Do not leave a process-global callback pointing at this memory map. */
+    if (validation_bound_) {
+        oracis_static_dispatch_set_validation_callback(nullptr, nullptr);
+        validation_bound_ = false;
     }
 
     if (clock_bound_) {
