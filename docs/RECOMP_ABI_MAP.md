@@ -97,6 +97,18 @@ O callback \`oracis_bus_validate_dispatch\` é instalado quando \`oracis_bus_bin
 
 Essa camada ainda não implementa o carregador de bancos do Pokémon Platinum, cache por revisão, ciclo de vida de overlays ou proteção contra descarga enquanto uma função do banco ainda está em execução. O chamador precisa manter tabelas, metadados e funções válidos enquanto registrados.
 
+### Pilha de retorno e link slots
+
+O runtime também implementa \`runtime_call_push_return\`, \`runtime_call_should_return\` e \`runtime_call_cancel_return\` em \`src/runtime/call_return_stack.cpp\`.
+
+- A pilha tem capacidade de 1024 frames por CPU; ARM9 e ARM7 mantêm estados independentes.
+- A chave de retorno combina o endereço (bit 0 removido) com o estado atual ARM/Thumb.
+- \`runtime_call_should_return\` procura do topo para baixo; ao encontrar o frame, remove esse frame e todos os mais novos. Assim um retorno não local não deixa frames guest órfãos.
+- \`runtime_call_cancel_return\` remove apenas o frame do topo quando o endereço corresponde.
+- \`runtime_call_stack_depth/data/restore\` expõem a pilha ativa para futura serialização de estado.
+
+Os símbolos \`runtime_link_call/branch/fallthrough\` já existem, mas não resolvem nem armazenam links: encaminham o alvo ao dispatcher estático normal. \`runtime_inline_leaf_admit\` retorna falso. Sem cache com epoch e validação de conteúdo, nenhuma cópia inline é admitida.
+
 ## 7. Declarações ainda sem implementação
 
 O header também declara os serviços que o código gerado precisa, mas não fornece stubs vazios. Os seguintes grupos ainda precisam de implementações reais:
@@ -120,10 +132,10 @@ Também ficam fora da integração:
 - JIT ou interpretador ARM como fallback;
 - HLE manifests e live-overlay compilation até que a necessidade seja mapeada.
 
-## 9. Testes registrados
+## 10. Testes registrados
 
-O CMake registra quinze testes C99/C++20 para o runtime e ABI. A lista inclui memória, identidade/proveniência, layout ARM, CPSR/SPSR, exceções, flags, registry ranking/misses, ponte de dispatch C/C++ e especialização estática ARM9/ARM7. A execução de todos os quinze testes para o estado atual ainda não foi confirmada:
-Os quinze alvos registrados são: RAM guest; ponte C bus_* e validação por GuestMemory; layouts ABI C99/C++20; bancos ARM e modos; CPSR/SPSR; exceções; flags; registry de dispatch; runtime dispatch C++ e ABI dispatch C99; ponte ARM9/ARM7 C/C++; especialização estática ARM9 e ARM7.
+O CMake registra dezesseis testes C99/C++20 para o runtime e ABI. A lista inclui memória, identidade/proveniência, layout ARM, CPSR/SPSR, exceções, flags, registry ranking/misses, ponte de dispatch C/C++ e especialização estática ARM9/ARM7. A execução de todos os quinze testes para o estado atual ainda não foi confirmada:
+Os dezesseis alvos registrados são: RAM guest; ponte C bus_* e validação por GuestMemory; layouts ABI C99/C++20; bancos ARM e modos; CPSR/SPSR; exceções; flags; registry de dispatch; runtime dispatch C++ e ABI dispatch C99; pilha de retorno guest; ponte ARM9/ARM7 C/C++; especialização estática ARM9 e ARM7.
 
 Não há status check atual confirmado para o último commit; portanto, não declarar esses quinze testes como aprovados. O CMake também inclui as bibliotecas de produto independentemente de `BUILD_TESTING`, mas o build completo com SDL3 e a ligação de bancos NDSRecomp continuam pendentes.
 
