@@ -19,7 +19,7 @@ Cada fase deve produzir uma entrega pequena, compilável, executável e verific�
 | 0 | Baseline | Revisão/região e direitos avaliados | USA Rev 1 identificada; licença geral de pret/pokeplatinum não confirmada |
 | 1 | NDSRecomp | Checkout fixado e compilação isolada | Bootstrap/CI configurados; build do upstream pendente de execução |
 | 2 | Extração e bancos | Extrair ARM9/ARM7 e emitir bancos C | Metadados e hashes dos segmentos verificados localmente; emissão pendente |
-| 3 | ABI e estado ARM | Estado ARM, CPSR/SPSR, exceções, flags e ponte C ABI | Estado/flags e ponte C implementados; testes registrados, execução recente não confirmada |
+| 3 | ABI e estado ARM | Estado ARM, CPSR/SPSR, exceções, flags e ponte C ABI | Estado/flags, User-bank helpers e CLZ implementados; testes registrados, execução recente não confirmada |
 | 4 | Memória e serviços base | Barramento, MMIO, IRQ, timers, DMA, IPC, CP15 e NitroSDK | GuestMemory + wrappers C bus_* testados sobre RAM configurada; mapa físico DS, MMIO/timing e serviços pendentes |
 | 5 | Dispatch e scheduler | Tabelas por CPU, validação de conteúdo, interworking e scheduler dual-core cooperativo | Registry, validação de bytes, runtime_dispatch e pilha de retorno por CPU implementados; carregador de bancos, cache de link slots e scheduler pendentes |
 | 6 | Boot visível e vídeo 2D | Primeiro quadro, VRAM, BGs, sprites, OAM e blending | Não iniciada |
