@@ -240,6 +240,17 @@ if(BUILD_TESTING)
         COMMAND oracis_host_runtime_bridge_c_test
     )
 
+    add_executable(oracis_local_program_loader_test
+        tests/host/local_program_loader_test.cpp
+    )
+    target_link_libraries(oracis_local_program_loader_test PRIVATE
+        oracis_machine
+    )
+    add_test(
+        NAME oracis_local_program_loader_test
+        COMMAND oracis_local_program_loader_test
+    )
+
     if(ORACIS_LOCAL_BANK_DIR)
         add_executable(oracis_compiled_bank_link_smoke
             tests/host/compiled_bank_link_smoke.cpp
