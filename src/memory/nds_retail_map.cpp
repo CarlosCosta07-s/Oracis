@@ -101,7 +101,7 @@ Status map_shared_wram_views(GuestMemory &memory, SharedWramMode mode)
             kSharedWramBackingBase + NdsRetailRamMap::SharedWramBankSize,
             NdsRetailRamMap::SharedWramBankSize,
             NdsRetailRamMap::Arm7SharedWramWindow,
-            NdsRetailRamMap::Arm7SharedWramWindow,
+            "ARM7 Shared WRAM bank 1 window",
             CpuAccessArm7);
 
     case SharedWramMode::Arm7All32K:
