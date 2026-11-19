@@ -9,7 +9,7 @@
 
 <p align="center"><strong>Reconstruindo Sinnoh para além do hardware original.</strong></p>
 
-> **Status: runtime ARM inicial e ponte C ABI em implementação.** O estado/PSR/exceções/flags e o seletor ARM9/ARM7 passaram em testes isolados. O NDSRecomp ainda não foi compilado neste ambiente e nenhum banco real foi emitido ou ligado.
+> **Status: runtime ARM, RAM guest e dispatch estático inicial implementados; integração com bancos reais pendente.** O NDSRecomp ainda não foi compilado/validado nesta revisão e nenhum banco do Pokémon Platinum foi emitido, ligado ou executado.
 
 ## O projeto
 
@@ -39,9 +39,11 @@ O Oracis já contém:
 - operações CPSR/SPSR e entrada/retorno de exceções;
 - avaliação de condições e atualização de flags NZCV;
 - ponte ABI C para selecionar o estado ARM9 ou ARM7 via `g_cpu`, wrappers de flags/PSR e especialização `NDS_STATIC_CPU`;
-- asserts do layout de `NdsStaticValidation`, `NdsDispatchEntry` e `NdsLinkSlot`.
+- asserts do layout de `NdsStaticValidation`, `NdsDispatchEntry` e `NdsLinkSlot`;
+- registro/remoção de bancos estáticos por ARM9/ARM7, lookup ARM/Thumb e `runtime_dispatch` com falha fechada;
+- callback de identidade que compara bytes do banco e dependências contra `GuestMemory`, exigindo proveniência para RAM gravável.
 
-O harness runtime-only local passou em doze testes C99/C++20. Uma compilação separada com `BUILD_TESTING=OFF` produziu `liboracis_arm_state.a` e `liboracis_memory.a`. Os wrappers C bus_* já atendem RAM explicitamente mapeada, mas ainda não há mapa físico DS, MMIO, dispatch, scheduler, ciclos, IRQ/SWI/CP15 ou serviços NitroSDK suficientes para executar bancos reais.
+O CMake registra quinze testes CTest, incluindo a tabela de dispatch, sua ponte C/C++, identidade de bytes e proveniência de RAM. **A execução desses quinze testes para o estado atual ainda não foi confirmada**; a consulta aos status checks do último commit não retornou verificações. Os wrappers C bus_* atendem RAM explicitamente mapeada, e o dispatch já chama funções registradas, mas ainda não há mapa físico DS, MMIO, scheduler, ciclos, IRQ/SWI/CP15 ou serviços NitroSDK suficientes para executar bancos reais.
 
 A extração local da USA Rev 1 teve offsets, limites e hashes ARM9/ARM7 verificados. A execução integral do extrator versionado e a emissão de bancos continuam pendentes.
 
