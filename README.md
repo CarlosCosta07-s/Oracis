@@ -24,7 +24,7 @@ Oracis busca executar Pokémon Platinum como código nativo em computadores mode
 - **Python** para extração local e validação da cópia de jogo.
 - **Rust** permanece apenas no gerador isolado do ícone.
 
-Consulte [docs/TECH_STACK.md](docs/TECH_STACK.md), [docs/NDSRECOMP_INTEGRATION.md](docs/NDSRECOMP_INTEGRATION.md), o [mapa da ABI dos bancos](docs/RECOMP_ABI_MAP.md) e a [decisão ADR 0001](docs/adr/0001-ndsrecomp-static-compiler.md).
+Consulte [docs/TECH_STACK.md](docs/TECH_STACK.md), [docs/NDSRECOMP_INTEGRATION.md](docs/NDSRECOMP_INTEGRATION.md), o [mapa da ABI dos bancos](docs/RECOMP_ABI_MAP.md), o [contrato GuestMemory](docs/GUEST_MEMORY.md) e a [decisão ADR 0001](docs/adr/0001-ndsrecomp-static-compiler.md).
 
 ## Estado atual
 
@@ -34,12 +34,13 @@ O bootstrap do NDSRecomp está fixado no commit `14b7e15023e9affc9dc375e4e611ac7
 
 O Oracis já contém:
 - estado ARM com registradores bancados e asserts de layout C99;
+- GuestMemory: RAM guest configurável, aliases explícitos, permissões e acessos little-endian;
 - operações CPSR/SPSR e entrada/retorno de exceções;
 - avaliação de condições e atualização de flags NZCV;
 - ponte ABI C para selecionar o estado ARM9 ou ARM7 via `g_cpu`, wrappers de flags/PSR e especialização `NDS_STATIC_CPU`;
 - asserts do layout de `NdsStaticValidation`, `NdsDispatchEntry` e `NdsLinkSlot`.
 
-O harness runtime-only local passou em dez testes C99/C++20 e uma compilação separada com `BUILD_TESTING=OFF` produziu a biblioteca estática do runtime. Isso não significa que bancos NDSRecomp ou o jogo já executem: barramento, dispatch, scheduler, ciclos, IRQ/SWI/CP15 e serviços NitroSDK ainda não estão implementados.
+O harness runtime-only local passou em onze testes C99/C++20. Uma compilação separada com `BUILD_TESTING=OFF` produziu `liboracis_arm_state.a` e `liboracis_memory.a`. Isso não significa que bancos NDSRecomp ou o jogo já executem: os wrappers `bus_read_*`/`bus_write_*`, MMIO, dispatch, scheduler, ciclos, IRQ/SWI/CP15 e serviços NitroSDK ainda não estão integrados.
 
 A extração local da USA Rev 1 teve offsets, limites e hashes ARM9/ARM7 verificados. A execução integral do extrator versionado e a emissão de bancos continuam pendentes.
 
