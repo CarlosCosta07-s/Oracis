@@ -103,6 +103,31 @@ int main()
         return fail("alias of unmapped canonical range was accepted");
     }
 
+    /* Zero-filled writable RAM must not impersonate a live code image. */
+    const uint8_t zero_code[] = {0u, 0u, 0u, 0u};
+    if (memory.validate_identity(
+            NDS_ARM9, 0x02000100u, sizeof(zero_code), zero_code) !=
+        Status::MissingWriteProvenance) {
+        return fail("zero-filled writable RAM was accepted as validated code");
+    }
+
+    if (memory.write(NDS_ARM9, 0x02000100u, 4u, UINT32_C(0x04030201)) !=
+        Status::Ok) {
+        return fail("code image write for identity test failed");
+    }
+    const uint8_t written_code[] = {1u, 2u, 3u, 4u};
+    const uint8_t stale_code[] = {1u, 2u, 0x99u, 4u};
+    if (memory.validate_identity(
+            NDS_ARM9, 0x02000100u, sizeof(written_code), written_code) !=
+        Status::Ok) {
+        return fail("written code bytes did not validate");
+    }
+    if (memory.validate_identity(
+            NDS_ARM9, 0x02000100u, sizeof(stale_code), stale_code) !=
+        Status::IdentityMismatch) {
+        return fail("changed code bytes passed identity validation");
+    }
+
     std::puts("guest memory mapping, aliases, endian and permission tests passed");
     return 0;
 }
