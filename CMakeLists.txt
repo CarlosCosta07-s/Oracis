@@ -54,3 +54,21 @@ if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
         -Wpedantic
     )
 endif()
+
+include(CTest)
+
+if(BUILD_TESTING)
+    add_executable(oracis_abi_c_test
+        tests/abi/arm_cpu_state_c_test.c
+    )
+    target_include_directories(oracis_abi_c_test PRIVATE include)
+    target_compile_features(oracis_abi_c_test PRIVATE c_std_99)
+    add_test(NAME oracis_abi_c_test COMMAND oracis_abi_c_test)
+
+    add_executable(oracis_abi_cpp_test
+        tests/abi/arm_cpu_state_cpp_test.cpp
+    )
+    target_include_directories(oracis_abi_cpp_test PRIVATE include)
+    target_compile_features(oracis_abi_cpp_test PRIVATE cxx_std_20)
+    add_test(NAME oracis_abi_cpp_test COMMAND oracis_abi_cpp_test)
+endif()
