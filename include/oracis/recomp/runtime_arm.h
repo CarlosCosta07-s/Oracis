@@ -21,7 +21,11 @@ extern "C" {
 
 /* The two architectural states are owned by the Oracis machine/runtime. */
 extern ArmCpuState *oracis_active_cpu_state;
+#ifdef NDS_STATIC_CPU
+#define g_nds_active ((NdsCpu)(NDS_STATIC_CPU))
+#else
 extern NdsCpu g_nds_active;
+#endif
 
 int oracis_arm_runtime_bind_cpus(ArmCpuState *arm9, ArmCpuState *arm7);
 int oracis_arm_runtime_select_cpu(NdsCpu cpu);
@@ -115,6 +119,24 @@ typedef struct NdsLinkSlot {
     uint32_t target_pc;
     const void *guard;
 } NdsLinkSlot;
+
+/*
+ * The project targets 64-bit desktop and Android ARM64. These assertions
+ * lock the generated dispatch-table ABI to the pointer width used by those
+ * platforms; a future 32-bit target must define and test a separate layout.
+ */
+#define ORACIS_BANK_ABI_ASSERT(name, expression) typedef char name[(expression) ? 1 : -1]
+ORACIS_BANK_ABI_ASSERT(oracis_validation_range_size, sizeof(NdsStaticValidationRange) == 16u);
+ORACIS_BANK_ABI_ASSERT(oracis_validation_size, sizeof(NdsStaticValidation) == 32u);
+ORACIS_BANK_ABI_ASSERT(oracis_validation_dependencies_offset, offsetof(NdsStaticValidation, dependencies) == 16u);
+ORACIS_BANK_ABI_ASSERT(oracis_validation_dependency_count_offset, offsetof(NdsStaticValidation, dependency_count) == 24u);
+ORACIS_BANK_ABI_ASSERT(oracis_dispatch_entry_size, sizeof(NdsDispatchEntry) == 24u);
+ORACIS_BANK_ABI_ASSERT(oracis_dispatch_entry_fn_offset, offsetof(NdsDispatchEntry, fn) == 8u);
+ORACIS_BANK_ABI_ASSERT(oracis_dispatch_entry_validation_offset, offsetof(NdsDispatchEntry, validation) == 16u);
+ORACIS_BANK_ABI_ASSERT(oracis_link_slot_size, sizeof(NdsLinkSlot) == 24u);
+ORACIS_BANK_ABI_ASSERT(oracis_link_slot_key_offset, offsetof(NdsLinkSlot, key) == 8u);
+ORACIS_BANK_ABI_ASSERT(oracis_link_slot_guard_offset, offsetof(NdsLinkSlot, guard) == 16u);
+#undef ORACIS_BANK_ABI_ASSERT
 
 #define RUNTIME_TRACE_DISPATCH  1u
 #define RUNTIME_TRACE_EXCHANGE  2u
