@@ -1,0 +1,38 @@
+# CMake / Ninja
+/build/
+/cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+build.ninja
+compile_commands.json
+
+# Native build outputs
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.dylib
+*.exe
+*.apk
+*.aab
+
+# IDE / platform noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Never track local game data or extracted content
+*.nds
+*.srl
+*.sav
+*.dsv
+*.cia
+*.3ds
+*.cci
+/cache/
+/userdata/
+/extracted/
