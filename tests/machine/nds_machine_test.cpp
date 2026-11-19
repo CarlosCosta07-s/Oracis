@@ -593,6 +593,6 @@ int main()
         return fail("machine ownership was not released after shutdown");
     }
 
-    std::puts("NdsMachine ownership, MMIO binding, slice clock and HALT tests passed");
+    std::puts("NdsMachine ownership, dual-core scheduling, dispatch and IRQ tests passed");
     return 0;
 }
