@@ -188,6 +188,54 @@ extern "C" void runtime_dispatch_with_exchange(uint32_t target_pc)
     runtime_dispatch(target_pc);
 }
 
+/*
+ * Direct-link slots are an ABI optimization. Until Oracis adds a resolved
+ * slot cache with generation/content guards, these entry points deliberately
+ * remain unresolved and route through the ordinary static dispatcher.
+ */
+extern "C" void runtime_link_call(NdsLinkSlot *slot)
+{
+    if (slot == nullptr) {
+        dispatch_failure("null call link slot", g_nds_active, 0u,
+                         oracis_active_cpu_state
+                             ? oracis_active_cpu_state->cpsr : 0u,
+                         0u, 0u, nullptr);
+    }
+    runtime_dispatch(slot->target_pc & ~UINT32_C(1));
+}
+
+extern "C" void runtime_link_branch(NdsLinkSlot *slot)
+{
+    if (slot == nullptr) {
+        dispatch_failure("null branch link slot", g_nds_active, 0u,
+                         oracis_active_cpu_state
+                             ? oracis_active_cpu_state->cpsr : 0u,
+                         0u, 0u, nullptr);
+    }
+    runtime_dispatch(slot->target_pc & ~UINT32_C(1));
+}
+
+extern "C" void runtime_link_fallthrough(NdsLinkSlot *slot)
+{
+    if (slot == nullptr) {
+        dispatch_failure("null fallthrough link slot", g_nds_active, 0u,
+                         oracis_active_cpu_state
+                             ? oracis_active_cpu_state->cpsr : 0u,
+                         0u, 0u, nullptr);
+    }
+    runtime_dispatch(slot->target_pc & ~UINT32_C(1));
+}
+
+extern "C" int runtime_inline_leaf_admit(
+    const NdsLinkSlot *slot,
+    void (*expected)(void))
+{
+    (void)slot;
+    (void)expected;
+    /* No direct-link cache exists yet, so inline copies are never admitted. */
+    return 0;
+}
+
 extern "C" void runtime_dispatch_miss(uint32_t target_pc)
 {
     const uint32_t cpsr = oracis_active_cpu_state
