@@ -34,6 +34,12 @@ int oracis_arm_cpu_mode_bank(uint32_t mode, uint32_t *bank_out);
  */
 int oracis_arm_cpu_switch_mode(ArmCpuState *state, uint32_t new_mode);
 
+/* PSR operations. field_mask uses the ARM MSR c/x/s/f field bits. */
+int oracis_arm_cpu_read_spsr(const ArmCpuState *state, uint32_t *value);
+int oracis_arm_cpu_write_spsr(ArmCpuState *state, uint32_t value, uint32_t field_mask);
+int oracis_arm_cpu_write_cpsr(ArmCpuState *state, uint32_t value, uint32_t field_mask);
+int oracis_arm_cpu_restore_cpsr_from_spsr(ArmCpuState *state);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
