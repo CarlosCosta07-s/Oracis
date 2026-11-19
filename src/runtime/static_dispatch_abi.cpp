@@ -19,7 +19,8 @@ struct ValidationContext {
     void *user;
 };
 
-bool validate_adapter(const NdsStaticValidation *validation,
+bool validate_adapter(NdsCpu cpu,
+                      const NdsStaticValidation *validation,
                       uint32_t pc,
                       bool thumb,
                       void *opaque)
@@ -27,7 +28,7 @@ bool validate_adapter(const NdsStaticValidation *validation,
     const auto *context = static_cast<const ValidationContext *>(opaque);
     if (context == nullptr || context->callback == nullptr) return false;
     return context->callback(
-        validation, pc, thumb ? 1u : 0u, context->user) != 0;
+        cpu, validation, pc, thumb ? 1u : 0u, context->user) != 0;
 }
 
 [[noreturn]] void dispatch_failure(
