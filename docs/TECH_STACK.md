@@ -11,7 +11,7 @@
 | Runtime nativo | **C++20** | Estado guest, dispatch, scheduler dual-CPU e serviços nativos |
 | ABI dos bancos | Contrato C ABI próprio | Ponte estável entre bancos gerados e runtime Oracis |
 | Dispatch estático | Registry C++20 + fachada C | Registro por CPU, lookup ARM/Thumb, validação de conteúdo e miss fail-closed |
-| Memória guest/barramento | GuestMemory C++20 + ABI C bus_* | RAM/aliases configuráveis e wrappers dos bancos; MMIO/mapa físico DS pendentes |
+| Memória guest/barramento | GuestMemory C++20 + mapa NDS retail + ABI C bus_* | Main RAM/mirrors e WRAM por CPU; MMIO/TCM/VRAM e timing pendentes |
 | Ferramentas de extração/validação | **Python** | Ler header NDS, extrair segmentos locais e gerar TOML de entrada |
 | Build | **CMake + Ninja** | Build do host e integração das ferramentas |
 | Compilador host | Clang/GCC/MSVC com C++20 | x86-64 e, após adaptação, ARM64 |
@@ -54,9 +54,9 @@ Não será incluído um interpretador ARM geral como fallback. Código executáv
 
 ## 3. Memória guest e barramento
 
-`oracis_memory` fornece `GuestMemory` e os wrappers C bus_read_*/bus_write_*. A camada faz regiões de armazenamento guest de 32 bits, aliases compartilhados, permissões e acessos little-endian de 8/16/32 bits; os wrappers encaminham para o armazenamento da CPU ativa e falham de forma explícita em regiões não mapeadas. O host liga a biblioteca junto do runtime ARM.
+`oracis_memory` fornece `GuestMemory`, os wrappers C bus_read_*/bus_write_* e `NdsRetailRamMap`. O mapa inicial cobre 4MB de Main RAM compartilhada em 0x02000000 e os três espelhos retail, 64KB de WRAM privada ARM7 em 0x03800000 e os quatro modos Shared WRAM derivados de WRAMCNT. As regiões têm visibilidade explícita por CPU e as janelas Shared WRAM repetem seus bancos físicos de 16KB/32KB.
 
-A camada ainda não define o mapa Nintendo DS da revisão USA Rev 1, não implementa MMIO/DMA/IPC, custos de ciclos, mirrors automáticos ou rotação de acessos desalinhados ARM. O registry pode despachar funções que tenham sido registradas pelo host, mas ainda não há carregador que registre bancos reais emitidos para Platinum, nem scheduler/chamadas/retornos.
+O modo WRAM inicial é fornecido explicitamente pelo host; o mapa ainda não reage a escritas guest em WRAMCNT/WRAMSTAT. MMIO, DMA/IPC, CP15/TCM, BIOS, VRAM, OAM e custos de ciclos por região continuam pendentes. O registry ainda não tem carregador de bancos reais emitidos para Platinum.
 
 Referência do contrato: [GUEST_MEMORY.md](GUEST_MEMORY.md).
 
