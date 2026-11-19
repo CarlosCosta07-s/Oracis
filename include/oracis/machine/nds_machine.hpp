@@ -21,6 +21,11 @@
 
 namespace oracis::machine {
 
+enum class NdsCpuRunState : uint8_t {
+    Running = 0,
+    Halted
+};
+
 enum class NdsMachineStatus : uint8_t {
     Ok = 0,
     AlreadyInitialized,
@@ -33,6 +38,8 @@ enum class NdsMachineStatus : uint8_t {
     NoActiveSlice,
     SchedulerFailure,
     ClockReportFailed,
+    CpuHalted,
+    UnsupportedPowerMode,
     ShutdownFailed
 };
 
@@ -76,6 +83,18 @@ public:
     NdsMachineStatus report_idle_bus_cycles(
         NdsCpu cpu, uint64_t elapsed_bus_cycles) noexcept;
 
+    /*
+     * HALT is modeled as a CPU execution state; peripherals keep advancing
+     * through the synchronized bus clock. IRQ delivery remains a separate
+     * scheduler operation. ARM7 HALTCNT accepts 0x80 for HALT; GBA-mode and
+     * Sleep requests are deliberately rejected until their hardware effects
+     * can be modeled.
+     */
+    NdsMachineStatus enter_cpu_halt(NdsCpu cpu) noexcept;
+    NdsMachineStatus write_arm7_halt_control(uint8_t value) noexcept;
+    bool cpu_can_execute(NdsCpu cpu) noexcept;
+    bool cpu_is_halted(NdsCpu cpu) const noexcept;
+
     uint64_t global_bus_cycles() const noexcept {
         return system_clock_.global_bus_cycles();
     }
@@ -108,6 +127,7 @@ private:
     memory::NdsSystemClock system_clock_;
 
     std::array<bool, 2> slice_active_{};
+    std::array<NdsCpuRunState, 2> run_states_{};
     bool runtime_bound_ = false;
     bool memory_bound_ = false;
     bool wram_bound_ = false;

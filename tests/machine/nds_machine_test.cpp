@@ -130,6 +130,63 @@ int main()
         return fail("host keypad state did not reach KEYINPUT and keypad IRQ");
     }
 
+    /* NDS7 HALT wakes on IE&IF even with IME=0 and CPSR.I=1. */
+    machine.cpu_state(NDS_ARM7)->cpsr |= CPSR_I_BIT;
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::IfAddress, 4u, UINT32_MAX);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::IeAddress, 4u, 1u);
+    if (machine.write_arm7_halt_control(0x80u) != NdsMachineStatus::Ok ||
+        !machine.cpu_is_halted(NDS_ARM7) ||
+        machine.cpu_can_execute(NDS_ARM7) ||
+        machine.begin_cpu_slice(NDS_ARM7, 1u) != NdsMachineStatus::CpuHalted) {
+        return fail("ARM7 HALT was not held while IE&IF was clear");
+    }
+    machine.interrupt_control().request_irq(NDS_ARM7, 1u);
+    if (!machine.cpu_can_execute(NDS_ARM7) ||
+        machine.cpu_is_halted(NDS_ARM7)) {
+        return fail("ARM7 HALT did not wake on IE&IF with IME disabled");
+    }
+
+    /* An interrupt already pending at the ARM7 HALT boundary prevents sleep. */
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::IfAddress, 4u, UINT32_MAX);
+    machine.interrupt_control().request_irq(NDS_ARM7, 1u);
+    if (machine.write_arm7_halt_control(0x80u) != NdsMachineStatus::Ok ||
+        machine.cpu_is_halted(NDS_ARM7)) {
+        return fail("ARM7 HALT ignored an already pending enabled interrupt");
+    }
+
+    /* ARM9 Wait-For-Interrupt uses the IME-gated IRQ line, not CPSR.I. */
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IfAddress, 4u, UINT32_MAX);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IeAddress, 4u, 2u);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 0u);
+    machine.interrupt_control().request_irq(NDS_ARM9, 2u);
+    if (machine.enter_cpu_halt(NDS_ARM9) != NdsMachineStatus::Ok ||
+        !machine.cpu_is_halted(NDS_ARM9) ||
+        machine.cpu_can_execute(NDS_ARM9)) {
+        return fail("ARM9 WFI woke while IME kept the IRQ line disabled");
+    }
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 1u);
+    machine.cpu_state(NDS_ARM9)->cpsr |= CPSR_I_BIT;
+    if (!machine.cpu_can_execute(NDS_ARM9) ||
+        machine.cpu_is_halted(NDS_ARM9) ||
+        (machine.cpu_state(NDS_ARM9)->cpsr & CPSR_I_BIT) == 0u) {
+        return fail("ARM9 WFI did not wake on IME/IE/IF independently of CPSR.I");
+    }
+
+    if (machine.write_arm7_halt_control(0x40u) !=
+            NdsMachineStatus::UnsupportedPowerMode ||
+        machine.write_arm7_halt_control(0xC0u) !=
+            NdsMachineStatus::UnsupportedPowerMode ||
+        machine.cpu_is_halted(NDS_ARM7)) {
+        return fail("unsupported GBA-mode/SLEEP requests changed CPU run state");
+    }
+
     {
         NdsMachine competing_machine(SharedWramMode::Arm9All32K);
         if (competing_machine.initialize() !=
@@ -158,6 +215,6 @@ int main()
         return fail("machine ownership was not released after shutdown");
     }
 
-    std::puts("NdsMachine ownership, MMIO binding and slice clock tests passed");
+    std::puts("NdsMachine ownership, MMIO binding, slice clock and HALT tests passed");
     return 0;
 }

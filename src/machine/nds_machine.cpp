@@ -49,6 +49,7 @@ NdsMachineStatus NdsMachine::initialize() noexcept
     arm7_state_ = {};
     arm9_state_.cpsr = ORACIS_ARM_MODE_SYSTEM;
     arm7_state_.cpsr = ORACIS_ARM_MODE_SYSTEM;
+    run_states_.fill(NdsCpuRunState::Running);
 
     if (!oracis_arm_runtime_bind_cpus(&arm9_state_, &arm7_state_)) {
         return NdsMachineStatus::RuntimeAlreadyBound;
@@ -165,6 +166,7 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
     oracis_scheduler_reset(NDS_ARM9);
     oracis_scheduler_reset(NDS_ARM7);
     system_clock_.reset();
+    run_states_.fill(NdsCpuRunState::Running);
     initialized_ = false;
     return NdsMachineStatus::Ok;
 }
@@ -176,6 +178,7 @@ NdsMachineStatus NdsMachine::begin_cpu_slice(
     if (!valid_cpu(cpu)) return NdsMachineStatus::InvalidCpu;
 
     const unsigned index = cpu_index(cpu);
+    if (!cpu_can_execute(cpu)) return NdsMachineStatus::CpuHalted;
     if (slice_active_[0] || slice_active_[1]) {
         return NdsMachineStatus::SliceAlreadyActive;
     }
@@ -217,6 +220,72 @@ NdsMachineStatus NdsMachine::report_idle_bus_cycles(
     return oracis_bus_report_idle_bus_cycles(cpu, elapsed_bus_cycles)
         ? NdsMachineStatus::Ok
         : NdsMachineStatus::ClockReportFailed;
+}
+
+NdsMachineStatus NdsMachine::enter_cpu_halt(NdsCpu cpu) noexcept
+{
+    if (!initialized_) return NdsMachineStatus::NotInitialized;
+    if (!valid_cpu(cpu)) return NdsMachineStatus::InvalidCpu;
+    if (slice_active_[0] || slice_active_[1]) {
+        return NdsMachineStatus::SliceAlreadyActive;
+    }
+
+    const unsigned index = cpu_index(cpu);
+    const bool interrupt_pending = cpu == NDS_ARM7
+        ? interrupt_control_.pending_enabled(cpu) != 0u
+        : interrupt_control_.irq_asserted(cpu);
+
+    /* A level already active at the HALT boundary prevents the CPU sleeping. */
+    run_states_[index] = interrupt_pending
+        ? NdsCpuRunState::Running
+        : NdsCpuRunState::Halted;
+    return NdsMachineStatus::Ok;
+}
+
+NdsMachineStatus NdsMachine::write_arm7_halt_control(uint8_t value) noexcept
+{
+    if (!initialized_) return NdsMachineStatus::NotInitialized;
+
+    /* NDS7 HALTCNT bits 6-7: 0=no-op, 1=GBA mode, 2=HALT, 3=SLEEP. */
+    switch ((value >> 6u) & 0x3u) {
+    case 0u:
+        return NdsMachineStatus::Ok;
+    case 1u: /* GBA compatibility mode is outside the NDS runtime target. */
+    case 3u: /* SLEEP also suspends hardware domains not modeled by Oracis. */
+        return NdsMachineStatus::UnsupportedPowerMode;
+    case 2u:
+        return enter_cpu_halt(NDS_ARM7);
+    }
+    return NdsMachineStatus::UnsupportedPowerMode;
+}
+
+bool NdsMachine::cpu_can_execute(NdsCpu cpu) noexcept
+{
+    if (!initialized_ || !valid_cpu(cpu)) return false;
+
+    const unsigned index = cpu_index(cpu);
+    if (run_states_[index] == NdsCpuRunState::Running) return true;
+
+    /*
+     * NDS7 HALT wakes on IE&IF, independently of IME and CPSR.I.
+     * NDS9 Wait-For-Interrupt requires the IME-gated IRQ line to be asserted;
+     * CPSR.I controls exception entry, not whether the core leaves HALT.
+     */
+    const bool interrupt_pending = cpu == NDS_ARM7
+        ? interrupt_control_.pending_enabled(cpu) != 0u
+        : interrupt_control_.irq_asserted(cpu);
+
+    if (interrupt_pending) {
+        run_states_[index] = NdsCpuRunState::Running;
+        return true;
+    }
+    return false;
+}
+
+bool NdsMachine::cpu_is_halted(NdsCpu cpu) const noexcept
+{
+    return initialized_ && valid_cpu(cpu) &&
+        run_states_[cpu_index(cpu)] == NdsCpuRunState::Halted;
 }
 
 ArmCpuState *NdsMachine::cpu_state(NdsCpu cpu) noexcept

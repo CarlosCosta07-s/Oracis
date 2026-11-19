@@ -9,7 +9,7 @@
 
 <p align="center"><strong>Reconstruindo Sinnoh para além do hardware original.</strong></p>
 
-> **Status:** `NdsMachine` agora reúne os estados ARM9/ARM7, RAM retail, WRAMCNT, interrupções, timers, KEYINPUT/KEYCNT e relógio global, com vínculo/desvínculo controlado e relatórios de ciclos nas fronteiras de fatia. A execução dual-core completa, entrega automática de IRQ e integração com bancos reais continuam pendentes. A revisão `7c71e64` passou nos quatro jobs da CI (runtime 24/24, Linux, Android ARM64 e NDSRecomp estático).
+> **Status:** `NdsMachine` agora reúne os estados ARM9/ARM7, RAM retail, WRAMCNT, interrupções, timers, KEYINPUT/KEYCNT e relógio global, com vínculo/desvínculo controlado e relatórios de ciclos nas fronteiras de fatia. O estado HALT/wake básico de ARM9/ARM7 também está implementado; a execução dual-core completa, entrega automática de IRQ, ligação de SWI/CP15 a HALT e integração com bancos reais continuam pendentes. A revisão `7c71e64` passou nos quatro jobs da CI (runtime 24/24, Linux, Android ARM64 e NDSRecomp estático).
 
 ## O projeto
 
@@ -37,7 +37,7 @@ O Oracis já contém:
 - GuestMemory: mapa de RAM NDS retail, Main RAM compartilhada/mirrors, WRAM ARM7 privada, quatro modos WRAMCNT e leitura ARM7 de WRAMSTAT; as sete janelas Shared WRAM são pré-mapeadas e suas máscaras de visibilidade por CPU são atualizadas de forma transacional, com o mapa validado antes da aplicação, sem desalocação nem perda dos bytes físicos;
 - wrappers C bus_read_*/bus_write_* que encaminham para RAM guest mapeada e falham com diagnóstico em endereços inválidos;
 - controlador MMIO `NdsInterruptControl` com IME/IE/IF independentes por CPU, IRQ requests latcheados, IF W1C e `try_enter_irq` condicionado a `CPSR.I`; o scheduler ainda precisa chamar a entrada IRQ;
-- `NdsTimerControl` com Timer 0–3 para cada CPU, reload, prescalers, cascata e pedidos de IRQ; `NdsSystemClock` converte os contadores cumulativos ARM9/ARM7 na razão 2:1, preserva meio ciclo e chama `advance_bus_cycles(n)` uma única vez por intervalo de barramento completo;\n- `NdsMachine` como contexto proprietário dos dois estados ARM e dos dispositivos base; instalação do mapa retail, vínculo C ABI em ordem de dependência, rollback/desvínculo reverso, início/fim de fatias com relatório automático dos contadores cumulativos e API explícita de tempo ocioso; HALT/STOP e o loop dual-core completo ainda não estão ligados ao host;
+- `NdsTimerControl` com Timer 0–3 para cada CPU, reload, prescalers, cascata e pedidos de IRQ; `NdsSystemClock` converte os contadores cumulativos ARM9/ARM7 na razão 2:1, preserva meio ciclo e chama `advance_bus_cycles(n)` uma única vez por intervalo de barramento completo;\n- `NdsMachine` como contexto proprietário dos dois estados ARM e dos dispositivos base; instalação do mapa retail, vínculo C ABI em ordem de dependência, rollback/desvínculo reverso, início/fim de fatias com relatório automático dos contadores cumulativos e API explícita de tempo ocioso; HALT/wake básico por CPU implementado, mas CP15/SWI ainda não o invocam automaticamente; SLEEP/STOP e loop dual-core completos pendentes;
 - operações CPSR/SPSR e entrada/retorno de exceções;
 - avaliação de condições e atualização de flags NZCV;
 - helpers de acesso aos registradores do User bank e instrução `CLZ` na ABI C;
