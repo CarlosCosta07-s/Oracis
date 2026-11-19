@@ -41,6 +41,12 @@ uint32_t g_arm9_dtcm_window_size = 0u;
 bool g_arm9_itcm_load_mode = false;
 bool g_arm9_dtcm_load_mode = false;
 
+/* Per-instruction context published by the generated ARM7 code prologue. */
+constexpr uint32_t kNoArm7TimingAddress = UINT32_MAX;
+uint32_t g_arm7_last_code_pc = kNoArm7TimingAddress;
+uint32_t g_arm7_last_data_addr = kNoArm7TimingAddress;
+bool g_arm7_last_code_thumb = false;
+
 bool range_contains(
     uint32_t address, uint32_t width,
     uint32_t base, uint32_t size) noexcept
@@ -75,6 +81,47 @@ uint32_t select_bus_timing(
 {
     if (width >= 4u) return sequential != 0u ? s32 : n32;
     return sequential != 0u ? s16 : n16;
+}
+
+struct Arm7TimingRegion {
+    uint32_t n16;
+    uint32_t s16;
+    uint8_t bus_width;
+};
+
+/*
+ * NDS7/CODE differs from NDS7/DATA. Main-RAM CODE is N32=9/N16=8,
+ * while DATA is N32=10/N16=9. Keep code fetch classification separate.
+ */
+Arm7TimingRegion arm7_timing_region(uint32_t address)
+{
+    if ((address - UINT32_C(0x02000000)) < UINT32_C(0x01000000)) {
+        return {8u, 1u, 16u}; /* Main RAM NDS7/CODE */
+    }
+    if (address < UINT32_C(0x00004000) ||
+        (address - UINT32_C(0x03000000)) < UINT32_C(0x01000000) ||
+        (address - UINT32_C(0x04000000)) < UINT32_C(0x00001000) ||
+        (address - UINT32_C(0x07000000)) < UINT32_C(0x00004000)) {
+        return {1u, 1u, 32u}; /* BIOS, WRAM, I/O and OAM */
+    }
+    if ((address - UINT32_C(0x06000000)) < UINT32_C(0x00040000)) {
+        return {1u, 1u, 16u}; /* Potential ARM7 VRAM C/D Work RAM window */
+    }
+    timing_unavailable(
+        "unsupported ARM7 code/data timing region",
+        address, 0u, 0u, 0u);
+}
+
+uint32_t arm7_n32(const Arm7TimingRegion &region) noexcept
+{
+    return region.bus_width == 32u
+        ? region.n16 : region.n16 + region.s16;
+}
+
+uint32_t arm7_s32(const Arm7TimingRegion &region) noexcept
+{
+    return region.bus_width == 32u
+        ? region.s16 : 2u * region.s16;
 }
 
 uint32_t arm9_uncached_code_fetch_cycles(uint32_t pc)
@@ -152,8 +199,15 @@ extern "C" uint32_t runtime_code_cycles(uint32_t pc)
                            pc, 0u, 0u, 0u);
     }
 
-    /* The ARM7 generated instruction base already includes its fetch cost. */
-    if (g_nds_active == NDS_ARM7) return 0u;
+    if (g_nds_active == NDS_ARM7) {
+        g_arm7_last_code_pc = pc;
+        g_arm7_last_code_thumb =
+            (oracis_active_cpu_state->cpsr & CPSR_T_BIT) != 0u;
+        g_arm7_last_data_addr = kNoArm7TimingAddress;
+        (void)arm7_timing_region(pc);
+        /* The generated flat ARM7 base contains the common 1S fetch. */
+        return 0u;
+    }
 
     const bool thumb = (g_cpu.cpsr & CPSR_T_BIT) != 0u;
     /*
@@ -190,6 +244,10 @@ extern "C" uint32_t runtime_mem_cycles(
         timing_unavailable(
             "runtime_mem_cycles address overflow", addr,
             width, sequential, 0u);
+    }
+
+    if (g_nds_active == NDS_ARM7) {
+        g_arm7_last_data_addr = addr;
     }
 
     if (g_nds_active == NDS_ARM9) {
@@ -368,30 +426,8 @@ namespace {
 uint32_t arm7_sequential_code_fetch_cycles(
     uint32_t address, bool thumb)
 {
-    /*
-     * ARM7TDMI branch refill performs two sequential instruction fetches.
-     * Costs are NDS7/CODE S32 or S16 in 33MHz ARM7 cycles.
-     */
-    if ((address - UINT32_C(0x02000000)) < UINT32_C(0x01000000)) {
-        return thumb ? 1u : 2u; /* Main RAM: S16=1, S32=2 */
-    }
-    if (address < UINT32_C(0x00004000) ||
-        (address - UINT32_C(0x03000000)) < UINT32_C(0x01000000) ||
-        (address - UINT32_C(0x04000000)) < UINT32_C(0x00001000) ||
-        (address - UINT32_C(0x07000000)) < UINT32_C(0x00004000)) {
-        return 1u; /* BIOS, WRAM, I/O and OAM: S16=S32=1 */
-    }
-    /*
-     * NDS7 has no standard Palette RAM mapping. VRAM C/D can be assigned
-     * to ARM7 as work RAM in the 0x06000000..0x0603FFFF aperture.
-     */
-    if ((address - UINT32_C(0x06000000)) < UINT32_C(0x00040000)) {
-        return thumb ? 1u : 2u; /* ARM7 VRAM C/D: S16=1, S32=2 */
-    }
-
-    timing_unavailable(
-        "arm7_refill_cycles unsupported code region",
-        address, thumb ? 2u : 4u, 0u, 0u);
+    const Arm7TimingRegion region = arm7_timing_region(address);
+    return thumb ? region.s16 : arm7_s32(region);
 }
 
 } // namespace
@@ -457,8 +493,115 @@ extern "C" uint32_t arm7_cycle_combine(
     uint32_t flat_cycles, uint32_t num_data,
     uint32_t is_load, uint32_t has_internal)
 {
-    timing_unavailable(
-        "arm7_cycle_combine", 0u,
-        flat_cycles, num_data,
-        (is_load & 0xFFFFu) | ((has_internal & 0xFFFFu) << 16u));
+    if (oracis_active_cpu_state == nullptr || g_nds_active != NDS_ARM7) {
+        timing_unavailable(
+            "arm7_cycle_combine without active ARM7", 0u,
+            flat_cycles, num_data, 0u);
+    }
+    if (is_load > 1u || has_internal > 1u) {
+        timing_unavailable(
+            "arm7_cycle_combine invalid flags", 0u,
+            flat_cycles, num_data, is_load);
+    }
+
+    /* Zero-cost dispatcher resynchronisation, not a retired guest instruction. */
+    if (flat_cycles == 0u && num_data == 0u) return 0u;
+
+    if (g_arm7_last_code_pc == kNoArm7TimingAddress) {
+        timing_unavailable(
+            "arm7_cycle_combine without instruction PC", 0u,
+            flat_cycles, num_data, 0u);
+    }
+
+    const Arm7TimingRegion code_region =
+        arm7_timing_region(g_arm7_last_code_pc);
+
+    if (num_data == 0u) {
+        /*
+         * The generated flat cost contains one 1S fetch. Replace it with S
+         * for C-class instructions or N for CI-class instructions. Internal
+         * cycles themselves remain inside flat_cycles.
+         */
+        const uint32_t sequential_code = g_arm7_last_code_thumb
+            ? code_region.s16 : arm7_s32(code_region);
+        const uint32_t nonsequential_code = g_arm7_last_code_thumb
+            ? code_region.n16 : arm7_n32(code_region);
+        const uint32_t fetch_cost =
+            has_internal != 0u ? nonsequential_code : sequential_code;
+        if (fetch_cost == 0u ||
+            flat_cycles > UINT32_MAX - (fetch_cost - 1u)) {
+            timing_unavailable(
+                "arm7_cycle_combine no-data cycle overflow",
+                g_arm7_last_code_pc, flat_cycles, fetch_cost, 0u);
+        }
+        return flat_cycles + fetch_cost - 1u;
+    }
+
+    if (g_arm7_last_data_addr == kNoArm7TimingAddress) {
+        timing_unavailable(
+            "arm7_cycle_combine missing data-access address",
+            g_arm7_last_code_pc, flat_cycles, num_data, 0u);
+    }
+    (void)arm7_timing_region(g_arm7_last_data_addr);
+
+    const uint32_t num_code = g_arm7_last_code_thumb
+        ? code_region.n16 : arm7_n32(code_region);
+    const bool code_main =
+        g_arm7_last_code_pc >= UINT32_C(0x02000000) &&
+        g_arm7_last_code_pc < UINT32_C(0x03000000);
+    const bool data_main =
+        g_arm7_last_data_addr >= UINT32_C(0x02000000) &&
+        g_arm7_last_data_addr < UINT32_C(0x03000000);
+
+    /*
+     * Apply the ARM7 CD/CDI overlap once to all DATA accesses made by this
+     * instruction. Code N/S costs come from NDS7/CODE; num_data already
+     * contains the per-access NDS7/DATA costs from runtime_mem_cycles.
+     */
+    if (data_main) {
+        if (code_main) {
+            if (num_code > UINT32_MAX - num_data) {
+                timing_unavailable(
+                    "arm7_cycle_combine main/main overflow",
+                    g_arm7_last_data_addr, num_code, num_data, 0u);
+            }
+            return num_code + num_data;
+        }
+
+        const uint32_t adjusted_code = num_code + is_load;
+        if (adjusted_code < num_code ||
+            adjusted_code > UINT32_MAX - num_data) {
+            timing_unavailable(
+                "arm7_cycle_combine data-main overflow",
+                g_arm7_last_data_addr, num_code, num_data, is_load);
+        }
+        const uint32_t combined = adjusted_code + num_data;
+        const uint32_t overlap = combined > 3u ? combined - 3u : 0u;
+        const uint32_t floor_cost =
+            adjusted_code > num_data ? adjusted_code : num_data;
+        return overlap > floor_cost ? overlap : floor_cost;
+    }
+
+    if (code_main) {
+        const uint32_t adjusted_data = num_data + is_load;
+        if (adjusted_data < num_data ||
+            num_code > UINT32_MAX - adjusted_data) {
+            timing_unavailable(
+                "arm7_cycle_combine code-main overflow",
+                g_arm7_last_data_addr, num_code, num_data, is_load);
+        }
+        const uint32_t combined = num_code + adjusted_data;
+        const uint32_t overlap = combined > 3u ? combined - 3u : 0u;
+        const uint32_t floor_cost =
+            num_code > adjusted_data ? num_code : adjusted_data;
+        return overlap > floor_cost ? overlap : floor_cost;
+    }
+
+    if (num_code > UINT32_MAX - num_data ||
+        num_code + num_data > UINT32_MAX - is_load) {
+        timing_unavailable(
+            "arm7_cycle_combine non-main overflow",
+            g_arm7_last_data_addr, num_code, num_data, is_load);
+    }
+    return num_code + num_data + is_load;
 }

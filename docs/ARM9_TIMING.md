@@ -4,9 +4,9 @@
 
 ## Contrato da ABI
 
-`runtime_code_cycles(pc)` é o custo de fetch da instrução ARM9 atual. O helper usa CPSR.T e trabalha em ciclos do core ARM9 (aproximadamente 66 MHz), enquanto as tabelas NDS usam ciclos do barramento (aproximadamente 33 MHz). O core ARM9 opera a duas vezes o clock do barramento.
+`runtime_code_cycles(pc)` retorna o custo de fetch ARM9 em ciclos de core (aproximadamente 66 MHz). Para ARM7, a chamada retorna zero — o custo é reconstruído no fechamento da instrução — mas registra PC e estado Thumb para `arm7_cycle_combine`. As tabelas NDS usam ciclos do barramento (aproximadamente 33 MHz); o ARM9 opera a duas vezes esse clock.
 
-ARM7 retorna zero em `runtime_code_cycles` porque o custo de fetch do ARM7 já está incluído no custo-base das instruções geradas. Isso não significa que fetch ARM7 tenha custo físico zero.
+ARM7 retorna zero em `runtime_code_cycles` porque o custo de fetch é corrigido uma única vez por `arm7_cycle_combine`, substituindo o fetch sequencial 1S embutido no custo-base pelo custo regional correto. O retorno zero não significa custo físico zero.
 
 `arm9_refill_cycles(target)` e `arm7_refill_cycles(target)` recebem o destino com o bit 0 indicando Thumb. Ambos contam os fetches sequenciais do pipeline no destino, em vez de retornar um valor fixo independente da região.
 
@@ -73,6 +73,21 @@ A tabela usa os custos-base documentados de NDS7/DATA e NDS9/DATA. Main RAM abra
 
 Gamecard/GBA slot e Wi-Fi dependem de EXMEMCNT/WIFIWAITCNT e continuam fail-closed. O N32 não sequencial ARM7 para VRAM C/D também permanece bloqueado porque o valor da tabela é incerto. Palette RAM não é mapeada no ARM7. Contenção com PPU, wait states de cache e write-buffer não estão modelados. Isto é timing-base por classe de região, não um modelo de arbitragem global do barramento.
 
+## Combinação de ciclos ARM7
+
+`arm7_cycle_combine(flat_cycles,num_data,is_load,has_internal)` reconstrói a combinação AddCycles_CD/CDI do ARM7TDMI. O prologue gerado chama `runtime_code_cycles(pc)` em cada instrução; essa chamada guarda PC e CPSR.T. Cada `runtime_mem_cycles` acumula seu custo bruto em `num_data` e registra o endereço do último acesso. A combinação é aplicada uma única vez por instrução, inclusive para LDM/STM.
+
+As tabelas de código e dados são diferentes: em Main RAM, NDS7/CODE usa N32=9/N16=8/S32=2/S16=1; NDS7/DATA usa N32=10/N16=9/S32=2/S16=1. O ARM7 usa NDS7/CODE para `num_code` e o valor acumulado dos acessos NDS7/DATA para `num_data`.
+
+Sem acesso a dados, o helper substitui o 1S embutido no custo-base pelo fetch S da região em instruções C, ou pelo fetch N quando `has_internal` indica uma instrução CI. Com acesso a dados:
+
+- CODE Main RAM + DATA Main RAM: retorna `num_code + num_data`.
+- Somente DATA Main RAM: aplica o ajuste de leitura em `num_code` e calcula o maior entre os dois lados e a soma com três ciclos de sobreposição removidos.
+- Somente CODE Main RAM: aplica o ajuste CDI em `num_data` e usa a mesma regra de sobreposição.
+- Nenhum lado em Main RAM: soma CODE + DATA e acrescenta um ciclo para instruções de leitura.
+
+As classes de CODE aceitas são Main RAM, BIOS ARM7, WRAM, os primeiros 4 KB de I/O, OAM e a janela potencial de VRAM C/D atribuída como Work RAM. Palette RAM, Gamecard, Wi-Fi e endereços não modelados continuam fail-closed. A janela C/D ainda precisa de validação do mapeamento por VRAMCNT no controlador de memória.
+
 ## Multiply ARM7TDMI
 
 `runtime_mul_cycles(rs_value,signed_variant,extra)` calcula a espera dependente do operando do ARM7TDMI. A parte variável `m` é determinada pelos bytes altos do multiplicador:
@@ -88,9 +103,9 @@ Para operações unsigned, somente a extensão com zeros reduz `m`. Para operaç
 
 ## Limites deliberados
 
-O seguinte helper continua fail-closed:
-- `arm7_cycle_combine`: combinação de fetch/dados/ciclos internos ARM7;
-- fetch de código em regiões cacheadas e Gamecard, além de wait states dinâmicos não representados no modelo atual.
+Permanecem fail-closed:
+- fetch de código em regiões cacheadas e Gamecard;
+- Gamecard/GBA slot, Wi-Fi, N32 ARM7 VRAM não sequencial e outras regiões dinâmicas não representadas no modelo atual.
 
 
 O timing parcial não declara precisão temporal global, boot funcional ou compatibilidade jogável.

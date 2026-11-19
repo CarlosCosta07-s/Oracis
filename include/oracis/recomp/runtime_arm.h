@@ -223,8 +223,9 @@ void runtime_insn_slow(void);
  * The fast packed ARM9 code-fetch table is disabled. nds_code_numc always
  * calls the Oracis provider, which models a limited set of uncached ARM9
  * code-fetch regions. ARM9/ARM7 branch refill providers also cover documented
- * memory classes. Data access, multiply, ARM7 cycle combination, cache and
- * dynamic device wait-state timing remain fail-closed.
+ * memory classes. ARM7 instruction/data-cycle combination and ARM7TDMI
+ * multiply are implemented for documented regions; cache and dynamic device
+ * wait-state timing remain fail-closed.
  */
 #define NDS_ARM9_CODE_K(pc, thumb) (UINT32_C(0))
 
@@ -275,6 +276,12 @@ static inline uint32_t arm9_cycle_combine(
         : num_code;
 }
 
+/*
+ * ARM7 retirement timing. flat_cycles contains the generated 1S base and
+ * num_data is the sum of runtime_mem_cycles calls for this instruction.
+ * runtime_code_cycles publishes the instruction PC/Thumb state and each
+ * runtime_mem_cycles call publishes the last data address before this call.
+ */
 uint32_t arm7_cycle_combine(
     uint32_t flat_cycles, uint32_t num_data,
     uint32_t is_load, uint32_t has_internal);
