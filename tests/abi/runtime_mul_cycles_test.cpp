@@ -55,6 +55,7 @@ int main()
     }
 
     /* Unsigned Thumb MUL/UMULL/UMLAL: only leading zero bytes terminate. */
+    arm7.cpsr |= CPSR_T_BIT;
     if (!check(UINT32_C(0x00000080), 0u, 0u, 1u) ||
         !check(UINT32_C(0x00000100), 0u, 0u, 2u) ||
         !check(UINT32_C(0x00010000), 0u, 0u, 3u) ||
@@ -62,6 +63,9 @@ int main()
         !check(UINT32_C(0xFFFFFF00), 0u, 0u, 4u)) {
         return fail("unsigned early-termination thresholds were incorrect");
     }
+
+    /* Return to ARM state for ARM MUL/MLA and long-multiply variants. */
+    arm7.cpsr &= ~CPSR_T_BIT;
 
     /* Codegen adds 0/1/2 internal cycles for MUL/MLA, long, and accumulate-long. */
     if (!check(UINT32_C(0x00000001), 1u, 1u, 2u) ||

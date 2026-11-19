@@ -73,12 +73,25 @@ A tabela usa os custos-base documentados de NDS7/DATA e NDS9/DATA. Main RAM abra
 
 Gamecard/GBA slot e Wi-Fi dependem de EXMEMCNT/WIFIWAITCNT e continuam fail-closed. O N32 não sequencial ARM7 de VRAM também permanece bloqueado porque o valor da tabela é incerto. Contenção com PPU, wait states de cache e write-buffer não estão modelados. Isto é timing-base por classe de região, não um modelo de arbitragem global do barramento.
 
+## Multiply ARM7TDMI
+
+`runtime_mul_cycles(rs_value,signed_variant,extra)` calcula a espera dependente do operando do ARM7TDMI. A parte variável `m` é determinada pelos bytes altos do multiplicador:
+
+| Condição em `rs_value` | `m` |
+|---|---:|
+| bits 31:8 são todos zero; ou signed e todos um | 1 |
+| bits 31:16 são todos zero; ou signed e todos um | 2 |
+| bits 31:24 são todos zero; ou signed e todos um | 3 |
+| qualquer outro caso | 4 |
+
+Para operações unsigned, somente a extensão com zeros reduz `m`. Para operações signed, a extensão com uns também conta. O resultado retornado é `m + extra`; o codegen fixado passa `extra=0` para MUL, `1` para MLA/UMULL/SMULL e `2` para UMLAL/SMLAL. O Thumb MUL passa `signed_variant=0`. O ARM9 retorna zero nesse helper porque sua contribuição interna é contabilizada estaticamente por `arm9_internal_cost` e `arm9_cycle_combine`.
+
 ## Limites deliberados
 
-Os seguintes helpers continuam fail-closed:
-- `runtime_mul_cycles`: multiplicação e early termination;
+O seguinte helper continua fail-closed:
 - `arm7_cycle_combine`: combinação de fetch/dados/ciclos internos ARM7;
 - fetch de código em regiões cacheadas e Gamecard, além de wait states dinâmicos não representados no modelo atual.
+
 
 O timing parcial não declara precisão temporal global, boot funcional ou compatibilidade jogável.
 

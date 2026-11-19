@@ -1,9 +1,9 @@
 /*
  * Partial timing ABI for generated NDSRecomp banks.
  *
- * ARM9 uncached code fetch and ARM9/ARM7 pipeline refill are implemented for
- * documented memory classes. Multiply, ARM7 cycle combination, cache
- * and dynamic device waits remain fail-closed with CPU/PC diagnostics.
+ * ARM9 uncached fetch, ARM9/ARM7 pipeline refill and ARM7TDMI multiply
+ * early-termination timing are implemented for documented cases. ARM7 cycle
+ * combination, cache and dynamic device waits remain fail-closed.
  */
 #include "oracis/recomp/runtime_arm.h"
 

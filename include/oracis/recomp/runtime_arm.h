@@ -200,6 +200,11 @@ bool runtime_slice_yield(void);
 uint32_t runtime_code_cycles(uint32_t pc);
 /* NDS/DATA bus timing; width=1/2/4, sequential=0/1. */
 uint32_t runtime_mem_cycles(uint32_t addr, uint32_t width, uint32_t sequential);
+/*
+ * ARM7TDMI operand-dependent multiply wait. signed_variant=1 permits signed
+ * sign-extension termination; extra is the generated 0/1/2 internal-cycle
+ * term. ARM9 returns zero because its multiply cost is static in numI.
+ */
 uint32_t runtime_mul_cycles(uint32_t rs_value, uint32_t signed_variant, uint32_t extra);
 uint32_t runtime_clz(uint32_t value);
 
