@@ -170,6 +170,21 @@ if(BUILD_TESTING)
     target_link_libraries(oracis_nds_machine_test PRIVATE oracis_machine)
     add_test(NAME oracis_nds_machine_test COMMAND oracis_nds_machine_test)
 
+    add_executable(oracis_host_runtime_bridge_c_test
+        tests/host/runtime_bridge_c_test.c
+    )
+    target_link_libraries(oracis_host_runtime_bridge_c_test PRIVATE
+        oracis_machine
+    )
+    target_compile_features(oracis_host_runtime_bridge_c_test PRIVATE c_std_99)
+    set_target_properties(oracis_host_runtime_bridge_c_test PROPERTIES
+        LINKER_LANGUAGE CXX
+    )
+    add_test(
+        NAME oracis_host_runtime_bridge_c_test
+        COMMAND oracis_host_runtime_bridge_c_test
+    )
+
     add_executable(oracis_abi_c_test
         tests/abi/arm_cpu_state_c_test.c
     )
