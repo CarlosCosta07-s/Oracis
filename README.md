@@ -9,7 +9,7 @@
 
 <p align="center"><strong>Reconstruindo Sinnoh para além do hardware original.</strong></p>
 
-> **Status:** `NdsMachine` possui um orquestrador de fatias dual-core que avança ARM9/ARM7 até um watermark comum na razão 2:1, contabiliza ciclos ociosos após HALT/yield e consulta IRQs nas fronteiras seguras por meio de um provider arquitetural de LR/vetor; `execute_registered_bank_slice()` liga uma fatia ao `runtime_dispatch()`. O host SDL3 agora inicializa/encerra `NdsMachine` por uma ponte C ABI e encaminha o teclado ao `NdsKeypadControl`; ainda não chama rounds de execução porque os bancos reais e o provider arquitetural de IRQ não estão integrados. Ordenação geral de eventos DS, Sleep/Stop e bancos reais continuam pendentes. A revisão `2becf46` passou nos quatro jobs da CI: desktop Linux, Android ARM64, runtime 26/26 e NDSRecomp estático. A revisão seguinte adiciona a integração sintética de extração/emissão e aguarda CI própria.
+> **Status:** a ponte C ABI do host consegue inicializar a máquina, registrar opcionalmente os bancos estáticos ARM9/ARM7 e carregar segmentos já extraídos pela API de runtime. O CMake aceita bancos locais por `ORACIS_LOCAL_BANK_DIR`; o teste de integração usa tabelas sintéticas e comprova ligação/registro/remoção, não execução de Pokémon. O host SDL3 ainda apresenta telas de protótipo e **não carrega automaticamente os binários locais nem executa rounds**: o provider arquitetural de IRQ, os serviços exigidos pelo código real e o boot continuam pendentes. A revisão `f24aa5e` passou nos quatro jobs da CI em 19/11/2026: desktop Linux (26/26 CTests e smoke de bancos locais 1/1), runtime ARM, Android ARM64 e compilador estático NDSRecomp.
 
 ## O projeto
 
@@ -51,9 +51,13 @@ O Oracis já contém:
 - `NdsKeypadControl` com KEYINPUT compartilhado, KEYCNT independente por CPU, condições OR/AND e IRQ de teclado; o host SDL3 mapeia X/Z, Enter/Backspace, setas e Q/W, limpa entradas ao perder foco e encaminha estado pela ponte C;
 - entradas `runtime_link_*` encaminhadas ao dispatcher normal; otimização de slots e folhas inline ainda desabilitada.
 
-O CMake registra 26 testes CTest, incluindo propriedade/integração de `NdsMachine`, critérios HALT/wake dos dois cores, entrada IRQ e rounds de sincronização dual-core com yield antecipado. A revisão `8636590` passou nos quatro jobs da CI (desktop Linux, Android ARM64, NDSRecomp estático e runtime 25/25). Os commits posteriores adicionaram testes de IRQ nas duas CPUs e do novo orquestrador; a validação de CI dessas revisões ainda não foi confirmada. O host SDL3 já instancia/encerra a máquina pela ponte C e conecta o teclado; ainda não chama `run_dual_core_round`. Também faltam ordenação geral de eventos, Sleep/Stop, HALTCNT MMIO direto, VRAMCNT_B e demais handlers MMIO, DMA, IPC, CP15/TCM, BIOS, VRAM, OAM, temporização de memória e serviços NitroSDK para executar bancos reais.
+A validação automatizada atual registra 26 CTests no build desktop, todos aprovados na revisão `f24aa5e`. O mesmo job compilou e executou o smoke test opcional de bancos locais (1/1), usando fixtures sintéticas. Os demais jobs da mesma execução também passaram: runtime ARM sem dependência SDL3, Android ARM64 e build do alvo estático `nds_recompile`. O bootstrap do NDSRecomp está fixado no commit `14b7e15023e9affc9dc375e4e611ac703f5c76ab`.
 
-A CI passou nos seis testes sintéticos do extrator, além dos 26 CTests do runtime e dos jobs Android/NDSRecomp. A prova extrator→NDSRecomp com imagens ARM/Thumb sintéticas agora também compila os corpos e tabelas gerados em C99 contra a ABI Oracis; a CI dessa etapa está pendente. A extração da ROM USA Rev 1 e a emissão de seus bancos reais continuam pendentes.
+O extrator e o emissor local agora validam a identidade dos segmentos, os metadados do TOML, os hashes ARM9/ARM7 e a identidade do gerador `nds-codegen-v3`. A emissão é transacional: os dois bancos precisam ser gerados e validados antes de serem publicados no diretório local. A CI cobre 11 testes Python de tooling e a identidade do compilador; não acessa ROM comercial.
+
+**Ainda não foi concluído:** executar o extrator versionado e o NDSRecomp contra a cópia local real de Pokémon Platinum USA Rev 1, emitir os bancos de jogo, compilar esses bancos e auditar seus símbolos/serviços. A API de máquina já carrega segmentos de programa em memória quando fornecidos pelo host, mas não existe ainda um carregador automático de arquivos locais integrado ao SDL. O host tampouco possui o provider arquitetural completo de IRQ necessário para executar o jogo.
+
+As plataformas desktop Linux e Android ARM64 passam pelo build da CI; isso comprova compilação dos alvos, não compatibilidade jogável. Windows x64 continua planejado e requer validação própria.
 
 ## Princípios
 
