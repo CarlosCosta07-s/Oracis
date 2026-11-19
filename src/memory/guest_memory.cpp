@@ -107,6 +107,7 @@ GuestMemory::Resolution GuestMemory::resolve(
         const uint64_t end = begin + region.size;
         if (address < begin || address >= end) continue;
 
+        if (region.cpu_access == CpuAccessNone) continue;
         if ((region.cpu_access & cpu_bit) == 0u) {
             cpu_denied = true;
             continue;
