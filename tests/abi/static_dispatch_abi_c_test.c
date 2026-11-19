@@ -26,7 +26,7 @@ int main(void)
         {0x02008000u, 0u, generated_bank_body, NULL},
     };
     if (oracis_static_dispatch_register_bank(
-            NDS_ARM9, rows, 1u, "c99-bank") != 0) {
+            NDS_ARM9, rows, 1u, "c99-bank") != ORACIS_DISPATCH_REGISTER_OK) {
         fputs("C99 dispatch ABI: registration failed\n", stderr);
         return 1;
     }
@@ -36,7 +36,7 @@ int main(void)
     const NdsDispatchEntry *inactive = NULL;
     const NdsDispatchEntry *entry = oracis_static_dispatch_lookup(
         NDS_ARM9, 0x02008000u, arm9.cpsr, &status, &count, &inactive);
-    if (entry != &rows[0] || status != 0u || count != 1u || inactive != NULL) {
+    if (entry != &rows[0] || status != ORACIS_DISPATCH_LOOKUP_FOUND || count != 1u || inactive != NULL) {
         fputs("C99 dispatch ABI: lookup failed\n", stderr);
         return 1;
     }
