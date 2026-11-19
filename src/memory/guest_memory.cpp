@@ -283,6 +283,17 @@ Status GuestMemory::map_mirror(uint32_t alias_base,
     return Status::Ok;
 }
 
+bool GuestMemory::unmap_region(const std::string &name) noexcept
+{
+    if (name.empty()) return false;
+    const auto found = std::find_if(
+        regions_.begin(), regions_.end(),
+        [&name](const Region &region) { return region.name == name; });
+    if (found == regions_.end()) return false;
+    regions_.erase(found);
+    return true;
+}
+
 GuestMemory::MutableResolution GuestMemory::resolve_mutable(
     NdsCpu cpu, uint32_t address, uint32_t size) noexcept
 {
