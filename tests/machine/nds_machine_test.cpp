@@ -16,6 +16,20 @@ int fail(const char *message)
     return 1;
 }
 
+uint32_t g_static_dispatch_calls[2]{};
+
+void static_arm9_test_bank()
+{
+    ++g_static_dispatch_calls[0];
+    runtime_tick(2u);
+}
+
+void static_arm7_test_bank()
+{
+    ++g_static_dispatch_calls[1];
+    runtime_tick(1u);
+}
+
 struct SchedulerFixture {
     uint32_t calls[2]{};
     uint64_t budgets[2]{};
@@ -494,6 +508,61 @@ int main()
         scheduler_fixture.calls[1] != arm7_calls_before_halt + 1u ||
         machine.global_bus_cycles() != 5u) {
         return fail("dual-core scheduler did not wake and service ARM7 IRQ at its boundary");
+    }
+
+    /*
+     * Exercise the production adapter that enters generated banks through
+     * runtime_dispatch, rather than the test-only slice callback above.
+     */
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IfAddress, 4u, UINT32_MAX);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IeAddress, 4u, 0u);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 0u);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::IfAddress, 4u, UINT32_MAX);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::IeAddress, 4u, 0u);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::ImeAddress, 4u, 0u);
+    arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
+    arm7->cpsr = ORACIS_ARM_MODE_SYSTEM;
+    arm9->R[15] = UINT32_C(0x02006000);
+    arm7->R[15] = UINT32_C(0x02381000);
+    g_static_dispatch_calls[0] = 0u;
+    g_static_dispatch_calls[1] = 0u;
+
+    const NdsDispatchEntry arm9_test_bank[] = {
+        {UINT32_C(0x02006000), 0u, &static_arm9_test_bank, nullptr}
+    };
+    const NdsDispatchEntry arm7_test_bank[] = {
+        {UINT32_C(0x02381000), 0u, &static_arm7_test_bank, nullptr}
+    };
+    if (oracis_static_dispatch_register_bank(
+            NDS_ARM9, arm9_test_bank, 1u, "machine-test-arm9") != 0 ||
+        oracis_static_dispatch_register_bank(
+            NDS_ARM7, arm7_test_bank, 1u, "machine-test-arm7") != 0) {
+        oracis_static_dispatch_clear();
+        return fail("machine test static banks could not be registered");
+    }
+
+    const NdsMachineStatus static_round = machine.run_dual_core_round(
+        1u, &NdsMachine::execute_registered_bank_slice,
+        &provide_test_irq_context, &scheduler_fixture);
+    const bool banks_dispatched =
+        static_round == NdsMachineStatus::Ok &&
+        g_static_dispatch_calls[0] == 1u &&
+        g_static_dispatch_calls[1] == 1u &&
+        machine.global_bus_cycles() == 6u;
+
+    const bool arm9_unregistered = oracis_static_dispatch_unregister_bank(
+        NDS_ARM9, arm9_test_bank, 1u) != 0;
+    const bool arm7_unregistered = oracis_static_dispatch_unregister_bank(
+        NDS_ARM7, arm7_test_bank, 1u) != 0;
+    if (!banks_dispatched || !arm9_unregistered || !arm7_unregistered) {
+        oracis_static_dispatch_clear();
+        return fail("dual-core rounds did not invoke both registered static banks");
     }
 
     {
