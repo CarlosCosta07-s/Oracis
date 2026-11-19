@@ -58,6 +58,7 @@ A inspeção de `recompiler/armv4t/runtime_arm.h` identificou as seguintes famí
 | Condições/flags | `arm_cond_passes`, `arm_shift_*`, `arm_set_nzcv_*` | Semântica ARM/Thumb |
 | Transferência de controle | `runtime_dispatch`, `runtime_dispatch_with_exchange`, `runtime_call_*` | Chamadas, retornos, interworking e dispatch |
 | Exceções | `runtime_swi`, `runtime_irq`, `runtime_msr_*`, `runtime_coproc_*` | SWI, IRQ, CPSR/SPSR e CP15 |
+| Entrada/retorno de exceção Oracis | `oracis_arm_cpu_enter_exception`, `oracis_arm_cpu_return_from_exception` | Gravar SPSR/LR bancados, aplicar modo/máscaras/vetor e restaurar CPSR/PC |
 | Falhas | `runtime_unimplemented_op`, dispatch miss/bad entry | Diagnóstico fail-closed |
 | Observabilidade | `runtime_trace_event`, `runtime_insn_*` | Logs, contadores e traces de depuração |
 
