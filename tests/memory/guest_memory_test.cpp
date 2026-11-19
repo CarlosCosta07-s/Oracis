@@ -121,11 +121,11 @@ int main()
             0x20000000u, 0x1000u, rw, "physical ARM7 backing",
             oracis::memory::CpuAccessArm7) != Status::Ok ||
         backing_resolution.map_mirror(
-            0x1F000000u, 0x20000000u, 0x1000u, 0x2000u,
+            0x20000000u, 0x20000000u, 0x1000u, 0x1000u,
             "overlapping ARM9 window",
             oracis::memory::CpuAccessArm9) != Status::Ok ||
         backing_resolution.map_mirror(
-            0x20000800u, 0x20000000u, 0x1000u, 0x1000u,
+            0x20002000u, 0x20000000u, 0x1000u, 0x1000u,
             "second ARM7 view",
             oracis::memory::CpuAccessArm7) != Status::Ok) {
         return fail("direct backing was hidden by an overlapping periodic mirror");
@@ -133,7 +133,7 @@ int main()
     if (backing_resolution.write(
             NDS_ARM7, 0x20000000u, 4u, UINT32_C(0xABCD1234)) != Status::Ok ||
         backing_resolution.read(
-            NDS_ARM7, 0x20000800u, 4u).value != UINT32_C(0xABCD1234)) {
+            NDS_ARM7, 0x20002000u, 4u).value != UINT32_C(0xABCD1234)) {
         return fail("secondary mirror did not resolve to physical backing");
     }
 
