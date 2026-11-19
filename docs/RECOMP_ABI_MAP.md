@@ -1,6 +1,7 @@
 # NDSRecomp — mapa do contrato de bancos gerados
 
-**Estado:** contrato parcial implementado; testes C99/C++20 estão registrados, mas a execução da revisão atual não está confirmada. Bancos reais ainda não foram emitidos nem ligados.
+**Estado:** ABI parcial implementada; CP15 ARM9 possui suporte testado a TCM/load modes. Bancos USA Rev 1 foram emitidos localmente, mas os objetos C ainda não foram compilados nem ligados. A CI da revisão 810fade está verde.
+
 
 **Revisão upstream examinada:** `14b7e15023e9affc9dc375e4e611ac703f5c76ab`.
 
@@ -139,10 +140,10 @@ O header fornece o contrato C99 necessário para compilar os bancos emitidos, e 
 - otimização de transferências: resolução/cache de link slots e admissão de folhas inline (os símbolos atuais fazem dispatch conservador e não usam cache);
 - observabilidade de transferências: `runtime_live_transfer`;
 - exceções geradas: `runtime_swi`, `runtime_irq`;
-- coprocessador: `runtime_coproc_read/write` fazem dispatch fail-closed; ARM9 CP15 Control (`MRC/MCR p15,0,Rd,c1,c0,0`) mantém o bit V e seleciona vetores baixos/altos, além do WFI via `c7,c0,4`/`c7,c8,2`; demais registradores CP15, MPU, caches e TCM continuam sem implementação;
+- coprocessador: runtime_coproc_read/write fazem dispatch fail-closed por registrador; ARM9 CP15 implementa c0 ID/TCM size, c1 Control.V + enable/load-mode de ITCM/DTCM e c9 regiões dos TCM. Os backings de 32 KB ITCM e 16 KB DTCM usam janelas overlay com máscaras independentes de leitura/escrita/busca; MPU, cache e demais operações CP15 continuam sem implementação. WFI via c7,c0,4/c7,c8,2 segue separado; veja docs/ARM9_TCM.md;
 - observabilidade: `runtime_trace_event` e consumidor do hook lento.
 
-A compilação C99 de um banco não significa que ele possa executar. A primeira emissão sintética testa o formato ARM/Thumb e a compilação; os bancos reais ainda precisam ser extraídos localmente, ligados ao carregador e validados contra GuestMemory.
+A emissão real USA Rev 1 produziu 78 funções ARM9 e 957 ARM7 (8 Thumb) em dois conjuntos C/dispatch locais. O relatório do compiler encerrou a varredura ARM9 por limite de passos, encontrou 12 leituras não mapeadas e 10 alvos indiretos desconhecidos; ARM7 encerrou ao sair do módulo, encontrou 388 leituras não mapeadas e 30 alvos indiretos desconhecidos. Isso é evidência de emissão parcial, não cobertura completa. A compilação C99 dos objetos gerados e a auditoria dos símbolos indefinidos ainda são os próximos passos; nenhum banco ou arquivo derivado da ROM foi adicionado ao Git/CI.
 ## 9. Opção de geração excluída
 
 O parâmetro `--flat-execution` altera os corpos gerados para usar `NdsExecRegion`, `execution_region.h` e serviços do runtime upstream. **Oracis não usa essa opção.** Usaremos emissão padrão por função.
@@ -155,16 +156,15 @@ Também ficam fora da integração:
 
 ## 10. Testes registrados
 
-O CMake registra **28 testes C99/C++20** para o runtime e ABI, incluindo o mapa NDS retail, WRAMCNT/WRAMSTAT, IME/IE/IF, timers, CP15 e a máquina dual-core. A CI da revisão `90d45fe` passou em 28/28 CTests; o build opcional dos bancos sintéticos passou em 1/1 e o tooling Python passou nos 15 testes. Os alvos registrados são: RAM guest; mapa NDS retail; WRAMCNT MMIO; controlador IME/IE/IF; TM0–TM3, prescalers, cascata e rota bus_*; ponte C bus_* e validação por GuestMemory; layouts ABI C99/C++20; bancos ARM e modos; CPSR/SPSR; exceções; flags; acesso ao User bank e CLZ; pilha de retorno guest; controle de fatias; registry de dispatch; runtime dispatch C++ e ABI dispatch C99; ponte ARM9/ARM7 C/C++; especialização estática ARM9 e ARM7.
+O CMake registra 28 testes C99/C++20 no runtime/ABI. A CI da revisão 810fade passou em 28/28 CTests desktop; o smoke de bancos sintéticos passou em 1/1; o tooling Python passou em 15 testes; runtime ARM, Android ARM64 e o build do NDSRecomp também passaram. Os testes de memória incluem overlays com acesso independente e herança das máscaras read/write/execute; a máquina testa CP15 ID, size, reset TCM, janelas, preservação de RAM subjacente e modos de carga. A CI atual não inclui ROM, segmentos ou bancos reais. Execução: https://github.com/CarlosCosta07-s/Oracis/actions/runs/44617249655.
 
-A execução completa da CI na revisão `90d45fe` passou nos quatro jobs; isso confirma compilação/testes do runtime e fixtures sintéticas, não emissão dos bancos reais. O CMake inclui as bibliotecas de produto independentemente de `BUILD_TESTING`, mas os bancos reais ainda não foram emitidos nem ligados.
-
+## 11.
 ## 11. Prova de integração ainda exigida
 
-1. Compilar o executável `nds_recompile` na revisão fixada.
-2. Emitir os bancos C ARM9 e ARM7 da cópia USA Rev 1, sem `--flat-execution`.
-3. Compilar os bancos usando somente o header e a biblioteca ABI Oracis.
-4. Inspecionar símbolos indefinidos e implementar as funções necessárias.
+1. Compilar os seis arquivos C reais (ARM9/ARM7 body + dispatch) contra os headers ABI Oracis; gerar inventário único de símbolos indefinidos.
+2. Cruzar esse inventário com os símbolos definidos pelo runtime e separar lacunas reais de ABI, MMIO, BIOS, DMA, IPC e código dinâmico.
+3. Ligar os bancos no host/registry por CPU, manter a validação de identidade e exercitar entradas/dispatch sem iniciar rounds de jogo.
+4. Completar os serviços mínimos exigidos pela inicialização e implementar os alvos indiretos/overlays observados nos logs do compilador.
 5. Completar a sincronização de ciclos globais e os demais handlers MMIO (incluindo VRAMCNT_B); a entrega IRQ já é verificada nas fronteiras do round.
 6. Completar CP15/TCM, BIOS, VRAM/OAM, scheduler de dispositivos e timing por região.
 7. Demonstrar que um endereço guest sem banco gera falha detalhada, sem execução interpretada.
