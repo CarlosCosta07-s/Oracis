@@ -75,12 +75,34 @@ Essa ponte cobre apenas RAM/aliases explicitamente configurados. O mapa físico 
 
 Consulte [GUEST_MEMORY.md](GUEST_MEMORY.md) para o contrato completo.
 
+## 6. Registro e dispatch estático
+
+O Oracis agora possui uma implementação própria de registro/lookup em \`static_dispatch.hpp/.cpp\` e uma fachada C em \`static_dispatch_abi.h/.cpp\`.
+
+- \`oracis_static_dispatch_register_bank\` registra uma tabela imutável para ARM9 ou ARM7.
+- \`oracis_static_dispatch_unregister_bank\` remove a tabela exata por ponteiro e tamanho.
+- \`oracis_static_dispatch_lookup\` consulta endereço e estado ARM/Thumb (CPSR.T).
+- \`runtime_dispatch\`, variantes literais e \`runtime_dispatch_with_exchange\` chegam ao dispatcher e invocam a função escolhida.
+- Miss, CPU sem banco, estado desalinhado e entrada inválida encerram com diagnóstico; não existe fallback interpretado.
+- As tabelas precisam estar ordenadas por \`(addr, thumb)\`; duplicatas do mesmo par dentro da mesma tabela são rejeitadas.
+- Se bancos diferentes oferecem a mesma chave, o maior intervalo validado vence; empate mantém a primeira tabela registrada.
+
+O contrato de seleção foi comparado ao algoritmo de lookup do NDSRecomp. O registro não copia nem depende do runtime/runner upstream.
+
+### Identidade de código
+
+O callback \`oracis_bus_validate_dispatch\` é instalado quando \`oracis_bus_bind_memory\` liga o \`GuestMemory\`. Ele verifica a faixa executável da entrada, compara os bytes esperados e confere cada dependência de validação.
+
+\`GuestMemory::map_ram\` cria armazenamento vazio e não prova identidade. Escritas C \`bus_write_*\` marcam a proveniência byte a byte; \`GuestMemory::map_image\` copia bytes fornecidos pelo carregador e marca a faixa inicializada. Um banco que não tenha bytes materializados, ou cujos bytes divergirem, permanece inativo. O unbind da memória remove o callback.
+
+Essa camada ainda não implementa o carregador de bancos do Pokémon Platinum, cache por revisão, ciclo de vida de overlays ou proteção contra descarga enquanto uma função do banco ainda está em execução. O chamador precisa manter tabelas, metadados e funções válidos enquanto registrados.
+
 ## 6. Declarações ainda sem implementação
 
 O header também declara os serviços que o código gerado precisa, mas não fornece stubs vazios. Os seguintes grupos ainda precisam de implementações reais:
 
 - ciclos: `runtime_tick`, `runtime_should_yield`, `runtime_code_cycles`, `runtime_mem_cycles`, `runtime_mul_cycles`;
-- dispatch: `runtime_dispatch*`, `runtime_link_*`, misses e validação de entradas;
+- transferências encadeadas: `runtime_link_*`, `runtime_inline_leaf_admit` e slots de link direto;
 - transferências/retornos: `runtime_call_*`, `runtime_live_transfer`;
 - exceções geradas: `runtime_swi`, `runtime_irq`;
 - coprocessador: `runtime_coproc_*` e serviços CP15;
@@ -98,23 +120,12 @@ Também ficam fora da integração:
 - JIT ou interpretador ARM como fallback;
 - HLE manifests e live-overlay compilation até que a necessidade seja mapeada.
 
-## 9. Testes feitos
+## 10. Testes registrados
 
-O harness runtime-only local, reconstruído a partir dos arquivos versionados, compilou com Clang/CMake/Ninja e passou em doze testes:
-1. RAM guest: little-endian, aliases, permissões, limites e overflow;
-2. C ABI bus_* sobre GuestMemory, com seleção ARM9/ARM7;
-3. layout ABI C99;
-4. layout ABI C++20;
-5. bancos e troca de modos ARM;
-6. CPSR/SPSR e privilégios;
-7. entrada e retorno de exceções;
-8. condições e flags NZCV;
-9. ponte C++ para o estado ativo;
-10. ponte C99 para o estado ativo;
-11. especialização estática ARM9 (`NDS_STATIC_CPU=0`);
-12. especialização estática ARM7 (`NDS_STATIC_CPU=1`).
+O CMake registra quinze testes C99/C++20 para o runtime e ABI. A lista inclui memória, identidade/proveniência, layout ARM, CPSR/SPSR, exceções, flags, registry ranking/misses, ponte de dispatch C/C++ e especialização estática ARM9/ARM7. A execução de todos os quinze testes para o estado atual ainda não foi confirmada:
+Os quinze alvos registrados são: RAM guest; ponte C bus_* e validação por GuestMemory; layouts ABI C99/C++20; bancos ARM e modos; CPSR/SPSR; exceções; flags; registry de dispatch; runtime dispatch C++ e ABI dispatch C99; ponte ARM9/ARM7 C/C++; especialização estática ARM9 e ARM7.
 
-Uma configuração separada com `BUILD_TESTING=OFF` também compilou `liboracis_arm_state.a` e `liboracis_memory.a`. Isso valida as duas bibliotecas no harness local, não o build completo com SDL3 nem os bancos NDSRecomp.
+Não há status check atual confirmado para o último commit; portanto, não declarar esses quinze testes como aprovados. O CMake também inclui as bibliotecas de produto independentemente de `BUILD_TESTING`, mas o build completo com SDL3 e a ligação de bancos NDSRecomp continuam pendentes.
 
 ## 10. Prova de integração ainda exigida
 
@@ -122,7 +133,7 @@ Uma configuração separada com `BUILD_TESTING=OFF` também compilou `liboracis_
 2. Emitir os bancos C ARM9 e ARM7 da cópia USA Rev 1, sem `--flat-execution`.
 3. Compilar os bancos usando somente o header e a biblioteca ABI Oracis.
 4. Inspecionar símbolos indefinidos e implementar as funções necessárias.
-5. Implementar e testar barramento, dispatch, scheduler e serviços de exceção/timing.
+5. Completar barramento DS/MMIO, scheduler, ciclos, chamadas/retornos, IRQ/SWI/CP15 e serviços de timing.
 6. Demonstrar que um endereço guest sem banco gera falha detalhada, sem execução interpretada.
 
 Até a emissão, compilação e execução de bancos reais existir, o Oracis ainda não inicializa Pokémon Platinum.
