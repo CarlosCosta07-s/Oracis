@@ -161,7 +161,11 @@ O extrator só aceita a identidade de ROM documentada e grava os segmentos e met
 
 Quando `ORACIS_LOCAL_BANK_DIR` aponta para os bancos locais, o CMake compila os corpos e tabelas de dispatch como objetos e liga-os ao runtime. Na inicialização, o host pode registrar as tabelas por meio de `oracis_host_runtime_register_compiled_banks()`. O smoke test da CI valida essa ligação e o ciclo de registro/remoção com fixtures sintéticas.
 
-A ponte agora oferece `oracis_host_runtime_load_local_platinum_segments(directory)`. Quando `directory` é nulo, a função usa `.oracis/local/pokemon-platinum-usa-rev1`; lê `arm9.bin` e `arm7.bin`; exige os tamanhos, endereços de carga, entry points e SHA-1 esperados para USA Rev 1; rejeita arquivo ausente, truncado, maior ou com hash divergent## 11. Próximos marcos técnicos
+A ponte agora oferece `oracis_host_runtime_load_local_platinum_segments(directory)`. Quando `directory` é nulo, a função usa `.oracis/local/pokemon-platinum-usa-rev1`; lê `arm9.bin` e `arm7.bin`; exige os tamanhos, endereços de carga, entry points e SHA-1 esperados para USA Rev 1; rejeita arquivo ausente, truncado, maior ou com hash divergente; e só chama o carregamento de segmentos em memória depois da validação integral dos dois arquivos. A falha de validação ocorre antes de qualquer escrita na máquina.
+
+O carregador é uma API disponível para o host, mas o host SDL3 **ainda não a chama automaticamente**. Ele também não chama `oracis_host_runtime_run_round()`; carregar imagens e registrar bancos não substitui a implementação dos serviços de runtime ou o provider arquitetural de IRQ.
+
+## 11. Próximos marcos técnicos
 
 1. Executar o extrator versionado e o emissor NDSRecomp fixado contra a cópia USA Rev 1 local; preservar localmente logs, hashes e manifesto.
 2. Compilar os bancos reais e inventariar símbolos indefinidos, helpers esperados, dependências e overlays/cópias de código.
