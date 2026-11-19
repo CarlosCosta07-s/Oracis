@@ -38,7 +38,8 @@ int oracis_host_runtime_shutdown(void);
 
 /*
  * Host-provided architectural context for a pending IRQ. The callback must
- * compute the exact exception LR and active vector base for this CPU boundary.
+ * compute the exact exception LR for this CPU boundary. The vector_base output
+ * remains for ABI compatibility; NdsMachine selects vectors from CP15/platform.
  */
 typedef int (*OracisHostIrqContextProvider)(
     void *context, NdsCpu cpu, const ArmCpuState *state,
