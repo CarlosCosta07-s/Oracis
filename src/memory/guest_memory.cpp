@@ -294,6 +294,79 @@ bool GuestMemory::unmap_region(const std::string &name) noexcept
     return true;
 }
 
+Status GuestMemory::update_cpu_access(
+    const CpuAccessUpdate *updates,
+    std::size_t count) noexcept
+{
+    if (updates == nullptr || count == 0u) return Status::InvalidRegion;
+
+    /* Validate every request and require each name to identify one region. */
+    for (std::size_t index = 0u; index < count; ++index) {
+        if (updates[index].name == nullptr ||
+            updates[index].name[0] == '\0' ||
+            !valid_cpu_access(updates[index].cpu_access)) {
+            return Status::InvalidRegion;
+        }
+
+        for (std::size_t previous = 0u; previous < index; ++previous) {
+            if (std::strcmp(updates[index].name, updates[previous].name) == 0) {
+                return Status::InvalidRegion;
+            }
+        }
+
+        std::size_t matches = 0u;
+        for (const Region &region : regions_) {
+            if (region.name == updates[index].name) ++matches;
+        }
+        if (matches == 0u) return Status::Unmapped;
+        if (matches != 1u) return Status::InvalidRegion;
+    }
+
+    const auto access_after_update =
+        [updates, count](const Region &region) noexcept -> uint8_t {
+            for (std::size_t index = 0u; index < count; ++index) {
+                if (region.name == updates[index].name) {
+                    return updates[index].cpu_access;
+                }
+            }
+            return region.cpu_access;
+        };
+
+    /*
+     * Check the complete proposed map before mutating any region. A mapping
+     * may overlap another only when their resulting CPU masks are disjoint.
+     */
+    for (std::size_t left = 0u; left < regions_.size(); ++left) {
+        const uint8_t left_access = access_after_update(regions_[left]);
+        if (left_access == CpuAccessNone) continue;
+
+        const uint64_t left_begin = regions_[left].base;
+        const uint64_t left_end = left_begin + regions_[left].size;
+        for (std::size_t right = left + 1u;
+             right < regions_.size(); ++right) {
+            const uint8_t right_access = access_after_update(regions_[right]);
+            if ((left_access & right_access) == 0u) continue;
+
+            const uint64_t right_begin = regions_[right].base;
+            const uint64_t right_end = right_begin + regions_[right].size;
+            if (left_begin < right_end && right_begin < left_end) {
+                return Status::Overlap;
+            }
+        }
+    }
+
+    /* All checks passed; this commit point performs no allocation. */
+    for (std::size_t index = 0u; index < count; ++index) {
+        for (Region &region : regions_) {
+            if (region.name == updates[index].name) {
+                region.cpu_access = updates[index].cpu_access;
+                break;
+            }
+        }
+    }
+    return Status::Ok;
+}
+
 GuestMemory::MutableResolution GuestMemory::resolve_mutable(
     NdsCpu cpu, uint32_t address, uint32_t size) noexcept
 {
