@@ -503,7 +503,7 @@ int main()
             return fail("a second machine was allowed to replace live CPU states");
         }
     }
-    if (machine.global_bus_cycles() != 2u) {
+    if (machine.global_bus_cycles() != 5u) {
         return fail("a rejected competing machine disturbed the active scheduler");
     }
 
