@@ -34,8 +34,12 @@ class EmitPlatinumBanksTests(unittest.TestCase):
             digest = hashlib.sha1(data).hexdigest()
             (self.extracted / f"{cpu}.bin").write_bytes(data)
             (self.extracted / f"{cpu}.toml").write_text(
-                f'[program]\\nid = "{BANK_PREFIX}_{cpu}"\\n'
-                f'[identity]\\nsha1 = "{digest}"\\n',
+                f'[program]\nid = "{BANK_PREFIX}_{cpu}"\n'
+                f'load_address = 0x{load:08X}\n'
+                f'size = 0x{len(data):08X}\n'
+                f'entry_pc = 0x{load:08X}\n'
+                f'[identity]\nsha1 = "{digest}"\n'
+                f'[[entry_point]]\nmode = "{mode}"\n',
                 encoding="utf-8",
             )
             self.records.append({
