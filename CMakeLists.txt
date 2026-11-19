@@ -73,6 +73,7 @@ add_library(oracis_arm_state STATIC
     src/runtime/arm_flags.cpp
     src/runtime/recomp_abi.cpp
     src/runtime/static_dispatch.cpp
+    src/runtime/static_dispatch_abi.cpp
 )
 target_link_libraries(oracis_arm_state PUBLIC oracis_generated_bank_abi)
 target_compile_features(oracis_arm_state PUBLIC cxx_std_20)
