@@ -777,6 +777,9 @@ int main()
      * callback deliberately reports the low base; the machine must use CP15.
      */
     constexpr uint32_t cp15_vector_select = UINT32_C(1) << 13u;
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 could not be selected for unsupported CP15 write test");
+    }
     uint32_t unsupported_cp15_control = 1u;
     if (oracis_arm_runtime_coprocessor_transfer(
             1u, 15u, 0u, 1u, 0u, 0u, &unsupported_cp15_control) != 0 ||
