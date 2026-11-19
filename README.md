@@ -30,7 +30,7 @@ Consulte [docs/TECH_STACK.md](docs/TECH_STACK.md), [docs/NDSRECOMP_INTEGRATION.m
 
 A primeira revisão-alvo é **Pokémon Platinum USA Rev 1**. A cópia fornecida para identificação teve SHA-1 calculado localmente e correspondente ao hash Rev 1 documentado. A ROM e quaisquer arquivos derivados permanecem fora do Git, da CI e das releases.
 
-Foi adicionado [um script para preparar o NDSRecomp](tools/ndsrecomp/build_recompiler.py), fixado no commit `14b7e15023e9affc9dc375e4e611ac703f5c76ab`. Ele configura e compila apenas o alvo `nds_recompile`; não compila o runner upstream.
+Foi adicionado [um script para preparar o NDSRecomp](tools/ndsrecomp/build_recompiler.py), fixado no commit `14b7e15023e9affc9dc375e4e611ac703f5c76ab`. Ele configura e compila apenas o alvo `nds_recompile`; não compila o runner upstream. Também foi criado um [extrator ARM9/ARM7](tools/ndsrecomp/extract_nds_programs.py), executado com sucesso contra a cópia local USA Rev 1; os binários resultantes permanecem fora do Git.
 
 O runtime do Oracis será escrito separadamente. Não serão incorporados runner, oracle, frontend nem componentes derivados de melonDS. A interface C ABI do recompilador será estudada para criar um contrato independente.
 
