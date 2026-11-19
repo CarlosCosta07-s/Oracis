@@ -15,9 +15,10 @@
 - `src/runtime/arm_flags.cpp`: condições ARM e atualização NZ/NZC/NZCV.
 - `include/oracis/recomp/runtime_arm.h` e `src/runtime/recomp_abi.cpp`: ponte parcial para o C gerado, estado ativo ARM9/ARM7, wrappers de flags/PSR/exceção e falhas fail-closed.
 - `include/oracis/memory/guest_memory.hpp` e `src/memory/guest_memory.cpp`: regiões guest configuráveis, aliases e acessos little-endian com permissões e limites.
-- `tests/abi/` e `tests/memory/`: onze testes C99/C++20, incluindo ABI, especialização estática dos dois processadores e mapa de memória.
+- `src/memory/bus_abi.cpp`: wrappers C bus_read_*/bus_write_* ligados ao estado ARM9/ARM7 ativo e ao backing GuestMemory.
+- `tests/abi/` e `tests/memory/`: doze testes C99/C++20, incluindo ABI, especialização estática, mapa de memória e wrappers do barramento.
 
-O runtime usa um ponteiro global para o estado ativo. A futura execução será serial/cooperativa nesta primeira versão: o scheduler deve selecionar ARM9 ou ARM7 antes de chamar um banco. Execução concorrente dos dois bancos em threads ainda não é suportada. GuestMemory ainda não é o mapa físico do DS e não implementa MMIO, DMA, timing ou alinhamento ARM.
+O runtime usa um ponteiro global para o estado ativo. A futura execução será serial/cooperativa nesta primeira versão: o scheduler deve selecionar ARM9 ou ARM7 antes de chamar um banco. Execução concorrente dos dois bancos em threads ainda não é suportada. GuestMemory ainda não é o mapa físico do DS e não implementa MMIO, DMA, timing ou alinhamento ARM. Os wrappers bus_* operam apenas sobre regiões RAM explicitamente mapeadas e falham quando o endereço não existe.
 
 ## Preparar o recompilador
 
@@ -39,7 +40,7 @@ A validação local da cópia conferiu SHA-1, offsets, limites e hashes dos dois
 
 ## Limites atuais
 
-- GuestMemory oferece RAM/aliases genéricos; ainda não é o mapa DS e não implementa MMIO nem o contrato C bus_*.
+- GuestMemory e os wrappers C bus_* oferecem RAM/aliases genéricos; ainda não são o mapa DS e não implementam MMIO.
 - A ponte ABI parcial não implementa dispatch, scheduler, timers, DMA, IPC ou CP15.
 - Os símbolos de ciclos e dispatch apenas declarados não podem ser ligados como se fossem funcionais.
 - O código gerado ainda não foi emitido nem ligado.
