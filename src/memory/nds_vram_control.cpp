@@ -65,6 +65,20 @@ int NdsVramControl::bank_index_for_address(uint32_t address) noexcept
     return -1;
 }
 
+int NdsVramControl::lcdc_bank_index_for_address(uint32_t address) noexcept
+{
+    for (std::size_t index = 0u; index < kVramBanks.size(); ++index) {
+        const VramBank &bank = kVramBanks[index];
+        const uint64_t end =
+            static_cast<uint64_t>(bank.lcdc_address) + bank.size;
+        if (address >= bank.lcdc_address &&
+            static_cast<uint64_t>(address) < end) {
+            return static_cast<int>(index);
+        }
+    }
+    return -1;
+}
+
 int NdsVramControl::arm7_window_index(uint8_t control) noexcept
 {
     /* Enable=1 and MST=010 select the ARM7 Work RAM destination. */
@@ -223,7 +237,18 @@ Status NdsVramControl::write(
     }
 
     const int bank_index = bank_index_for_address(address);
-    if (bank_index < 0) return Status::Unmapped;
+    if (bank_index < 0) {
+        /* GBATEK: LCDC VRAM ignores byte stores. ARM7 C/D Work RAM is the
+         * documented exception and is deliberately left to GuestMemory. */
+        if (cpu == NDS_ARM9 && width == 1u) {
+            const int lcdc_index = lcdc_bank_index_for_address(address);
+            if (lcdc_index >= 0 &&
+                lcdc_enabled(controls_[static_cast<std::size_t>(lcdc_index)])) {
+                return Status::Ok;
+            }
+        }
+        return Status::Unmapped;
+    }
     if (cpu != NDS_ARM9) return Status::CpuAccessDenied;
     if (width != 1u) return Status::InvalidWidth;
     if (!installed_) return Status::Unmapped;

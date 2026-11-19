@@ -212,6 +212,10 @@ int main()
         bus_write_u32(bank.guest_address, bank.marker);
         bus_write_u32(
             bank.guest_address + bank.size - 4u, ~bank.marker);
+        /* LCDC VRAM ignores STRB; ARM7 C/D Work RAM byte stores are tested above. */
+        bus_write_u8(
+            bank.guest_address,
+            static_cast<uint8_t>((bank.marker & UINT32_C(0xFF)) ^ UINT32_C(0xFF)));
     }
     for (const LcdcBankCase &bank : lcdc_banks) {
         if (bus_read_u32(bank.guest_address) != bank.marker ||
