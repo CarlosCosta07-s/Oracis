@@ -2,7 +2,6 @@
 #include "oracis/memory/nds_interrupt_control.hpp"
 #include "oracis/memory/nds_timer_control.hpp"
 #include "oracis/recomp/runtime_arm.h"
-#include "oracis/recomp/runtime_scheduler.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -61,12 +60,12 @@ int main()
         return fail("timer 0 reload/start behavior failed");
     }
 
-    timers.advance_bus_cycles(NDS_ARM9, 1u);
+    timers.advance_bus_cycles(1u);
     if (timers.read(NDS_ARM9, timer0_low, 2u).value != 0xFFFFu ||
         interrupts.read(NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value != 0u) {
         return fail("timer 0 did not increment before overflow");
     }
-    timers.advance_bus_cycles(NDS_ARM9, 1u);
+    timers.advance_bus_cycles(1u);
     if (timers.read(NDS_ARM9, timer0_low, 2u).value != 0xFFFEu ||
         interrupts.read(NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value !=
             timer0_irq ||
@@ -79,12 +78,12 @@ int main()
             NDS_ARM9, NdsInterruptControl::IfAddress, 4u, timer0_irq) != Status::Ok) {
         return fail("timer 0 IRQ acknowledge failed");
     }
-    timers.advance_bus_cycles(NDS_ARM9, 1u);
+    timers.advance_bus_cycles(1u);
     if (timers.write(NDS_ARM9, timer0_low, 2u, 0x1234u) != Status::Ok ||
         timers.read(NDS_ARM9, timer0_low, 2u).value != 0xFFFFu) {
         return fail("reload write changed the running timer counter");
     }
-    timers.advance_bus_cycles(NDS_ARM9, 1u);
+    timers.advance_bus_cycles(1u);
     if (timers.read(NDS_ARM9, timer0_low, 2u).value != 0x1234u) {
         return fail("new reload was not applied at the next overflow");
     }
@@ -93,7 +92,7 @@ int main()
     if (timers.write(NDS_ARM9, timer0_high, 2u, 0x0040u) != Status::Ok) {
         return fail("timer 0 stop failed");
     }
-    timers.advance_bus_cycles(NDS_ARM9, 1000u);
+    timers.advance_bus_cycles(1000u);
     if (timers.read(NDS_ARM9, timer0_low, 2u).value != 0x1234u ||
         timers.write(NDS_ARM9, timer0_high, 2u, 0x00C0u) != Status::Ok ||
         timers.read(NDS_ARM9, timer0_low, 2u).value != 0x1234u) {
@@ -106,11 +105,11 @@ int main()
         timers.write(NDS_ARM9, timer0_high, 2u, 0x00C1u) != Status::Ok) {
         return fail("timer 0 prescaler setup failed");
     }
-    timers.advance_bus_cycles(NDS_ARM9, 63u);
+    timers.advance_bus_cycles(63u);
     if (timers.read(NDS_ARM9, timer0_low, 2u).value != 0xFFFFu) {
         return fail("timer /64 advanced before a full prescaler interval");
     }
-    timers.advance_bus_cycles(NDS_ARM9, 1u);
+    timers.advance_bus_cycles(1u);
     if (timers.read(NDS_ARM9, timer0_low, 2u).value != 0xFFFFu ||
         (interrupts.read(
             NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value &
@@ -131,12 +130,12 @@ int main()
         return fail("timer cascade setup failed");
     }
 
-    timers.advance_bus_cycles(NDS_ARM9, 2u);
+    timers.advance_bus_cycles(2u);
     if (timers.read(NDS_ARM9, timer1_low, 2u).value != 0xFFFFu ||
         timers.read(NDS_ARM9, timer2_low, 2u).value != 0xFFFFu) {
         return fail("first cascade edge was not propagated");
     }
-    timers.advance_bus_cycles(NDS_ARM9, 2u);
+    timers.advance_bus_cycles(2u);
     const uint32_t cascade_flags =
         interrupts.read(NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value;
     if (timers.read(NDS_ARM9, timer1_low, 2u).value != 0xFFFEu ||
@@ -146,16 +145,16 @@ int main()
         return fail("timer 1/2 cascaded overflow behavior failed");
     }
 
-    /* ARM7 has a separate timer bank and clock advancement. */
+    /* ARM7's register bank is independent but advances on the same clock. */
     if (timers.write(NDS_ARM7, timer0_low, 2u, 0xABCDu) != Status::Ok ||
         timers.write(NDS_ARM7, timer0_high, 2u, 0x0080u) != Status::Ok ||
         timers.read(NDS_ARM7, timer0_low, 2u).value != 0xABCDu) {
         return fail("ARM7 timer state was not independent");
     }
-    timers.advance_bus_cycles(NDS_ARM7, 1u);
+    timers.advance_bus_cycles(1u);
     if (timers.read(NDS_ARM7, timer0_low, 2u).value != 0xABCEu ||
-        timers.read(NDS_ARM9, timer0_low, 2u).value != 0xFFFEu) {
-        return fail("ARM7 timer advancement affected ARM9 timer state");
+        timers.read(NDS_ARM9, timer0_low, 2u).value != 0xFFFFu) {
+        return fail("shared bus tick did not advance both CPU timer banks");
     }
 
     if (timers.read(NDS_ARM9, timer0_low, 1u).status != Status::InvalidWidth ||
@@ -183,59 +182,39 @@ int main()
         return fail("duplicate or premature timer-related unbind was accepted");
     }
 
-    oracis_scheduler_reset(NDS_ARM9);
-    oracis_scheduler_reset(NDS_ARM7);
-
-    if (!oracis_arm_runtime_select_cpu(NDS_ARM9))
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
         return fail("ARM9 select failed for timer bus test");
+    }
     bus_write_u16(timer0_high, 0x0040u);
     bus_write_u32(timer0_low, UINT32_C(0x00C0FFFF));
     bus_write_u32(NdsInterruptControl::IfAddress, UINT32_MAX);
-    if (bus_read_u32(timer0_low) != UINT32_C(0x00C0FFFF))
-        return fail("combined reload/control 32-bit MMIO access failed");
-    bus_write_u32(NdsInterruptControl::ImeAddress, 1u);
     bus_write_u32(NdsInterruptControl::IeAddress, timer0_irq);
+    bus_write_u32(NdsInterruptControl::ImeAddress, 1u);
+    if (bus_read_u32(timer0_low) != UINT32_C(0x00C0FFFF)) {
+        return fail("combined reload/control 32-bit MMIO access failed");
+    }
 
-    runtime_tick(1u);
-    if (bus_read_u16(timer0_low) != 0xFFFFu ||
-        bus_read_u32(NdsInterruptControl::IfAddress) != 0u)
-        return fail("one ARM9 core cycle incorrectly advanced the bus timer");
-
-    /*
-     * Interleave the other CPU while ARM9 has a half-tick pending. ARM7 must
-     * advance independently and must not discard ARM9's fractional phase.
-     */
-    if (!oracis_arm_runtime_select_cpu(NDS_ARM7))
-        return fail("ARM7 select failed during ARM9 fractional-cycle test");
-    bus_write_u16(timer0_high, 0u);
-    bus_write_u32(timer0_low, UINT32_C(0x0080BEE0));
-    runtime_tick(1u);
-    if (bus_read_u16(timer0_low) != 0xBEE1u ||
-        bus_read_u32(NdsInterruptControl::IfAddress) != 0u)
-        return fail("ARM7 tick failed during ARM9 fractional-cycle test");
-
-    if (!oracis_arm_runtime_select_cpu(NDS_ARM9))
-        return fail("ARM9 reselection failed during fractional-cycle test");
-    runtime_tick(1u);
-    if (bus_read_u16(timer0_low) != 0xFFFFu ||
-        (bus_read_u32(NdsInterruptControl::IfAddress) & timer0_irq) == 0u ||
-        !interrupts.irq_asserted(NDS_ARM9))
-        return fail("ARM9 half-tick was lost across ARM7 execution");
-
-    if (!oracis_arm_runtime_select_cpu(NDS_ARM7))
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM7)) {
         return fail("ARM7 select failed for timer bus test");
+    }
     bus_write_u16(timer0_high, 0u);
     bus_write_u32(timer0_low, UINT32_C(0x0080BEE0));
-    if (bus_read_u16(timer0_low) != 0xBEE0u)
-        return fail("ARM7 timer C bus state was not independent");
-    runtime_tick(1u);
-    if (bus_read_u16(timer0_low) != 0xBEE1u ||
-        bus_read_u32(NdsInterruptControl::IfAddress) != 0u)
-        return fail("one ARM7 core cycle did not advance a timer tick");
+    if (bus_read_u16(timer0_low) != 0xBEE0u) {
+        return fail("ARM7 timer bus view setup failed");
+    }
 
+    /* One global bus tick advances both banks and raises only ARM9's IRQ. */
+    timers.advance_bus_cycles(1u);
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9) ||
-        bus_read_u16(timer0_low) != 0xFFFFu) {
-        return fail("ARM9 timer was altered by ARM7 timer advancement");
+        bus_read_u16(timer0_low) != 0xFFFFu ||
+        (bus_read_u32(NdsInterruptControl::IfAddress) & timer0_irq) == 0u ||
+        !interrupts.irq_asserted(NDS_ARM9)) {
+        return fail("global timer overflow was not visible through ARM9 bus");
+    }
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM7) ||
+        bus_read_u16(timer0_low) != 0xBEE1u ||
+        bus_read_u32(NdsInterruptControl::IfAddress) != 0u) {
+        return fail("ARM7 bus view inherited ARM9 timer/IRQ state");
     }
 
     if (!oracis_bus_unbind_timer_control(&timers) ||

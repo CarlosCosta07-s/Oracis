@@ -177,24 +177,16 @@ uint64_t NdsTimerControl::advance_prescaled(
     return whole_ticks + (accumulated / divisor);
 }
 
-void NdsTimerControl::advance_core_cycles(
-    NdsCpu cpu, uint64_t cycles) noexcept
+void NdsTimerControl::advance_bus_cycles(uint64_t cycles) noexcept
 {
-    if (!valid_cpu(cpu) || cycles == 0u) return;
+    if (cycles == 0u) return;
 
-    uint64_t bus_cycles = cycles;
-    if (cpu == NDS_ARM9) {
-        const uint64_t half_total =
-            (cycles & UINT64_C(1)) + arm9_core_cycle_remainder_;
-        bus_cycles = (cycles >> 1u) + (half_total >> 1u);
-        arm9_core_cycle_remainder_ =
-            static_cast<uint8_t>(half_total & UINT64_C(1));
-    }
-
-    if (bus_cycles != 0u) advance_bus_cycles(cpu, bus_cycles);
+    /* Both processors' timer banks share the physical peripheral clock. */
+    advance_cpu_timers(NDS_ARM9, cycles);
+    advance_cpu_timers(NDS_ARM7, cycles);
 }
 
-void NdsTimerControl::advance_bus_cycles(
+void NdsTimerControl::advance_cpu_timers(
     NdsCpu cpu, uint64_t cycles) noexcept
 {
     if (!valid_cpu(cpu)) return;

@@ -40,15 +40,12 @@ public:
                  uint32_t value) noexcept;
 
     /*
-     * Advance one CPU's timers by elapsed NDS bus-clock ticks.
-     * The input is peripheral/bus cycles, not ARM instruction cycles.
-     * Timer overflow IRQ requests are latched in the paired interrupt block.
+     * Advance the shared NDS peripheral clock by bus ticks. Both ARM9 and
+     * ARM7 timer banks run from this same clock and advance together.
+     * The machine scheduler must call this once per elapsed system bus tick,
+     * not once for each CPU.
      */
-    void advance_bus_cycles(NdsCpu cpu, uint64_t cycles) noexcept;
-
-    /* Convert native CPU cycles to peripheral ticks. ARM9 is 2:1 with
-       retained half-cycle; ARM7 is 1:1. */
-    void advance_core_cycles(NdsCpu cpu, uint64_t cycles) noexcept;
+    void advance_bus_cycles(uint64_t cycles) noexcept;
 
     GuestMemory &backing_memory() const noexcept { return memory_; }
     NdsInterruptControl &interrupt_control() const noexcept { return interrupts_; }
@@ -73,11 +70,11 @@ private:
 
     static uint64_t advance_prescaled(
         TimerState &timer, uint64_t bus_cycles) noexcept;
+    void advance_cpu_timers(NdsCpu cpu, uint64_t cycles) noexcept;
 
     GuestMemory &memory_;
     NdsInterruptControl &interrupts_;
     std::array<std::array<TimerState, TimerCount>, 2> timers_{};
-    uint8_t arm9_core_cycle_remainder_ = 0u;
 };
 
 } // namespace oracis::memory
