@@ -40,6 +40,7 @@ enum class DispatchLookupStatus : uint8_t {
 };
 
 using DispatchValidationFn = bool (*)(
+    NdsCpu cpu,
     const NdsStaticValidation *validation,
     uint32_t pc,
     bool thumb,
