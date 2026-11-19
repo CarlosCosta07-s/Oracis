@@ -80,7 +80,10 @@ add_library(oracis_memory STATIC
     src/memory/guest_memory.cpp
     src/memory/bus_abi.cpp
 )
-target_link_libraries(oracis_memory PUBLIC oracis_generated_bank_abi)
+target_link_libraries(oracis_memory PUBLIC
+    oracis_generated_bank_abi
+    oracis_arm_state
+)
 target_compile_features(oracis_memory PUBLIC cxx_std_20)
 
 # The SDL host consumes the same independent runtime library that generated
@@ -106,7 +109,6 @@ if(BUILD_TESTING)
     )
     target_link_libraries(oracis_guest_memory_bus_abi_test PRIVATE
         oracis_memory
-        oracis_arm_state
     )
     add_test(NAME oracis_guest_memory_bus_abi_test COMMAND oracis_guest_memory_bus_abi_test)
 
