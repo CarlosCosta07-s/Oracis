@@ -78,15 +78,15 @@ class EmitPlatinumBanksTests(unittest.TestCase):
             bank = command[command.index("--bank") + 1]
             output = Path(command[command.index("--out") + 1])
             (output / f"{bank}.c").write_text(
-                "/* synthetic bank body */\\n", encoding="utf-8"
+                "/* synthetic bank body */\n", encoding="utf-8"
             )
             (output / f"{bank}.h").write_text(
-                "/* synthetic bank header */\\n", encoding="utf-8"
+                "/* synthetic bank header */\n", encoding="utf-8"
             )
             if not (omit_dispatch and bank.endswith("_arm7")):
                 (output / f"{bank}_dispatch.c").write_text(
-                    f"const NdsDispatchEntry g_dispatch_{bank}[] = {{}};\\n"
-                    f"const unsigned g_dispatch_{bank}_len = 0u;\\n",
+                    f"const NdsDispatchEntry g_dispatch_{bank}[] = {{}};\n"
+                    f"const unsigned g_dispatch_{bank}_len = 0u;\n",
                     encoding="utf-8",
                 )
         return run
