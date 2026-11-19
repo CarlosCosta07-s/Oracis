@@ -13,6 +13,7 @@
 - `src/runtime/arm_psr_ops.cpp`: operações CPSR/SPSR, máscaras de campos e privilégio User.
 - `src/runtime/arm_exception_ops.cpp`: entrada/retorno de Undefined, SWI, prefetch/data abort, IRQ e FIQ; o chamador fornece o link e a base vetorial.
 - `src/runtime/arm_flags.cpp`: condições ARM e atualização NZ/NZC/NZCV.
+- `src/runtime/recomp_abi.cpp`: acesso aos registradores User e `runtime_clz` para o codegen.
 - `include/oracis/recomp/runtime_arm.h` e `src/runtime/recomp_abi.cpp`: ponte parcial para o C gerado, estado ativo ARM9/ARM7, wrappers de flags/PSR/exceção e falhas fail-closed.
 - `include/oracis/memory/guest_memory.hpp` e `src/memory/guest_memory.cpp`: regiões guest configuráveis, aliases e acessos little-endian com permissões e limites.
 - `src/memory/bus_abi.cpp`: wrappers C bus_read_*/bus_write_* ligados ao estado ARM9/ARM7 ativo e ao backing GuestMemory.
