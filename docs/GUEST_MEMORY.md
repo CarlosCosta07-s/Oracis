@@ -1,6 +1,6 @@
 # GuestMemory e mapa de RAM do Nintendo DS
 
-**Estado:** armazenamento guest configurável, visibilidade por CPU, aliases, mirrors periódicos e mapa de RAM do NDS retail implementados. `set_shared_wram_mode()` reconfigura os quatro modos preservando os bytes físicos, e `NdsWramControl` liga a escrita/leitura de 8 bits em `WRAMCNT` ao barramento C para ARM9. `WRAMSTAT` e os demais handlers MMIO ainda não estão implementados. O bloco de interrupções `IME`/`IE`/`IF` já possui estado independente ARM9/ARM7, MMIO de 32 bits e semântica W1C para IF; a entrada real de IRQ ainda depende do scheduler de eventos.
+**Estado:** armazenamento guest configurável, visibilidade por CPU, aliases, mirrors periódicos e mapa de RAM NDS retail implementados. `NdsWramControl` liga WRAMCNT ao barramento para ARM9 e implementa WRAMSTAT read-only de 8 bits no ARM7. O endereço compartilhado `0x04000241` não é capturado pelo dispositivo no ARM9, onde corresponde a VRAMCNT_B. Os demais handlers MMIO continuam pendentes. O bloco IME/IE/IF mantém estado independente por CPU e IF W1C; a entrega automática de IRQ ainda depende do scheduler.
 
 ## 1. Responsabilidades
 
@@ -65,7 +65,7 @@ A API recebe explicitamente um valor de `SharedWramMode`, correspondente aos bit
 
 Os bancos de 16 KB são espelhados pelas janelas de endereço documentadas: janela ARM9 de 16 MB e janela ARM7 de 8 MB, com a faixa privada ARM7 começando em `0x03800000`. Os modos 1 e 2 são modelados com regiões sobrepostas no mesmo endereço virtual e máscaras de CPU disjuntas.
 
-No modo 0, o mapa não deixa o espaço ARM7 vazio: conforme o comportamento documentado de desalocação, a janela ARM7 espelha a WRAM privada de 64 KB em `0x03800000`. A instalação inicial recebe o modo explicitamente. `NdsRetailRamMap::install()` pré-mapeia as sete visões possíveis. `set_shared_wram_mode()` substitui em uma única operação validada as máscaras de CPU dessas regiões preexistentes; nenhuma janela é desalocada ou recriada, e os backings dos dois bancos de 16 KB permanecem intactos. `NdsWramControl` conecta essa API ao endereço `0x04000247`: o ARM9 pode ler e escrever apenas 8 bits; a escrita usa os bits 0–1 e ignora os bits reservados 2–7. A escrita ARM7 é rejeitada. `WRAMSTAT` em `0x04000241` é um registrador distinto, somente leitura no ARM7; sua semântica de valor ainda não está implementada. No mapa ARM9, `0x04000241` pertence a `VRAMCNT_B`, não a `WRAMSTAT`.
+No modo 0, o mapa não deixa o espaço ARM7 vazio: conforme o comportamento documentado de desalocação, a janela ARM7 espelha a WRAM privada de 64 KB em `0x03800000`. A instalação inicial recebe o modo explicitamente. `NdsRetailRamMap::install()` pré-mapeia as sete visões possíveis. `set_shared_wram_mode()` substitui em uma única operação validada as máscaras de CPU dessas regiões preexistentes; nenhuma janela é desalocada ou recriada, e os backings dos dois bancos de 16 KB permanecem intactos. `NdsWramControl` conecta essa API ao endereço `0x04000247`: o ARM9 pode ler e escrever apenas 8 bits; a escrita usa os bits 0–1 e ignora os bits reservados 2–7. A escrita ARM7 em WRAMCNT é rejeitada. `WRAMSTAT` em `0x04000241` é somente leitura no ARM7 e devolve os bits 0–1 do modo atual; bits 2–7 são zero. O mesmo endereço não é capturado pelo dispositivo WRAM no ARM9, onde representa VRAMCNT_B (ainda sem implementação própria).
 
 Os bytes físicos das duas banks são armazenados em um backing interno com `CpuAccessNone`; os processadores acessam somente os mirrors que o modo WRAMCNT lhes atribui.
 
@@ -112,7 +112,7 @@ Implementação: `src/memory/guest_memory.cpp`
 - `update_cpu_access(updates, count)`: valida o mapa resultante inteiro antes de alterar as máscaras de várias regiões existentes; a etapa de aplicação não aloca e não pode falhar. GuestMemory não fornece sincronização entre threads.
 - `NdsRetailRamMap::set_shared_wram_mode(memory, mode)`: altera transacionalmente a visibilidade das sete janelas Shared WRAM pré-mapeadas e preserva os bancos físicos.
 - `NdsWramControl::install()`: instala o mapa inicial e mantém o modo atual do dispositivo.
-- `NdsWramControl::read/write(cpu, address, width, value)`: implementa WRAMCNT para o ARM9; outros endereços não são consumidos por esse dispositivo.
+- `NdsWramControl::read/write(cpu, address, width, value)`: implementa WRAMCNT ARM9 e WRAMSTAT ARM7; WRAMSTAT é 8-bit, read-only e devolve o modo nos bits 0–1. O endereço ARM9 correspondente a VRAMCNT_B é deixado para o futuro dispositivo de vídeo.
 - `NdsInterruptControl::read/write(cpu, address, width, value)`: implementa IME/IE/IF para ambas as CPUs, em 32 bits, com IF write-one-to-clear.
 - `NdsInterruptControl::request_irq(cpu, mask)` / `irq_asserted(cpu)`: latcheia fontes IF e calcula a linha habilitada por IME/IE.
 - `NdsInterruptControl::try_enter_irq(cpu, state, return_address, vector_base)`: entra em IRQ apenas quando a linha está ativa e `CPSR.I` está limpo; o chamador fornece LR e vetor; IF não é apagado.
@@ -174,7 +174,7 @@ O CMake registra testes separados para:
 - WRAM ARM7 privada;
 - todos os quatro modos de Shared WRAM, incluindo regiões sobrepostas com visibilidade diferente por CPU e o espelho da WRAM privada ARM7 no modo 0;
 - transições dinâmicas entre modos, preservação de conteúdo dos dois bancos e rejeição de modo inválido sem alterar a janela corrente;
-- leitura/escrita de `WRAMCNT` pelo ARM9 via `bus_read_u8`/`bus_write_u8`, rejeição de acesso pelo ARM7 e ligação/desligamento do dispositivo;
+- leitura/escrita de WRAMCNT pelo ARM9 e leitura WRAMSTAT pelo ARM7 via barramento C; WRAMSTAT read-only, modos 0–3, larguras inválidas e distinção do alias ARM9 VRAMCNT_B;
 - `IME`/`IE`/`IF` independentes por CPU, IME master gate, máscara IE, IF write-one-to-clear, requests latcheados e roteamento por `bus_read_u32`/`bus_write_u32`.
 
-**Na revisão `bc3b2ed`, a CI passou nos quatro jobs**, incluindo desktop Linux, Android ARM64, NDSRecomp e 22/22 testes de runtime. A revisão seguinte acrescenta a regressão que intercalará ARM9/ARM7 enquanto a meia-fase ARM9 está pendente.
+**Na revisão `a435c0f`, a CI passou nos quatro jobs**, incluindo desktop Linux, Android ARM64, NDSRecomp e 22/22 testes de runtime. A revisão atual acrescenta WRAMSTAT ARM7 e regressões de acesso; a CI está em execução.

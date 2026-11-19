@@ -19,7 +19,7 @@
 - `include/oracis/memory/guest_memory.hpp` e `src/memory/guest_memory.cpp`: regiões guest configuráveis, aliases, mirrors periódicos e visibilidade por CPU.
 - `include/oracis/memory/nds_retail_map.hpp` e `src/memory/nds_retail_map.cpp`: Main RAM 4MB/mirrors, WRAM ARM7 privada e modos WRAMCNT 0–3.
 - `src/memory/bus_abi.cpp`: wrappers C bus_read_*/bus_write_* ligados ao estado ARM9/ARM7 ativo, ao GuestMemory e aos dispositivos MMIO WRAMCNT e IME/IE/IF.
-- `include/oracis/memory/nds_wram_control.hpp` e `src/memory/nds_wram_control.cpp`: WRAMCNT ARM9 de 8 bits, remapeamento Shared WRAM no barramento; WRAMSTAT permanece pendente.
+- `include/oracis/memory/nds_wram_control.hpp` e `src/memory/nds_wram_control.cpp`: WRAMCNT ARM9 de 8 bits, remapeamento Shared WRAM e WRAMSTAT ARM7 read-only (8 bits, bits 0–1 retornam o modo); `0x04000241` no ARM9 continua reservado a VRAMCNT_B.
 - `include/oracis/memory/nds_interrupt_control.hpp` e `src/memory/nds_interrupt_control.cpp`: IME/IE/IF independentes por CPU, IF W1C e `try_enter_irq()` com máscara CPSR.I e LR/vetor explícitos; chamada automática pelo scheduler pendente.
 - `include/oracis/memory/nds_timer_control.hpp` e `src/memory/nds_timer_control.cpp`: Timer 0–3 de 16 bits por CPU, reload/start, prescalers, cascata e IRQ; `advance_bus_cycles(n)` avança as duas banks pelo mesmo clock global, ainda sem integração ao scheduler.
 - `tests/abi/` e `tests/memory/`: vinte e dois alvos CTest registrados, incluindo ABI, dispatch, User bank, GuestMemory, WRAMCNT, IME/IE/IF, entrada IRQ e timers. A CI da revisão `bc3b2ed` passou nos quatro jobs e em 22/22 testes. A nova regressão de intercalação ARM9/ARM7 aguarda execução.
@@ -46,7 +46,7 @@ A validação local da cópia conferiu SHA-1, offsets, limites e hashes dos dois
 
 ## Limites atuais
 
-- O mapa NDS retail cobre Main RAM e WRAM. O barramento reconhece WRAMCNT, IME/IE/IF e TM0–TM3; o timer aguarda ticks globais explícitos para avançar ambas as banks. Ainda não há WRAMSTAT, sincronização ARM9/ARM7, ordenação geral de eventos, entrega automática de IRQ, demais MMIO, CP15/TCM, BIOS, VRAM/OAM ou timing por região.
+- O mapa NDS retail cobre Main RAM e WRAM. O barramento reconhece WRAMCNT, WRAMSTAT ARM7, IME/IE/IF e TM0–TM3; o timer aguarda ticks globais explícitos para avançar ambas as banks. Ainda não há sincronização ARM9/ARM7, ordenação geral de eventos, entrega automática de IRQ, VRAMCNT_B e demais MMIO, CP15/TCM, BIOS, VRAM/OAM ou timing por região.
 - O registry/runtime_dispatch e a pilha de retorno guest estão implementados para tabelas registradas. Os link slots permanecem sem cache/resolução direta; o controle de fatias existe, mas o scheduler DS com eventos, timers e sincronização ainda não existe.
 - A ordenação geral de eventos e a entrega IRQ ao scheduler, DMA, IPC, SWI/CP15 e serviços NitroSDK continuam pendentes.
 - O código gerado ainda não foi emitido nem ligado.
