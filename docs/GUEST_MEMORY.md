@@ -1,109 +1,134 @@
-# GuestMemory — contrato de regiões de memória
+# GuestMemory e mapa de RAM do Nintendo DS
 
-**Estado:** RAM guest configurável, wrappers C bus_read_*/bus_write_* e validação de identidade implementados. Ainda não é o mapa físico de memória do Nintendo DS e não possui MMIO. A execução dos testes atuais ainda não foi confirmada.
+**Estado:** armazenamento guest configurável, visibilidade por CPU, aliases, mirrors periódicos e mapa inicial de RAM do NDS retail implementados. A camada MMIO e a reconfiguração dinâmica de WRAMCNT ainda não existem. Os testes estão registrados no CMake, mas a execução da versão atual ainda não foi confirmada.
 
-## 1. Objetivo
+## 1. Responsabilidades
 
-GuestMemory fornece uma camada de armazenamento de endereços guest para o futuro barramento Oracis. Ela não reproduz sozinha a semântica completa do barramento DS.
+`GuestMemory` é o backing store byte-addressed do barramento Oracis. Ele oferece:
+- regiões guest de 32 bits;
+- permissões Read/Write/Execute;
+- máscara de visibilidade ARM9/ARM7;
+- aliases lineares para o mesmo backing;
+- mirrors periódicos de uma região física menor;
+- transferências little-endian de 8, 16 e 32 bits;
+- proveniência por byte para identidade de código.
 
-Responsabilidades atuais:
-- mapear regiões em um espaço guest de 32 bits;
-- rejeitar mapeamentos vazios, sobrepostos ou que ultrapassem o espaço de endereços;
-- mapear aliases explícitos para o mesmo backing;
-- impor permissões de leitura, escrita e execução;
-- executar acessos little-endian de 8, 16 e 32 bits;
-- retornar erros para endereços não mapeados, overflow e acesso que cruza o limite de uma região.
+Não é um modelo completo de hardware. MMIO, wait states, DMA, IPC, comportamento de barramento e efeitos colaterais de dispositivos pertencem a camadas separadas.
 
-## 2. API principal
+## 2. Visibilidade por CPU
 
-Header: include/oracis/memory/guest_memory.hpp  
-Implementação: src/memory/guest_memory.cpp
+Cada região possui uma máscara de acesso:
+- `CpuAccessArm9`;
+- `CpuAccessArm7`;
+- `CpuAccessBoth`;
+- `CpuAccessNone`, reservado para backing interno usado por aliases.
 
-ABI C: include/oracis/memory/guest_memory_abi.h e src/memory/bus_abi.cpp
+Duas regiões podem ocupar o mesmo intervalo guest quando suas máscaras de CPU são disjuntas. Isso é necessário no Shared WRAM: em alguns modos, ARM9 e ARM7 acessam bancos físicos diferentes no mesmo endereço guest `0x03000000`.
 
-- map_ram(base, size, permissions, name): aloca armazenamento próprio, inicialmente vazio, e mapeia uma região.
-- map_image(base, contents, size, permissions, name): copia bytes fornecidos pelo carregador e marca a faixa como materializada.
-- map_alias(alias_base, canonical_base, size, name): cria outra faixa guest que compartilha exatamente os bytes de uma região já mapeada.
-- read(cpu, address, width): leitura de 1, 2 ou 4 bytes.
-- write(cpu, address, width, value): escrita de 1, 2 ou 4 bytes.
-- validate_execute(cpu, address, size): verifica mapeamento contínuo e permissão de execução.
-- validate_identity(cpu, address, size, expected): exige bytes materializados e compara a faixa com os bytes esperados.
+Quando uma CPU tenta ler ou escrever uma região que só está mapeada para a outra, o resultado é `CpuAccessDenied`, não um zero inventado.
 
-As regiões são half-open: [base, base + size). O limite superior pode alcançar 0x1_0000_0000, mas nunca ultrapassá-lo. Aliases herdam as permissões do intervalo canônico.
+## 3. Mapa instalado para NDS retail
 
-## 3. Ponte C ABI usada pelos bancos
+O builder está em `include/oracis/memory/nds_retail_map.hpp` e `src/memory/nds_retail_map.cpp`.
 
-O runtime oferece os símbolos:
-- bus_read_u8 / bus_read_u16 / bus_read_u32;
-- bus_write_u8 / bus_write_u16 / bus_write_u32.
+`NdsRetailRamMap::install(memory, shared_wram_mode)` instala o seguinte mapa inicial:
 
-O host cria e mantém vivo um objeto GuestMemory, depois o registra com oracis_bus_bind_memory(&memory). O objeto não é transferido nem destruído pela biblioteca; o host deve mantê-lo vivo até chamar oracis_bus_unbind_memory(&memory).
+| Região guest | Tamanho físico | CPUs | Comportamento |
+|---|---:|---|---|
+| `0x02000000` | 4 MB | ARM9 + ARM7 | Main RAM compartilhada |
+| `0x02400000` | Espelho de 4 MB | ARM9 + ARM7 | Mesmo backing da Main RAM |
+| `0x02800000` | Espelho de 4 MB | ARM9 + ARM7 | Mesmo backing da Main RAM |
+| `0x02C00000` | Espelho de 4 MB | ARM9 + ARM7 | Mesmo backing da Main RAM |
+| `0x03000000` | 0/16/32 KB | Conforme WRAMCNT | Shared WRAM, espelhada na janela de cada CPU |
+| `0x03800000` | 64 KB | ARM7 | WRAM privada ARM7 |
 
-Cada wrapper usa g_nds_active para encaminhar o acesso como ARM9 ou ARM7. O armazenamento é compartilhado quando ambos os processadores acessam a mesma região mapeada. Erros de região, permissão ou largura encerram a execução com log de CPU, endereço, largura, PC e código de erro; nenhum valor zero é inventado como fallback.
+O mapa é intencionalmente o **NDS retail**, não o DSi nem o hardware debugger. BlocksDS documenta 4 MB de Main RAM no DS retail, com os três espelhos indicados, e 64 KB de WRAM privada para ARM7. GBATEK documenta a área de Shared WRAM e os registros de controle. Consulte [BlocksDS — Memory map](https://blocksds.skylyrac.net/docs/internal/memory_map/) e [GBATEK — DS Memory Control](https://mgba-emu.github.io/gbatek/).
 
-O wrapper executa apenas a transferência little-endian da largura solicitada. A inspeção do codegen ARMv5TE mostrou que instruções LDR/STR de palavra/halfword alinham o endereço antes de chamar bus_* e aplicam a rotação/sign-extension na função gerada. Por isso o wrapper não aplica uma segunda rotação ou correção ARM.
+### Main RAM
 
-A ligação global é serial/cooperativa nesta etapa. O scheduler deverá selecionar a CPU correta antes de chamar um banco e não pode executar os wrappers em paralelo sem uma futura proteção por contexto.
+O backing principal começa em `0x02000000`, tem 4 MB e é compartilhado pelos dois processadores. Os endereços `0x02400000`, `0x02800000` e `0x02C00000` são aliases do mesmo armazenamento, não cópias separadas.
 
-## 4. Códigos de erro
+### ARM7 private WRAM
 
-- InvalidCpu: identificador diferente de ARM9/ARM7.
-- InvalidWidth: largura diferente de 1, 2 ou 4 bytes.
-- InvalidRegion: tamanho zero, nome vazio, permissões inválidas ou intervalo fora do espaço guest.
-- AddressOverflow: o acesso extrapola 32 bits.
-- Overlap: novo mapeamento cruza outro mapeamento existente.
-- Unmapped: início do acesso ou alvo canônico não está mapeado.
-- CrossesRegion: o acesso começa em uma região, mas termina fora dela.
-- PermissionDenied: leitura, escrita ou execução não permitida.
+A região `0x03800000–0x0380FFFF` só é acessível por ARM7. ARM9 recebe `CpuAccessDenied` ao tentar acessá-la.
 
-## 5. Proveniência e identidade de código
+### Shared WRAM e WRAMCNT
 
-Cada backing mantém um marcador de proveniência por byte.
-- \`map_ram\` cria bytes vazios com proveniência zero.
-- \`write\` (incluindo os wrappers C \`bus_write_*\`) marca os bytes atingidos como materializados.
-- \`map_image\` copia os bytes fonte e marca toda a faixa como materializada.
-- \`validate_identity\` recusa qualquer byte sem proveniência e só então compara o conteúdo.
+A API recebe explicitamente um valor de `SharedWramMode`, correspondente aos bits 0–1 de `WRAMCNT` (registrador NDS9 em `0x04000247`). Não se presume o valor deixado pelo firmware.
 
-Isso evita que uma região recém-alocada, preenchida inicialmente com zero, seja confundida com um banco compilado que também espera zeros. Para código, o callback do dispatcher ainda exige \`Executable\` na faixa principal; depois valida conteúdo e dependências. O callback é instalado pelo bind do objeto GuestMemory na ABI do barramento e removido no unbind.
+| Bits | Modo Oracis | ARM9 | ARM7 |
+|---:|---|---|---|
+| 0 | `Arm9All32K` | Bancos 0 + 1 (32 KB) | Sem Shared WRAM |
+| 1 | `Arm9Bank1Arm7Bank0` | Banco físico 1 (16 KB) | Banco físico 0 (16 KB) |
+| 2 | `Arm9Bank0Arm7Bank1` | Banco físico 0 (16 KB) | Banco físico 1 (16 KB) |
+| 3 | `Arm7All32K` | Sem Shared WRAM | Bancos 0 + 1 (32 KB) |
 
-O marcador de proveniência ainda é simples: não representa gerações de páginas, DMA, escrita por dispositivo, mapeamentos por CPU ou invalidação de cache de instruções. Esses casos precisarão de um modelo de proveniência/timing mais completo no barramento DS.
+Os bancos de 16 KB são espelhados pelas janelas de endereço documentadas: janela ARM9 de 16 MB e janela ARM7 de 8 MB, com a faixa privada ARM7 começando em `0x03800000). Os modos 1 e 2 são modelados com regiões sobrepostas no mesmo endereço virtual e máscaras de CPU disjuntas.
 
-## 6. Semântica deliberadamente fora desta camada
+A instalação é estática: o builder configura o modo inicial escolhido pelo chamador. **Ainda não há handler MMIO para reconfigurar o mapa quando o guest escreve em WRAMCNT**, nem implementação de WRAMSTAT. Uma futura camada de dispositivos deverá atualizar essas regiões mantendo os bytes físicos dos dois bancos.
 
-O barramento de hardware deve permanecer responsável por:
-- MMIO e efeitos colaterais de registradores;
-- DMA, IPC e periféricos;
-- latência e custo de ciclos por CPU/região;
-- mirrors reais do Nintendo DS, definidos por região e dispositivo;
-- regras de alinhamento/rotação específicas de cada instrução ARM;
-- comportamento de regiões não mapeadas que dependa da CPU ou do dispositivo.
+Os bytes físicos das duas banks são armazenados em um backing interno com `CpuAccessNone`; os processadores acessam somente os mirrors que o modo WRAMCNT lhes atribui.
 
-GuestMemory não aplica automaticamente rotação ARM a leituras desalinhadas. A camada CPU deverá decidir a transformação arquitetural e então solicitar as transferências de bytes apropriadas.
+## 4. API principal do GuestMemory
 
-O parâmetro CPU valida que a chamada pertence a ARM9 ou ARM7, mas as regiões mapeadas são atualmente compartilhadas. Mapas separados por processador, privilégios e overlays executáveis ainda não existem.
+Header: `include/oracis/memory/guest_memory.hpp`  
+Implementação: `src/memory/guest_memory.cpp`
 
-## 7. Testes
+- `map_ram(base, size, permissions, name, cpu_access)`: aloca bytes zerados, inicialmente sem proveniência.
+- `map_image(base, contents, size, permissions, name, cpu_access)`: copia bytes fornecidos pelo carregador e marca a faixa como materializada.
+- `map_alias(alias_base, canonical_base, size, name, cpu_access)`: cria uma janela linear para o mesmo backing.
+- `map_mirror(alias_base, canonical_base, period, window_size, name, cpu_access)`: cria uma janela maior que repete um backing físico de período menor.
+- `read(cpu, address, width)`: leitura little-endian de 1, 2 ou 4 bytes.
+- `write(cpu, address, width, value)`: escrita little-endian de 1, 2 ou 4 bytes.
+- `validate_execute(cpu, address, size)`: verifica mapeamento e permissão de execução.
+- `validate_identity(cpu, address, size, expected)`: exige bytes materializados e compara o conteúdo.
 
-O teste tests/memory/guest_memory_test.cpp verifica:
-1. leitura/escrita little-endian de 8/16/32 bits;
-2. backing compartilhado entre ARM9 e ARM7;
-3. alias de região e visibilidade bidirecional;
-4. permissões de leitura/escrita/execução;
-5. rejeição de overlaps e intervalos inválidos;
-6. leituras não mapeadas e acessos que cruzam a fronteira;
-7. larguras e CPUs inválidas;
-8. overflow de endereço guest.
+As regiões são intervalos half-open `[base, base + size)`. O limite superior pode alcançar `0x1_0000_0000`, mas não ultrapassá-lo.
 
-O teste tests/memory/guest_memory_bus_abi_test.cpp verifica o bind/unbind do backing, chamadas C bus_* e compartilhamento de RAM quando o seletor muda entre ARM9 e ARM7.
+## 5. Ponte C ABI usada pelos bancos
 
-A biblioteca é construída como oracis_memory mesmo com BUILD_TESTING=OFF; ela depende de oracis_arm_state e o host SDL3 a linka. O CMake registra testes da memória, barramento e validação de identidade, mas não há confirmação de execução para os commits mais recentes.
+A biblioteca também exporta:
+- `bus_read_u8/u16/u32`;
+- `bus_write_u8/u16/u32`.
 
-## 8. Próxima integração
+O host cria e mantém vivo um objeto `GuestMemory`, depois registra-o por `oracis_bus_bind_memory(&memory)`. O objeto não é transferido nem destruído pela biblioteca; o host deve mantê-lo vivo até `oracis_bus_unbind_memory(&memory)`.
 
-1. Definir o mapa de regiões DS usado pela revisão USA Rev 1, com fontes verificáveis para cada mirror/alias.
-2. Adicionar regiões backing compartilhadas para main RAM e WRAM e regiões independentes para ITCM/DTCM/VRAM conforme o modelo escolhido.
-3. Implementar uma camada MMIO por intervalo com handlers específicos, sem tratar registradores como RAM comum.
-4. Completar proveniência para DMA/dispositivos e gerações de página.
-5. Adicionar MMIO e handlers de dispositivo por faixa, mantendo RAM e I/O separados.
-6. Modelar latência/ciclos e efeitos colaterais dos acessos por CPU.
-7. Adicionar testes de mirrors reais, alinhamento, timing e I/O antes de ligar os bancos reais.
+Cada wrapper usa `g_nds_active` para encaminhar o acesso como ARM9 ou ARM7. Erros de região, CPU, permissão ou largura encerram a execução com log de CPU, endereço, largura, PC e código de erro.
+
+O wrapper executa apenas a transferência little-endian da largura solicitada. O codegen ARMv5TE alinha LDR/STR e aplica rotação/sign-extension na função gerada; o wrapper não duplica essas transformações.
+
+## 6. Identidade e proveniência de código
+
+Cada backing mantém um marcador de proveniência por byte:
+- `map_ram` cria bytes vazios com proveniência zero;
+- `write` (incluindo os wrappers C `bus_write_*`) marca os bytes atingidos;
+- `map_image` copia os bytes fonte e marca toda a faixa;
+- `validate_identity` recusa bytes sem proveniência e depois compara o conteúdo.
+
+O callback `oracis_bus_validate_dispatch` usa essa checagem para validar a faixa executável principal e cada dependência de um banco antes que o dispatch o selecione.
+
+O modelo ainda não inclui gerações de página, invalidação de cache de instruções, escrita por DMA/dispositivo ou proveniência independente por CPU.
+
+## 7. O que não está mapeado
+
+Ainda não são regiões GuestMemory funcionais:
+- I/O em `0x04000000` — deve usar handlers MMIO, nunca RAM simples;
+- ITCM/DTCM ARM9 — dependem de configuração CP15, cache e MPU;
+- BIOS ARM9/ARM7 — precisam de carregamento e regras de proteção apropriadas;
+- VRAM, paletas, OAM e VRAM usada como WRAM;
+- Wi-Fi RAM/registradores;
+- GBA slot e Game Card;
+- wait states, prioridades de barramento e penalidades de contenção Main RAM.
+
+O runtime de ciclos atual apenas soma ciclos enviados por `runtime_tick`; não calcula ainda `runtime_mem_cycles` ou `runtime_code_cycles` a partir do hardware.
+
+## 8. Testes registrados
+
+O CMake registra testes separados para:
+- regiões/aliases/proveniência genéricas;
+- wrappers C do barramento;
+- Main RAM compartilhada e seus três espelhos;
+- WRAM ARM7 privada;
+- todos os quatro modos de Shared WRAM, incluindo regiões sobrepostas com visibilidade diferente por CPU.
+
+**Os testes da revisão atual estão registrados, mas não há confirmação de que tenham sido executados ou aprovados.**
