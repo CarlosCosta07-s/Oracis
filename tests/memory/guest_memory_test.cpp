@@ -30,6 +30,45 @@ int main()
     if (memory.region_count() != 1u)
         return fail("region count did not increase");
 
+    /*
+     * CPU-disjoint regions may occupy the same guest address, as happens
+     * when ARM9 and ARM7 select different Shared WRAM banks.
+     */
+    GuestMemory cpu_scoped;
+    const uint8_t rw = static_cast<uint8_t>(
+        oracis::memory::Readable | oracis::memory::Writable);
+    if (cpu_scoped.map_ram(
+            0x10000000u, 0x100u, rw, "ARM9-only overlap",
+            oracis::memory::CpuAccessArm9) != Status::Ok ||
+        cpu_scoped.map_ram(
+            0x10000000u, 0x100u, rw, "ARM7-only overlap",
+            oracis::memory::CpuAccessArm7) != Status::Ok) {
+        return fail("CPU-disjoint overlapping regions were rejected");
+    }
+    if (cpu_scoped.write(NDS_ARM9, 0x10000000u, 4u,
+                         UINT32_C(0x99999999)) != Status::Ok ||
+        cpu_scoped.write(NDS_ARM7, 0x10000000u, 4u,
+                         UINT32_C(0x77777777)) != Status::Ok) {
+        return fail("CPU-disjoint guest writes failed");
+    }
+    if (cpu_scoped.read(NDS_ARM9, 0x10000000u, 4u).value !=
+            UINT32_C(0x99999999) ||
+        cpu_scoped.read(NDS_ARM7, 0x10000000u, 4u).value !=
+            UINT32_C(0x77777777)) {
+        return fail("overlapping CPU views resolved to the wrong backing");
+    }
+    if (cpu_scoped.read(NDS_ARM9, 0x10000000u, 1u).status ==
+            Status::CpuAccessDenied ||
+        cpu_scoped.read(NDS_ARM7, 0x10000000u, 1u).status ==
+            Status::CpuAccessDenied) {
+        return fail("valid CPU-specific mapping was treated as inaccessible");
+    }
+    if (cpu_scoped.map_ram(
+            0x10000000u, 0x100u, rw, "invalid CPU mask", 0x80u) !=
+        Status::InvalidRegion) {
+        return fail("invalid CPU access mask was accepted");
+    }
+
     if (memory.write(NDS_ARM9, 0x02000000u, 4u, 0x78563412u) != Status::Ok)
         return fail("32-bit write failed");
     const auto byte0 = memory.read(NDS_ARM9, 0x02000000u, 1u);
