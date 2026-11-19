@@ -254,6 +254,15 @@ int main()
             read_only_zeros) != Status::MissingWriteProvenance) {
         return fail("uninitialized read-only mapping passed identity validation");
     }
+    if (memory.write_bytes(
+            NDS_ARM9, 0x03000000u, read_only_zeros,
+            static_cast<uint32_t>(sizeof(read_only_zeros))) !=
+            Status::PermissionDenied ||
+        memory.validate_identity(
+            NDS_ARM9, 0x03000000u, sizeof(read_only_zeros),
+            read_only_zeros) != Status::MissingWriteProvenance) {
+        return fail("failed read-only bulk write changed bytes or provenance");
+    }
 
     const uint8_t image_bytes[] = {0xAAu, 0xBBu, 0xCCu, 0xDDu};
     if (memory.map_image(
