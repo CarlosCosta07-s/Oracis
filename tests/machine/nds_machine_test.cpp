@@ -710,6 +710,31 @@ int main()
         return fail("shutdown machine accepted a new CPU slice");
     }
 
+    /* The global validator must be cleared before this machine's memory dies. */
+    validation_status = UINT32_MAX;
+    inactive_candidate = nullptr;
+    if (oracis_static_dispatch_lookup(
+            NDS_ARM9, validated_arm9_pc, arm9->cpsr,
+            &validation_status, &validation_candidates,
+            &inactive_candidate) != nullptr ||
+        validation_status != ORACIS_DISPATCH_LOOKUP_MISS ||
+        inactive_candidate != validated_arm9_bank ||
+        oracis_static_dispatch_lookup(
+            NDS_ARM7, validated_arm7_pc | 1u, arm7->cpsr,
+            &validation_status, &validation_candidates,
+            &inactive_candidate) != nullptr ||
+        validation_status != ORACIS_DISPATCH_LOOKUP_MISS ||
+        inactive_candidate != validated_arm7_bank) {
+        return fail("shutdown left the process-global GuestMemory validator installed");
+    }
+    if (oracis_static_dispatch_unregister_bank(
+            NDS_ARM9, validated_arm9_bank, 1u) == 0 ||
+        oracis_static_dispatch_unregister_bank(
+            NDS_ARM7, validated_arm7_bank, 1u) == 0) {
+        oracis_static_dispatch_clear();
+        return fail("validated static banks could not be unregistered after shutdown");
+    }
+
     oracis_host_set_keypad_state(0u);
     NdsMachine successor(SharedWramMode::Arm9All32K);
     if (successor.initialize() != NdsMachineStatus::Ok ||
