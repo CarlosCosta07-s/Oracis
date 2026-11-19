@@ -10,7 +10,7 @@
 | Código emitido | C/C++ gerado pelo compilador | Unidades nativas locais; formato exato será validado no primeiro banco |
 | Runtime nativo | **C++20** | Estado guest, dispatch, scheduler dual-CPU e serviços nativos |
 | ABI dos bancos | Contrato C ABI próprio | Ponte estável entre código recompilado e runtime Oracis |
-| Memória guest | GuestMemory C++20 | RAM/aliases configuráveis, permissões e acessos endian; sem MMIO por enquanto |
+| Memória guest/barramento | GuestMemory C++20 + ABI C bus_* | RAM/aliases configuráveis e wrappers dos bancos; MMIO/mapa físico DS pendentes |
 | Ferramentas de extração/validação | **Python** | Ler header NDS, extrair segmentos locais e gerar TOML de entrada |
 | Build | **CMake + Ninja** | Build do host e integração das ferramentas |
 | Compilador host | Clang/GCC/MSVC com C++20 | x86-64 e, após adaptação, ARM64 |
@@ -47,9 +47,9 @@ Não será incluído um interpretador ARM geral como fallback. Código executáv
 
 ## 3. Memória guest e barramento
 
-`oracis_memory` fornece `GuestMemory`, uma camada independente para regiões de armazenamento guest de 32 bits, aliases compartilhados, permissões e acessos little-endian de 8/16/32 bits. O host liga a biblioteca junto do runtime ARM.
+`oracis_memory` fornece `GuestMemory` e os wrappers C bus_read_*/bus_write_*. A camada faz regiões de armazenamento guest de 32 bits, aliases compartilhados, permissões e acessos little-endian de 8/16/32 bits; os wrappers encaminham para o armazenamento da CPU ativa e falham de forma explícita em regiões não mapeadas. O host liga a biblioteca junto do runtime ARM.
 
-Ela ainda não define o mapa Nintendo DS da revisão USA Rev 1, não implementa MMIO/DMA/IPC, custos de ciclos, mirrors automáticos ou rotação de acessos desalinhados ARM. O futuro barramento deve conectar `GuestMemory` aos wrappers C `bus_read_*`/`bus_write_*` e aos handlers de dispositivo.
+A camada ainda não define o mapa Nintendo DS da revisão USA Rev 1, não implementa MMIO/DMA/IPC, custos de ciclos, mirrors automáticos ou rotação de acessos desalinhados ARM. O próximo passo é adicionar handlers MMIO e timing por faixa, preservando os wrappers RAM já implementados.
 
 Referência do contrato: [GUEST_MEMORY.md](GUEST_MEMORY.md).
 
