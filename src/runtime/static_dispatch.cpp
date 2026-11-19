@@ -103,6 +103,7 @@ RegisterBankStatus StaticDispatchRegistry::register_bank(
     }
 
     uint32_t previous_address = 0u;
+    uint8_t previous_thumb = 0u;
     bool have_previous = false;
 
     for (std::size_t index = 0u; index < length; ++index) {
@@ -117,10 +118,19 @@ RegisterBankStatus StaticDispatchRegistry::register_bank(
             return RegisterBankStatus::InvalidEntry;
         }
 
-        if (have_previous && entry.addr < previous_address) {
-            return RegisterBankStatus::UnsortedTable;
+        if (have_previous) {
+            if (entry.addr < previous_address ||
+                (entry.addr == previous_address &&
+                 entry.thumb < previous_thumb)) {
+                return RegisterBankStatus::UnsortedTable;
+            }
+            if (entry.addr == previous_address &&
+                entry.thumb == previous_thumb) {
+                return RegisterBankStatus::DuplicateEntryKey;
+            }
         }
         previous_address = entry.addr;
+        previous_thumb = entry.thumb;
         have_previous = true;
 
         if (!valid_validation(entry.validation, entry.addr, thumb)) {
@@ -217,7 +227,8 @@ const char *StaticDispatchRegistry::register_status_name(
     case RegisterBankStatus::InvalidTable: return "invalid table";
     case RegisterBankStatus::InvalidEntry: return "invalid dispatch entry";
     case RegisterBankStatus::InvalidValidation: return "invalid validation metadata";
-    case RegisterBankStatus::UnsortedTable: return "dispatch table is not address-sorted";
+    case RegisterBankStatus::UnsortedTable: return "dispatch table is not sorted by address/mode key";
+    case RegisterBankStatus::DuplicateEntryKey: return "duplicate dispatch address/mode key";
     case RegisterBankStatus::DuplicateBankName: return "duplicate bank name";
     }
     return "unknown registration status";
