@@ -15,7 +15,8 @@
 - `src/runtime/arm_cpu_state_ops.cpp`: mapeamento dos modos ARM e troca de registradores bancados, sem importar o runtime upstream.
 - `src/runtime/arm_psr_ops.cpp`: leitura/escrita de SPSR, escrita de CPSR por máscara de campos e restauração do CPSR salvo.
 - `src/runtime/arm_exception_ops.cpp`: entrada/retorno de Undefined, SWI, prefetch/data abort, IRQ e FIQ com vetores normais/altos selecionados pelo chamador.
-- `tests/abi/`: testes C/C++ do layout, transições de modo, PSR e entrada/retorno de exceções, registrados no CTest.
+- `src/runtime/arm_flags.cpp`: avaliação dos 16 códigos de condição e atualização de NZ/NZC/NZCV por estado explícito.
+- `tests/abi/`: testes C/C++ do layout, transições de modo, PSR, exceções e flags, registrados no CTest.
 
 O checkout externo não materializa `runner/` nem `oracle/`: o sparse checkout limita a árvore aos diretórios necessários para o compilador e seu núcleo ARM MIT. O checkout não é submódulo e não é distribuído junto do Oracis.
 
@@ -39,7 +40,7 @@ A validação local da cópia conferiu SHA-1, offsets, limites e hashes dos dois
 
 ## Host SDL3
 
-O host SDL3 e as duas áreas lógicas de 256 × 192 permanecem como frontend experimental. O estado ARM, as operações de modos/PSR e as primitivas de entrada/retorno de exceções passaram em testes isolados C99/C++20. Ainda não há ABI completa dos bancos, dispatch, scheduler nem controlador de IRQ integrado. O host não deve ser tratado como evidência de que o jogo já está sendo recompilado ou executado.
+O host SDL3 e as duas áreas lógicas de 256 × 192 permanecem como frontend experimental. O estado ARM, as operações de modos/PSR, as primitivas de exceção e os helpers de condição/NZCV passaram em testes isolados C99/C++20 (6/6 testes no harness runtime-only local). Ainda não há ABI completa dos bancos, dispatch, scheduler nem controlador de IRQ integrado. O host não deve ser tratado como evidência de que o jogo já está sendo recompilado ou executado.
 
 ## Exclusões
 
