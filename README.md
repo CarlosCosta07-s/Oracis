@@ -24,7 +24,7 @@ Oracis busca executar Pokémon Platinum como código nativo em computadores mode
 - **Python** para extração local, validação de ROM e configuração dos bancos.
 - **Rust** permanece apenas no gerador isolado do ícone.
 
-Consulte [docs/TECH_STACK.md](docs/TECH_STACK.md), [docs/NDSRECOMP_INTEGRATION.md](docs/NDSRECOMP_INTEGRATION.md) e a [decisão de arquitetura ADR 0001](docs/adr/0001-ndsrecomp-static-compiler.md).
+Consulte [docs/TECH_STACK.md](docs/TECH_STACK.md), [docs/NDSRECOMP_INTEGRATION.md](docs/NDSRECOMP_INTEGRATION.md), o [mapa da ABI dos bancos](docs/RECOMP_ABI_MAP.md) e a [decisão de arquitetura ADR 0001](docs/adr/0001-ndsrecomp-static-compiler.md).
 
 ## Estado atual
 
