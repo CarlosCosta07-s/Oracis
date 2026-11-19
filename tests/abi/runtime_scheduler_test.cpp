@@ -61,8 +61,11 @@ int main()
     if (runtime_should_yield())
         return fail("ARM9 yielded before the new deadline");
     runtime_tick(1u);
-    if (!runtime_should_yield())
-        return fail("ARM9 did not yield at the new deadline");
+    if (!runtime_should_yield() || !runtime_unwinding())
+        return fail("ARM9 did not enter unwind at the new deadline");
+    oracis_scheduler_end_slice(NDS_ARM9);
+    if (runtime_should_yield() || runtime_unwinding())
+        return fail("ARM9 unwind flag survived the host slice boundary");
 
     if (!oracis_scheduler_request_yield(NDS_ARM7))
         return fail("explicit ARM7 yield request failed");
