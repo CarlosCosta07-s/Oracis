@@ -1,0 +1,166 @@
+/*
+ * Oracis compatibility header for standard NDSRecomp-generated C banks.
+ *
+ * This is an Oracis-owned ABI surface. It does not include or copy the
+ * NDSRecomp runtime. g_cpu is a view of the CPU selected by the Oracis
+ * scheduler; the scheduler must select the core before invoking a bank.
+ */
+#ifndef ORACIS_RECOMP_RUNTIME_ARM_H
+#define ORACIS_RECOMP_RUNTIME_ARM_H
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#include "arm_cpu_state.h"
+#include "arm_cpu_state_ops.h"
+#include "arm_flags.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* The two architectural states are owned by the Oracis machine/runtime. */
+extern ArmCpuState *oracis_active_cpu_state;
+extern NdsCpu g_nds_active;
+
+int oracis_arm_runtime_bind_cpus(ArmCpuState *arm9, ArmCpuState *arm7);
+int oracis_arm_runtime_select_cpu(NdsCpu cpu);
+ArmCpuState *oracis_arm_runtime_current_state(void);
+
+/*
+ * Generated bank bodies directly read/write g_cpu.R[] and g_cpu.cpsr.
+ * This macro redirects those accesses to the scheduler-selected CPU state.
+ * No copied shadow register file is introduced.
+ */
+#define g_cpu (*oracis_active_cpu_state)
+
+static inline uint32_t cpsr_n(void) { return (g_cpu.cpsr & CPSR_N_BIT) ? 1u : 0u; }
+static inline uint32_t cpsr_z(void) { return (g_cpu.cpsr & CPSR_Z_BIT) ? 1u : 0u; }
+static inline uint32_t cpsr_c(void) { return (g_cpu.cpsr & CPSR_C_BIT) ? 1u : 0u; }
+static inline uint32_t cpsr_v(void) { return (g_cpu.cpsr & CPSR_V_BIT) ? 1u : 0u; }
+
+static inline int arm_cond_passes_i(unsigned cond)
+{
+    const uint32_t n = cpsr_n();
+    const uint32_t z = cpsr_z();
+    const uint32_t c = cpsr_c();
+    const uint32_t v = cpsr_v();
+    switch (cond & 0xFu) {
+    case 0x0: return z != 0u;
+    case 0x1: return z == 0u;
+    case 0x2: return c != 0u;
+    case 0x3: return c == 0u;
+    case 0x4: return n != 0u;
+    case 0x5: return n == 0u;
+    case 0x6: return v != 0u;
+    case 0x7: return v == 0u;
+    case 0x8: return (c != 0u) && (z == 0u);
+    case 0x9: return (c == 0u) || (z != 0u);
+    case 0xA: return n == v;
+    case 0xB: return n != v;
+    case 0xC: return (z == 0u) && (n == v);
+    case 0xD: return (z != 0u) || (n != v);
+    case 0xE: return 1;
+    default: return 0;
+    }
+}
+
+/* Implemented state/PSR/condition helpers. */
+int arm_cond_passes(unsigned cond);
+void arm_set_nz(uint32_t result);
+void arm_set_nzc_logic(uint32_t result, uint32_t shifter_carry);
+void arm_set_nzcv_add(uint32_t a, uint32_t b, uint32_t result);
+void arm_set_nzcv_adc(uint32_t a, uint32_t b, uint32_t carry_in, uint32_t result);
+void arm_set_nzcv_sub(uint32_t a, uint32_t b, uint32_t result);
+void arm_set_nzcv_sbc(uint32_t a, uint32_t b, uint32_t carry_in, uint32_t result);
+
+uint32_t runtime_mrs_cpsr(void);
+uint32_t runtime_mrs_spsr(void);
+void runtime_msr_cpsr(uint32_t value, uint32_t field_mask);
+void runtime_msr_spsr(uint32_t value, uint32_t field_mask);
+void runtime_exception_return(uint32_t new_pc);
+void runtime_restore_cpsr_from_spsr(void);
+void runtime_unimplemented_op(const char *op_name, uint32_t pc);
+
+/*
+ * Remaining standard-bank ABI declarations. They allow generated objects to
+ * compile while the corresponding Oracis subsystems are implemented. Linking
+ * a game bank is intentionally blocked until every referenced symbol has a
+ * real implementation; no silent no-op stubs are provided here.
+ */
+typedef struct NdsStaticValidationRange {
+    uint32_t addr;
+    uint32_t size;
+    const uint8_t *expected;
+} NdsStaticValidationRange;
+
+typedef struct NdsStaticValidation {
+    uint32_t addr;
+    uint32_t size;
+    const uint8_t *expected;
+    const NdsStaticValidationRange *dependencies;
+    uint32_t dependency_count;
+} NdsStaticValidation;
+
+typedef struct NdsDispatchEntry {
+    uint32_t addr;
+    uint8_t thumb;
+    void (*fn)(void);
+    const NdsStaticValidation *validation;
+} NdsDispatchEntry;
+
+typedef struct NdsLinkSlot {
+    void (*fn)(void);
+    uint32_t key;
+    uint32_t target_pc;
+    const void *guard;
+} NdsLinkSlot;
+
+uint32_t bus_read_u8(uint32_t addr);
+uint32_t bus_read_u16(uint32_t addr);
+uint32_t bus_read_u32(uint32_t addr);
+void bus_write_u8(uint32_t addr, uint8_t value);
+void bus_write_u16(uint32_t addr, uint16_t value);
+void bus_write_u32(uint32_t addr, uint32_t value);
+
+void runtime_tick(uint32_t cycles);
+bool runtime_should_yield(void);
+bool runtime_unwinding(void);
+bool runtime_slice_yield(void);
+uint32_t runtime_code_cycles(uint32_t pc);
+uint32_t runtime_mem_cycles(uint32_t addr, uint32_t width, uint32_t sequential);
+uint32_t runtime_mul_cycles(uint32_t rs_value, uint32_t signed_variant, uint32_t extra);
+uint32_t runtime_clz(uint32_t value);
+
+void runtime_dispatch(uint32_t target_pc);
+void runtime_dispatch_literal_branch(uint32_t target_pc);
+void runtime_dispatch_literal_call(uint32_t target_pc);
+void runtime_dispatch_literal_fallthrough(uint32_t target_pc);
+void runtime_dispatch_with_exchange(uint32_t target_pc);
+void runtime_link_call(NdsLinkSlot *slot);
+void runtime_link_branch(NdsLinkSlot *slot);
+void runtime_link_fallthrough(NdsLinkSlot *slot);
+int runtime_inline_leaf_admit(const NdsLinkSlot *slot, void (*expected)(void));
+void runtime_call_push_return(uint32_t return_pc);
+int runtime_call_should_return(uint32_t target_pc);
+void runtime_call_cancel_return(uint32_t return_pc);
+void runtime_live_transfer(uint32_t source_pc, uint32_t target_pc, uint32_t transfer_type);
+void runtime_insn_slow(void);
+void runtime_trace_event(uint32_t kind, uint32_t pc, uint32_t addr,
+                         uint32_t value, uint32_t aux);
+void runtime_swi(uint32_t swi_imm);
+void runtime_irq(uint32_t return_address);
+uint32_t runtime_read_user_reg(uint32_t reg);
+void runtime_write_user_reg(uint32_t reg, uint32_t value);
+void runtime_coproc_write(uint32_t cp_num, uint32_t op1, uint32_t crn,
+                          uint32_t crm, uint32_t op2, uint32_t value);
+uint32_t runtime_coproc_read(uint32_t cp_num, uint32_t op1, uint32_t crn,
+                             uint32_t crm, uint32_t op2);
+void runtime_coproc_cdp(uint32_t cp_num, uint32_t op1, uint32_t crn,
+                        uint32_t crm, uint32_t op2);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
+
+#endif /* ORACIS_RECOMP_RUNTIME_ARM_H */
