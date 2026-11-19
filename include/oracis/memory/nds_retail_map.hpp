@@ -44,16 +44,15 @@ public:
      *
      * main RAM is shared by ARM9/ARM7 with three 4MB mirror windows.
      * ARM7-private WRAM is visible only to ARM7.
-     * Shared WRAM is exposed using the initial WRAMCNT mode supplied by the
-     * caller. Reprogramming WRAMCNT later requires a future MMIO reconfigure
-     * operation; this builder does not guess the firmware's initial value.
+     * All possible Shared WRAM views are installed once; only the view matching
+     * the initial WRAMCNT mode is enabled for each CPU. The initial mode is
+     * supplied explicitly; this builder does not guess the firmware's value.
      */
     static Status install(GuestMemory &memory, SharedWramMode shared_wram_mode);
 
     /*
-     * Reconfigure the guest visibility of the existing two physical Shared
-     * WRAM banks. Their bytes are preserved; only the CPU-visible mirrors
-     * change. The WRAMCNT MMIO handler will call this when it is implemented.
+     * Atomically switch CPU visibility among the preallocated Shared WRAM
+     * views. Physical bank storage and the region set remain unchanged.
      */
     static Status set_shared_wram_mode(
         GuestMemory &memory,
