@@ -168,33 +168,6 @@ int main()
         return fail("mirror did not inherit independent access masks");
     }
 
-    /*
-     * A mirror using CpuAccessInherit preserves distinct read/write/execute
-     * masks from the source region instead of flattening them into one mask.
-     */
-    GuestMemory inherited_access_mirror;
-    if (inherited_access_mirror.map_ram(
-            0x30000000u, 0x1000u, rwx, "access-lane backing",
-            oracis::memory::CpuAccessNone) != Status::Ok ||
-        inherited_access_mirror.map_mirror_overlay(
-            0x31000000u, 0x30000000u, 0x1000u, 0x1000u,
-            "access-lane source", oracis::memory::CpuAccessArm9, 1u,
-            oracis::memory::CpuAccessNone,
-            oracis::memory::CpuAccessArm9,
-            oracis::memory::CpuAccessArm9) != Status::Ok ||
-        inherited_access_mirror.map_mirror(
-            0x32000000u, 0x31000000u, 0x1000u, 0x1000u,
-            "access-lane inherited view",
-            oracis::memory::CpuAccessInherit) != Status::Ok ||
-        inherited_access_mirror.read(
-            NDS_ARM9, 0x32000000u, 4u).status != Status::Unmapped ||
-        inherited_access_mirror.write(
-            NDS_ARM9, 0x32000000u, 4u, UINT32_C(0xCAFEBABE)) != Status::Ok ||
-        inherited_access_mirror.validate_execute(
-            NDS_ARM9, 0x32000000u, 4u) != Status::Ok) {
-        return fail("mirror did not inherit independent access masks");
-    }
-
     if (memory.write(NDS_ARM9, 0x02000000u, 4u, 0x78563412u) != Status::Ok)
         return fail("32-bit write failed");
     const auto byte0 = memory.read(NDS_ARM9, 0x02000000u, 1u);
