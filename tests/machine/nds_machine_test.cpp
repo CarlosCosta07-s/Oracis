@@ -187,6 +187,58 @@ int main()
         return fail("unsupported GBA-mode/SLEEP requests changed CPU run state");
     }
 
+    /* NDS BIOS SWI 06 dispatches HALT through the currently bound machine. */
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::IfAddress, 4u, UINT32_MAX);
+    if (machine.begin_cpu_slice(NDS_ARM7, 5u) != NdsMachineStatus::Ok) {
+        return fail("ARM7 HALT SWI test slice did not begin");
+    }
+    runtime_swi(0x06u);
+    if (!runtime_should_yield() || !machine.cpu_is_halted(NDS_ARM7) ||
+        machine.end_cpu_slice(NDS_ARM7) != NdsMachineStatus::Ok) {
+        return fail("BIOS HALT SWI did not set ARM7 HALT and yield its slice");
+    }
+    machine.interrupt_control().request_irq(NDS_ARM7, 1u);
+    if (!machine.cpu_can_execute(NDS_ARM7)) {
+        return fail("ARM7 did not resume after the SWI HALT test interrupt");
+    }
+
+    /* ARM7 CustomHalt SWI writes its byte argument from R2 to HALTCNT. */
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::IfAddress, 4u, UINT32_MAX);
+    if (machine.begin_cpu_slice(NDS_ARM7, 5u) != NdsMachineStatus::Ok) {
+        return fail("ARM7 CustomHalt test slice did not begin");
+    }
+    g_cpu.R[0] = 0x40u; /* Must be ignored by CustomHalt. */
+    g_cpu.R[2] = 0x80u;
+    runtime_swi(0x1Fu);
+    if (!runtime_should_yield() || !machine.cpu_is_halted(NDS_ARM7) ||
+        machine.end_cpu_slice(NDS_ARM7) != NdsMachineStatus::Ok) {
+        return fail("ARM7 CustomHalt SWI did not write HALTCNT and yield");
+    }
+    machine.interrupt_control().request_irq(NDS_ARM7, 1u);
+    if (!machine.cpu_can_execute(NDS_ARM7)) {
+        return fail("ARM7 CustomHalt did not resume after interrupt");
+    }
+
+    /* ARM9 CP15 WFI is wired to the same machine state transition. */
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IfAddress, 4u, UINT32_MAX);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 1u);
+    if (machine.begin_cpu_slice(NDS_ARM9, 5u) != NdsMachineStatus::Ok) {
+        return fail("ARM9 CP15 WFI test slice did not begin");
+    }
+    runtime_coproc_write(15u, 0u, 7u, 0u, 4u, 0u);
+    if (!runtime_should_yield() || !machine.cpu_is_halted(NDS_ARM9) ||
+        machine.end_cpu_slice(NDS_ARM9) != NdsMachineStatus::Ok) {
+        return fail("ARM9 CP15 WFI did not set HALT and yield its slice");
+    }
+    machine.interrupt_control().request_irq(NDS_ARM9, 2u);
+    if (!machine.cpu_can_execute(NDS_ARM9)) {
+        return fail("ARM9 CP15 WFI did not resume after its IRQ line asserted");
+    }
+
     {
         NdsMachine competing_machine(SharedWramMode::Arm9All32K);
         if (competing_machine.initialize() !=

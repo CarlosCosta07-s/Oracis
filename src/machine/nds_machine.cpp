@@ -39,6 +39,23 @@ unsigned NdsMachine::cpu_index(NdsCpu cpu) noexcept
     return cpu == NDS_ARM9 ? 0u : 1u;
 }
 
+int NdsMachine::runtime_power_handler(
+    void *context, NdsCpu cpu, uint32_t operation, uint32_t value)
+{
+    auto *machine = static_cast<NdsMachine *>(context);
+    if (machine == nullptr) return 0;
+
+    if (operation == ORACIS_ARM_RUNTIME_POWER_HALT) {
+        return machine->enter_cpu_halt(cpu) == NdsMachineStatus::Ok ? 1 : 0;
+    }
+    if (operation == ORACIS_ARM_RUNTIME_POWER_ARM7_HALTCNT &&
+        cpu == NDS_ARM7) {
+        return machine->write_arm7_halt_control(
+            static_cast<uint8_t>(value)) == NdsMachineStatus::Ok ? 1 : 0;
+    }
+    return 0;
+}
+
 NdsMachineStatus NdsMachine::initialize() noexcept
 {
     if (initialized_ || wram_control_.installed()) {
@@ -63,6 +80,12 @@ NdsMachineStatus NdsMachine::initialize() noexcept
         return shutdown() == NdsMachineStatus::Ok
             ? cause : NdsMachineStatus::ShutdownFailed;
     };
+
+    if (!oracis_arm_runtime_bind_power_handler(
+            this, &NdsMachine::runtime_power_handler)) {
+        return rollback(NdsMachineStatus::RuntimeAlreadyBound);
+    }
+    power_handler_bound_ = true;
 
     if (wram_control_.install() != memory::Status::Ok) {
         return rollback(NdsMachineStatus::MemoryMapFailed);
@@ -105,8 +128,9 @@ NdsMachineStatus NdsMachine::initialize() noexcept
 NdsMachineStatus NdsMachine::shutdown() noexcept
 {
     const bool owns_runtime =
-        runtime_bound_ || memory_bound_ || wram_bound_ ||
-        interrupt_bound_ || timer_bound_ || keypad_bound_ || clock_bound_;
+        runtime_bound_ || power_handler_bound_ || memory_bound_ ||
+        wram_bound_ || interrupt_bound_ || timer_bound_ ||
+        keypad_bound_ || clock_bound_;
     if (!owns_runtime && !initialized_) {
         return NdsMachineStatus::Ok;
     }
@@ -155,6 +179,13 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
             return NdsMachineStatus::ShutdownFailed;
         }
         memory_bound_ = false;
+    }
+    if (power_handler_bound_) {
+        if (!oracis_arm_runtime_unbind_power_handler(
+                this, &NdsMachine::runtime_power_handler)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        power_handler_bound_ = false;
     }
     if (runtime_bound_) {
         if (!oracis_arm_runtime_unbind_cpus(&arm9_state_, &arm7_state_)) {
@@ -226,11 +257,11 @@ NdsMachineStatus NdsMachine::enter_cpu_halt(NdsCpu cpu) noexcept
 {
     if (!initialized_) return NdsMachineStatus::NotInitialized;
     if (!valid_cpu(cpu)) return NdsMachineStatus::InvalidCpu;
-    if (slice_active_[0] || slice_active_[1]) {
+    const unsigned index = cpu_index(cpu);
+    if (slice_active_[1u - index]) {
         return NdsMachineStatus::SliceAlreadyActive;
     }
 
-    const unsigned index = cpu_index(cpu);
     const bool interrupt_pending = cpu == NDS_ARM7
         ? interrupt_control_.pending_enabled(cpu) != 0u
         : interrupt_control_.irq_asserted(cpu);
@@ -239,6 +270,13 @@ NdsMachineStatus NdsMachine::enter_cpu_halt(NdsCpu cpu) noexcept
     run_states_[index] = interrupt_pending
         ? NdsCpuRunState::Running
         : NdsCpuRunState::Halted;
+
+    /* A HALT requested inside a generated bank exits at its next yield check. */
+    if (!interrupt_pending && slice_active_[index] &&
+        !oracis_scheduler_request_yield(cpu)) {
+        run_states_[index] = NdsCpuRunState::Running;
+        return NdsMachineStatus::SchedulerFailure;
+    }
     return NdsMachineStatus::Ok;
 }
 

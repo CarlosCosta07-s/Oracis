@@ -9,7 +9,7 @@
 
 <p align="center"><strong>Reconstruindo Sinnoh para além do hardware original.</strong></p>
 
-> **Status:** `NdsMachine` agora reúne os estados ARM9/ARM7, RAM retail, WRAMCNT, interrupções, timers, KEYINPUT/KEYCNT e relógio global, com vínculo/desvínculo controlado e relatórios de ciclos nas fronteiras de fatia. O estado HALT/wake básico de ARM9/ARM7 também está implementado; a execução dual-core completa, entrega automática de IRQ, ligação de SWI/CP15 a HALT e integração com bancos reais continuam pendentes. A revisão `7c71e64` passou nos quatro jobs da CI (runtime 24/24, Linux, Android ARM64 e NDSRecomp estático).
+> **Status:** `NdsMachine` reúne os estados ARM9/ARM7 e os dispositivos base, sincroniza as fronteiras de fatia e modela HALT/wake por core. SWI `0x06`, SWI7 `CustomHalt` (`0x1F`) e CP15 WFI do ARM9 já solicitam essa transição; execução dual-core, entrega automática de IRQ, Sleep/Stop e bancos reais continuam pendentes. A revisão `8636590` passou nos quatro jobs da CI (runtime 25/25, Linux, Android ARM64 e NDSRecomp estático).
 
 ## O projeto
 
@@ -37,7 +37,7 @@ O Oracis já contém:
 - GuestMemory: mapa de RAM NDS retail, Main RAM compartilhada/mirrors, WRAM ARM7 privada, quatro modos WRAMCNT e leitura ARM7 de WRAMSTAT; as sete janelas Shared WRAM são pré-mapeadas e suas máscaras de visibilidade por CPU são atualizadas de forma transacional, com o mapa validado antes da aplicação, sem desalocação nem perda dos bytes físicos;
 - wrappers C bus_read_*/bus_write_* que encaminham para RAM guest mapeada e falham com diagnóstico em endereços inválidos;
 - controlador MMIO `NdsInterruptControl` com IME/IE/IF independentes por CPU, IRQ requests latcheados, IF W1C e `try_enter_irq` condicionado a `CPSR.I`; o scheduler ainda precisa chamar a entrada IRQ;
-- `NdsTimerControl` com Timer 0–3 para cada CPU, reload, prescalers, cascata e pedidos de IRQ; `NdsSystemClock` converte os contadores cumulativos ARM9/ARM7 na razão 2:1, preserva meio ciclo e chama `advance_bus_cycles(n)` uma única vez por intervalo de barramento completo;\n- `NdsMachine` como contexto proprietário dos dois estados ARM e dos dispositivos base; instalação do mapa retail, vínculo C ABI em ordem de dependência, rollback/desvínculo reverso, início/fim de fatias com relatório automático dos contadores cumulativos e API explícita de tempo ocioso; HALT/wake básico por CPU implementado, mas CP15/SWI ainda não o invocam automaticamente; SLEEP/STOP e loop dual-core completos pendentes;
+- `NdsTimerControl` com Timer 0–3 para cada CPU, reload, prescalers, cascata e pedidos de IRQ; `NdsSystemClock` converte os contadores cumulativos ARM9/ARM7 na razão 2:1, preserva meio ciclo e chama `advance_bus_cycles(n)` uma única vez por intervalo de barramento completo;\n- `NdsMachine` como contexto proprietário dos dois estados ARM e dos dispositivos base; instalação do mapa retail, vínculo C ABI em ordem de dependência, rollback/desvínculo reverso, início/fim de fatias com relatório automático dos contadores cumulativos e API explícita de tempo ocioso; HALT/wake básico por CPU implementado e conectado ao BIOS SWI `0x06` (Halt), SWI ARM7 `0x1F` (CustomHalt, parâmetro em R2) e CP15 WFI do ARM9; SLEEP/STOP e loop dual-core completos pendentes;
 - operações CPSR/SPSR e entrada/retorno de exceções;
 - avaliação de condições e atualização de flags NZCV;
 - helpers de acesso aos registradores do User bank e instrução `CLZ` na ABI C;
@@ -50,7 +50,7 @@ O Oracis já contém:
 - `NdsKeypadControl` com KEYINPUT compartilhado, KEYCNT independente por CPU, condições OR/AND e IRQ de teclado; o host SDL3 mapeia X/Z, Enter/Backspace, setas e Q/W, limpa entradas ao perder foco e encaminha estado pela ponte C;
 - entradas `runtime_link_*` encaminhadas ao dispatcher normal; otimização de slots e folhas inline ainda desabilitada.
 
-O CMake registra 25 testes CTest, incluindo o novo teste de propriedade/integração de `NdsMachine`. A CI da revisão `7c71e64` passou nos quatro jobs (desktop Linux, Android ARM64, NDSRecomp estático e runtime 24/24). A classe conecta relatórios de fatia ao relógio, mas o host SDL3 ainda não instancia uma máquina nem executa um loop dual-core. Ainda faltam entrega automática de IRQ pelo scheduler, ordenação geral de eventos, seleção real dos estados HALT/STOP, VRAMCNT_B e demais handlers MMIO, DMA, IPC, CP15/TCM, BIOS, VRAM, OAM, temporização de memória, SWI e serviços NitroSDK para executar bancos reais.
+O CMake registra 25 testes CTest, incluindo propriedade/integração de `NdsMachine` e os critérios HALT/wake dos dois cores. A revisão `8636590` passou nos quatro jobs da CI (desktop Linux, Android ARM64, NDSRecomp estático e runtime 25/25). A revisão seguinte acrescenta os caminhos SWI `0x06`, SWI7 `0x1F` e CP15 WFI; a validação dela ocorre na CI do próprio commit. O host SDL3 ainda não instancia uma máquina nem executa um loop dual-core. Ainda faltam entrega automática de IRQ pelo scheduler, ordenação geral de eventos, integração completa de Sleep/Stop, HALTCNT MMIO direto, VRAMCNT_B e demais handlers MMIO, DMA, IPC, CP15/TCM, BIOS, VRAM, OAM, temporização de memória e serviços NitroSDK para executar bancos reais.
 
 A extração local da USA Rev 1 teve offsets, limites e hashes ARM9/ARM7 verificados. A execução integral do extrator versionado e a emissão de bancos continuam pendentes.
 

@@ -19,6 +19,8 @@ namespace {
 
 ArmCpuState *g_arm9_state = nullptr;
 ArmCpuState *g_arm7_state = nullptr;
+void *g_power_context = nullptr;
+OracisArmRuntimePowerHandler g_power_handler = nullptr;
 
 } // namespace
 
@@ -56,6 +58,52 @@ int oracis_arm_runtime_unbind_cpus(ArmCpuState *arm9, ArmCpuState *arm7)
     oracis_active_cpu_state = nullptr;
     g_nds_active = NDS_ARM9;
     return 1;
+}
+
+int oracis_arm_runtime_bind_power_handler(
+    void *context, OracisArmRuntimePowerHandler handler)
+{
+    if (context == nullptr || handler == nullptr) return 0;
+    if (g_power_handler != nullptr || g_power_context != nullptr) {
+        return g_power_context == context && g_power_handler == handler ? 1 : 0;
+    }
+    g_power_context = context;
+    g_power_handler = handler;
+    return 1;
+}
+
+int oracis_arm_runtime_unbind_power_handler(
+    void *context, OracisArmRuntimePowerHandler handler)
+{
+    if (context == nullptr || handler == nullptr ||
+        g_power_context != context || g_power_handler != handler) {
+        return 0;
+    }
+    g_power_context = nullptr;
+    g_power_handler = nullptr;
+    return 1;
+}
+
+int oracis_arm_runtime_request_halt(NdsCpu cpu)
+{
+    if (g_power_handler == nullptr || g_power_context == nullptr ||
+        oracis_active_cpu_state == nullptr || g_nds_active != cpu ||
+        (cpu != NDS_ARM9 && cpu != NDS_ARM7)) {
+        return 0;
+    }
+    return g_power_handler(
+        g_power_context, cpu, ORACIS_ARM_RUNTIME_POWER_HALT, 0u);
+}
+
+int oracis_arm_runtime_write_arm7_halt_control(uint8_t value)
+{
+    if (g_power_handler == nullptr || g_power_context == nullptr ||
+        oracis_active_cpu_state == nullptr || g_nds_active != NDS_ARM7) {
+        return 0;
+    }
+    return g_power_handler(
+        g_power_context, NDS_ARM7,
+        ORACIS_ARM_RUNTIME_POWER_ARM7_HALTCNT, value);
 }
 
 int oracis_arm_runtime_select_cpu(NdsCpu cpu)
@@ -237,6 +285,60 @@ void runtime_write_user_reg(uint32_t reg, uint32_t value)
 uint32_t runtime_clz(uint32_t value)
 {
     return static_cast<uint32_t>(std::countl_zero(value));
+}
+
+void runtime_swi(uint32_t swi_imm)
+{
+    if (oracis_active_cpu_state == nullptr) {
+        abi_failure("runtime_swi (no active CPU)");
+    }
+
+    /* ARM SWI immediates are 24 bits; NDS BIOS service numbers fit in 8. */
+    switch (swi_imm & UINT32_C(0x00FFFFFF)) {
+    case 0x06u: /* NDS Halt: ARM7 HALTCNT or ARM9 CP15 WFI. */
+        if (!oracis_arm_runtime_request_halt(g_nds_active)) {
+            abi_failure("runtime_swi Halt (machine rejected power request)");
+        }
+        return;
+
+    case 0x1Fu: /* NDS7 CustomHalt writes the byte argument from R2 to HALTCNT. */
+        if (g_nds_active != NDS_ARM7 ||
+            !oracis_arm_runtime_write_arm7_halt_control(
+                static_cast<uint8_t>(g_cpu.R[2]))) {
+            abi_failure("runtime_swi CustomHalt (unsupported CPU/mode)");
+        }
+        return;
+
+    case 0x07u: /* Sleep pauses additional hardware domains not modeled yet. */
+        abi_failure("runtime_swi Sleep (power-domain suspension unsupported)");
+
+    default:
+        abi_failure("runtime_swi (unimplemented BIOS service)");
+    }
+}
+
+void runtime_coproc_write(
+    uint32_t cp_num, uint32_t op1, uint32_t crn,
+    uint32_t crm, uint32_t op2, uint32_t value)
+{
+    (void)value;
+
+    if (oracis_active_cpu_state == nullptr || g_nds_active != NDS_ARM9) {
+        abi_failure("runtime_coproc_write (no active ARM9 CPU)");
+    }
+
+    /* ARM9 Wait-For-Interrupt: MCR p15,0,Rd,c7,c0,4 (or c7,c8,2). */
+    const bool wait_for_interrupt = cp_num == 15u && op1 == 0u &&
+        crn == 7u &&
+        ((crm == 0u && op2 == 4u) || (crm == 8u && op2 == 2u));
+    if (wait_for_interrupt) {
+        if (!oracis_arm_runtime_request_halt(NDS_ARM9)) {
+            abi_failure("runtime_coproc_write WFI (machine rejected power request)");
+        }
+        return;
+    }
+
+    abi_failure("runtime_coproc_write (unimplemented coprocessor operation)");
 }
 
 void runtime_unimplemented_op(const char *op_name, uint32_t pc)
