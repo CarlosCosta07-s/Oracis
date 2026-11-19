@@ -17,7 +17,7 @@ A integração será feita por um checkout de desenvolvimento externo, fora da �
 3. configura somente o diretório `recompiler/`;
 4. compila somente o alvo `nds_recompile`.
 
-O script não configura nem compila o alvo `runner`, o oracle, o frontend ou os modelos de dispositivos upstream.
+O bootstrap configura um **sparse checkout** que materializa somente `recompiler/`, `cmake/` e `external/arm-recomp-core/`. Os diretórios `runner/` e `oracle/` não são materializados nesse checkout. Em seguida, o CMake é apontado apenas para `recompiler/` e compila somente o alvo `nds_recompile`.
 
 ## 2. Limite absoluto: componentes derivados de melonDS
 
@@ -30,7 +30,7 @@ Os seguintes componentes não serão copiados, incluídos como submódulo, compi
 - `oracle/` e seus patches contra melonDS;
 - modelos de GPU, Wi-Fi, rede ou outros dispositivos obtidos de melonDS.
 
-O uso do compilador estático não concede autorização para incorporar essas partes. A árvore upstream pode conter esses diretórios, mas o checkout ficará fora do repositório Oracis e o build automatizado selecionará apenas `nds_recompile`.
+O bootstrap usa sparse checkout e, portanto, não materializa esses diretórios no checkout externo usado pelo Oracis. O script também verifica sua ausência antes de configurar o build. O runtime próprio do Oracis não liga nem depende dessas partes.
 
 Não serão criados submódulos Git do NDSRecomp nem dependências do runner em CMake do Oracis.
 
@@ -40,11 +40,13 @@ A auditoria dos arquivos `LICENSE`, `PERMISSIONS.md`, `THIRD_PARTY_ATTRIBUTION.m
 
 | Componente | Licença declarada | Tratamento no Oracis |
 |---|---|---|
-| Código próprio do NDSRecomp, incluindo o compilador e ferramentas | PolyForm Noncommercial 1.0.0, com permissões adicionais em `PERMISSIONS.md` | Ferramenta externa; preservar avisos e condições |
+| Código próprio do compilador, finder e ferramentas | PolyForm Noncommercial 1.0.0, com permissões adicionais em `PERMISSIONS.md` | Ferramenta externa; preservar avisos e condições |
+| `recompiler/armv4t/` e `recompiler/support/` | MIT, conforme a declaração de escopo em `THIRD_PARTY_ATTRIBUTION.md` | Usados apenas no checkout externo do compilador; não copiados para Oracis |
 | `external/arm-recomp-core` | MIT | Dependência de build do compilador; licença e copyright preservados no checkout externo |
-| `runner/vendor/melonds/` e adaptações derivadas | GPL-3.0-or-later | Excluídos |
-| `runner/src/melonds_compute/` e interfaces derivadas | GPL-3.0-or-later | Excluídos |
-| `oracle/` e patches contra melonDS | GPL-3.0-or-later / limites indicados pelo upstream | Excluídos |
+| toml++ 3.4.0 (single header) | MIT, conforme a licença upstream da dependência | Dependência de build baixada/verificada pelo CMake upstream; não copiada para Oracis |
+| `runner/vendor/melonds/` e código derivado | GPL-3.0-or-later | Excluídos; não materializados no sparse checkout |
+| `runner/src/melonds_compute/`, interfaces derivadas e `runner/src/frontend.cpp` | GPL-3.0-or-later, conforme escopo upstream | Excluídos; não materializados no sparse checkout |
+| `oracle/` e patches contra melonDS | GPL-3.0-or-later / limites indicados pelo upstream | Excluídos; não materializados no sparse checkout |
 
 As permissões adicionais do NDSRecomp permitem doações, patrocínios voluntários e publicidade quando não compram acesso ao software ou ao conteúdo; o software e os jogos derivados devem continuar acessíveis gratuitamente. Elas não transferem direitos sobre ROMs, BIOS, firmware, assets ou marcas.
 
@@ -52,7 +54,7 @@ A licença do compilador não cobre o conteúdo de Pokémon Platinum. A ROM cont
 
 ## 4. Separação entre compilador e runtime
 
-O compilador produz funções C/C++ e tabelas de dispatch para código ARM identificado. Ele não é, sozinho, um port jogável. O resultado precisa de um runtime que forneça, entre outros:
+O compilador emite bancos de código-fonte C e tabelas de dispatch para código ARM identificado. Ele não é, sozinho, um port jogável. O resultado precisa de um runtime que forneça, entre outros:
 
 - estado de registradores ARM e flags CPSR;
 - transições ARM/Thumb e chamadas/retornos;
@@ -94,7 +96,7 @@ Os hashes são dos segmentos extraídos, não de bancos recompilados. Os binári
 
 ## 7. Como preparar o compilador
 
-Na raiz do repositório Oracis, com Python 3, Git, CMake 3.20+, Ninja e um compilador C++20 instalados:
+Na raiz do repositório Oracis, com Python 3.10+, Git, CMake 3.20+, Ninja e um compilador C++20 instalados:
 
 ```sh
 python tools/ndsrecomp/build_recompiler.py
@@ -110,7 +112,7 @@ python tools/ndsrecomp/build_recompiler.py \
   --build-dir .oracis/ndsrecomp-build
 ```
 
-O script recusa mover ou sobrescrever um checkout existente que não esteja exatamente na revisão fixada. Ele também não inicializa o submódulo FreeBIOS.
+O script não altera checkouts existentes com revisão ou conteúdo diferente. Uma pasta já existente que não seja um checkout limpo, fixado e configurado com os mesmos sparse paths será recusada; nesse caso, indique um novo diretório vazio com `--source`. Ele inicializa somente o submódulo `external/arm-recomp-core`; não inicializa FreeBIOS.
 
 ## 8. Extrair os segmentos da cópia local
 
@@ -128,7 +130,7 @@ Requer Python 3.10 ou mais recente. Todos os arquivos de saída são locais e ig
 
 O extrator foi executado com sucesso contra a cópia local e os TOMLs foram analisados como TOML válido. **Ainda não validado:** a compilação do executável `nds_recompile`, sua execução contra os dois segmentos, a emissão dos bancos e a compilação desses bancos com uma ABI Oracis.
 
-## 8. Próximos marcos
+## 10. Próximos marcos
 
 1. Executar o bootstrap e registrar a versão/hash real do executável `nds_recompile`.
 2. Criar um extrator local de cabeçalho e segmentos ARM9/ARM7 do arquivo NDS, com verificação do SHA-1 USA Rev 1 e limites de arquivo.
