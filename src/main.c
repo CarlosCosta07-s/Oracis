@@ -174,12 +174,29 @@ int main(int argc, char *argv[])
     }
     host_runtime_initialized = true;
 
+#ifdef ORACIS_WITH_PLATINUM_STATIC_BANKS
+    const int bank_status = oracis_host_runtime_register_compiled_banks();
+    if (bank_status != ORACIS_HOST_RUNTIME_OK) {
+        SDL_LogCritical(
+            SDL_LOG_CATEGORY_APPLICATION,
+            "Compiled ARM9/ARM7 bank registration failed (bridge=%d, machine=%d).",
+            bank_status,
+            oracis_host_runtime_last_machine_status()
+        );
+        goto cleanup;
+    }
     SDL_Log(
         "Oracis host started: NDS machine initialized; "
-        "two %d x %d prototype screens (no native game banks loaded).",
+        "local Platinum ARM9/ARM7 banks registered. Program images still need loading."
+    );
+#else
+    SDL_Log(
+        "Oracis host started: NDS machine initialized; "
+        "two %d x %d prototype screens (no static game banks linked).",
         ORACIS_SCREEN_WIDTH,
         ORACIS_SCREEN_HEIGHT
     );
+#endif
 
     exit_code = EXIT_SUCCESS;
 
