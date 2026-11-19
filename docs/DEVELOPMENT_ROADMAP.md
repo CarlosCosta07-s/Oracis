@@ -20,7 +20,7 @@ Cada fase deve produzir uma entrega pequena, compilável, executável e verific�
 | 1 | NDSRecomp | Checkout fixado e compilação isolada | Bootstrap/CI configurados; build do upstream pendente de execução |
 | 2 | Extração e bancos | Extrair ARM9/ARM7 e emitir bancos C | Metadados e hashes dos segmentos verificados localmente; emissão pendente |
 | 3 | ABI e estado ARM | Estado ARM, bancos, CPSR/SPSR, exceções, flags e ponte C ABI | Implementados/testados em harness local; dispatch real e símbolos de runtime pendentes |
-| 4 | Memória e serviços base | Barramento, MMIO, IRQ, timers, DMA, IPC, CP15 e NitroSDK | GuestMemory configurável com aliases/permissões/testes; mapa DS, MMIO e ABI bus_* pendentes |
+| 4 | Memória e serviços base | Barramento, MMIO, IRQ, timers, DMA, IPC, CP15 e NitroSDK | GuestMemory + wrappers C bus_* testados sobre RAM configurada; mapa físico DS, MMIO/timing e serviços pendentes |
 | 5 | Dispatch e scheduler | Tabelas por CPU, validação de conteúdo, interworking e scheduler dual-core cooperativo | Não iniciada |
 | 6 | Boot visível e vídeo 2D | Primeiro quadro, VRAM, BGs, sprites, OAM e blending | Não iniciada |
 | 7 | Vídeo 3D | Geometry Engine, transformações, iluminação, texturas e fog | Não iniciada |
@@ -35,7 +35,7 @@ Cada fase deve produzir uma entrega pequena, compilável, executável e verific�
 1. Compilar o NDSRecomp fixado e emitir os bancos reais.
 2. Inventariar todos os símbolos indefinidos dos bancos ARM9/ARM7.
 3. Mapear os segmentos reais de memória da revisão DS e adicionar aliases/mirrors confirmados.
-4. Implementar MMIO e os wrappers C bus_read_*/bus_write_* com testes por CPU.
+4. Implementar MMIO e timing por faixa de endereço, mantendo as RAM transfers já existentes.
 5. Implementar dispatch estático por CPU e modo ARM/Thumb, com validação de conteúdo.
 6. Implementar retornos/chamadas, scheduler cooperativo, ciclos e sincronização.
 7. Ligar SWI/IRQ/CP15 e serviços essenciais conforme os caminhos reais de boot exigirem.
