@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import importlib.util
+import os
+import shlex
 from pathlib import Path
 import struct
 import subprocess
@@ -49,8 +51,8 @@ def make_synthetic_nds(path: Path) -> str:
     return hashlib.sha1(image).hexdigest()
 
 
-def compile_bank(recompiler: Path, config: Path, binary: Path,
-                 output: Path, bank: str) -> None:
+def compile_bank(recompiler: Path, c_compiler: list[str], config: Path,
+                 binary: Path, output: Path, bank: str) -> None:
     output.mkdir(parents=True, exist_ok=True)
     command = [
         str(recompiler.resolve()),
@@ -83,12 +85,45 @@ def compile_bank(recompiler: Path, config: Path, binary: Path,
     if empty:
         raise AssertionError(f"NDSRecomp emitted empty files for {bank}: {empty}")
 
+    # Compile both generated C translation units against the Oracis C99 ABI.
+    include_dir = ROOT / "include" / "oracis" / "recomp"
+    for source_name in (f"{bank}.c", f"{bank}_dispatch.c"):
+        source = output / source_name
+        object_file = output / f"{source.stem}.o"
+        command = [
+            *c_compiler,
+            "-std=c99",
+            "-I", str(include_dir),
+            "-I", str(output),
+            "-c", str(source),
+            "-o", str(object_file),
+        ]
+        result = subprocess.run(
+            command, capture_output=True, text=True, timeout=60, check=False
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"Generated C failed the Oracis C99 ABI compile ({source_name})\n"
+                f"command: {command}\nstdout:\n{result.stdout}\n"
+                f"stderr:\n{result.stderr}"
+            )
+        if not object_file.is_file() or object_file.stat().st_size == 0:
+            raise AssertionError(f"C compiler did not produce {object_file}")
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--recompiler", type=Path, required=True)
+    parser.add_argument(
+        "--c-compiler",
+        default=os.environ.get("CC", "cc"),
+        help="C99 compiler command (default: CC environment variable or cc)",
+    )
     args = parser.parse_args()
     recompiler = args.recompiler.expanduser().resolve()
+    c_compiler = shlex.split(args.c_compiler)
+    if not c_compiler:
+        parser.error("C compiler command must not be empty")
     if not recompiler.is_file():
         parser.error(f"NDSRecomp executable does not exist: {recompiler}")
 
@@ -103,15 +138,18 @@ def main() -> int:
             raise AssertionError("Extractor did not return ARM9 then ARM7 images")
 
         compile_bank(
-            recompiler, extracted / "arm9.toml", extracted / "arm9.bin",
-            root / "arm9-output", "arm9_fixture",
+            recompiler, c_compiler, extracted / "arm9.toml",
+            extracted / "arm9.bin", root / "arm9-output", "arm9_fixture",
         )
         compile_bank(
-            recompiler, extracted / "arm7.toml", extracted / "arm7.bin",
-            root / "arm7-output", "arm7_fixture",
+            recompiler, c_compiler, extracted / "arm7.toml",
+            extracted / "arm7.bin", root / "arm7-output", "arm7_fixture",
         )
 
-    print("synthetic extractor -> NDSRecomp ARM9/ARM7 bank emission passed")
+    print(
+        "synthetic extractor -> NDSRecomp ARM9/ARM7 emission -> "
+        "Oracis C99 ABI compilation passed"
+    )
     return 0
 
 
