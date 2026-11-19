@@ -30,6 +30,9 @@ int oracis_host_runtime_shutdown(void);
 int oracis_host_runtime_is_initialized(void);
 uint64_t oracis_host_runtime_global_bus_cycles(void);
 
+/* Raw NdsMachineStatus from the most recent initialize/shutdown call. */
+int oracis_host_runtime_last_machine_status(void);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
