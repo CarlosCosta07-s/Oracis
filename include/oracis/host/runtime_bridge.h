@@ -9,14 +9,18 @@
 
 #include <stdint.h>
 
+#include "oracis/recomp/arm_cpu_state.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 typedef enum OracisHostRuntimeStatus {
     ORACIS_HOST_RUNTIME_OK = 0,
-    ORACIS_HOST_RUNTIME_ALREADY_INITIALIZED = 1,
-    ORACIS_HOST_RUNTIME_MACHINE_ERROR = 2
+    ORACIS_HOST_RUNTIME_NOT_INITIALIZED = 1,
+    ORACIS_HOST_RUNTIME_ALREADY_INITIALIZED = 2,
+    ORACIS_HOST_RUNTIME_NO_PROGRAM_BANKS = 3,
+    ORACIS_HOST_RUNTIME_MACHINE_ERROR = 4
 } OracisHostRuntimeStatus;
 
 /* Initializes the process-wide NDS machine and binds its base devices. */
@@ -25,11 +29,29 @@ int oracis_host_runtime_initialize(void);
 /* Unbinds the machine and releases its process-wide runtime bindings. */
 int oracis_host_runtime_shutdown(void);
 
+/*
+ * Host-provided architectural context for a pending IRQ. The callback must
+ * compute the exact exception LR and active vector base for this CPU boundary.
+ */
+typedef int (*OracisHostIrqContextProvider)(
+    void *context, NdsCpu cpu, const ArmCpuState *state,
+    uint32_t *return_address, uint32_t *vector_base);
+
+/*
+ * Execute one synchronized ARM9/ARM7 round through the registered static
+ * banks. Returns NO_PROGRAM_BANKS until both CPUs have at least one bank.
+ */
+int oracis_host_runtime_run_round(
+    uint64_t bus_cycle_budget,
+    OracisHostIrqContextProvider irq_context,
+    void *context);
+
 /* Read-only host diagnostics. */
 int oracis_host_runtime_is_initialized(void);
+int oracis_host_runtime_has_program_banks(void);
 uint64_t oracis_host_runtime_global_bus_cycles(void);
 
-/* Raw NdsMachineStatus from the most recent initialize/shutdown call. */
+/* Raw NdsMachineStatus from the most recent machine operation. */
 int oracis_host_runtime_last_machine_status(void);
 
 #ifdef __cplusplus
