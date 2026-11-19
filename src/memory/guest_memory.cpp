@@ -569,6 +569,20 @@ Status GuestMemory::validate_execute(NdsCpu cpu,
     return Status::Ok;
 }
 
+Status GuestMemory::validate_write(
+    NdsCpu cpu, uint32_t address, uint32_t size) const noexcept
+{
+    if (!valid_cpu(cpu)) return Status::InvalidCpu;
+    const Resolution result = resolve(cpu, address, size);
+    if (result.status != Status::Ok || result.region == nullptr) {
+        return result.status;
+    }
+    if (!has_permission(result.region->permissions, Writable)) {
+        return Status::PermissionDenied;
+    }
+    return Status::Ok;
+}
+
 Status GuestMemory::validate_identity(
     NdsCpu cpu,
     uint32_t address,
