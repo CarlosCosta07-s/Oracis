@@ -45,6 +45,13 @@ int main()
         return fail("ARM9 Thumb double-fetch timing was not split by halfword");
     }
 
+    /* The ITCM region aperture can be smaller than its 32KB physical store. */
+    oracis_runtime_set_arm9_itcm_code_window(UINT32_C(0x00001000));
+    arm9.cpsr = ORACIS_ARM_MODE_SYSTEM;
+    if (runtime_code_cycles(UINT32_C(0x00000800)) != 1u) {
+        return fail("4KB ITCM aperture was not accepted by the timing provider");
+    }
+
     /* The 32MB firmware ITCM mirror also covers the 0x01FF8000 boot window. */
     oracis_runtime_set_arm9_itcm_code_window(UINT32_C(0x02000000));
     arm9.cpsr = ORACIS_ARM_MODE_SYSTEM;

@@ -68,7 +68,7 @@ uint32_t arm9_uncached_code_fetch_cycles(uint32_t pc)
 extern "C" void oracis_runtime_set_arm9_itcm_code_window(uint32_t size)
 {
     if (size != 0u &&
-        (size < UINT32_C(0x00008000) ||
+        (size < UINT32_C(0x00001000) ||
          size > UINT32_C(0x02000000) ||
          (size & (size - 1u)) != 0u)) {
         timing_unavailable(
