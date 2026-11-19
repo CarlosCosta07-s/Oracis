@@ -85,7 +85,10 @@ target_compile_features(oracis_memory PUBLIC cxx_std_20)
 # The SDL host consumes the same independent runtime library that generated
 # static banks and the cooperative scheduler will use.
 if(ORACIS_BUILD_HOST)
-    target_link_libraries(${ORACIS_RUNTIME_TARGET} PRIVATE oracis_arm_state)
+    target_link_libraries(${ORACIS_RUNTIME_TARGET} PRIVATE
+        oracis_arm_state
+        oracis_memory
+    )
 endif()
 
 include(CTest)
