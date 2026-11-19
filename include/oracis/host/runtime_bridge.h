@@ -21,7 +21,10 @@ typedef enum OracisHostRuntimeStatus {
     ORACIS_HOST_RUNTIME_ALREADY_INITIALIZED = 2,
     ORACIS_HOST_RUNTIME_NO_PROGRAM_BANKS = 3,
     ORACIS_HOST_RUNTIME_MACHINE_ERROR = 4,
-    ORACIS_HOST_RUNTIME_NO_PROGRAM_LOADED = 5
+    ORACIS_HOST_RUNTIME_NO_PROGRAM_LOADED = 5,
+    ORACIS_HOST_RUNTIME_NO_COMPILED_BANKS = 6,
+    ORACIS_HOST_RUNTIME_BANK_REGISTRATION_FAILED = 7,
+    ORACIS_HOST_RUNTIME_BANKS_ALREADY_REGISTERED = 8
 } OracisHostRuntimeStatus;
 
 /* Initializes the process-wide NDS machine and binds its base devices. */
@@ -58,6 +61,12 @@ int oracis_host_runtime_load_program_segments(
     const OracisHostProgramSegment *arm9,
     const OracisHostProgramSegment *arm7);
 int oracis_host_runtime_program_loaded(void);
+
+/*
+ * Register the locally linked Platinum ARM9/ARM7 dispatch tables. Returns
+ * NO_COMPILED_BANKS when the executable was built without ORACIS_LOCAL_BANK_DIR.
+ */
+int oracis_host_runtime_register_compiled_banks(void);
 
 /*
  * Execute one synchronized ARM9/ARM7 round through the registered static
