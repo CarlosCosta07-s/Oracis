@@ -90,7 +90,7 @@ int main()
     if (!check("main/main load", 19u,
                arm7_cycle_combine(1u + main_data, main_data, 1u, 0u)) ||
         !check("main/main store", 19u,
-               arm7_cycle_combine(1u + main_data, main_data, 0u, 0u))) {
+               arm7_cycle_combine(1u + thumb_main_data, thumb_main_data, 0u, 0u))) {
         return fail("main/main data overlap timing was incorrect");
     }
 
@@ -109,10 +109,13 @@ int main()
     if (!begin_instruction(arm7, UINT32_C(0x03000000), false)) {
         return fail("WRAM/main instruction context failed");
     }
+    const uint32_t main_data_after_wram_code =
+        runtime_mem_cycles(UINT32_C(0x02000000), 4u, 0u);
     if (!check("WRAM/main store", 10u,
                arm7_cycle_combine(1u + main_data, main_data, 0u, 0u)) ||
         !check("WRAM/main load", 11u,
-               arm7_cycle_combine(1u + main_data, main_data, 1u, 0u))) {
+               arm7_cycle_combine(1u + main_data_after_wram_code,
+                                  main_data_after_wram_code, 1u, 0u))) {
         return fail("WRAM/main overlap timing was incorrect");
     }
 
@@ -120,10 +123,14 @@ int main()
     if (!begin_instruction(arm7, UINT32_C(0x03000000), false)) {
         return fail("WRAM/WRAM instruction context failed");
     }
+    const uint32_t fast_data_after_wram_code =
+        runtime_mem_cycles(UINT32_C(0x03000000), 4u, 0u);
     if (!check("WRAM/WRAM store", 2u,
-               arm7_cycle_combine(2u, 1u, 0u, 0u)) ||
+               arm7_cycle_combine(1u + fast_data_after_wram_code,
+                                  fast_data_after_wram_code, 0u, 0u)) ||
         !check("WRAM/WRAM load", 3u,
-               arm7_cycle_combine(2u, 1u, 1u, 0u))) {
+               arm7_cycle_combine(1u + fast_data_after_wram_code,
+                                  fast_data_after_wram_code, 1u, 0u))) {
         return fail("WRAM/WRAM timing was incorrect");
     }
 
@@ -131,10 +138,14 @@ int main()
     if (!begin_instruction(arm7, UINT32_C(0x06000000), false)) {
         return fail("VRAM/WRAM instruction context failed");
     }
+    const uint32_t fast_data_after_vram_code =
+        runtime_mem_cycles(UINT32_C(0x03000000), 4u, 0u);
     if (!check("VRAM/WRAM store", 3u,
-               arm7_cycle_combine(2u, 1u, 0u, 0u)) ||
+               arm7_cycle_combine(1u + fast_data_after_vram_code,
+                                  fast_data_after_vram_code, 0u, 0u)) ||
         !check("VRAM/WRAM load", 4u,
-               arm7_cycle_combine(2u, 1u, 1u, 0u))) {
+               arm7_cycle_combine(1u + fast_data_after_vram_code,
+                                  fast_data_after_vram_code, 1u, 0u))) {
         return fail("VRAM/WRAM timing was incorrect");
     }
 
@@ -142,6 +153,8 @@ int main()
     if (!begin_instruction(arm7, UINT32_C(0x02000000), true)) {
         return fail("main Thumb instruction context failed");
     }
+    const uint32_t thumb_main_data =
+        runtime_mem_cycles(UINT32_C(0x02000000), 4u, 0u);
     if (!check("main Thumb/main data", 18u,
                arm7_cycle_combine(1u + main_data, main_data, 0u, 0u))) {
         return fail("main Thumb/main data timing was incorrect");
