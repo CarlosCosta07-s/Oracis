@@ -64,12 +64,15 @@ int NdsMachine::runtime_validate_dispatch_bytes(
     uint32_t thumb,
     void *context)
 {
-    auto *guest_memory = static_cast<memory::GuestMemory *>(context);
-    if (guest_memory == nullptr || validation == nullptr ||
-        validation->expected == nullptr || validation->size == 0u ||
-        thumb > 1u || !valid_cpu(g_nds_active)) {
+    auto *machine = static_cast<NdsMachine *>(context);
+    if (machine == nullptr || !machine->initialized_ ||
+        validation == nullptr || validation->expected == nullptr ||
+        validation->size == 0u || thumb > 1u ||
+        !valid_cpu(g_nds_active) ||
+        machine->cpu_state(g_nds_active) != oracis_active_cpu_state) {
         return 0;
     }
+    memory::GuestMemory *guest_memory = &machine->memory_;
 
     const uint64_t validation_begin = validation->addr;
     const uint64_t validation_end =
@@ -178,7 +181,7 @@ NdsMachineStatus NdsMachine::initialize() noexcept
     clock_bound_ = true;
 
     oracis_static_dispatch_set_validation_callback(
-        &NdsMachine::runtime_validate_dispatch_bytes, &memory_);
+        &NdsMachine::runtime_validate_dispatch_bytes, this);
     validation_bound_ = true;
 
     initialized_ = true;
