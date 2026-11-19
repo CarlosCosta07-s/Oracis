@@ -38,16 +38,16 @@ typedef struct OracisKeyBinding {
  *   arrows = D-pad, Q/W = L/R.
  */
 static const OracisKeyBinding ORACIS_KEY_BINDINGS[] = {
-    { SDLK_x, ORACIS_KEY_A },
-    { SDLK_z, ORACIS_KEY_B },
+    { SDLK_X, ORACIS_KEY_A },
+    { SDLK_Z, ORACIS_KEY_B },
     { SDLK_BACKSPACE, ORACIS_KEY_SELECT },
     { SDLK_RETURN, ORACIS_KEY_START },
     { SDLK_RIGHT, ORACIS_KEY_RIGHT },
     { SDLK_LEFT, ORACIS_KEY_LEFT },
     { SDLK_UP, ORACIS_KEY_UP },
     { SDLK_DOWN, ORACIS_KEY_DOWN },
-    { SDLK_w, ORACIS_KEY_R },
-    { SDLK_q, ORACIS_KEY_L }
+    { SDLK_W, ORACIS_KEY_R },
+    { SDLK_Q, ORACIS_KEY_L }
 };
 
 static uint16_t g_pressed_keys = 0u;
