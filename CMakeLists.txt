@@ -109,6 +109,10 @@ if(ORACIS_BUILD_HOST)
     target_link_libraries(${ORACIS_RUNTIME_TARGET} PRIVATE
         oracis_machine
     )
+    # The SDL entry point is C, but the machine/runtime bridge is C++20.
+    set_target_properties(${ORACIS_RUNTIME_TARGET} PROPERTIES
+        LINKER_LANGUAGE CXX
+    )
 endif()
 
 include(CTest)
