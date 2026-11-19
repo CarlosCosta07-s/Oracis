@@ -34,7 +34,7 @@ O bootstrap do NDSRecomp está fixado no commit `14b7e15023e9affc9dc375e4e611ac7
 
 O Oracis já contém:
 - estado ARM com registradores bancados e asserts de layout C99;
-- GuestMemory: RAM guest configurável, aliases explícitos, permissões e acessos little-endian;
+- GuestMemory: mapa inicial de RAM NDS retail, Main RAM compartilhada/mirrors, WRAM ARM7 privada e os quatro modos iniciais de Shared WRAM;
 - wrappers C bus_read_*/bus_write_* que encaminham para RAM guest mapeada e falham com diagnóstico em endereços inválidos;
 - operações CPSR/SPSR e entrada/retorno de exceções;
 - avaliação de condições e atualização de flags NZCV;
@@ -47,7 +47,7 @@ O Oracis já contém:
 - contadores de ciclos e controle cooperativo de fatias ARM9/ARM7 por orçamento, yield e unwind;
 - entradas `runtime_link_*` encaminhadas ao dispatcher normal; otimização de slots e folhas inline ainda desabilitada.
 
-O CMake registra dezoito testes CTest, incluindo dispatch, pilha de retorno guest, User bank, `CLZ`, controle de fatias, identidade de bytes e proveniência de RAM. **A execução desses quinze testes para o estado atual ainda não foi confirmada**; a consulta aos status checks do último commit não retornou verificações. Os wrappers C bus_* atendem RAM explicitamente mapeada, e o dispatch já chama funções registradas, mas ainda não há mapa físico DS, MMIO, scheduler, ciclos, IRQ/SWI/CP15 ou serviços NitroSDK suficientes para executar bancos reais.
+O CMake registra dezenove testes CTest, incluindo o mapa de RAM do NDS retail e os quatro modos WRAMCNT. **A execução dos testes para o estado atual ainda não foi confirmada**; a consulta aos status checks do último commit não retornou verificações. O mapa cobre RAM principal/WRAM; MMIO, CP15/TCM, BIOS, VRAM, OAM, temporização de memória, IRQ/SWI e serviços NitroSDK ainda não são suficientes para executar bancos reais.
 
 A extração local da USA Rev 1 teve offsets, limites e hashes ARM9/ARM7 verificados. A execução integral do extrator versionado e a emissão de bancos continuam pendentes.
 
