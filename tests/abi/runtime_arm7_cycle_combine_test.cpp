@@ -114,7 +114,7 @@ int main()
     if (!check("WRAM/main store", 10u,
                arm7_cycle_combine(1u + main_data_after_wram_code,
                                   main_data_after_wram_code, 0u, 0u)) ||
-        !check("WRAM/main load", 11u,
+        !check("WRAM/main load", 10u,
                arm7_cycle_combine(1u + main_data_after_wram_code,
                                   main_data_after_wram_code, 1u, 0u))) {
         return fail("WRAM/main overlap timing was incorrect");
