@@ -51,6 +51,11 @@ enum class NdsMachineStatus : uint8_t {
     SliceExecutionFailed,
     IrqContextUnavailable,
     IrqContextFailed,
+    ProgramAlreadyLoaded,
+    InvalidProgramImage,
+    ProgramMemoryUnavailable,
+    ProgramLoadAfterExecution,
+    ProgramLoadFailed,
     ShutdownFailed
 };
 
@@ -71,6 +76,19 @@ using NdsMachineIrqContextProvider = bool (*)(
     void *context, NdsCpu cpu, const ArmCpuState *state,
     uint32_t *return_address, uint32_t *vector_base);
 
+/*
+ * One already-extracted NDS executable segment. entry_pc is the aligned
+ * address with the Thumb marker removed; entry_thumb carries CPSR.T.
+ */
+struct NdsProgramSegment {
+    NdsCpu cpu = NDS_ARM9;
+    uint32_t load_address = 0u;
+    uint32_t size = 0u;
+    uint32_t entry_pc = 0u;
+    bool entry_thumb = false;
+    const uint8_t *contents = nullptr;
+};
+
 class NdsMachine final {
 public:
     explicit NdsMachine(
@@ -87,6 +105,17 @@ public:
      * runtime. Only one NdsMachine may be bound at a time.
      */
     NdsMachineStatus initialize() noexcept;
+
+    /*
+     * Preflight and load one ARM9 plus one ARM7 segment into existing retail
+     * executable RAM mappings. This materializes the bytes, validates their
+     * identity, and seeds PC/CPSR.T. It does not reproduce BIOS register/stack
+     * setup or imply that missing NitroSDK/timing services are ready to run.
+     */
+    NdsMachineStatus load_program_segments(
+        const NdsProgramSegment &arm9,
+        const NdsProgramSegment &arm7) noexcept;
+    bool program_loaded() const noexcept { return program_loaded_; }
 
     /* Unbinds devices in reverse dependency order. Safe to call more than once. */
     NdsMachineStatus shutdown() noexcept;
@@ -214,6 +243,7 @@ private:
     bool keypad_bound_ = false;
     bool clock_bound_ = false;
     bool validation_bound_ = false;
+    bool program_loaded_ = false;
     bool initialized_ = false;
 };
 
