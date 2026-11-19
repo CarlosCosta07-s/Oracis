@@ -14,6 +14,8 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(ORACIS_BUILD_HOST "Build the SDL3 desktop/Android host" ON)
 option(ORACIS_FETCH_SDL3 "Download and build the pinned SDL3 release" ON)
+set(ORACIS_LOCAL_BANK_DIR "" CACHE PATH
+    "Optional local directory containing emitted Platinum ARM9/ARM7 C banks")
 
 if(ORACIS_BUILD_HOST)
     if(ORACIS_FETCH_SDL3)
@@ -104,6 +106,50 @@ add_library(oracis_machine STATIC
 )
 target_link_libraries(oracis_machine PUBLIC oracis_memory oracis_arm_state)
 target_compile_features(oracis_machine PUBLIC cxx_std_20)
+
+# User-owned NDSRecomp output is optional and never fetched by CI. The bank
+# directory must contain the exact filenames produced by emit_platinum_banks.py.
+if(ORACIS_LOCAL_BANK_DIR)
+    get_filename_component(ORACIS_LOCAL_BANK_DIR
+        "${ORACIS_LOCAL_BANK_DIR}" ABSOLUTE)
+
+    set(ORACIS_ARM9_BANK_NAME "pokemon_platinum_usa_rev1_arm9")
+    set(ORACIS_ARM7_BANK_NAME "pokemon_platinum_usa_rev1_arm7")
+
+    foreach(bank_name IN ITEMS
+            ${ORACIS_ARM9_BANK_NAME}
+            ${ORACIS_ARM7_BANK_NAME})
+        foreach(extension IN ITEMS ".c" ".h" "_dispatch.c")
+            if(NOT EXISTS "${ORACIS_LOCAL_BANK_DIR}/${bank_name}${extension}")
+                message(FATAL_ERROR
+                    "Missing generated bank file: "
+                    "${ORACIS_LOCAL_BANK_DIR}/${bank_name}${extension}. "
+                    "Run tools/ndsrecomp/emit_platinum_banks.py first.")
+            endif()
+        endforeach()
+    endforeach()
+
+    add_library(oracis_platinum_arm9_bank OBJECT
+        "${ORACIS_LOCAL_BANK_DIR}/${ORACIS_ARM9_BANK_NAME}.c"
+        "${ORACIS_LOCAL_BANK_DIR}/${ORACIS_ARM9_BANK_NAME}_dispatch.c")
+    add_library(oracis_platinum_arm7_bank OBJECT
+        "${ORACIS_LOCAL_BANK_DIR}/${ORACIS_ARM7_BANK_NAME}.c"
+        "${ORACIS_LOCAL_BANK_DIR}/${ORACIS_ARM7_BANK_NAME}_dispatch.c")
+
+    foreach(bank_target IN ITEMS
+            oracis_platinum_arm9_bank
+            oracis_platinum_arm7_bank)
+        target_link_libraries(${bank_target} PRIVATE oracis_generated_bank_abi)
+        target_include_directories(${bank_target} PRIVATE
+            "${ORACIS_LOCAL_BANK_DIR}")
+    endforeach()
+
+    target_sources(oracis_machine PRIVATE
+        $<TARGET_OBJECTS:oracis_platinum_arm9_bank>
+        $<TARGET_OBJECTS:oracis_platinum_arm7_bank>)
+    target_compile_definitions(oracis_machine PRIVATE
+        ORACIS_WITH_PLATINUM_STATIC_BANKS=1)
+endif()
 
 # The SDL host consumes the independent machine/runtime libraries.
 if(ORACIS_BUILD_HOST)
