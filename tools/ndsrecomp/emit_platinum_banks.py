@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Callable
 
@@ -21,6 +22,26 @@ ROOT = Path(__file__).resolve().parents[2]
 EXPECTED_ROM_SHA1 = "0862ec35b24de5c7e2dcb88c9eea0873110d755c"
 BANK_PREFIX = "pokemon_platinum_usa_rev1"
 CPUS = ("arm9", "arm7")
+EXPECTED_SEGMENTS = {
+    "arm9": {
+        "rom_offset": 0x00004000,
+        "entry_pc_raw": 0x02000800,
+        "load_address": 0x02000000,
+        "size": 0x001023F8,
+        "entry_pc": 0x02000800,
+        "entry_mode": "arm",
+        "sha1": "7ec963e737f0f61efcbbf5c7a3d33cbf378143f8",
+    },
+    "arm7": {
+        "rom_offset": 0x00409800,
+        "entry_pc_raw": 0x02380000,
+        "load_address": 0x02380000,
+        "size": 0x000277FC,
+        "entry_pc": 0x02380000,
+        "entry_mode": "arm",
+        "sha1": "082bb349ae7d057edbbd91a07316b1402b18b803",
+    },
+}
 
 
 def sha1_file(path: Path) -> str:
@@ -85,6 +106,21 @@ def validate_extraction(extracted_dir: Path) -> tuple[dict, dict[str, dict]]:
                 entry < load or entry + alignment > load + size):
             raise ValueError(f"Invalid entry point/range for {cpu.upper()}")
 
+        expected_segment = EXPECTED_SEGMENTS[cpu]
+        actual_segment = {
+            "rom_offset": record.get("rom_offset"),
+            "entry_pc_raw": record.get("entry_pc_raw"),
+            "load_address": load,
+            "size": size,
+            "entry_pc": entry,
+            "entry_mode": mode,
+            "sha1": digest,
+        }
+        if actual_segment != expected_segment:
+            raise ValueError(
+                f"{cpu.upper()} does not match the verified Platinum USA Rev 1 segment"
+            )
+
         binary = extracted_dir / f"{cpu}.bin"
         config = extracted_dir / f"{cpu}.toml"
         if not binary.is_file() or not config.is_file():
@@ -144,69 +180,87 @@ def emit_banks(
         raise FileNotFoundError(f"NDSRecomp executable not found: {recompiler}")
 
     manifest, segments = validate_extraction(extracted_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
 
     emitted: dict[str, dict] = {}
-    for cpu in CPUS:
-        segment = segments[cpu]
-        bank_name = f"{BANK_PREFIX}_{cpu}"
-        command = [
-            str(recompiler),
-            "--config", str(segment["config"]),
-            "--bin", str(segment["binary"]),
-            "--out", str(output_dir),
-            "--bank", bank_name,
-            "--validate-live-bytes",
-        ]
-        runner(command)
+    # Generate both CPUs in a sibling staging directory. A failed ARM7 run
+    # must not leave an ARM9-only output looking like a complete bank set.
+    with tempfile.TemporaryDirectory(
+        prefix=f".{output_dir.name}.staging-",
+        dir=output_dir.parent,
+    ) as staging_name:
+        staging_dir = Path(staging_name)
+        for cpu in CPUS:
+            segment = segments[cpu]
+            bank_name = f"{BANK_PREFIX}_{cpu}"
+            command = [
+                str(recompiler),
+                "--config", str(segment["config"]),
+                "--bin", str(segment["binary"]),
+                "--out", str(staging_dir),
+                "--bank", bank_name,
+                "--validate-live-bytes",
+            ]
+            runner(command)
 
-        expected_files = (
-            f"{bank_name}.c",
-            f"{bank_name}.h",
-            f"{bank_name}_dispatch.c",
-        )
-        file_hashes: dict[str, str] = {}
-        for filename in expected_files:
-            generated = output_dir / filename
-            if not generated.is_file() or generated.stat().st_size == 0:
+            expected_files = (
+                f"{bank_name}.c",
+                f"{bank_name}.h",
+                f"{bank_name}_dispatch.c",
+            )
+            file_hashes: dict[str, str] = {}
+            for filename in expected_files:
+                generated = staging_dir / filename
+                if not generated.is_file() or generated.stat().st_size == 0:
+                    if filename.endswith("_dispatch.c"):
+                        raise RuntimeError(
+                            f"NDSRecomp did not emit the {cpu.upper()} dispatch file: "
+                            f"{generated}"
+                        )
+                    raise RuntimeError(
+                        f"NDSRecomp did not emit a non-empty {cpu.upper()} file: "
+                        f"{generated}"
+                    )
+                file_hashes[filename] = sha1_file(generated)
+
+            dispatch_text = (staging_dir / f"{bank_name}_dispatch.c").read_text(
+                encoding="utf-8"
+            )
+            table_symbol = f"g_dispatch_{bank_name}"
+            if f"const NdsDispatchEntry {table_symbol}[]" not in dispatch_text:
                 raise RuntimeError(
-                    f"NDSRecomp did not emit a non-empty {cpu.upper()} file: "
-                    f"{generated}"
+                    f"{cpu.upper()} dispatch table {table_symbol} is missing"
                 )
-            file_hashes[filename] = sha1_file(generated)
+            if f"const unsigned {table_symbol}_len" not in dispatch_text:
+                raise RuntimeError(
+                    f"{cpu.upper()} dispatch table length {table_symbol}_len is missing"
+                )
 
-        dispatch_text = (output_dir / f"{bank_name}_dispatch.c").read_text(
-            encoding="utf-8"
-        )
-        table_symbol = f"g_dispatch_{bank_name}"
-        if f"const NdsDispatchEntry {table_symbol}[]" not in dispatch_text:
-            raise RuntimeError(
-                f"{cpu.upper()} dispatch table {table_symbol} is missing"
-            )
-        if f"const unsigned {table_symbol}_len" not in dispatch_text:
-            raise RuntimeError(
-                f"{cpu.upper()} dispatch table length {table_symbol}_len is missing"
-            )
+            emitted[cpu] = {
+                "bank": bank_name,
+                "load_address": segment["load_address"],
+                "entry_pc": segment["entry_pc"],
+                "entry_mode": segment["entry_mode"],
+                "size": segment["size"],
+                "binary_sha1": segment["sha1"],
+                "files": file_hashes,
+            }
 
-        emitted[cpu] = {
-            "bank": bank_name,
-            "load_address": segment["load_address"],
-            "entry_pc": segment["entry_pc"],
-            "entry_mode": segment["entry_mode"],
-            "size": segment["size"],
-            "binary_sha1": segment["sha1"],
-            "files": file_hashes,
+        result = {
+            "schema_version": 1,
+            "rom_sha1": manifest["rom_sha1"],
+            "banks": emitted,
+            "notice": "Local generated C code. Do not commit or distribute game-derived output.",
         }
+        (staging_dir / "oracis_banks.json").write_text(
+            json.dumps(result, indent=2) + "\n", encoding="utf-8"
+        )
 
-    result = {
-        "schema_version": 1,
-        "rom_sha1": manifest["rom_sha1"],
-        "banks": emitted,
-        "notice": "Local generated C code. Do not commit or distribute game-derived output.",
-    }
-    (output_dir / "oracis_banks.json").write_text(
-        json.dumps(result, indent=2) + "\n", encoding="utf-8"
-    )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        for generated in staging_dir.iterdir():
+            if generated.is_file():
+                generated.replace(output_dir / generated.name)
+
     return result
 
 
