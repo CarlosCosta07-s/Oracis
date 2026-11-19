@@ -187,10 +187,12 @@ Status GuestMemory::write(NdsCpu cpu,
     }
 
     auto &bytes = result.region->backing->bytes;
+    auto &provenance = result.region->backing->write_provenance;
     const uint32_t offset = result.backing_offset;
     for (uint32_t index = 0u; index < width; ++index) {
         bytes[offset + index] =
             static_cast<uint8_t>((value >> (index * 8u)) & 0xFFu);
+        provenance[offset + index] = 1u;
     }
     return Status::Ok;
 }
@@ -210,6 +212,49 @@ Status GuestMemory::validate_execute(NdsCpu cpu,
     return Status::Ok;
 }
 
+Status GuestMemory::validate_identity(
+    NdsCpu cpu,
+    uint32_t address,
+    uint32_t size,
+    const uint8_t *expected) const noexcept
+{
+    if (!valid_cpu(cpu)) return Status::InvalidCpu;
+    if (expected == nullptr || size == 0u) return Status::InvalidRegion;
+
+    const Resolution result = resolve(address, size);
+    if (result.status != Status::Ok || result.region == nullptr) {
+        return result.status;
+    }
+    if (!has_permission(result.region->permissions, Readable)) {
+        return Status::PermissionDenied;
+    }
+
+    const auto &bytes = result.region->backing->bytes;
+    const auto &provenance = result.region->backing->write_provenance;
+    const uint32_t offset = result.backing_offset;
+
+    /*
+     * Writable RAM is not trusted merely because its zero-filled initial
+     * backing happens to match an all-zero validation record. Every byte in
+     * the validated span must have been materialized by a guest/host bus write
+     * before it can identify an executable generation.
+     */
+    if (has_permission(result.region->permissions, Writable)) {
+        for (uint32_t index = 0u; index < size; ++index) {
+            if (provenance[offset + index] == 0u) {
+                return Status::MissingWriteProvenance;
+            }
+        }
+    }
+
+    for (uint32_t index = 0u; index < size; ++index) {
+        if (bytes[offset + index] != expected[index]) {
+            return Status::IdentityMismatch;
+        }
+    }
+    return Status::Ok;
+}
+
 const char *GuestMemory::status_name(Status status) noexcept
 {
     switch (status) {
@@ -222,6 +267,8 @@ const char *GuestMemory::status_name(Status status) noexcept
     case Status::Unmapped: return "unmapped address";
     case Status::CrossesRegion: return "access crosses memory region";
     case Status::PermissionDenied: return "memory permission denied";
+    case Status::IdentityMismatch: return "static code identity mismatch";
+    case Status::MissingWriteProvenance: return "RAM bytes have no write provenance";
     }
     return "unknown status";
 }
