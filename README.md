@@ -53,7 +53,7 @@ O Oracis já contém:
 
 O CMake registra 26 testes CTest, incluindo propriedade/integração de `NdsMachine`, critérios HALT/wake dos dois cores, entrada IRQ e rounds de sincronização dual-core com yield antecipado. A revisão `8636590` passou nos quatro jobs da CI (desktop Linux, Android ARM64, NDSRecomp estático e runtime 25/25). Os commits posteriores adicionaram testes de IRQ nas duas CPUs e do novo orquestrador; a validação de CI dessas revisões ainda não foi confirmada. O host SDL3 já instancia/encerra a máquina pela ponte C e conecta o teclado; ainda não chama `run_dual_core_round`. Também faltam ordenação geral de eventos, Sleep/Stop, HALTCNT MMIO direto, VRAMCNT_B e demais handlers MMIO, DMA, IPC, CP15/TCM, BIOS, VRAM, OAM, temporização de memória e serviços NitroSDK para executar bancos reais.
 
-A CI passou nos seis testes sintéticos do extrator, além dos 26 CTests do runtime e dos jobs Android/NDSRecomp. A nova prova extrator→NDSRecomp com imagens ARM/Thumb sintéticas está sendo adicionada. A extração da ROM USA Rev 1 e a emissão de seus bancos reais continuam pendentes.
+A CI passou nos seis testes sintéticos do extrator, além dos 26 CTests do runtime e dos jobs Android/NDSRecomp. A prova extrator→NDSRecomp com imagens ARM/Thumb sintéticas agora também compila os corpos e tabelas gerados em C99 contra a ABI Oracis; a CI dessa etapa está pendente. A extração da ROM USA Rev 1 e a emissão de seus bancos reais continuam pendentes.
 
 ## Princípios
 
