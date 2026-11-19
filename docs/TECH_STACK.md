@@ -10,6 +10,7 @@
 | Código emitido | C/C++ gerado pelo compilador | Unidades nativas locais; formato exato será validado no primeiro banco |
 | Runtime nativo | **C++20** | Estado guest, dispatch, scheduler dual-CPU e serviços nativos |
 | ABI dos bancos | Contrato C ABI próprio | Ponte estável entre código recompilado e runtime Oracis |
+| Memória guest | GuestMemory C++20 | RAM/aliases configuráveis, permissões e acessos endian; sem MMIO por enquanto |
 | Ferramentas de extração/validação | **Python** | Ler header NDS, extrair segmentos locais e gerar TOML de entrada |
 | Build | **CMake + Ninja** | Build do host e integração das ferramentas |
 | Compilador host | Clang/GCC/MSVC com C++20 | x86-64 e, após adaptação, ARM64 |
@@ -37,14 +38,22 @@ Responsabilidades previstas:
 - estado de registradores para ARM9 e ARM7;
 - flags CPSR, banked registers e transições ARM/Thumb;
 - execução/dispatch de bancos estáticos por CPU;
-- interface de memória guest;
+- interface de memória guest com regiões configuráveis e aliases explícitos;
 - interrupções, timers, DMA, IPC e sincronização;
 - ponte de chamadas dos serviços de sistema;
 - logs estruturados e diagnóstico de alvos não resolvidos.
 
 Não será incluído um interpretador ARM geral como fallback. Código executável dinâmico, overlays e blocos copiados para RAM terão de ser identificados e recompilados localmente, com validação de conteúdo e geração. Alvos ainda não cobertos devem falhar de forma explícita.
 
-## 3. Licenças e fronteira do NDSRecomp
+## 3. Memória guest e barramento
+
+`oracis_memory` fornece `GuestMemory`, uma camada independente para regiões de armazenamento guest de 32 bits, aliases compartilhados, permissões e acessos little-endian de 8/16/32 bits. O host liga a biblioteca junto do runtime ARM.
+
+Ela ainda não define o mapa Nintendo DS da revisão USA Rev 1, não implementa MMIO/DMA/IPC, custos de ciclos, mirrors automáticos ou rotação de acessos desalinhados ARM. O futuro barramento deve conectar `GuestMemory` aos wrappers C `bus_read_*`/`bus_write_*` e aos handlers de dispositivo.
+
+Referência do contrato: [GUEST_MEMORY.md](GUEST_MEMORY.md).
+
+## 4. Licenças e fronteira do NDSRecomp
 
 A auditoria do snapshot upstream identificou PolyForm Noncommercial 1.0.0 para o código próprio do compilador, permissões adicionais em `PERMISSIONS.md` e MIT para `external/arm-recomp-core`.
 
