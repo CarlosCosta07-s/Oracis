@@ -772,6 +772,56 @@ int main()
         return fail("a rejected competing machine disturbed the active scheduler");
     }
 
+    /*
+     * ARM9 CP15 Control.V owns the high-vector selection. The legacy host
+     * callback deliberately reports the low base; the machine must use CP15.
+     */
+    constexpr uint32_t cp15_vector_select = UINT32_C(1) << 13u;
+    arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
+    arm9->R[15] = UINT32_C(0x02006000);
+    arm7->cpsr = ORACIS_ARM_MODE_SYSTEM;
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 could not be selected for CP15 register access");
+    }
+    runtime_coproc_write(15u, 0u, 1u, 0u, 0u, cp15_vector_select);
+    if (runtime_coproc_read(15u, 0u, 1u, 0u, 0u) != cp15_vector_select ||
+        machine.exception_vector_base(NDS_ARM9) != UINT32_C(0xFFFF0000) ||
+        machine.exception_vector_base(NDS_ARM7) != 0u) {
+        return fail("CP15 Control.V did not select high ARM9 vectors independently");
+    }
+
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IfAddress, 4u, UINT32_MAX);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IeAddress, 4u, machine_irq);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 1u);
+    machine.interrupt_control().request_irq(NDS_ARM9, machine_irq);
+    SchedulerFixture cp15_irq_fixture{};
+    if (machine.run_dual_core_round(
+            1u, &execute_test_slice, &provide_test_irq_context,
+            &cp15_irq_fixture) != NdsMachineStatus::Ok ||
+        cp15_irq_fixture.irq_context_calls[0] != 1u ||
+        (arm9->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_IRQ ||
+        arm9->R[15] != UINT32_C(0xFFFF0018)) {
+        return fail("dual-core IRQ scheduling ignored ARM9 CP15 high-vector selection");
+    }
+
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 could not be reselected after high-vector IRQ test");
+    }
+    runtime_coproc_write(15u, 0u, 1u, 0u, 0u, 0u);
+    arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
+    arm9->R[15] = UINT32_C(0x02006000);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 0u);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IeAddress, 4u, 0u);
+    if (machine.exception_vector_base(NDS_ARM9) != 0u ||
+        machine.global_bus_cycles() != 7u) {
+        return fail("CP15 Control.V reset-to-low selection or cycle accounting failed");
+    }
+
     if (machine.shutdown() != NdsMachineStatus::Ok ||
         machine.initialized() ||
         oracis_arm_runtime_current_state() != nullptr ||
