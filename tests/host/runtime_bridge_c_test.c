@@ -73,27 +73,6 @@ int main(void)
         return 1;
     }
 
-    const OracisHostProgramSegment arm7_image = {
-        UINT32_C(0x02381000),
-        (uint32_t)sizeof(arm7_program),
-        UINT32_C(0x02381000),
-        1u,
-        arm7_program
-    };
-    if (oracis_host_runtime_load_program_segments(
-            &arm9_image, &arm7_image) != ORACIS_HOST_RUNTIME_OK ||
-        oracis_host_runtime_program_loaded() != 1 ||
-        bus_read_u32(UINT32_C(0x02001000)) != UINT32_C(0xE1A00000) ||
-        bus_read_u16(UINT32_C(0x02381000)) != UINT16_C(0x4770)) {
-        fprintf(stderr, "C host bridge failed to load and verify ARM9/ARM7 images\n");
-        return 1;
-    }
-    if (oracis_host_runtime_load_program_segments(
-            &arm9_image, &arm7_image) != ORACIS_HOST_RUNTIME_MACHINE_ERROR) {
-        fprintf(stderr, "C host bridge accepted a duplicate program load\n");
-        return 1;
-    }
-
     if (oracis_host_runtime_has_program_banks() != 0 ||
         oracis_host_runtime_run_round(1u, NULL, NULL) !=
             ORACIS_HOST_RUNTIME_NO_PROGRAM_BANKS) {
@@ -116,6 +95,36 @@ int main(void)
         oracis_host_runtime_has_program_banks() != 1) {
         oracis_static_dispatch_clear();
         fprintf(stderr, "host bridge could not register both test banks\n");
+        return 1;
+    }
+
+    if (oracis_host_runtime_program_loaded() != 0 ||
+        oracis_host_runtime_run_round(1u, NULL, NULL) !=
+            ORACIS_HOST_RUNTIME_NO_PROGRAM_LOADED ||
+        oracis_host_runtime_global_bus_cycles() != UINT64_C(0)) {
+        oracis_static_dispatch_clear();
+        fprintf(stderr, "host bridge executed before program images were loaded\n");
+        return 1;
+    }
+
+    const OracisHostProgramSegment arm7_image = {
+        UINT32_C(0x02381000),
+        (uint32_t)sizeof(arm7_program),
+        UINT32_C(0x02381000),
+        1u,
+        arm7_program
+    };
+    if (oracis_host_runtime_load_program_segments(
+            &arm9_image, &arm7_image) != ORACIS_HOST_RUNTIME_OK ||
+        oracis_host_runtime_program_loaded() != 1 ||
+        bus_read_u32(UINT32_C(0x02001000)) != UINT32_C(0xE1A00000) ||
+        bus_read_u16(UINT32_C(0x02381000)) != UINT16_C(0x4770)) {
+        fprintf(stderr, "C host bridge failed to load and verify ARM9/ARM7 images\n");
+        return 1;
+    }
+    if (oracis_host_runtime_load_program_segments(
+            &arm9_image, &arm7_image) != ORACIS_HOST_RUNTIME_MACHINE_ERROR) {
+        fprintf(stderr, "C host bridge accepted a duplicate program load\n");
         return 1;
     }
 
