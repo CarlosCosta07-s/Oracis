@@ -47,6 +47,22 @@ int main()
 
     if (bus_read_u8(NdsWramControl::WramCntAddress) != 0u)
         return fail("WRAMCNT initial mode readback was not zero");
+    if (control.read(
+            NDS_ARM7, NdsWramControl::WramStatAddress, 1u).value != 0u ||
+        control.read(
+            NDS_ARM7, NdsWramControl::WramStatAddress, 2u).status !=
+            Status::InvalidWidth ||
+        control.write(
+            NDS_ARM7, NdsWramControl::WramStatAddress, 1u, 1u) !=
+            Status::PermissionDenied ||
+        control.read(
+            NDS_ARM9, NdsWramControl::WramStatAddress, 1u).status !=
+            Status::Unmapped ||
+        control.write(
+            NDS_ARM9, NdsWramControl::WramStatAddress, 1u, 1u) !=
+            Status::Unmapped) {
+        return fail("WRAMSTAT ARM7 read-only semantics or ARM9 address alias failed");
+    }
 
     constexpr uint32_t bank0 = UINT32_C(0xB0B0B0B0);
     constexpr uint32_t bank1 = UINT32_C(0xB1B1B1B1);
@@ -60,6 +76,14 @@ int main()
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9))
         return fail("ARM9 selection after private-WRAM seed failed");
 
+    /* Initial WRAMSTAT read is available to ARM7 only. */
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM7))
+        return fail("ARM7 select failed for initial WRAMSTAT read");
+    if (bus_read_u8(NdsWramControl::WramStatAddress) != 0u)
+        return fail("WRAMSTAT mode 0 readback failed");
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9))
+        return fail("ARM9 select failed before WRAMCNT mode 1 write");
+
     /* Mode 1: ARM9 bank 1, ARM7 bank 0, same guest base per CPU. */
     bus_write_u8(NdsWramControl::WramCntAddress, 1u);
     if (control.mode() != SharedWramMode::Arm9Bank1Arm7Bank0 ||
@@ -71,6 +95,8 @@ int main()
         return fail("ARM7 select failed");
     if (bus_read_u32(0x03000000u) != bank0)
         return fail("ARM7 did not receive physical bank 0 in mode 1");
+    if (bus_read_u8(NdsWramControl::WramStatAddress) != 1u)
+        return fail("WRAMSTAT did not report mode 1");
 
     /* ARM7 is not allowed to write ARM9's WRAMCNT. */
     if (control.write(NDS_ARM7, NdsWramControl::WramCntAddress,
@@ -95,6 +121,8 @@ int main()
         return fail("ARM7 reselection failed");
     if (bus_read_u32(0x03000000u) != bank1)
         return fail("ARM7 did not receive physical bank 1 in mode 2");
+    if (bus_read_u8(NdsWramControl::WramStatAddress) != 2u)
+        return fail("WRAMSTAT did not report mode 2");
 
     /* Mode 3 gives both physical banks to ARM7, contiguous and mirrored. */
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9))
@@ -106,6 +134,8 @@ int main()
         bus_read_u32(0x03004000u) != bank1) {
         return fail("WRAMCNT mode 3 did not expose both ARM7 banks");
     }
+    if (bus_read_u8(NdsWramControl::WramStatAddress) != 3u)
+        return fail("WRAMSTAT did not report mode 3");
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9))
         return fail("ARM9 reselection failed");
     if (control.read(NDS_ARM9, NdsWramControl::WramStatAddress, 1u).status !=
@@ -121,6 +151,8 @@ int main()
     }
     if (!oracis_arm_runtime_select_cpu(NDS_ARM7))
         return fail("ARM7 final selection failed");
+    if (bus_read_u8(NdsWramControl::WramStatAddress) != 0u)
+        return fail("WRAMSTAT did not report mode 0 after transition");
     if (bus_read_u32(0x03000000u) != private_value ||
         bus_read_u32(NdsRetailRamMap::Arm7WramBase) != private_value) {
         return fail("WRAMCNT mode 0 did not mirror ARM7 private WRAM");

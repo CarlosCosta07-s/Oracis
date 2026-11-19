@@ -2,7 +2,7 @@
  * Nintendo DS WRAMCNT control device.
  *
  * The device translates ARM9 WRAMCNT writes into CPU-visible Shared WRAM
- * views. It deliberately does not emulate the undocumented WRAMSTAT value.
+ * views and reports the current mapping through the ARM7-only WRAMSTAT register.
  */
 #ifndef ORACIS_MEMORY_NDS_WRAM_CONTROL_HPP
 #define ORACIS_MEMORY_NDS_WRAM_CONTROL_HPP

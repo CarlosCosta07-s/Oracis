@@ -19,6 +19,23 @@ ReadResult NdsWramControl::read(
     uint32_t address,
     uint32_t width) const noexcept
 {
+    if (address == WramStatAddress) {
+        /*
+         * 0x04000241 is WRAMSTAT only on ARM7. On ARM9 the same address
+         * belongs to VRAMCNT_B, so this WRAM device must leave it untouched.
+         */
+        if (cpu == NDS_ARM9) return {Status::Unmapped, 0u};
+        if (cpu != NDS_ARM7) return {Status::InvalidCpu, 0u};
+        if (width != 1u) return {Status::InvalidWidth, 0u};
+        if (!installed_) return {Status::Unmapped, 0u};
+
+        /* GBATEK: bits 0-1 expose the current WRAMCNT assignment; 2-7=0. */
+        return {
+            Status::Ok,
+            static_cast<uint32_t>(static_cast<uint8_t>(mode_) & 0x03u)
+        };
+    }
+
     if (address != WramCntAddress) return {Status::Unmapped, 0u};
     if (cpu != NDS_ARM9) return {Status::CpuAccessDenied, 0u};
     if (width != 1u) return {Status::InvalidWidth, 0u};
@@ -36,6 +53,15 @@ Status NdsWramControl::write(
     uint32_t width,
     uint32_t value) noexcept
 {
+    if (address == WramStatAddress) {
+        /* ARM7 WRAMSTAT is read-only; ARM9 owns VRAMCNT_B at this address. */
+        if (cpu == NDS_ARM9) return Status::Unmapped;
+        if (cpu != NDS_ARM7) return Status::InvalidCpu;
+        if (width != 1u) return Status::InvalidWidth;
+        if (!installed_) return Status::Unmapped;
+        return Status::PermissionDenied;
+    }
+
     if (address != WramCntAddress) return Status::Unmapped;
     if (cpu != NDS_ARM9) return Status::CpuAccessDenied;
     if (width != 1u) return Status::InvalidWidth;
