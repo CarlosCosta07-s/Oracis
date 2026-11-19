@@ -125,6 +125,10 @@ int main()
             "overlapping ARM9 window",
             oracis::memory::CpuAccessArm9) != Status::Ok ||
         backing_resolution.map_mirror(
+            0x20000000u, 0x20000000u, 0x1000u, 0x1000u,
+            "disabled overlapping window",
+            oracis::memory::CpuAccessNone) != Status::Ok ||
+        backing_resolution.map_mirror(
             0x20002000u, 0x20000000u, 0x1000u, 0x1000u,
             "second ARM7 view",
             oracis::memory::CpuAccessArm7) != Status::Ok) {
