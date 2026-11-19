@@ -57,6 +57,25 @@ if(ORACIS_BUILD_HOST)
     endif()
 endif()
 
+# C-compatible include surface consumed by standard generated C banks.
+add_library(oracis_generated_bank_abi INTERFACE)
+target_include_directories(oracis_generated_bank_abi INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/oracis/recomp
+)
+target_compile_features(oracis_generated_bank_abi INTERFACE c_std_99)
+
+# The runtime is part of the product regardless of whether tests are enabled.
+add_library(oracis_arm_state STATIC
+    src/runtime/arm_cpu_state_ops.cpp
+    src/runtime/arm_psr_ops.cpp
+    src/runtime/arm_exception_ops.cpp
+    src/runtime/arm_flags.cpp
+    src/runtime/recomp_abi.cpp
+)
+target_link_libraries(oracis_arm_state PUBLIC oracis_generated_bank_abi)
+target_compile_features(oracis_arm_state PUBLIC cxx_std_20)
+
 include(CTest)
 
 if(BUILD_TESTING)
@@ -73,16 +92,6 @@ if(BUILD_TESTING)
     target_include_directories(oracis_abi_cpp_test PRIVATE include)
     target_compile_features(oracis_abi_cpp_test PRIVATE cxx_std_20)
     add_test(NAME oracis_abi_cpp_test COMMAND oracis_abi_cpp_test)
-
-    add_library(oracis_arm_state STATIC
-        src/runtime/arm_cpu_state_ops.cpp
-        src/runtime/arm_psr_ops.cpp
-        src/runtime/arm_exception_ops.cpp
-        src/runtime/arm_flags.cpp
-        src/runtime/recomp_abi.cpp
-    )
-    target_include_directories(oracis_arm_state PUBLIC include)
-    target_compile_features(oracis_arm_state PUBLIC cxx_std_20)
 
     add_executable(oracis_arm_state_ops_test
         tests/abi/arm_cpu_state_ops_test.cpp
