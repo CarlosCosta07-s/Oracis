@@ -21,6 +21,8 @@ ArmCpuState *g_arm9_state = nullptr;
 ArmCpuState *g_arm7_state = nullptr;
 void *g_power_context = nullptr;
 OracisArmRuntimePowerHandler g_power_handler = nullptr;
+void *g_coprocessor_context = nullptr;
+OracisArmRuntimeCoprocessorHandler g_coprocessor_handler = nullptr;
 
 } // namespace
 
@@ -82,6 +84,48 @@ int oracis_arm_runtime_unbind_power_handler(
     g_power_context = nullptr;
     g_power_handler = nullptr;
     return 1;
+}
+
+int oracis_arm_runtime_bind_coprocessor_handler(
+    void *context, OracisArmRuntimeCoprocessorHandler handler)
+{
+    if (context == nullptr || handler == nullptr) return 0;
+    if (g_coprocessor_handler != nullptr || g_coprocessor_context != nullptr) {
+        return g_coprocessor_context == context &&
+            g_coprocessor_handler == handler ? 1 : 0;
+    }
+    g_coprocessor_context = context;
+    g_coprocessor_handler = handler;
+    return 1;
+}
+
+int oracis_arm_runtime_unbind_coprocessor_handler(
+    void *context, OracisArmRuntimeCoprocessorHandler handler)
+{
+    if (context == nullptr || handler == nullptr ||
+        g_coprocessor_context != context ||
+        g_coprocessor_handler != handler) {
+        return 0;
+    }
+    g_coprocessor_context = nullptr;
+    g_coprocessor_handler = nullptr;
+    return 1;
+}
+
+int oracis_arm_runtime_coprocessor_transfer(
+    uint32_t is_write, uint32_t cp_num, uint32_t op1,
+    uint32_t crn, uint32_t crm, uint32_t op2, uint32_t *value)
+{
+    if (is_write > 1u || value == nullptr ||
+        g_coprocessor_handler == nullptr ||
+        g_coprocessor_context == nullptr ||
+        oracis_active_cpu_state == nullptr ||
+        (g_nds_active != NDS_ARM9 && g_nds_active != NDS_ARM7)) {
+        return 0;
+    }
+    return g_coprocessor_handler(
+        g_coprocessor_context, g_nds_active, is_write,
+        cp_num, op1, crn, crm, op2, value);
 }
 
 int oracis_arm_runtime_request_halt(NdsCpu cpu)
@@ -317,12 +361,26 @@ void runtime_swi(uint32_t swi_imm)
     }
 }
 
+uint32_t runtime_coproc_read(
+    uint32_t cp_num, uint32_t op1, uint32_t crn,
+    uint32_t crm, uint32_t op2)
+{
+    if (oracis_active_cpu_state == nullptr || g_nds_active != NDS_ARM9) {
+        abi_failure("runtime_coproc_read (no active ARM9 CPU)");
+    }
+
+    uint32_t value = 0u;
+    if (!oracis_arm_runtime_coprocessor_transfer(
+            0u, cp_num, op1, crn, crm, op2, &value)) {
+        abi_failure("runtime_coproc_read (unsupported coprocessor register)");
+    }
+    return value;
+}
+
 void runtime_coproc_write(
     uint32_t cp_num, uint32_t op1, uint32_t crn,
     uint32_t crm, uint32_t op2, uint32_t value)
 {
-    (void)value;
-
     if (oracis_active_cpu_state == nullptr || g_nds_active != NDS_ARM9) {
         abi_failure("runtime_coproc_write (no active ARM9 CPU)");
     }
@@ -338,7 +396,11 @@ void runtime_coproc_write(
         return;
     }
 
-    abi_failure("runtime_coproc_write (unimplemented coprocessor operation)");
+    uint32_t transfer_value = value;
+    if (!oracis_arm_runtime_coprocessor_transfer(
+            1u, cp_num, op1, crn, crm, op2, &transfer_value)) {
+        abi_failure("runtime_coproc_write (unsupported coprocessor register/value)");
+    }
 }
 
 void runtime_unimplemented_op(const char *op_name, uint32_t pc)
