@@ -113,6 +113,19 @@ public:
     /* Remove one guest mapping by its unique region name. */
     bool unmap_region(const std::string &name) noexcept;
 
+    struct CpuAccessUpdate {
+        const char *name;
+        uint8_t cpu_access;
+    };
+
+    /*
+     * Atomically replace CPU visibility masks for a set of existing regions.
+     * All names must resolve uniquely; the resulting map must contain no
+     * overlapping regions visible to the same CPU. No storage is allocated.
+     */
+    Status update_cpu_access(const CpuAccessUpdate *updates,
+                             std::size_t count) noexcept;
+
     ReadResult read(NdsCpu cpu, uint32_t address, uint32_t width) const noexcept;
     Status write(NdsCpu cpu, uint32_t address, uint32_t width,
                  uint32_t value) noexcept;
