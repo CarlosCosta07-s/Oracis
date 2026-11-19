@@ -99,6 +99,7 @@ target_compile_features(oracis_memory PUBLIC cxx_std_20)
 # Owns and binds one coherent NDS machine context over the runtime devices.
 add_library(oracis_machine STATIC
     src/machine/nds_machine.cpp
+    src/machine/host_runtime_bridge.cpp
 )
 target_link_libraries(oracis_machine PUBLIC oracis_memory oracis_arm_state)
 target_compile_features(oracis_machine PUBLIC cxx_std_20)
