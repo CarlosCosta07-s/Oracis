@@ -5,51 +5,49 @@
 
 <h1 align="center">Oracis</h1>
 
-<p align="center">
-  Um projeto de port nativo de Pokémon Platinum para plataformas modernas.
-</p>
+<p align="center">Um projeto independente de port nativo de Pokémon Platinum para plataformas modernas.</p>
 
 <p align="center"><strong>Reconstruindo Sinnoh para além do hardware original.</strong></p>
 
-> **Status: planejamento e fundação.** A identidade visual, a estratégia inicial de linguagens e as regras do projeto estão sendo estabelecidas. Ainda não existe uma versão jogável nem sistemas de jogo implementados.
+> **Status: Fase 0 — Baseline.** A auditoria inicial da descompilação e as decisões técnicas estão documentadas. Ainda não existe uma versão jogável nem um executável nativo.
 
 ## O projeto
 
-Oracis tem como objetivo levar Pokémon Platinum a uma execução nativa em computadores e, futuramente, dispositivos móveis. A proposta não é emular um Nintendo DS: é adaptar a lógica do jogo e substituir os serviços específicos do console por implementações próprias para os sistemas modernos.
-
-O desenvolvimento começa pela arquitetura, pela análise técnica da descompilação pública e pela definição de uma camada nativa que possa ser testada separadamente do jogo.
+Oracis busca levar Pokémon Platinum a uma execução nativa em computadores e dispositivos móveis. Não é um emulador de Nintendo DS: o objetivo é compilar a lógica do jogo para plataformas modernas e substituir os serviços específicos do console por implementações nativas.
 
 ## Direção técnica
 
-- **C99** para a lógica do jogo e estruturas compatíveis com a base de descompilação, somente quando a reutilização do código for autorizada.
-- **Rust** para a aplicação, serviços de plataforma, importação e validação de dados, cache, saves, diagnósticos e integração nativa.
-- **WGSL** para shaders do renderizador multiplataforma baseado em wgpu.
-- **Python**, quando necessário, apenas para ferramentas auxiliares de desenvolvimento.
+- **C99** para a lógica do jogo e os serviços nativos, condicionados à autorização de reutilização da descompilação.
+- **CMake + Ninja + Clang** para o build host e cross-build Android.
+- **SDL3** para janela, eventos, controles e saída de áudio.
+- **bgfx (API C99)** como renderizador multiplataforma preferido, ainda sujeito a um protótipo desktop + Android.
+- **Python** para ferramentas auxiliares; o gerador do ícone permanece uma ferramenta Rust isolada.
 
-A decisão completa e suas justificativas estão em [docs/TECH_STACK.md](docs/TECH_STACK.md).
+Veja [docs/TECH_STACK.md](docs/TECH_STACK.md) para decisões e referências.
+
+## Estado atual
+
+A Fase 0 identificou que [pret/pokeplatinum](https://github.com/pret/pokeplatinum) é uma descompilação em andamento cujo build atual produz uma ROM de Nintendo DS, não um executável host. O repositório de referência não declara uma licença geral na auditoria de 19/11/2026; por isso nenhum código ou recurso foi incorporado ao Oracis. Consulte o [relatório de baseline](docs/PHASE_0_BASELINE.md).
+
+O roteiro completo está em [docs/DEVELOPMENT_ROADMAP.md](docs/DEVELOPMENT_ROADMAP.md).
 
 ## Princípios
 
-- **Port nativo, não emulador.** Não executar o jogo simulando CPU, memória ou periféricos do Nintendo DS.
-- **Separação de responsabilidades.** Lógica do jogo, serviços de plataforma, renderização e interface devem permanecer desacoplados.
-- **Código e ferramentas próprios.** Não incorporar código ou recursos de emuladores de terceiros.
-- **Preservação responsável.** ROMs, firmware, arquivos extraídos, saves e patches binários não serão armazenados no repositório, na CI ou em releases.
-- **Transparência.** Compatibilidade, progresso e testes só serão anunciados quando forem verificáveis.
+- Port nativo, não emulação de hardware Nintendo DS.
+- Código e serviços independentes, com fronteiras explícitas.
+- ROMs, firmware, dados extraídos, saves e patches binários ficam fora do repositório, CI e releases.
+- Não incorporar código ou recursos de emuladores de terceiros.
+- Não presumir autorização a partir da disponibilidade pública de um repositório.
+- Não declarar compatibilidade, desempenho ou conclusão sem testes reproduzíveis.
 
 ## Plataformas planejadas
 
-1. Windows x64 e Linux x86-64 como primeiros alvos de desenvolvimento.
-2. Android após estabilizar o núcleo e as abstrações de entrada, áudio e renderização.
-3. iOS como alvo posterior da mesma arquitetura multiplataforma.
-
-## Referência técnica e licenciamento
-
-A descompilação pública [pret/pokeplatinum](https://github.com/pret/pokeplatinum) é uma referência importante para compreender a estrutura e o comportamento do jogo. Ela é um trabalho em andamento, escrito principalmente em C. Na auditoria inicial de 19 de novembro de 2026, o repositório não declarava uma licença nem continha um arquivo `LICENSE`; portanto, sua visibilidade pública não será tratada como autorização automática para copiar ou redistribuir código. A política de reutilização será definida antes de qualquer incorporação.
+Windows x64 e Linux x86-64 são os primeiros ambientes de desenvolvimento. Android ARM64 será integrado ao esqueleto inicial; iOS vem depois da estabilização da camada multiplataforma.
 
 ## Identidade visual
 
-O símbolo do Oracis é um sigilo celeste original: uma estrela facetada em platina atravessada por um anel orbital dourado. O desenho é vetorial e gerado a partir de código. Consulte [docs/VISUAL_IDENTITY.md](docs/VISUAL_IDENTITY.md).
+O símbolo Oracis é um sigilo celeste original: uma estrela facetada em platina atravessada por um anel orbital dourado. O desenho é vetorial e gerado por código. Consulte [docs/VISUAL_IDENTITY.md](docs/VISUAL_IDENTITY.md).
 
 ## Aviso
 
-Oracis é um projeto independente de preservação e engenharia, sem afiliação ou endosso da Nintendo, The Pokémon Company ou Game Freak. Pokémon e seus elementos relacionados pertencem aos respectivos titulares. O projeto não distribui o jogo nem conteúdo proprietário.
+Oracis é um projeto independente, sem afiliação ou endosso da Nintendo, The Pokémon Company ou Game Freak. Pokémon e seus elementos relacionados pertencem aos respectivos titulares. O projeto não distribui o jogo nem conteúdo proprietário.
