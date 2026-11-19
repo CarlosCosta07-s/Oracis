@@ -24,6 +24,7 @@ SPEC.loader.exec_module(emitter)
 
 BANK_PREFIX = emitter.BANK_PREFIX
 EXPECTED_ROM_SHA1 = emitter.EXPECTED_ROM_SHA1
+EXPECTED_CODEGEN_IDENTITY = emitter.EXPECTED_CODEGEN_IDENTITY
 emit_banks = emitter.emit_banks
 
 
@@ -88,9 +89,15 @@ class EmitPlatinumBanksTests(unittest.TestCase):
         self.temp.cleanup()
 
     @staticmethod
-    def fake_runner(commands, *, omit_dispatch=False):
+    def fake_runner(
+        commands, *, omit_dispatch=False,
+        codegen_identity=EXPECTED_CODEGEN_IDENTITY,
+    ):
         def run(command):
             commands.append(command)
+            if command[-1] == "--codegen-identity":
+                return codegen_identity + "\n"
+
             bank = command[command.index("--bank") + 1]
             output = Path(command[command.index("--out") + 1])
             (output / f"{bank}.c").write_text(
@@ -105,6 +112,7 @@ class EmitPlatinumBanksTests(unittest.TestCase):
                     f"const unsigned g_dispatch_{bank}_len = 0u;\n",
                     encoding="utf-8",
                 )
+            return ""
         return run
 
     def test_emits_two_banks_with_live_byte_validation_and_manifest(self) -> None:
@@ -114,8 +122,11 @@ class EmitPlatinumBanksTests(unittest.TestCase):
             self.fake_runner(commands),
         )
 
-        self.assertEqual(len(commands), 2)
-        for cpu, command in zip(("arm9", "arm7"), commands):
+        self.assertEqual(
+            commands[0], [str(self.recompiler), "--codegen-identity"]
+        )
+        self.assertEqual(len(commands), 3)
+        for cpu, command in zip(("arm9", "arm7"), commands[1:]):
             self.assertIn("--validate-live-bytes", command)
             self.assertEqual(
                 command[command.index("--bank") + 1],
@@ -161,6 +172,16 @@ class EmitPlatinumBanksTests(unittest.TestCase):
         self.assertEqual(commands, [])
         self.assertFalse(self.output.exists())
 
+    def test_rejects_unpinned_codegen_identity_before_emission(self) -> None:
+        commands = []
+        with self.assertRaisesRegex(RuntimeError, "codegen identity mismatch"):
+            emit_banks(
+                self.recompiler, self.extracted, self.output,
+                self.fake_runner(commands, codegen_identity="nds-codegen-v2"),
+            )
+        self.assertEqual(commands, [[str(self.recompiler), "--codegen-identity"]])
+        self.assertFalse(self.output.exists())
+
     def test_rejects_wrong_rom_identity_before_invoking_recompiler(self) -> None:
         manifest_path = self.extracted / "manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -181,8 +202,8 @@ class EmitPlatinumBanksTests(unittest.TestCase):
                 self.recompiler, self.extracted, self.output,
                 self.fake_runner(commands, omit_dispatch=True),
             )
-        self.assertEqual(len(commands), 2)
-        self.assertFalse((self.output / "oracis_banks.json").exists())
+        self.assertEqual(len(commands), 3)
+        self.assertFalse(self.output.exists())
 
 
 if __name__ == "__main__":
