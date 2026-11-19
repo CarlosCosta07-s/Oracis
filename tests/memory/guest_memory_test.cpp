@@ -34,6 +34,17 @@ int main()
      * CPU-disjoint regions may occupy the same guest address, as happens
      * when ARM9 and ARM7 select different Shared WRAM banks.
      */
+    GuestMemory disabled_view;
+    if (disabled_view.map_ram(
+            0x11000000u, 0x100u, rwx, "disabled view",
+            oracis::memory::CpuAccessNone) != Status::Ok ||
+        disabled_view.read(NDS_ARM9, 0x11000000u, 1u).status !=
+            Status::Unmapped ||
+        disabled_view.read(NDS_ARM7, 0x11000000u, 1u).status !=
+            Status::Unmapped) {
+        return fail("disabled mapping was not invisible to both CPUs");
+    }
+
     GuestMemory cpu_scoped;
     const uint8_t rw = static_cast<uint8_t>(
         oracis::memory::Readable | oracis::memory::Writable);
