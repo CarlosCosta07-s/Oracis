@@ -110,6 +110,9 @@ public:
                       std::string name,
                       uint8_t cpu_access);
 
+    /* Remove one guest mapping by its unique region name. */
+    bool unmap_region(const std::string &name) noexcept;
+
     ReadResult read(NdsCpu cpu, uint32_t address, uint32_t width) const noexcept;
     Status write(NdsCpu cpu, uint32_t address, uint32_t width,
                  uint32_t value) noexcept;
