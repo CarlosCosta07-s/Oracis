@@ -85,7 +85,6 @@ int NdsMachine::runtime_validate_dispatch_bytes(
         return 0;
     }
 
-    const NdsCpu cpu = g_nds_active;
     if (guest_memory->validate_execute(
             cpu, validation->addr, validation->size) != memory::Status::Ok ||
         guest_memory->validate_identity(
