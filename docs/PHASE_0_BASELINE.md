@@ -54,7 +54,17 @@ O README da referência documenta duas saídas norte-americanas:
 | US Rev 1 | `0862ec35b24de5c7e2dcb88c9eea0873110d755c` |
 | US Rev 0 | `ce81046eda7d232513069519cb2085349896dec7` |
 
-Esses valores identificam as ROMs produzidas pelo projeto de referência. Eles não comprovam a identidade de uma cópia do usuário até que o usuário calcule localmente o hash do próprio arquivo. A cobertura de idiomas/regiões da descompilação não deve ser presumida além das revisões explicitamente documentadas.
+### Cópia local de referência identificada
+
+Em 19/11/2026, o SHA-1 da cópia local fornecida para identificação foi calculado localmente e resultou em:
+
+`0862ec35b24de5c7e2dcb88c9eea0873110d755c`
+
+O valor corresponde exatamente ao identificador documentado para **Pokémon Platinum USA Rev 1** na referência. O arquivo tinha 134.217.728 bytes (128 MiB). Portanto, a primeira revisão-alvo de desenvolvimento do Oracis fica definida como **USA Rev 1**.
+
+Somente o identificador criptográfico e os metadados mínimos de verificação são registrados aqui. A ROM não foi adicionada ao repositório, não será enviada à CI e não será incluída em releases.
+
+A cobertura de idiomas/regiões da descompilação não deve ser presumida além das revisões explicitamente documentadas.
 
 ## 5. Licença, dados e regras da referência
 
@@ -74,20 +84,18 @@ A direção inicial adotada após esta auditoria é:
 |---|---|---|
 | Lógica original do jogo | C99 | Condicionada à autorização de reutilização |
 | Serviços nativos / Nitro compatibility | C99 | Implementação independente |
-| Build host | CMake + Ninja + Clang | Planejado |
-| Desktop e Android: janela, eventos, controles e áudio | SDL3 | Candidata principal |
-| Renderização | bgfx com sua API C99 | Candidata preferida; exige protótipo |
+| Build host | CMake + Ninja + Clang | Esqueleto inicial em preparação |
+| Desktop e Android: janela, eventos, controles e áudio | SDL3 | Dependência fixada para o protótipo |
+| Renderização | bgfx com sua API C99 | Candidata preferida; exige protótipo próprio |
 | Shaders | pipeline `shaderc` do bgfx | A validar com o renderizador |
 | Ferramentas de análise | Python, quando necessário | Auxiliar; não obrigatório em runtime |
-| Ícone | Gerador independente em Rust | Já existe; não define a linguagem do jogo |
+| Ícone | Gerador independente em Rust | Ferramenta isolada; não define a linguagem do jogo |
 
 ### Por que bgfx é a candidata gráfica preferida
 
 A documentação pública do bgfx lista backends Direct3D 11/12, Metal, OpenGL, OpenGL ES 3.0+ e Vulkan, e plataformas Windows, Linux, macOS, Android e iOS. O projeto também oferece uma API C99 e um exemplo `examples/25-c99/helloworld.c`, permitindo manter a integração do jogo em C sem exigir que o núcleo seja convertido para C++.
 
-A escolha ainda não está definitivamente fechada: antes disso, um protótipo deve abrir uma janela SDL3, inicializar bgfx, limpar a tela e apresentar o quadro em Windows/Linux e Android.
-
-SDL_GPU não será adotado automaticamente como backend universal: a FAQ atual do SDL lista DX12, Metal e Vulkan como backends do SDL_GPU, e alerta que no Android pode ser necessário desabilitar recursos Vulkan para ampliar a compatibilidade. Isso será reavaliado se o protótipo indicar vantagem concreta.
+A escolha ainda não está definitivamente fechada: antes disso, um protótipo deve abrir uma janela SDL3, inicializar bgfx, limpar a tela e apresentar um quadro no desktop e em Android ARM64.
 
 ### Integração Android
 
@@ -104,24 +112,24 @@ A documentação do Android NDK oferece um toolchain CMake próprio. A documenta
 - [x] Verificada a ausência de licença geral declarada na referência.
 - [x] Registrada a regra de não contribuir automaticamente no repositório upstream.
 - [x] Definida uma arquitetura candidata para o host nativo.
+- [x] Identificada localmente a cópia-alvo como Pokémon Platinum USA Rev 1 por correspondência exata do SHA-1 documentado.
 
 ### Ainda pendente para fechar a Fase 0
 
-- [ ] O usuário identificar localmente a região/revisão da própria cópia de Pokémon Platinum por SHA-1; o arquivo não deve ser enviado ao GitHub nem ao Oracis.
 - [ ] Executar o build/checksum matching da referência em ambiente local apropriado, se houver base legal e técnica para isso.
 - [ ] Resolver a autorização de reutilização antes de integrar qualquer código da descompilação.
-- [ ] Medir o primeiro protótipo de SDL3 + bgfx antes de congelar a decisão gráfica.
+- [ ] Medir o protótipo de SDL3 + renderizador antes de congelar a decisão gráfica.
 
 **Importante:** o assistente não executou `make`, `make rom` ou `make check` nesta auditoria. Os resultados do build foram inspecionados estaticamente nos arquivos de configuração e instruções; não se deve interpretar isso como uma compilação bem-sucedida.
 
 ## 8. Próximo passo verificável
 
-Depois de resolvermos a identificação da cópia e o bloqueio de licenciamento, iniciar a Fase 1 com um executável vazio que:
+A identificação da revisão de referência está concluída. A Fase 1 começa com um executável independente que:
 
 1. compile para desktop com CMake + Ninja + Clang;
 2. inicialize SDL3 e abra uma janela;
 3. apresente duas áreas de teste de 256 × 192;
-4. tenha o alvo Android ARM64 integrado à CI;
+4. tenha o alvo Android ARM64 compilado na CI;
 5. não carregue ROM, dados extraídos ou recursos proprietários.
 
 O esqueleto deverá compilar e rodar antes de receber código do jogo.
