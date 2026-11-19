@@ -1,6 +1,6 @@
 # GuestMemory e mapa de RAM do Nintendo DS
 
-**Estado:** armazenamento guest configurável, visibilidade por CPU, aliases, mirrors periódicos e mapa de RAM NDS retail implementados. `NdsWramControl` liga WRAMCNT ao barramento para ARM9 e implementa WRAMSTAT read-only de 8 bits no ARM7. O endereço compartilhado `0x04000241` não é capturado pelo dispositivo no ARM9, onde corresponde a VRAMCNT_B. Os demais handlers MMIO continuam pendentes. O bloco IME/IE/IF mantém estado independente por CPU e IF W1C; a entrega automática de IRQ ainda depende do scheduler.
+**Estado:** armazenamento guest configurável, visibilidade por CPU, aliases, mirrors periódicos e mapa de RAM NDS retail implementados. `NdsWramControl` liga WRAMCNT ao barramento para ARM9 e implementa WRAMSTAT read-only de 8 bits no ARM7. `NdsKeypadControl` implementa KEYINPUT compartilhado e KEYCNT independente por CPU, incluindo IRQ de teclado OR/AND. O endereço compartilhado `0x04000241` não é capturado pelo dispositivo no ARM9, onde corresponde a VRAMCNT_B. Os demais handlers MMIO continuam pendentes. O bloco IME/IE/IF mantém estado independente por CPU e IF W1C; a entrega automática de IRQ ainda depende do scheduler.
 
 ## 1. Responsabilidades
 
@@ -81,6 +81,21 @@ Os bytes físicos das duas banks são armazenados em um backing interno com `Cpu
 
 O dispositivo aceita transferências alinhadas de 32 bits nesses endereços e falha de forma explícita para larguras não suportadas. Os dispositivos de hardware chamam `request_irq(cpu, mask)` para latchear uma fonte em IF. `irq_asserted(cpu)` calcula `IME.bit0 && (IE & IF) != 0`. A classe oferece `try_enter_irq(cpu, state, return_address, vector_base)`: se IME/IE/IF mantiver a linha ativa e `CPSR.I` estiver limpo, a função entra em IRQ usando o retorno e o vetor fornecidos pelo chamador. Ela não apaga IF; o guest reconhece a solicitação. O scheduler ainda precisa invocar essa função no limite seguro após um bloco recompilado. Timer requests chegam a IF pelo controlador associado.
 
+### Teclado ARM9/ARM7
+
+`NdsKeypadControl` modela os dez botões físicos A, B, Select, Start, direcional e L/R nos registradores de 16 bits:
+
+| Endereço | Registrador | Semântica |
+|---|---|---|
+| `0x04000130` | `KEYINPUT` | Leitura compartilhada pelos dois processadores; bits 0–9 ativos em nível baixo, bits reservados 10–15 lidos como zero |
+| `0x04000132` | `KEYCNT` | Leitura/escrita independente por CPU; bits 0–9 selecionam botões, bit 14 habilita IRQ e bit 15 escolhe OR (0) ou AND (1) |
+
+O host fornece o estado físico por `set_pressed_keys(mask)`, usando bits ativos em nível alto para botões pressionados. O dispositivo converte para o formato ativo-baixo de KEYINPUT e limita a máscara aos dez botões. X/Y, toque e tampa não fazem parte deste bloco: pertencem ao registrador ARM7 `EXTKEYIN`, ainda não implementado.
+
+Quando a condição selecionada se torna ativa com o bit 14 habilitado, o dispositivo solicita o IF bit 12 da CPU correspondente. OR significa pelo menos uma tecla selecionada pressionada; AND exige todas as teclas selecionadas. A condição é latcheada na transição para ativa para não gerar solicitações repetidas enquanto o mesmo conjunto permanece pressionado. Uma seleção vazia não gera uma condição de tecla. A entrega da exceção IRQ continua sob responsabilidade futura do scheduler.
+
+Os acessos ao KEYINPUT/KEYCNT são de 16 bits; larguras não suportadas e escritas em KEYINPUT são rejeitadas explicitamente. O barramento C pode conectar o dispositivo após o GuestMemory e o controlador de interrupções.
+
 ### Temporizadores ARM9/ARM7
 
 `NdsTimerControl` modela quatro timers de 16 bits para cada processador:
@@ -118,6 +133,9 @@ Implementação: `src/memory/guest_memory.cpp`
 - `NdsInterruptControl::try_enter_irq(cpu, state, return_address, vector_base)`: entra em IRQ apenas quando a linha está ativa e `CPSR.I` está limpo; o chamador fornece LR e vetor; IF não é apagado.
 - `NdsTimerControl::read/write(cpu, address, width, value)`: implementa Timer 0–3 de cada CPU, com operações de 16 bits e acesso combinado de 32 bits ao par contador/controle.
 - `NdsTimerControl::advance_bus_cycles(n)`: avança as duas banks ARM9/ARM7 pelo mesmo número de ticks do clock global do barramento.
+- `NdsKeypadControl::read/write(cpu, address, width, value)`: implementa KEYINPUT e KEYCNT, com KEYINPUT físico compartilhado e KEYCNT/condição de IRQ separados por CPU.
+- `NdsKeypadControl::set_pressed_keys(mask)`: atualiza os dez botões físicos e solicita IRQ bit 12 quando a condição KEYCNT habilitada se torna ativa.
+- `oracis_bus_bind_keypad_control()` / `oracis_bus_unbind_keypad_control()`: conecta/desconecta o teclado depois do GuestMemory e de NdsInterruptControl.
 - `oracis_bus_bind_interrupt_control()` / `oracis_bus_unbind_interrupt_control()`: conecta/desconecta o controlador de interrupções ao barramento C.
 - `oracis_bus_bind_wram_control()` / `oracis_bus_unbind_wram_control()`: conecta e desconecta o dispositivo ao barramento C.
 - `read(cpu, address, width)`: leitura little-endian de 1, 2 ou 4 bytes.
@@ -175,6 +193,7 @@ O CMake registra testes separados para:
 - todos os quatro modos de Shared WRAM, incluindo regiões sobrepostas com visibilidade diferente por CPU e o espelho da WRAM privada ARM7 no modo 0;
 - transições dinâmicas entre modos, preservação de conteúdo dos dois bancos e rejeição de modo inválido sem alterar a janela corrente;
 - leitura/escrita de WRAMCNT pelo ARM9 e leitura WRAMSTAT pelo ARM7 via barramento C; WRAMSTAT read-only, modos 0–3, larguras inválidas e distinção do alias ARM9 VRAMCNT_B;
+- KEYINPUT ativo-baixo e compartilhado, KEYCNT independente por CPU, mascaramento de bits reservados, acesso somente leitura de KEYINPUT, condições OR/AND, IRQ bit 12, não repetição enquanto a condição permanece ativa e roteamento/teardown do barramento C;
 - `IME`/`IE`/`IF` independentes por CPU, IME master gate, máscara IE, IF write-one-to-clear, requests latcheados e roteamento por `bus_read_u32`/`bus_write_u32`.
 
 **Na revisão `a435c0f`, a CI passou nos quatro jobs**, incluindo desktop Linux, Android ARM64, NDSRecomp e 22/22 testes de runtime. A revisão atual acrescenta WRAMSTAT ARM7 e regressões de acesso; a CI está em execução.

@@ -30,6 +30,10 @@ int oracis_bus_unbind_interrupt_control(void *control);
 int oracis_bus_bind_timer_control(void *control);
 int oracis_bus_unbind_timer_control(void *control);
 
+/* Bind a live NdsKeypadControl after its matching memory and interrupt controller. */
+int oracis_bus_bind_keypad_control(void *control);
+int oracis_bus_unbind_keypad_control(void *control);
+
 /*
  * Validation callback suitable for oracis_static_dispatch_set_validation_callback.
  * user is the live GuestMemory object that backs the generated CPU bus.
