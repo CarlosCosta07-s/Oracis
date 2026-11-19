@@ -93,8 +93,8 @@ extern "C" int oracis_bus_validate_dispatch(
     auto *memory = static_cast<oracis::memory::GuestMemory *>(user);
     if (memory == nullptr || validation == nullptr ||
         validation->expected == nullptr || thumb > 1u ||
-        validation->dependency_count != 0u &&
-            validation->dependencies == nullptr) {
+        (validation->dependency_count != 0u &&
+         validation->dependencies == nullptr)) {
         return 0;
     }
 
