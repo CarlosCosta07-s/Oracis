@@ -58,6 +58,30 @@ int NdsMachine::runtime_power_handler(
     return 0;
 }
 
+int NdsMachine::runtime_coprocessor_handler(
+    void *context, NdsCpu cpu, uint32_t is_write,
+    uint32_t cp_num, uint32_t op1, uint32_t crn,
+    uint32_t crm, uint32_t op2, uint32_t *value)
+{
+    auto *machine = static_cast<NdsMachine *>(context);
+    if (machine == nullptr || !machine->initialized_ ||
+        cpu != NDS_ARM9 || is_write > 1u || value == nullptr ||
+        cp_num != 15u || op1 != 0u || crn != 1u || crm != 0u || op2 != 0u) {
+        return 0;
+    }
+
+    /* ARM946E-S CP15 c1 bit 13 selects 0x00000000 or 0xFFFF0000 vectors. */
+    constexpr uint32_t kAlternateVectorSelect = UINT32_C(1) << 13u;
+    if (is_write != 0u) {
+        /* Refuse to claim support for MPU/cache/TCM bits not modeled yet. */
+        if ((*value & ~kAlternateVectorSelect) != 0u) return 0;
+        machine->arm9_cp15_control_ = *value;
+    } else {
+        *value = machine->arm9_cp15_control_ & kAlternateVectorSelect;
+    }
+    return 1;
+}
+
 int NdsMachine::runtime_validate_dispatch_bytes(
     NdsCpu cpu,
     const NdsStaticValidation *validation,
@@ -122,6 +146,7 @@ NdsMachineStatus NdsMachine::initialize() noexcept
     arm9_state_ = {};
     arm7_state_ = {};
     program_loaded_ = false;
+    arm9_cp15_control_ = 0u;
     arm9_state_.cpsr = ORACIS_ARM_MODE_SYSTEM;
     arm7_state_.cpsr = ORACIS_ARM_MODE_SYSTEM;
     run_states_.fill(NdsCpuRunState::Running);
@@ -146,6 +171,12 @@ NdsMachineStatus NdsMachine::initialize() noexcept
         return rollback(NdsMachineStatus::RuntimeAlreadyBound);
     }
     power_handler_bound_ = true;
+
+    if (!oracis_arm_runtime_bind_coprocessor_handler(
+            this, &NdsMachine::runtime_coprocessor_handler)) {
+        return rollback(NdsMachineStatus::RuntimeAlreadyBound);
+    }
+    coprocessor_handler_bound_ = true;
 
     if (wram_control_.install() != memory::Status::Ok) {
         return rollback(NdsMachineStatus::MemoryMapFailed);
@@ -293,7 +324,8 @@ NdsMachineStatus NdsMachine::load_program_segments(
 NdsMachineStatus NdsMachine::shutdown() noexcept
 {
     const bool owns_runtime =
-        runtime_bound_ || power_handler_bound_ || memory_bound_ ||
+        runtime_bound_ || power_handler_bound_ ||
+        coprocessor_handler_bound_ || memory_bound_ ||
         wram_bound_ || interrupt_bound_ || timer_bound_ ||
         keypad_bound_ || clock_bound_ || validation_bound_;
     if (!owns_runtime && !initialized_) {
@@ -350,6 +382,13 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
             return NdsMachineStatus::ShutdownFailed;
         }
         memory_bound_ = false;
+    }
+    if (coprocessor_handler_bound_) {
+        if (!oracis_arm_runtime_unbind_coprocessor_handler(
+                this, &NdsMachine::runtime_coprocessor_handler)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        coprocessor_handler_bound_ = false;
     }
     if (power_handler_bound_) {
         if (!oracis_arm_runtime_unbind_power_handler(
@@ -514,16 +553,18 @@ NdsMachineStatus NdsMachine::run_dual_core_round(
         }
 
         uint32_t return_address = 0u;
-        uint32_t vector_base = 0u;
+        uint32_t legacy_vector_base = 0u;
         bool supplied = false;
         try {
             supplied = irq_context(
-                context, cpu, state, &return_address, &vector_base);
+                context, cpu, state, &return_address, &legacy_vector_base);
         } catch (...) {
             return NdsMachineStatus::IrqContextFailed;
         }
         if (!supplied) return NdsMachineStatus::IrqContextFailed;
 
+        /* Do not trust a host guess: select from the modeled CPU CP15 state. */
+        const uint32_t vector_base = exception_vector_base(cpu);
         const NdsMachineStatus result = try_deliver_pending_irq(
             cpu, return_address, vector_base);
         return result == NdsMachineStatus::IrqEntered
@@ -720,6 +761,17 @@ NdsMachineStatus NdsMachine::try_deliver_pending_irq(
         cpu, *state, return_address, vector_base)
         ? NdsMachineStatus::IrqEntered
         : NdsMachineStatus::IrqEntryFailed;
+}
+
+uint32_t NdsMachine::exception_vector_base(NdsCpu cpu) const noexcept
+{
+    if (cpu == NDS_ARM9) {
+        constexpr uint32_t kAlternateVectorSelect = UINT32_C(1) << 13u;
+        return (arm9_cp15_control_ & kAlternateVectorSelect) != 0u
+            ? UINT32_C(0xFFFF0000)
+            : 0u;
+    }
+    return 0u;
 }
 
 ArmCpuState *NdsMachine::cpu_state(NdsCpu cpu) noexcept
