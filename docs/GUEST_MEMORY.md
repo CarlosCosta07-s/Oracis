@@ -96,7 +96,7 @@ O registro baixo lê o contador atual e recebe a recarga em escritas. A recarga 
 
 Escrita de 32 bits iniciada no registro baixo atualiza recarga e controle na mesma operação, preservando o caso em que reload e start são escritos juntos. As operações de 16 bits também são suportadas; outras larguras falham explicitamente.
 
-`advance_bus_cycles(cpu, n)` recebe ciclos brutos do barramento NDS. `advance_core_cycles(cpu, n)` converte os custos enviados por `runtime_tick`: ARM9 usa dois ciclos de core por tick de barramento e acumula a meia-fase entre instruções; ARM7 usa um para um. A meia-fase ARM9 permanece intacta enquanto ARM7 executa. Quando vinculado ao barramento, o timer registra o único observador de ciclos disponível e avança em cada limite de instrução. Outros dispositivos ainda precisarão de um agregador de eventos. Isso não implementa a ordenação geral de eventos nem entrega automaticamente a exceção IRQ.
+`advance_bus_cycles(n)` recebe ciclos do barramento NDS e avança, numa única chamada, as quatro timers ARM9 e as quatro ARM7. As duas banks compartilham o clock periférico de 33,513982 MHz, mas mantêm contadores, recargas, prescalers e flags IRQ independentes. A chamada representa tempo de sistema transcorrido uma única vez, não deve ser repetida para cada CPU. O scheduler ainda precisa sincronizar os clocks ARM9/ARM7 e chamar essa API a partir de um relógio global; ela não é ligada diretamente a `runtime_tick`.
 
 
 ## 4. API principal do GuestMemory
@@ -117,9 +117,7 @@ Implementação: `src/memory/guest_memory.cpp`
 - `NdsInterruptControl::request_irq(cpu, mask)` / `irq_asserted(cpu)`: latcheia fontes IF e calcula a linha habilitada por IME/IE.
 - `NdsInterruptControl::try_enter_irq(cpu, state, return_address, vector_base)`: entra em IRQ apenas quando a linha está ativa e `CPSR.I` está limpo; o chamador fornece LR e vetor; IF não é apagado.
 - `NdsTimerControl::read/write(cpu, address, width, value)`: implementa Timer 0–3 de cada CPU, com operações de 16 bits e acesso combinado de 32 bits ao par contador/controle.
-- `NdsTimerControl::advance_bus_cycles(cpu, n)`: avança timers em ciclos brutos do barramento.
-- `NdsTimerControl::advance_core_cycles(cpu, n)`: converte ciclos ARM9/ARM7 em ticks de barramento, preservando a meia-fase ARM9.
-- Ao vincular o timer, ele se registra no observador de `runtime_tick`; o unbind remove esse observador.
+- `NdsTimerControl::advance_bus_cycles(n)`: avança as duas banks ARM9/ARM7 pelo mesmo número de ticks do clock global do barramento.
 - `oracis_bus_bind_interrupt_control()` / `oracis_bus_unbind_interrupt_control()`: conecta/desconecta o controlador de interrupções ao barramento C.
 - `oracis_bus_bind_wram_control()` / `oracis_bus_unbind_wram_control()`: conecta e desconecta o dispositivo ao barramento C.
 - `read(cpu, address, width)`: leitura little-endian de 1, 2 ou 4 bytes.
@@ -162,10 +160,10 @@ Ainda não são regiões GuestMemory funcionais:
 - VRAM, paletas, OAM e VRAM usada como WRAM;
 - Wi-Fi RAM/registradores;
 - GBA slot e Game Card;
-- DMA, IPC, PPU, wait states e ordenação geral de eventos; timers vinculados já recebem o clock de `runtime_tick`;
+- sincronização dos clocks ARM9/ARM7 e chamada de `advance_bus_cycles` a partir do relógio global; DMA, IPC, PPU, wait states e ordenação geral de eventos;
 - wait states, prioridades de barramento e penalidades de contenção Main RAM.
 
-O runtime soma os custos enviados por `runtime_tick` e oferece um observador síncrono para dispositivos vinculados. Os modelos de `runtime_mem_cycles`/`runtime_code_cycles` ainda não representam todo o hardware NDS.
+O runtime soma os custos enviados por `runtime_tick`. Ainda falta convertê-los numa linha temporal global comum para ARM9, ARM7 e periféricos. Os modelos de `runtime_mem_cycles`/`runtime_code_cycles` também não representam todo o hardware NDS.
 
 ## 8. Testes registrados
 
