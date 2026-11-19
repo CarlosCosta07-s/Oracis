@@ -40,6 +40,7 @@ Responsabilidades previstas:
 - registro/lookup estático de bancos C por CPU e estado ARM/Thumb;
 - verificação da identidade dos bytes do banco e suas dependências antes da execução;
 - pilha de retorno guest por CPU para distinguir retorno nativo de salto guest;
+- contadores de ciclos e controle cooperativo de fatias/yield por CPU;
 - chamadas por slot ainda encaminhadas ao dispatcher; cache direto exige epoch e guardas de conteúdo;
 - flags CPSR, banked registers e transições ARM/Thumb;
 - helpers ABI de acesso ao User bank, aritmética/condições e CLZ;
