@@ -94,6 +94,9 @@ extern "C" int oracis_arm_cpu_return_from_exception(
         return 0;
     }
 
+    const uint32_t alignment = (saved_cpsr & CPSR_T_BIT) != 0u ? 2u : 4u;
+    if ((return_address % alignment) != 0u) return 0;
+
     if (!oracis_arm_cpu_restore_cpsr_from_spsr(state)) return 0;
 
     /* Publish PC only after CPSR and banked registers have been restored. */
