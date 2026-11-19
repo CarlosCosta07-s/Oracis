@@ -94,8 +94,7 @@ int main(int argc, char *argv[])
     while (running) {
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_EVENT_QUIT ||
-                event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED ||
-                event.type == SDL_EVENT_TERMINATING) {
+                event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
                 running = false;
             } else if (event.type == SDL_EVENT_KEY_DOWN &&
                        event.key.key == SDLK_ESCAPE &&
