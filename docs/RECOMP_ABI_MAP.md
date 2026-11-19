@@ -130,7 +130,7 @@ Os corpos C gerados usam um contrato adicional de timing:
 - `g_insn_hook_armed` inicia desarmado. `runtime_insn_slow()` falha explicitamente até haver um consumidor de tracing registrado.
 - `NDS_ARM9_CODE_K` emite o sentinel que desativa o fast path packed; `nds_code_numc()` encaminha ao provedor `runtime_code_cycles()`.
 - `arm9_cycle_combine()` implementa a combinação aritmética entre fetch, acesso de dados e ciclos internos.
-- `runtime_code_cycles()` implementa fetch uncached ARM9 em ITCM (1 ciclo core), Main RAM (18), WRAM/BIOS/I/O/OAM (8); Thumb divide o fetch em duas metades, sendo a segunda sem custo adicional. ARM7 retorna 0 nesse helper porque seu fetch já está incorporado ao custo-base gerado. Os valores são em ciclos core ARM9 (66 MHz), derivados do clock de barramento de 33 MHz e das tabelas N32. VRAM/Palette, Gamecard, cache e outras regiões permanecem fail-closed.
+- `runtime_code_cycles()` implementa fetch uncached ARM9 em ITCM (1 ciclo core), Main RAM (18), WRAM/BIOS/I/O/OAM (8); Thumb atribui o fetch N32 completo à primeira halfword e zero à segunda. ARM7 retorna 0 nesse helper porque seu fetch já está incorporado ao custo-base gerado. Os valores são em ciclos core ARM9 (66 MHz), derivados do clock de barramento de 33 MHz e das tabelas N32. VRAM/Palette, Gamecard, cache e outras regiões permanecem fail-closed.
 - `runtime_mem_cycles()`, `runtime_mul_cycles()`, `arm7_refill_cycles()`, `arm9_refill_cycles()` e `arm7_cycle_combine()` ainda abortam com diagnóstico: timing de dados, multiply, pipeline refill e combinação ARM7 não estão implementados. Nenhum custo inventado é retornado. Veja [ARM9_TIMING.md](ARM9_TIMING.md).
 
 ## 8. Declarações e serviços ainda sem comportamento funcional

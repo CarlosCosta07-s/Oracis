@@ -90,18 +90,17 @@ extern "C" uint32_t runtime_code_cycles(uint32_t pc)
 
     const bool thumb = (g_cpu.cpsr & CPSR_T_BIT) != 0u;
     /*
-     * The NDS9 fetches two Thumb halfwords per 32-bit bus fetch. The second
-     * halfword has no additional fetch cost; taken branches are charged by
-     * the separate pipeline-refill provider (still fail-closed).
+     * The NDS9 fetches two Thumb halfwords per 32-bit bus fetch. The full
+     * 32-bit fetch cost is charged at the first halfword; the second halfword
+     * has no additional cost. Taken branches are charged separately by the
+     * pipeline-refill provider (still fail-closed).
      */
     if (thumb && (pc & 2u) != 0u) return 0u;
 
     /* ITCM is one ARM9 core cycle per 32-bit fetch, even in Thumb state. */
     if (pc < g_arm9_itcm_code_window_size) return 1u;
 
-    const uint32_t word_fetch_cycles =
-        arm9_uncached_code_fetch_cycles(pc);
-    return thumb ? word_fetch_cycles / 2u : word_fetch_cycles;
+    return arm9_uncached_code_fetch_cycles(pc);
 }
 
 extern "C" uint32_t runtime_mem_cycles(

@@ -13,15 +13,15 @@ O helper retorna zero para ARM7 porque o custo de fetch do ARM7 já está inclu�
 | Região guest | Fetch ARM | Fetch Thumb (primeira metade) | Segunda metade Thumb |
 |---|---:|---:|---:|
 | ITCM ativa (janela CP15 publicada) | 1 | 1 | 0 |
-| Main RAM uncached (`0x02000000–0x02FFFFFF`) | 18 | 9 | 0 |
-| WRAM (`0x03000000–0x03FFFFFF`) | 8 | 4 | 0 |
-| I/O (`0x04000000–0x04FFFFFF`) | 8 | 4 | 0 |
-| OAM (`0x07000000–0x07003FFF`) | 8 | 4 | 0 |
-| BIOS ARM9 (`0xFFFF0000–0xFFFF7FFF`) | 8 | 4 | 0 |
+| Main RAM uncached (`0x02000000–0x02FFFFFF`) | 18 | 18 | 0 |
+| WRAM (`0x03000000–0x03FFFFFF`) | 8 | 8 | 0 |
+| I/O (`0x04000000–0x04FFFFFF`) | 8 | 8 | 0 |
+| OAM (`0x07000000–0x07003FFF`) | 8 | 8 | 0 |
+| BIOS ARM9 (`0xFFFF0000–0xFFFF7FFF`) | 8 | 8 | 0 |
 
 A janela ITCM publicada pelo controlador CP15 pode variar de 4 KB a 32 MB; quando habilitada, o timing reconhece o espelho programado, incluindo a janela de 32 MB que contém `0x01FF8000`. A configuração é atualizada ao escrever Control/c9 e limpa no shutdown da máquina.
 
-A tabela usa a razão de clock de 2:1 do ARM9 em relação ao barramento: Main RAM N32=9 bus cycles torna-se 18 core cycles; WRAM/BIOS/I/O/OAM N32=4 torna-se 8; uma hit de ITCM de meio ciclo do barramento equivale a 1 core cycle ARM9. Em Thumb, duas instruções de 16 bits partilham um fetch de 32 bits: a primeira metade recebe metade do custo normal e a segunda recebe zero adicional. ITCM é a exceção de granularidade: o fetch custa 1 ciclo ARM9 e a segunda metade continua sem custo adicional.
+A tabela usa a razão de clock de 2:1 do ARM9 em relação ao barramento: Main RAM N32=9 bus cycles torna-se 18 core cycles; WRAM/BIOS/I/O/OAM N32=4 torna-se 8; uma hit de ITCM de meio ciclo do barramento equivale a 1 core cycle ARM9. Em Thumb, duas instruções de 16 bits partilham um fetch de 32 bits: o custo N32 completo é atribuído à primeira halfword e a segunda recebe zero adicional. Isso segue o contrato de `NDS_ARM9_CODE_K(pc, thumb)` do compilador fixado: a halfword com `pc & 2` retorna o sentinel zero, enquanto a primeira mantém a classe de timing integral. ITCM é a exceção de granularidade: o fetch custa 1 ciclo ARM9 e a segunda metade continua sem custo adicional.
 
 ## Limites deliberados
 

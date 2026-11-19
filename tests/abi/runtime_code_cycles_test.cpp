@@ -38,10 +38,10 @@ int main()
     }
 
     arm9.cpsr |= CPSR_T_BIT;
-    if (runtime_code_cycles(UINT32_C(0x02000000)) != 9u ||
+    if (runtime_code_cycles(UINT32_C(0x02000000)) != 18u ||
         runtime_code_cycles(UINT32_C(0x02000002)) != 0u ||
-        runtime_code_cycles(UINT32_C(0x03000000)) != 4u ||
-        runtime_code_cycles(UINT32_C(0x07000000)) != 4u) {
+        runtime_code_cycles(UINT32_C(0x03000000)) != 8u ||
+        runtime_code_cycles(UINT32_C(0x07000000)) != 8u) {
         return fail("ARM9 Thumb double-fetch timing was not split by halfword");
     }
 
