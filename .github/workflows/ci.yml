@@ -57,6 +57,88 @@ jobs:
       - name: Run tests
         run: ctest --test-dir build --output-on-failure
 
+      - name: Verify optional local static-bank build
+        run: |
+          cmake -S . -B build \
+            -DORACIS_LOCAL_BANK_DIR="$GITHUB_WORKSPACE/tests/fixtures/static_banks"
+          cmake --build build --target oracis_compiled_bank_link_smoke --parallel
+          ctest --test-dir build -R '^oracis_compiled_bank_link_smoke
+    name: ARM runtime tests (no SDL3 dependency)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out Oracis
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang ninja-build
+
+      - name: Configure runtime-only build
+        run: |
+          cmake -S . -B build-runtime -G Ninja \
+            -DORACIS_BUILD_HOST=OFF \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build runtime tests
+        run: cmake --build build-runtime --parallel
+
+      - name: Run runtime tests
+        run: ctest --test-dir build-runtime --output-on-failure
+
+  ndsrecomp-static-compiler:
+    name: Pinned NDSRecomp static compiler (no runner)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out Oracis
+        uses: actions/checkout@v4
+
+      - name: Install compiler build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang ninja-build python3
+
+      - name: Build only nds_recompile
+        run: |
+          CC=clang CXX=clang++ python3 tools/ndsrecomp/build_recompiler.py \
+            --source "$RUNNER_TEMP/ndsrecomp-source" \
+            --build-dir "$RUNNER_TEMP/ndsrecomp-build"
+
+  android-arm64:
+    name: Android ARM64 native library
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@7731365548f3f81c15d4c49c8f1d29101e02cdcf # v4.0.2
+        with:
+          packages: platform-tools
+
+      - name: Install Android NDK
+        run: sdkmanager "ndk;28.2.13676358"
+
+      - name: Configure Android ARM64
+        run: |
+          cmake -S . -B build-android -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/28.2.13676358/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-24 \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build Android native library
+        run: cmake --build build-android --parallel
+ --output-on-failure
+
   runtime-tests:
     name: ARM runtime tests (no SDL3 dependency)
     runs-on: ubuntu-24.04
