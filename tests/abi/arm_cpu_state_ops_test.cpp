@@ -30,17 +30,28 @@ int main()
     const uint32_t preserved_cpsr_bits =
         state.cpsr & ~ORACIS_ARM_MODE_MASK;
 
+    struct ModeCase {
+        uint32_t mode;
+        uint32_t expected_bank;
+    };
+    const ModeCase valid_modes[] = {
+        {ORACIS_ARM_MODE_USER, ARM_BANK_USER},
+        {ORACIS_ARM_MODE_SYSTEM, ARM_BANK_USER},
+        {ORACIS_ARM_MODE_FIQ, ARM_BANK_FIQ},
+        {ORACIS_ARM_MODE_IRQ, ARM_BANK_IRQ},
+        {ORACIS_ARM_MODE_SUPERVISOR, ARM_BANK_SUPERVISOR},
+        {ORACIS_ARM_MODE_ABORT, ARM_BANK_ABORT},
+        {ORACIS_ARM_MODE_UNDEFINED, ARM_BANK_UNDEFINED},
+    };
     uint32_t bank = UINT32_C(0xFFFFFFFF);
-    if (!oracis_arm_cpu_mode_bank(ORACIS_ARM_MODE_SYSTEM, &bank) ||
-        bank != ARM_BANK_USER) {
-        return fail("System mode must share the User register bank");
-    }
-    if (!oracis_arm_cpu_mode_bank(ORACIS_ARM_MODE_FIQ, &bank) ||
-        bank != ARM_BANK_FIQ) {
-        return fail("FIQ mode bank mapping is incorrect");
+    for (const ModeCase &mode_case : valid_modes) {
+        if (!oracis_arm_cpu_mode_bank(mode_case.mode, &bank) ||
+            bank != mode_case.expected_bank) {
+            return fail("valid ARM mode mapped to an incorrect bank");
+        }
     }
     if (oracis_arm_cpu_mode_bank(UINT32_C(0x16), &bank) ||
-        bank != ARM_BANK_FIQ) {
+        bank != ARM_BANK_UNDEFINED) {
         return fail("invalid mode must fail without overwriting bank_out");
     }
     if (oracis_arm_cpu_mode_bank(ORACIS_ARM_MODE_IRQ | CPSR_T_BIT, &bank)) {
