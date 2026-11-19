@@ -116,6 +116,24 @@ typedef struct NdsLinkSlot {
     const void *guard;
 } NdsLinkSlot;
 
+#define RUNTIME_TRACE_DISPATCH  1u
+#define RUNTIME_TRACE_EXCHANGE  2u
+#define RUNTIME_TRACE_SWI       3u
+#define RUNTIME_TRACE_MEM_WRITE 4u
+#define RUNTIME_TRACE_BRANCH    5u
+#define RUNTIME_TRACE_IRQ       6u
+#define RUNTIME_TRACE_CALL      7u
+#define RUNTIME_TRACE_MEM_READ  8u
+
+#define NDS_LIVE_TRANSFER_B         1u
+#define NDS_LIVE_TRANSFER_BL        2u
+#define NDS_LIVE_TRANSFER_BX        3u
+#define NDS_LIVE_TRANSFER_BLX_REG   4u
+#define NDS_LIVE_TRANSFER_BLX_IMM   5u
+#define NDS_LIVE_TRANSFER_PC_WRITE  6u
+#define NDS_LIVE_TRANSFER_LDR_PC    7u
+#define NDS_LIVE_TRANSFER_LDM_PC    8u
+
 uint8_t bus_read_u8(uint32_t addr);
 uint16_t bus_read_u16(uint32_t addr);
 uint32_t bus_read_u32(uint32_t addr);
