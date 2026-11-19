@@ -86,6 +86,10 @@ int main()
 
     if (memory.read(NDS_ARM9, 0x05000000u, 4u).status != Status::Unmapped)
         return fail("unmapped read did not fail");
+    if (memory.read(NDS_ARM9, 0xFFFFFFFEu, 4u).status != Status::AddressOverflow ||
+        memory.write(NDS_ARM7, 0xFFFFFFFFu, 2u, 0xFFFFu) != Status::AddressOverflow) {
+        return fail("guest access address overflow was not rejected");
+    }
     if (memory.read(NDS_ARM9, 0x02000FFFu, 2u).status != Status::CrossesRegion)
         return fail("cross-region read was not rejected");
     if (memory.read(NDS_ARM9, 0x02000000u, 3u).status != Status::InvalidWidth)
