@@ -2,6 +2,7 @@
 
 #include "oracis/memory/guest_memory.hpp"
 #include "oracis/recomp/runtime_arm.h"
+#include "oracis/recomp/static_dispatch_abi.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -63,7 +64,12 @@ void write_bus(uint32_t address,
 extern "C" int oracis_bus_bind_memory(void *memory)
 {
     if (memory == nullptr) return 0;
-    g_guest_memory = static_cast<oracis::memory::GuestMemory *>(memory);
+    auto *guest_memory = static_cast<oracis::memory::GuestMemory *>(memory);
+    if (g_guest_memory != nullptr && g_guest_memory != guest_memory) return 0;
+
+    g_guest_memory = guest_memory;
+    oracis_static_dispatch_set_validation_callback(
+        oracis_bus_validate_dispatch, guest_memory);
     return 1;
 }
 
@@ -74,6 +80,57 @@ extern "C" int oracis_bus_unbind_memory(void *memory)
         return 0;
     }
     g_guest_memory = nullptr;
+    oracis_static_dispatch_set_validation_callback(nullptr, nullptr);
+    return 1;
+}
+
+extern "C" int oracis_bus_validate_dispatch(
+    const NdsStaticValidation *validation,
+    uint32_t pc,
+    uint32_t thumb,
+    void *user)
+{
+    auto *memory = static_cast<oracis::memory::GuestMemory *>(user);
+    if (memory == nullptr || validation == nullptr ||
+        validation->expected == nullptr || thumb > 1u ||
+        validation->dependency_count != 0u &&
+            validation->dependencies == nullptr) {
+        return 0;
+    }
+
+    const uint32_t instruction_size = thumb != 0u ? 2u : 4u;
+    const uint64_t validation_end =
+        static_cast<uint64_t>(validation->addr) + validation->size;
+    if (validation->size == 0u ||
+        validation_end > UINT64_C(0x1'0000'0000) ||
+        pc < validation->addr ||
+        static_cast<uint64_t>(pc) + instruction_size > validation_end) {
+        return 0;
+    }
+
+    const NdsCpu cpu = g_nds_active;
+    if (memory->validate_execute(
+            cpu, validation->addr, validation->size) !=
+        oracis::memory::Status::Ok) {
+        return 0;
+    }
+    if (memory->validate_identity(
+            cpu, validation->addr, validation->size,
+            validation->expected) != oracis::memory::Status::Ok) {
+        return 0;
+    }
+
+    for (uint32_t index = 0u;
+         index < validation->dependency_count;
+         ++index) {
+        const NdsStaticValidationRange &dependency =
+            validation->dependencies[index];
+        if (memory->validate_identity(
+                cpu, dependency.addr, dependency.size,
+                dependency.expected) != oracis::memory::Status::Ok) {
+            return 0;
+        }
+    }
     return 1;
 }
 
