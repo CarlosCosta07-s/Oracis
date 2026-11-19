@@ -7,6 +7,11 @@
 #include <cstdlib>
 #include <limits>
 
+extern "C" {
+uint64_t g_insn_count[2] = {0u, 0u};
+uint32_t g_insn_hook_armed = 0u;
+}
+
 namespace {
 
 struct CpuSliceState {
@@ -126,6 +131,7 @@ extern "C" void oracis_scheduler_reset(NdsCpu cpu)
 {
     if (!valid_cpu(cpu)) return;
     g_cpu_slice[cpu_index(cpu)] = CpuSliceState{};
+    g_insn_count[cpu_index(cpu)] = 0u;
 }
 
 extern "C" void runtime_tick(uint32_t cycles)
@@ -158,4 +164,14 @@ extern "C" bool runtime_slice_yield(void)
 extern "C" bool runtime_unwinding(void)
 {
     return active_slice_state("runtime_unwinding").unwinding;
+}
+
+extern "C" void runtime_insn_slow(void)
+{
+    std::fprintf(stderr,
+        "[Oracis runtime] instruction slow hook is armed without a "
+        "registered tracing consumer (CPU=%u, PC=0x%08X)\\n",
+        static_cast<unsigned>(g_nds_active),
+        oracis_active_cpu_state ? oracis_active_cpu_state->R[15] : 0u);
+    std::abort();
 }
