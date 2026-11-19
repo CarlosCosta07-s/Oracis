@@ -122,7 +122,7 @@ jobs:
           install -m 0755 "$compiler" "$output/nds_recompile"
           install -m 0644 tools/ndsrecomp/extract_nds_programs.py "$output/tools/ndsrecomp/"
           install -m 0644 tools/ndsrecomp/emit_platinum_banks.py "$output/tools/ndsrecomp/"
-          for header in runtime_arm.h arm_cpu_state.h arm_cpu_state_ops.h arm_flags.h; do
+          for header in runtime_arm.h arm_cpu_state.h arm_cpu_state_ops.h arm_flags.h runtime_event_trace.h; do
             install -m 0644 "include/oracis/recomp/$header" "$output/include/oracis/recomp/$header"
           done
           cat > "$output/README.txt" <<'EOF'

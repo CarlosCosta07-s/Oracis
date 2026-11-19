@@ -1,6 +1,6 @@
 # NDSRecomp — mapa do contrato de bancos gerados
 
-**Estado:** ABI parcial implementada; CP15 ARM9 possui suporte testado a TCM/load modes. Bancos USA Rev 1 foram emitidos localmente, mas os objetos C ainda não foram compilados nem ligados. A CI da revisão 810fade está verde.
+**Estado:** ABI parcial implementada; CP15 ARM9 inclui TCM/load modes testados e a ABI de tracing usa buffer circular por CPU. Bancos USA Rev 1 foram emitidos localmente e os quatro arquivos C foram compilados em objetos C99; ainda não foram ligados ao runtime nem executados.
 
 
 **Revisão upstream examinada:** `14b7e15023e9affc9dc375e4e611ac703f5c76ab`.
@@ -141,9 +141,9 @@ O header fornece o contrato C99 necessário para compilar os bancos emitidos, e 
 - observabilidade de transferências: `runtime_live_transfer`;
 - exceções geradas: `runtime_swi`, `runtime_irq`;
 - coprocessador: runtime_coproc_read/write fazem dispatch fail-closed por registrador; ARM9 CP15 implementa c0 ID/TCM size, c1 Control.V + enable/load-mode de ITCM/DTCM e c9 regiões dos TCM. Os backings de 32 KB ITCM e 16 KB DTCM usam janelas overlay com máscaras independentes de leitura/escrita/busca; MPU, cache e demais operações CP15 continuam sem implementação. WFI via c7,c0,4/c7,c8,2 segue separado; veja docs/ARM9_TCM.md;
-- observabilidade: `runtime_trace_event` e consumidor do hook lento.
+- observabilidade: `runtime_trace_event` e `runtime_live_transfer` gravam eventos em uma fila circular de 512 entradas por CPU; a API C permite consultar, ler por cursor, limpar e obter a contagem de eventos descartados. O hook `runtime_insn_slow` segue fail-closed se for armado sem consumidor dedicado.
 
-A emissão real USA Rev 1 produziu 78 funções ARM9 e 957 ARM7 (8 Thumb) em dois conjuntos C/dispatch locais. O relatório do compiler encerrou a varredura ARM9 por limite de passos, encontrou 12 leituras não mapeadas e 10 alvos indiretos desconhecidos; ARM7 encerrou ao sair do módulo, encontrou 388 leituras não mapeadas e 30 alvos indiretos desconhecidos. Isso é evidência de emissão parcial, não cobertura completa. A compilação C99 dos objetos gerados e a auditoria dos símbolos indefinidos ainda são os próximos passos; nenhum banco ou arquivo derivado da ROM foi adicionado ao Git/CI.
+A emissão real USA Rev 1 produziu 78 funções ARM9 e 957 ARM7 (8 Thumb) em dois conjuntos C/dispatch locais. O relatório do compiler encerrou a varredura ARM9 por limite de passos, com 12 leituras não mapeadas e 10 alvos indiretos desconhecidos; ARM7 encerrou ao sair do módulo, com 388 leituras não mapeadas e 30 alvos indiretos desconhecidos. Isso é cobertura parcial, não cobertura integral do jogo. Os quatro arquivos C gerados foram compilados localmente em C99 contra a ABI Oracis e agrupados em objetos. O inventário encontrou 40 referências externas ARM9, 45 ARM7 e 48 nomes únicos no conjunto; `runtime_live_transfer` e `runtime_trace_event`, que não tinham definições, agora são implementados pelo runtime próprio. A ligação completa às bibliotecas de runtime ainda não foi executada, e os provedores de timing seguem fail-closed. Nenhum segmento ou banco derivado da ROM foi adicionado ao Git/CI.
 ## 9. Opção de geração excluída
 
 O parâmetro `--flat-execution` altera os corpos gerados para usar `NdsExecRegion`, `execution_region.h` e serviços do runtime upstream. **Oracis não usa essa opção.** Usaremos emissão padrão por função.
@@ -156,15 +156,16 @@ Também ficam fora da integração:
 
 ## 10. Testes registrados
 
-O CMake registra 28 testes C99/C++20 no runtime/ABI. A CI da revisão 810fade passou em 28/28 CTests desktop; o smoke de bancos sintéticos passou em 1/1; o tooling Python passou em 15 testes; runtime ARM, Android ARM64 e o build do NDSRecomp também passaram. Os testes de memória incluem overlays com acesso independente e herança das máscaras read/write/execute; a máquina testa CP15 ID, size, reset TCM, janelas, preservação de RAM subjacente e modos de carga. A CI atual não inclui ROM, segmentos ou bancos reais. Execução: https://github.com/CarlosCosta07-s/Oracis/actions/runs/44617249655.
+O CMake registra **30 testes C99/C++20**. A CI da revisão `3f52e1c` passou em 30/30 CTests desktop; o smoke de bancos sintéticos passou em 1/1; o tooling Python passou em 15 testes; runtime ARM, Android ARM64 e o build do NDSRecomp também passaram. O grupo novo testa a fila de tracing: isolamento ARM9/ARM7, ordenação, cursor de leitura, overflow, contador de descarte e API C99. A máquina também testa CP15 ID/size/regions, TCM, preservação da RAM subjacente e load modes. A CI não recebe ROM, segmentos nem bancos reais. [Execução da CI](https://github.com/CarlosCosta07-s/Oracis/actions/runs/44620734864).
 
-## 11.
+
 ## 11. Prova de integração ainda exigida
 
-1. Compilar os seis arquivos C reais (ARM9/ARM7 body + dispatch) contra os headers ABI Oracis; gerar inventário único de símbolos indefinidos.
-2. Cruzar esse inventário com os símbolos definidos pelo runtime e separar lacunas reais de ABI, MMIO, BIOS, DMA, IPC e código dinâmico.
-3. Ligar os bancos no host/registry por CPU, manter a validação de identidade e exercitar entradas/dispatch sem iniciar rounds de jogo.
-4. Completar os serviços mínimos exigidos pela inicialização e implementar os alvos indiretos/overlays observados nos logs do compilador.
+1. Ligar os quatro objetos corpo/dispatch às bibliotecas Oracis e confirmar a resolução dos 48 símbolos externos do inventário.
+2. Completar os provedores de timing fail-closed: fetch de código, dados, multiply, refill e combinação ARM7, sem inventar custos.
+3. Auditar e implementar os alvos indiretos/overlays desconhecidos, mantendo dispatch fechado para qualquer endereço sem banco válido.
+4. Registrar os bancos reais no runtime, validar bytes/dependências contra GuestMemory e exercitar entradas sem iniciar rounds completos.
+5. Implementar a sequência mínima de boot: BIOS/SWI necessários, MMIO, DMA/IPC e inicialização dos serviços de vídeo.
 5. Completar a sincronização de ciclos globais e os demais handlers MMIO (incluindo VRAMCNT_B); a entrega IRQ já é verificada nas fronteiras do round.
 6. Completar CP15/TCM, BIOS, VRAM/OAM, scheduler de dispositivos e timing por região.
 7. Demonstrar que um endereço guest sem banco gera falha detalhada, sem execução interpretada.
