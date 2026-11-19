@@ -76,6 +76,12 @@ add_library(oracis_arm_state STATIC
 target_link_libraries(oracis_arm_state PUBLIC oracis_generated_bank_abi)
 target_compile_features(oracis_arm_state PUBLIC cxx_std_20)
 
+add_library(oracis_memory STATIC
+    src/memory/guest_memory.cpp
+)
+target_link_libraries(oracis_memory PUBLIC oracis_generated_bank_abi)
+target_compile_features(oracis_memory PUBLIC cxx_std_20)
+
 # The SDL host consumes the same independent runtime library that generated
 # static banks and the cooperative scheduler will use.
 if(ORACIS_BUILD_HOST)
@@ -85,6 +91,12 @@ endif()
 include(CTest)
 
 if(BUILD_TESTING)
+    add_executable(oracis_guest_memory_test
+        tests/memory/guest_memory_test.cpp
+    )
+    target_link_libraries(oracis_guest_memory_test PRIVATE oracis_memory)
+    add_test(NAME oracis_guest_memory_test COMMAND oracis_guest_memory_test)
+
     add_executable(oracis_abi_c_test
         tests/abi/arm_cpu_state_c_test.c
     )
