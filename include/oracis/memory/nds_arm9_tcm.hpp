@@ -27,6 +27,8 @@ public:
     static constexpr uint32_t RequiredControlOnesMask = UINT32_C(0x78);
     static constexpr uint32_t ResetControl =
         RequiredControlOnesMask | AlternateVectorSelectMask;
+    static constexpr uint32_t ItcmResetRegionControl = UINT32_C(6) << 1u;
+    static constexpr uint32_t DtcmResetRegionControl = UINT32_C(5) << 1u;
 
     explicit NdsArm9Tcm(GuestMemory &memory) noexcept : memory_(memory) {}
 
@@ -46,8 +48,8 @@ private:
 
     GuestMemory &memory_;
     uint32_t control_ = ResetControl;
-    uint32_t itcm_region_control_ = 0u;
-    uint32_t dtcm_region_control_ = 0u;
+    uint32_t itcm_region_control_ = ItcmResetRegionControl;
+    uint32_t dtcm_region_control_ = DtcmResetRegionControl;
     bool installed_ = false;
     bool itcm_mapped_ = false;
     bool dtcm_mapped_ = false;

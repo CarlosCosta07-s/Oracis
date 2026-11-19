@@ -108,6 +108,10 @@ int main()
             oracis::memory::NdsArm9Tcm::ResetControl ||
         runtime_coproc_read(15u, 0u, 0u, 0u, 0u) != UINT32_C(0x41059461) ||
         runtime_coproc_read(15u, 0u, 0u, 0u, 2u) != UINT32_C(0x00140180) ||
+        runtime_coproc_read(15u, 0u, 9u, 1u, 0u) !=
+            oracis::memory::NdsArm9Tcm::DtcmResetRegionControl ||
+        runtime_coproc_read(15u, 0u, 9u, 1u, 1u) !=
+            oracis::memory::NdsArm9Tcm::ItcmResetRegionControl ||
         machine.exception_vector_base(NDS_ARM7) != 0u) {
         return fail("machine did not bind CPU states or apply NDS reset vector bases");
     }
@@ -131,6 +135,11 @@ int main()
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
         return fail("ARM9 could not be selected for TCM configuration");
     }
+    uint32_t invalid_dtcm_region = UINT32_C(0x0000000A);
+    if (oracis_arm_runtime_coprocessor_transfer(
+            1u, 15u, 0u, 9u, 1u, 0u, &invalid_dtcm_region) != 0) {
+        return fail("DTCM accepted the architecturally invalid zero base");
+    }
     runtime_coproc_write(15u, 0u, 9u, 1u, 1u, UINT32_C(0x00000020));
     runtime_coproc_write(15u, 0u, 9u, 1u, 0u, UINT32_C(0x027C000A));
     runtime_coproc_write(15u, 0u, 1u, 0u, 0u, tcm_control);
@@ -141,6 +150,9 @@ int main()
     }
 
     if (machine.guest_memory().write(
+            NDS_ARM9, UINT32_C(0x023C1000), 4u,
+            UINT32_C(0x0BADF00D)) != oracis::memory::Status::Ok ||
+        machine.guest_memory().write(
             NDS_ARM9, UINT32_C(0x023C0000), 4u,
             UINT32_C(0x11223344)) != oracis::memory::Status::Ok ||
         machine.guest_memory().write(
@@ -151,7 +163,10 @@ int main()
             UINT32_C(0xAABBCCDD) ||
         machine.guest_memory().read(
             NDS_ARM9, UINT32_C(0x023C0000), 4u).value !=
-            UINT32_C(0x11223344)) {
+            UINT32_C(0x11223344) ||
+        machine.guest_memory().validate_execute(
+            NDS_ARM9, UINT32_C(0x027C0000), 4u) !=
+            oracis::memory::Status::PermissionDenied) {
         return fail("DTCM overlay did not preserve the underlying main-RAM mirror");
     }
 
@@ -165,6 +180,25 @@ int main()
             NDS_ARM7, UINT32_C(0x00000020), 4u).status !=
             oracis::memory::Status::CpuAccessDenied) {
         return fail("ITCM physical storage did not mirror privately to ARM9");
+    }
+
+    /*
+     * The ARM946E-S region register can shrink the visible area below the
+     * physical TCM size. The 4KB aperture reveals the RAM underlay immediately
+     * after its end; restoring 16KB hides it again.
+     */
+    runtime_coproc_write(
+        15u, 0u, 9u, 1u, 0u, UINT32_C(0x027C0006));
+    if (machine.guest_memory().read(
+            NDS_ARM9, UINT32_C(0x027C1000), 4u).value !=
+            UINT32_C(0x0BADF00D)) {
+        return fail("smaller DTCM region did not expose the RAM underlay");
+    }
+    runtime_coproc_write(
+        15u, 0u, 9u, 1u, 0u, UINT32_C(0x027C000A));
+    if (machine.guest_memory().read(
+            NDS_ARM9, UINT32_C(0x027C1000), 4u).value != 0u) {
+        return fail("restored DTCM region did not cover its full physical size");
     }
 
     runtime_coproc_write(15u, 0u, 1u, 0u, 0u, dtcm_disabled_control);
