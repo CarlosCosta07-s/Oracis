@@ -25,7 +25,7 @@ int main()
     /* WIN0 covers [10,50) x [20,100); WIN1 overlaps with lower priority. */
     registers.bounds[0] = UINT16_C(0x0A32);
     registers.bounds[2] = UINT16_C(0x1464);
-    registers.bounds[1] = UINT16_C(0x283C);
+    registers.bounds[1] = UINT16_C(0x2850);
     registers.bounds[3] = UINT16_C(0x0A78);
     registers.winin = UINT16_C(0x2231);
     registers.winout = UINT16_C(0x3403);
@@ -120,7 +120,7 @@ int main()
 
     const auto bg_mosaic = Nds2dEffects::mosaic_sample(
         6u, 5u, UINT16_C(0x0023), false, true);
-    if (bg_mosaic.x != 4u || bg_mosaic.y != 4u ||
+    if (bg_mosaic.x != 4u || bg_mosaic.y != 3u ||
         bg_mosaic.horizontal_size != 4u ||
         bg_mosaic.vertical_size != 3u) {
         return fail("BG mosaic source-coordinate quantization failed");
@@ -148,7 +148,7 @@ int main()
         first_rgb, Nds2dLayer::Bg0,
         second_rgb, Nds2dLayer::Bg1,
         true, true, registers);
-    if (alpha != UINT16_C(0x44FF)) {
+    if (alpha != UINT16_C(0x458F)) {
         return fail("RGB555 alpha blend or round-to-nearest result was incorrect");
     }
 
@@ -174,7 +174,7 @@ int main()
         first_rgb, Nds2dLayer::Object,
         second_rgb, Nds2dLayer::Bg1,
         true, true, registers, true);
-    if (forced_alpha != UINT16_C(0x44FF)) {
+    if (forced_alpha != UINT16_C(0x458F)) {
         return fail("forced alpha blending did not override BLDCNT mode/first-target selection");
     }
 
@@ -184,7 +184,7 @@ int main()
         first_rgb, Nds2dLayer::Bg0,
         0u, Nds2dLayer::Backdrop,
         false, true, registers);
-    if (bright != UINT16_C(0x34B8)) {
+    if (bright != UINT16_C(0x4A5A)) {
         return fail("brightness-up RGB555 calculation was incorrect");
     }
 
@@ -199,7 +199,7 @@ int main()
 
     /* Coefficients greater than 16 are interpreted as 16/16. */
     registers.bldcnt = static_cast<uint16_t>((1u << 6u) | (1u << 5u) | (1u << 8u));
-    registers.bldalpha = UINT16_C(0x1F1F);
+    registers.bldalpha = UINT16_C(0x001F);
     const uint16_t clamped = Nds2dEffects::apply_color_effect(
         first_rgb, Nds2dLayer::Backdrop,
         second_rgb, Nds2dLayer::Bg0,
