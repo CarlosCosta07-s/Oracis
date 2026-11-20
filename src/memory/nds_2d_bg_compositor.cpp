@@ -94,7 +94,7 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
     }
 
     Nds2dTextBgFetcher text_fetcher(memory_);
-    Nds2dAffineBgFetcher affine_fetcher(memory_);
+    Nds2dAffineBgFetcher affine_fetcher(memory_, vram_control_);
     std::array<std::array<Nds2dBgPixel, 256>, NdsDisplayControl::BgCount>
         background_lines{};
 

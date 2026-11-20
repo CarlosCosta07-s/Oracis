@@ -522,6 +522,71 @@ int main()
         return fail("extended bitmap BG3 did not reach the compositor");
     }
 
+    /*
+     * An extended tile map selects one of 16 palettes within BG3's 8 KiB
+     * slot. Palette VRAM is separate from the CPU-visible BG VRAM window.
+     */
+    GuestMemory extended_palette_memory;
+    NdsVramControl extended_palette_vram(extended_palette_memory);
+    if (extended_palette_vram.install() != Status::Ok ||
+        extended_palette_vram.write(
+            NDS_ARM9, NdsVramControl::VramCntEAddress, 1u,
+            UINT32_C(0x80)) != Status::Ok ||
+        !write16(
+            extended_palette_memory,
+            UINT32_C(0x06880000) + UINT32_C(0x6000) +
+                UINT32_C(0x0600) + UINT32_C(2),
+            UINT16_C(0x5A3C)) ||
+        extended_palette_vram.write(
+            NDS_ARM9, NdsVramControl::VramCntEAddress, 1u,
+            UINT32_C(0x84)) != Status::Ok) {
+        return fail("extended BG palette VRAM E fixture setup failed");
+    }
+
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            UINT32_C(3) | (UINT32_C(1) << 11u) |
+                (UINT32_C(1) << 30u)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 14u, 2u, 0u) !=
+            Status::Ok ||
+        !write16(memory, UINT32_C(0x06000000), UINT16_C(0x3101)) ||
+        !set_affine(
+            display, NdsDisplayControl::EngineABase + 0x30u,
+            UINT16_C(0x0100), 0u, 0u, UINT16_C(0x0100), 0u, 0u)) {
+        return fail("extended BG palette map/register fixture setup failed");
+    }
+    display.reset_timing();
+
+    Nds2dAffineBgFetcher extended_palette_fetcher(
+        memory, &extended_palette_vram);
+    result = extended_palette_fetcher.render_scanline(
+        0u, 3u, display, 0u, line);
+    if (result.status != Nds2dBgFetchStatus::Ok ||
+        line[0].transparent || line[0].rgb555 != UINT16_C(0x5A3C)) {
+        return fail("extended affine BG3 palette-slot and palette-number lookup failed");
+    }
+
+    line[0].rgb555 = UINT16_C(0x2345);
+    Nds2dAffineBgFetcher missing_palette_fetcher(memory);
+    result = missing_palette_fetcher.render_scanline(
+        0u, 3u, display, 0u, line);
+    if (result.status != Nds2dBgFetchStatus::UnsupportedMode ||
+        line[0].rgb555 != UINT16_C(0x2345)) {
+        return fail("extended palette without VRAM device did not fail closed");
+    }
+
+    Nds2dBgCompositor extended_palette_compositor(
+        memory, &extended_palette_vram);
+    const Nds2dComposeResult palette_compose =
+        extended_palette_compositor.render_scanline(
+            0u, display, 0u, composed);
+    if (palette_compose.status != Nds2dComposeStatus::Ok ||
+        composed[0].top_layer != Nds2dLayer::Bg3 ||
+        composed[0].rgb555 != UINT16_C(0x5A3C)) {
+        return fail("extended BG palette did not reach the 2D compositor");
+    }
+
     std::puts("NDS classic/extended affine tile BGs, indexed/direct-color bitmaps, flips, matrix, accumulators, overflow, mosaic and compositor passed");
     return 0;
 }

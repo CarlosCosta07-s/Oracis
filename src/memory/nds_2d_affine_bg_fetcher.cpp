@@ -126,7 +126,8 @@ Nds2dBgFetchResult Nds2dAffineBgFetcher::render_scanline(
      */
     if ((!classic_affine && !extended_bg) ||
         (extended_tile_map &&
-         (dispcnt & kExtendedBgPaletteEnable) != 0u)) {
+         (dispcnt & kExtendedBgPaletteEnable) != 0u &&
+         vram_control_ == nullptr)) {
         return {Nds2dBgFetchStatus::UnsupportedMode, Status::Ok};
     }
 
@@ -309,14 +310,29 @@ Nds2dBgFetchResult Nds2dAffineBgFetcher::render_scanline(
             static_cast<uint32_t>(color_index.value & UINT32_C(0xFF));
         if (palette_index == 0u) continue;
 
-        const uint32_t palette_address =
-            bg_palette_base + palette_index * sizeof(uint16_t);
-        const ReadResult palette =
-            memory_.read(NDS_ARM9, palette_address, 2u);
-        if (!palette) return memory_error(palette.status);
-
-        next_line[x].rgb555 =
-            static_cast<uint16_t>(palette.value & UINT32_C(0x7FFF));
+        if (extended_tile_map &&
+            (dispcnt & kExtendedBgPaletteEnable) != 0u) {
+            const uint8_t palette_number = static_cast<uint8_t>(
+                (map_attributes >> 12u) & UINT32_C(0x0F));
+            const ReadResult palette = vram_control_->read_extended_bg_palette(
+                engine_index, bg_index, palette_number,
+                static_cast<uint8_t>(palette_index));
+            if (palette.status == Status::Unmapped ||
+                palette.status == Status::Overlap) {
+                return {Nds2dBgFetchStatus::UnsupportedMode, Status::Ok};
+            }
+            if (!palette) return memory_error(palette.status);
+            next_line[x].rgb555 =
+                static_cast<uint16_t>(palette.value & UINT32_C(0x7FFF));
+        } else {
+            const uint32_t palette_address =
+                bg_palette_base + palette_index * sizeof(uint16_t);
+            const ReadResult palette =
+                memory_.read(NDS_ARM9, palette_address, 2u);
+            if (!palette) return memory_error(palette.status);
+            next_line[x].rgb555 =
+                static_cast<uint16_t>(palette.value & UINT32_C(0x7FFF));
+        }
         next_line[x].transparent = false;
     }
 

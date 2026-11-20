@@ -15,6 +15,7 @@
 #include "oracis/memory/nds_2d_bg_fetcher.hpp"
 #include "oracis/memory/nds_2d_effects.hpp"
 #include "oracis/memory/nds_2d_obj_fetcher.hpp"
+#include "oracis/memory/nds_vram_control.hpp"
 
 namespace oracis::memory {
 
@@ -52,8 +53,10 @@ struct Nds2dComposeResult {
 
 class Nds2dBgCompositor final {
 public:
-    explicit Nds2dBgCompositor(GuestMemory &memory) noexcept
-        : memory_(memory) {}
+    explicit Nds2dBgCompositor(
+        GuestMemory &memory,
+        NdsVramControl *vram_control = nullptr) noexcept
+        : memory_(memory), vram_control_(vram_control) {}
 
     Nds2dBgCompositor(const Nds2dBgCompositor &) = delete;
     Nds2dBgCompositor &operator=(const Nds2dBgCompositor &) = delete;
@@ -71,6 +74,7 @@ public:
 
 private:
     GuestMemory &memory_;
+    NdsVramControl *vram_control_ = nullptr;
 };
 
 } // namespace oracis::memory

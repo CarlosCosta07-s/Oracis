@@ -12,13 +12,16 @@
 #include <cstdint>
 
 #include "oracis/memory/nds_2d_bg_fetcher.hpp"
+#include "oracis/memory/nds_vram_control.hpp"
 
 namespace oracis::memory {
 
 class Nds2dAffineBgFetcher final {
 public:
-    explicit Nds2dAffineBgFetcher(GuestMemory &memory) noexcept
-        : memory_(memory) {}
+    explicit Nds2dAffineBgFetcher(
+        GuestMemory &memory,
+        NdsVramControl *vram_control = nullptr) noexcept
+        : memory_(memory), vram_control_(vram_control) {}
 
     Nds2dAffineBgFetcher(const Nds2dAffineBgFetcher &) = delete;
     Nds2dAffineBgFetcher &operator=(const Nds2dAffineBgFetcher &) = delete;
@@ -51,6 +54,7 @@ private:
         uint32_t base, uint64_t offset, uint32_t &address) noexcept;
 
     GuestMemory &memory_;
+    NdsVramControl *vram_control_ = nullptr;
 };
 
 } // namespace oracis::memory
