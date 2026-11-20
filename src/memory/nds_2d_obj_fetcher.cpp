@@ -189,11 +189,6 @@ Nds2dObjFetchResult Nds2dObjFetcher::render_scanline(
     const uint32_t boundary = UINT32_C(32) <<
         ((dispcnt >> kObjBoundaryShift) & UINT32_C(3));
 
-    if (engine_index == 1u && one_dimensional && boundary > UINT32_C(128)) {
-        return unsupported(
-            Nds2dObjFetchStatus::UnsupportedMapping, UINT8_C(0xFF));
-    }
-
     Nds2dObjScanline next_line{};
 
     for (uint32_t object = 0u; object < kObjCount; ++object) {
@@ -222,6 +217,17 @@ Nds2dObjFetchResult Nds2dObjFetcher::render_scanline(
         const unsigned obj_mode =
             static_cast<unsigned>((attr0 >> 10u) & UINT16_C(3));
         const bool bitmap_obj = obj_mode == 3u;
+
+        /*
+         * DISPCNT.4 and bits 20-21 configure tiled-OBJ character mapping.
+         * Bitmap OBJ instead uses DISPCNT.5-6/bit 22, so do not reject its
+         * independent 1D mapping because a tiled-OBJ boundary is selected.
+         */
+        if (!bitmap_obj && engine_index == 1u &&
+            one_dimensional && boundary > UINT32_C(128)) {
+            return unsupported(
+                Nds2dObjFetchStatus::UnsupportedMapping, object_index);
+        }
         if ((obj_mode == 0u || obj_mode == 1u) && !obj_enabled) continue;
         if (obj_mode == 2u && !obj_window_enabled) continue;
         if (bitmap_obj && !obj_enabled) continue;

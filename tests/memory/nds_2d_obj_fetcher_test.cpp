@@ -530,7 +530,9 @@ int main()
         display.write(
             NDS_ARM9, NdsDisplayControl::EngineBBase, 4u,
             (UINT32_C(1) << 12u) |
-                (UINT32_C(1) << 6u)) != Status::Ok) {
+                (UINT32_C(1) << 6u) |
+                (UINT32_C(1) << 4u) |
+                (UINT32_C(3) << 20u)) != Status::Ok) {
         return fail("Engine B bitmap OBJ fixture setup failed");
     }
     result = fetcher.render_scanline(1u, display, 0u, line);
