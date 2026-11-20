@@ -280,19 +280,19 @@ int main()
         return fail("BG0/BG1 first/second-target alpha blend failed");
     }
 
-    /* A non-text BG mode must fail closed and preserve the prior output. */
+    /* Mode 3 BG3 is an extended BG; it must fail closed transactionally. */
     std::array<Nds2dCompositedPixel, 256> preserved = line;
     if (display.write(
             NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
-            (UINT32_C(1) << 0u) | (UINT32_C(1) << 11u)) != Status::Ok) {
-        return fail("unsupported BG mode fixture setup failed");
+            (UINT32_C(3) << 0u) | (UINT32_C(1) << 11u)) != Status::Ok) {
+        return fail("unsupported extended BG mode fixture setup failed");
     }
     result = compositor.render_scanline(0u, display, 0u, line);
     if (result.status != Nds2dComposeStatus::UnsupportedBackgroundMode ||
         result.background_index != 3u ||
         line[0].rgb555 != preserved[0].rgb555 ||
         line[0].top_layer != preserved[0].top_layer) {
-        return fail("unsupported affine BG did not fail transactionally");
+        return fail("unsupported extended BG did not fail transactionally");
     }
 
     /* Missing backdrop/palette memory also preserves the caller's scanline. */
