@@ -1,4 +1,6 @@
 #include "oracis/memory/nds_display_control.hpp"
+#include "oracis/memory/nds_interrupt_control.hpp"
+#include "oracis/memory/guest_memory.hpp"
 
 #include <cstdint>
 #include <cstdio>
@@ -15,10 +17,14 @@ int fail(const char *message)
 
 int main()
 {
+    using oracis::memory::GuestMemory;
     using oracis::memory::NdsDisplayControl;
+    using oracis::memory::NdsInterruptControl;
     using oracis::memory::Status;
 
-    NdsDisplayControl display;
+    GuestMemory memory;
+    NdsInterruptControl interrupts(memory);
+    NdsDisplayControl display(interrupts);
     if (display.install() != Status::Ok || !display.installed() ||
         display.install() != Status::InvalidRegion) {
         return fail("display register device initialization failed");
@@ -111,13 +117,125 @@ int main()
         display.read(
             static_cast<NdsCpu>(9), engine_a_dispcnt, 4u).status !=
             Status::InvalidCpu ||
-        display.read(NDS_ARM9, UINT32_C(0x04000004), 2u).status !=
-            Status::Unmapped ||
+        display.read(NDS_ARM9, NdsDisplayControl::DispstatAddress, 4u).status !=
+            Status::InvalidWidth ||
         display.read(NDS_ARM9, UINT32_C(0x04001010), 2u).status !=
             Status::Unmapped) {
         return fail("CPU visibility or out-of-scope display register routing failed");
     }
 
-    std::puts("NDS Engine A/B DISPCNT and BG0CNT-BG3CNT register storage passed");
+
+    constexpr uint16_t dispstat_irq_enable = UINT16_C(0x0038);
+    constexpr uint16_t line_one_compare = UINT16_C(0x0100);
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::DispstatAddress, 2u,
+            dispstat_irq_enable | line_one_compare) != Status::Ok ||
+        display.write(
+            NDS_ARM7, NdsDisplayControl::DispstatAddress, 2u,
+            dispstat_irq_enable | line_one_compare) != Status::Ok ||
+        display.read(NDS_ARM9, NdsDisplayControl::DispstatAddress, 2u).value !=
+            (dispstat_irq_enable | line_one_compare) ||
+        display.read(NDS_ARM7, NdsDisplayControl::DispstatAddress, 2u).value !=
+            (dispstat_irq_enable | line_one_compare)) {
+        return fail("DISPSTAT IRQ enables and 9-bit VCOUNT compare did not persist per CPU");
+    }
+
+    /* The NDS9 and NDS7 HBlank flags have distinct phase lengths. */
+    display.advance_bus_cycles(NdsDisplayControl::Arm9HblankStartCycle - 1u);
+    if ((display.read(
+            NDS_ARM9, NdsDisplayControl::DispstatAddress, 2u).value & 2u) != 0u ||
+        (display.read(
+            NDS_ARM7, NdsDisplayControl::DispstatAddress, 2u).value & 2u) != 0u ||
+        interrupts.pending_enabled(NDS_ARM9) != 0u ||
+        interrupts.pending_enabled(NDS_ARM7) != 0u) {
+        return fail("HBlank asserted before its hardware timing threshold");
+    }
+    display.advance_bus_cycles(1u);
+    if ((display.read(
+            NDS_ARM9, NdsDisplayControl::DispstatAddress, 2u).value & 2u) == 0u ||
+        (display.read(
+            NDS_ARM7, NdsDisplayControl::DispstatAddress, 2u).value & 2u) != 0u ||
+        interrupts.read(NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value !=
+            (UINT32_C(1) << 1u) ||
+        interrupts.read(NDS_ARM7, NdsInterruptControl::IfAddress, 4u).value != 0u) {
+        return fail("ARM9 HBlank phase or IRQ threshold was incorrect");
+    }
+    display.advance_bus_cycles(
+        NdsDisplayControl::Arm7HblankStartCycle -
+        NdsDisplayControl::Arm9HblankStartCycle);
+    if ((display.read(
+            NDS_ARM7, NdsDisplayControl::DispstatAddress, 2u).value & 2u) == 0u ||
+        interrupts.read(NDS_ARM7, NdsInterruptControl::IfAddress, 4u).value !=
+            (UINT32_C(1) << 1u)) {
+        return fail("ARM7 HBlank phase or IRQ threshold was incorrect");
+    }
+
+    display.advance_bus_cycles(
+        NdsDisplayControl::CyclesPerScanline -
+        NdsDisplayControl::Arm7HblankStartCycle);
+    if (display.current_scanline() != 1u ||
+        (display.read(
+            NDS_ARM9, NdsDisplayControl::DispstatAddress, 2u).value & 4u) == 0u ||
+        (display.read(
+            NDS_ARM7, NdsDisplayControl::DispstatAddress, 2u).value & 4u) == 0u ||
+        interrupts.read(NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value !=
+            UINT32_C(6) ||
+        interrupts.read(NDS_ARM7, NdsInterruptControl::IfAddress, 4u).value !=
+            UINT32_C(6)) {
+        return fail("VCOUNT line transition or compare IRQ was not raised");
+    }
+
+    /* VBlank begins on line 192 and is absent from the final line 262. */
+    display.advance_bus_cycles(
+        static_cast<uint64_t>(NdsDisplayControl::CyclesPerScanline) * 191u);
+    if (display.current_scanline() != 192u ||
+        (display.read(
+            NDS_ARM9, NdsDisplayControl::DispstatAddress, 2u).value & 1u) == 0u ||
+        (display.read(
+            NDS_ARM7, NdsDisplayControl::DispstatAddress, 2u).value & 1u) == 0u ||
+        (interrupts.read(
+            NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value & 1u) == 0u ||
+        (interrupts.read(
+            NDS_ARM7, NdsInterruptControl::IfAddress, 4u).value & 1u) == 0u) {
+        return fail("VBlank status/IRQ did not begin on scanline 192");
+    }
+    display.advance_bus_cycles(
+        static_cast<uint64_t>(NdsDisplayControl::CyclesPerScanline) * 70u);
+    if (display.current_scanline() != 262u ||
+        (display.read(
+            NDS_ARM9, NdsDisplayControl::DispstatAddress, 2u).value & 1u) != 0u ||
+        (display.read(
+            NDS_ARM7, NdsDisplayControl::DispstatAddress, 2u).value & 1u) != 0u) {
+        return fail("VBlank flag remained set on final scanline 262");
+    }
+
+    /* VCOUNT synchronization writes are queued and applied one line later. */
+    display.advance_bus_cycles(NdsDisplayControl::CyclesPerScanline);
+    display.advance_bus_cycles(
+        static_cast<uint64_t>(NdsDisplayControl::CyclesPerScanline) * 202u);
+    if (display.current_scanline() != 202u ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::VcountAddress, 2u,
+            UINT16_C(210)) != Status::Ok ||
+        display.read(NDS_ARM9, NdsDisplayControl::VcountAddress, 2u).value !=
+            202u) {
+        return fail("VCOUNT synchronization write was not queued in its safe window");
+    }
+    display.advance_bus_cycles(NdsDisplayControl::CyclesPerScanline);
+    if (display.current_scanline() != 210u ||
+        display.read(NDS_ARM7, NdsDisplayControl::VcountAddress, 2u).value !=
+            210u) {
+        return fail("queued VCOUNT write was not applied at the next scanline");
+    }
+    display.advance_bus_cycles(
+        static_cast<uint64_t>(NdsDisplayControl::CyclesPerScanline) * 3u);
+    if (display.current_scanline() != 213u ||
+        display.write(
+            NDS_ARM7, NdsDisplayControl::VcountAddress, 2u,
+            UINT16_C(100)) != Status::PermissionDenied) {
+        return fail("VCOUNT write outside the documented sync window was accepted");
+    }
+
+    std::puts("NDS Engine A/B registers, DISPSTAT/VCOUNT scanline timing and IRQs passed");
     return 0;
 }
