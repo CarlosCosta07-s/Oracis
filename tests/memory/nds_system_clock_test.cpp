@@ -23,6 +23,7 @@ int main()
     using oracis::memory::GuestMemory;
     using oracis::memory::NdsClockStatus;
     using oracis::memory::NdsInterruptControl;
+    using oracis::memory::NdsDisplayControl;
     using oracis::memory::NdsSystemClock;
     using oracis::memory::NdsTimerControl;
 

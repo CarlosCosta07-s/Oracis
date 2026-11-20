@@ -90,6 +90,7 @@ int main()
     using oracis::machine::NdsMachine;
     using oracis::machine::NdsMachineStatus;
     using oracis::memory::NdsInterruptControl;
+    using oracis::memory::NdsDisplayControl;
     using oracis::memory::NdsKeypadControl;
     using oracis::memory::NdsTimerControl;
     using oracis::memory::SharedWramMode;
