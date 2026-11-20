@@ -319,7 +319,7 @@ int main()
         return fail("missing backdrop did not fail transactionally");
     }
 
-        /*
+    /*
      * Text BG extended palettes must pass through the same compositor
      * while keeping palette VRAM inaccessible to both guest CPUs.
      */
@@ -355,7 +355,7 @@ int main()
             (UINT32_C(1) << 8u) | (UINT32_C(1) << 30u)) != Status::Ok ||
         extended_text_display.write(
             NDS_ARM9, NdsDisplayControl::EngineABase + 8u, 2u,
-            UINT16_C(0x0004)) != Status::Ok ||
+            UINT16_C(0x0084)) != Status::Ok ||
         extended_text_display.write(
             NDS_ARM9, NdsDisplayControl::EngineABase + 10u, 2u,
             UINT16_C(0x0000)) != Status::Ok ||
@@ -379,6 +379,6 @@ int main()
         return fail("text extended palette was not composed or leaked to CPU VRAM");
     }
 
-std::puts("NDS BG scanline priority, backdrop, window and alpha compositor passed");
+    std::puts("NDS BG scanline priority, backdrop, window and alpha compositor passed");
     return 0;
 }

@@ -214,7 +214,7 @@ int main()
             (UINT32_C(1) << 8u) | (UINT32_C(1) << 30u)) != Status::Ok ||
         display.write(
             NDS_ARM9, NdsDisplayControl::EngineABase + 8u, 2u,
-            UINT16_C(0x2004)) != Status::Ok ||
+            UINT16_C(0x2084)) != Status::Ok ||
         !write16(memory, UINT32_C(0x06000000), UINT16_C(0xA001)) ||
         !write32(memory, UINT32_C(0x06004040), UINT32_C(0x0000000A))) {
         return fail("BG0 extended palette slot 2 fixture setup failed");
@@ -232,7 +232,7 @@ int main()
     /* BG0CNT.13=0 routes the same BG to slot 0 instead of slot 2. */
     if (display.write(
             NDS_ARM9, NdsDisplayControl::EngineABase + 8u, 2u,
-            UINT16_C(0x0004)) != Status::Ok) {
+            UINT16_C(0x0084)) != Status::Ok) {
         return fail("BG0 extended palette slot 0 selection setup failed");
     }
     result = extended_text_fetcher.render_scanline(
@@ -248,7 +248,7 @@ int main()
             (UINT32_C(1) << 9u) | (UINT32_C(1) << 30u)) != Status::Ok ||
         display.write(
             NDS_ARM9, NdsDisplayControl::EngineABase + 10u, 2u,
-            UINT16_C(0x2104)) != Status::Ok ||
+            UINT16_C(0x2184)) != Status::Ok ||
         !write16(memory, UINT32_C(0x06000800), UINT16_C(0xB001)) ||
         !write32(memory, UINT32_C(0x06004040), UINT32_C(0x0000000B))) {
         return fail("BG1 extended palette slot 3 fixture setup failed");
@@ -262,7 +262,7 @@ int main()
 
     if (display.write(
             NDS_ARM9, NdsDisplayControl::EngineABase + 10u, 2u,
-            UINT16_C(0x0104)) != Status::Ok) {
+            UINT16_C(0x0184)) != Status::Ok) {
         return fail("BG1 extended palette slot 1 selection setup failed");
     }
     result = extended_text_fetcher.render_scanline(
@@ -270,6 +270,28 @@ int main()
     if (result.status != Nds2dBgFetchStatus::Ok ||
         scanline[0].transparent || scanline[0].rgb555 != UINT16_C(0x2468)) {
         return fail("BG1CNT.13 did not switch to extended palette slot 1");
+    }
+
+    /*
+     * DISPCNT.30 does not turn a 4bpp text tile into 8bpp: standard BG
+     * palette lookup remains active and does not require extended VRAM.
+     */
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            (UINT32_C(1) << 8u) | (UINT32_C(1) << 30u)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 8u, 2u,
+            UINT16_C(0x0006)) != Status::Ok ||
+        !write16(memory, UINT32_C(0x06000000), UINT16_C(0x3001)) ||
+        !write16(memory, UINT32_C(0x05000062), UINT16_C(0x3456))) {
+        return fail("4bpp text BG with extended palette master fixture setup failed");
+    }
+    Nds2dTextBgFetcher standard_4bpp_fetcher(memory);
+    result = standard_4bpp_fetcher.render_scanline(
+        0u, 0u, display, 0u, scanline);
+    if (result.status != Nds2dBgFetchStatus::Ok ||
+        scanline[0].transparent || scanline[0].rgb555 != UINT16_C(0x3456)) {
+        return fail("4bpp text BG incorrectly used an extended 8bpp palette");
     }
 
     /* Missing VRAM assignment is rejected without committing a partial line. */

@@ -111,8 +111,11 @@ Nds2dBgFetchResult Nds2dTextBgFetcher::render_scanline(
 
     const bool extended_palette_enabled =
         (dispcnt & kExtendedBgPaletteEnable) != 0u;
+    const bool color_256 = (bgcnt & UINT16_C(0x0080)) != 0u;
+    const bool use_extended_palette =
+        extended_palette_enabled && color_256;
     if (!text_mode_supported(engine_index, bg_index, dispcnt) ||
-        (extended_palette_enabled && vram_control_ == nullptr)) {
+        (use_extended_palette && vram_control_ == nullptr)) {
         return {Nds2dBgFetchStatus::UnsupportedMode, Status::Ok};
     }
 
@@ -149,12 +152,7 @@ Nds2dBgFetchResult Nds2dTextBgFetcher::render_scanline(
         (screen_size & 2u) != 0u ? 512u : 256u;
     const uint16_t width_tiles =
         static_cast<uint16_t>(screen_width / kPixelsPerTile);
-    /*
-     * With DISPCNT.30 the text BG consumes 8bpp tiles from its extended
-     * 256-color palette. Otherwise BGxCNT.7 selects normal 4bpp/8bpp tiles.
-     */
-    const bool color_256 = extended_palette_enabled ||
-        (bgcnt & UINT16_C(0x0080)) != 0u;
+    /* BGxCNT.7 independently selects the text tile depth. */
     const uint32_t tile_bytes = color_256 ? 64u : 32u;
     const NdsDisplayControl::BgScrollState scroll =
         display.bg_scroll(engine_index, bg_index);
@@ -248,7 +246,7 @@ Nds2dBgFetchResult Nds2dTextBgFetcher::render_scanline(
             continue;
         }
 
-        if (extended_palette_enabled) {
+        if (use_extended_palette) {
             const uint8_t palette_slot = bg_index <= 1u
                 ? static_cast<uint8_t>(
                     bg_index + (((bgcnt >> 13u) & UINT16_C(1)) * 2u))
