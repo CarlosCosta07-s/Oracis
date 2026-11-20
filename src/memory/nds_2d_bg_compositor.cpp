@@ -9,7 +9,8 @@ namespace {
 
 constexpr uint32_t kEngineABgPaletteBase = UINT32_C(0x05000000);
 constexpr uint32_t kEngineBBgPaletteBase = UINT32_C(0x05000400);
-constexpr uint8_t kBackdropOrder = UINT8_C(4);
+constexpr uint8_t kBackgroundOrderBase = UINT8_C(128);
+constexpr uint8_t kBackdropOrder = UINT8_C(132);
 constexpr unsigned kVisibleWidth = 256u;
 
 struct Candidate {
@@ -17,6 +18,8 @@ struct Candidate {
     uint8_t priority = UINT8_C(4);
     uint8_t order = kBackdropOrder;
     Nds2dLayer layer = Nds2dLayer::Backdrop;
+    uint8_t object_index = UINT8_C(0xFF);
+    bool force_alpha = false;
 };
 
 bool precedes(const Candidate &left, const Candidate &right) noexcept
@@ -45,6 +48,18 @@ Nds2dComposeResult fetch_error(
     return output;
 }
 
+Nds2dComposeResult object_error(Nds2dObjFetchResult result) noexcept
+{
+    Nds2dComposeResult output{};
+    output.object_fetch_status = result.status;
+    output.memory_status = result.memory_status;
+    output.object_index = result.object_index;
+    output.status = result.status == Nds2dObjFetchStatus::GuestMemoryError
+        ? Nds2dComposeStatus::GuestMemoryError
+        : Nds2dComposeStatus::UnsupportedObjectMode;
+    return output;
+}
+
 } // namespace
 
 Nds2dComposeResult Nds2dBgCompositor::render_scanline(
@@ -66,6 +81,16 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
     const uint32_t dispcnt = display.dispcnt(engine_index);
     const NdsDisplayControl::WindowBlendState effects =
         display.window_blend(engine_index);
+
+    Nds2dObjFetcher object_fetcher(memory_);
+    Nds2dObjScanline object_line{};
+    const Nds2dObjFetchResult object_result =
+        object_fetcher.render_scanline(
+            engine_index, display, scanline, object_line);
+    if (object_result.status != Nds2dObjFetchStatus::Ok &&
+        object_result.status != Nds2dObjFetchStatus::Disabled) {
+        return object_error(object_result);
+    }
 
     Nds2dTextBgFetcher fetcher(memory_);
     std::array<std::array<Nds2dBgPixel, 256>, NdsDisplayControl::BgCount>
@@ -98,10 +123,14 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
     std::array<Nds2dCompositedPixel, 256> next_line{};
     for (unsigned x = 0u; x < kVisibleWidth; ++x) {
         const Nds2dWindowDecision window = Nds2dEffects::evaluate_window(
-            dispcnt, effects, static_cast<uint16_t>(x), scanline, false);
+            dispcnt,
+            effects,
+            static_cast<uint16_t>(x),
+            scanline,
+            object_line.object_window_coverage[x]);
 
-        /* At most four BG pixels plus the always-present backdrop. */
-        std::array<Candidate, NdsDisplayControl::BgCount + 1u> candidates{};
+        /* Four BGs, one already-resolved OBJ pixel, and the backdrop. */
+        std::array<Candidate, NdsDisplayControl::BgCount + 2u> candidates{};
         std::size_t candidate_count = 0u;
 
         const auto insert_candidate = [&candidates, &candidate_count](
@@ -126,8 +155,23 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
             insert_candidate(Candidate{
                 pixel.rgb555,
                 pixel.priority,
-                static_cast<uint8_t>(bg),
-                layer
+                static_cast<uint8_t>(kBackgroundOrderBase + bg),
+                layer,
+                UINT8_C(0xFF),
+                false
+            });
+        }
+
+        const Nds2dObjPixel &object_pixel = object_line.pixels[x];
+        if (!object_pixel.transparent &&
+            Nds2dEffects::layer_visible(window, Nds2dLayer::Object)) {
+            insert_candidate(Candidate{
+                object_pixel.rgb555,
+                object_pixel.priority,
+                object_pixel.object_index,
+                Nds2dLayer::Object,
+                object_pixel.object_index,
+                object_pixel.semi_transparent
             });
         }
 
@@ -136,7 +180,9 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
             backdrop_rgb555,
             UINT8_C(4),
             kBackdropOrder,
-            Nds2dLayer::Backdrop
+            Nds2dLayer::Backdrop,
+            UINT8_C(0xFF),
+            false
         });
 
         const Candidate &top = candidates[0];
@@ -153,11 +199,15 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
                 second.layer,
                 has_second,
                 window.color_effects_enabled,
-                effects),
+                effects,
+                top.force_alpha),
             top.layer,
             has_second ? second.layer : Nds2dLayer::Backdrop,
             window.region,
-            has_second
+            has_second,
+            top.layer == Nds2dLayer::Object
+                ? top.object_index : UINT8_C(0xFF),
+            top.layer == Nds2dLayer::Object && top.force_alpha
         };
     }
 

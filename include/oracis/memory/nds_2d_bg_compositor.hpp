@@ -14,6 +14,7 @@
 
 #include "oracis/memory/nds_2d_bg_fetcher.hpp"
 #include "oracis/memory/nds_2d_effects.hpp"
+#include "oracis/memory/nds_2d_obj_fetcher.hpp"
 
 namespace oracis::memory {
 
@@ -24,7 +25,9 @@ enum class Nds2dComposeStatus : uint8_t {
     DisplayNotInstalled,
     UnsupportedBackgroundMode,
     GuestMemoryError,
-    BackgroundFetchFailed
+    BackgroundFetchFailed,
+    UnsupportedObjectMode,
+    ObjectFetchFailed
 };
 
 struct Nds2dCompositedPixel {
@@ -33,6 +36,8 @@ struct Nds2dCompositedPixel {
     Nds2dLayer second_layer = Nds2dLayer::Backdrop;
     Nds2dWindowRegion window_region = Nds2dWindowRegion::NoWindows;
     bool second_pixel_available = false;
+    uint8_t top_object_index = UINT8_C(0xFF);
+    bool top_object_semi_transparent = false;
 };
 
 struct Nds2dComposeResult {
@@ -40,6 +45,8 @@ struct Nds2dComposeResult {
     uint8_t background_index = UINT8_C(0xFF);
     Nds2dBgFetchStatus fetch_status = Nds2dBgFetchStatus::Ok;
     Status memory_status = Status::Ok;
+    Nds2dObjFetchStatus object_fetch_status = Nds2dObjFetchStatus::Ok;
+    uint8_t object_index = UINT8_C(0xFF);
 };
 
 class Nds2dBgCompositor final {

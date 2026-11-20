@@ -80,6 +80,16 @@ int main()
         return fail("BG0/BG1 enable and control setup failed");
     }
 
+
+    /* OBJ palette index 1 and the first visible sprite tile. */
+    if (!write16(memory, UINT32_C(0x05000202), UINT16_C(0x7C1F)) ||
+        !write32(memory, UINT32_C(0x06400000), UINT32_C(0x11111111)) ||
+        !write16(memory, UINT32_C(0x07000000), UINT16_C(0x0000)) ||
+        !write16(memory, UINT32_C(0x07000002), UINT16_C(0x0000)) ||
+        !write16(memory, UINT32_C(0x07000004), UINT16_C(0x0000))) {
+        return fail("OBJ compositor fixture setup failed");
+    }
+
     Nds2dBgCompositor compositor(memory);
     std::array<Nds2dCompositedPixel, 256> line{};
     auto result = compositor.render_scanline(0u, display, 0u, line);
@@ -91,6 +101,21 @@ int main()
         line[8].top_layer != Nds2dLayer::Backdrop ||
         line[8].rgb555 != UINT16_C(0x7C00)) {
         return fail("priority ordering, lower pixel selection or backdrop failed");
+    }
+
+    /* At equal BG priority, OBJ is above BG; the lower candidate is retained. */
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            (UINT32_C(1) << 8u) | (UINT32_C(1) << 9u) |
+                (UINT32_C(1) << 12u)) != Status::Ok) {
+        return fail("OBJ compositor enable failed");
+    }
+    result = compositor.render_scanline(0u, display, 0u, line);
+    if (result.status != Nds2dComposeStatus::Ok ||
+        line[0].top_layer != Nds2dLayer::Object ||
+        line[0].top_object_index != 0u ||
+        line[0].second_layer != Nds2dLayer::Bg1) {
+        return fail("OBJ/BG priority merge failed");
     }
 
     /* Equal priorities are resolved BG0, BG1, BG2, BG3. */
