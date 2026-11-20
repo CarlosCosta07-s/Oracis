@@ -100,8 +100,14 @@ Este dispositivo ainda não implementa acesso do PPU, avaliação de sprites/OAM
 | `0x04001008–0x0400100E` | Engine B — BG0CNT–BG3CNT | 16 bits individuais; 32 bits para pares alinhados |
 | `0x04000010–0x0400001E` | Engine A — BG0HOFS/BG0VOFS–BG3HOFS/BG3VOFS | 16 bits, escrita; somente bits 0–8 |
 | `0x04001010–0x0400101E` | Engine B — BG0HOFS/BG0VOFS–BG3HOFS/BG3VOFS | 16 bits, escrita; somente bits 0–8 |
+| `0x04000020–0x04000026` e `0x04000030–0x04000036` | Engine A — BG2/BG3 PA/PB/PC/PD | 16 bits, escrita; signed 8.8 |
+| `0x04000028/2C` e `0x04000038/3C` | Engine A — BG2/BG3 X/Y | 32 bits, escrita; signed 19.8 em 28 bits válidos |
+| `0x04001020–0x04001026` e `0x04001030–0x04001036` | Engine B — BG2/BG3 PA/PB/PC/PD | 16 bits, escrita; signed 8.8 |
+| `0x04001028/2C` e `0x04001038/3C` | Engine B — BG2/BG3 X/Y | 32 bits, escrita; signed 19.8 em 28 bits válidos |
 
-Os valores são mantidos separadamente por engine. No DISPCNT da Engine B, os campos documentados como exclusivos da Engine A (bits 3, 18–19, 22 e 24–29) são lidos como zero e ignorados nas escritas. Os registradores BGxCNT conservam seus 16 bits. Os oito registradores BGxHOFS/BGxVOFS de cada engine aceitam apenas stores de 16 bits, descartam os bits 9–15 e são write-only; leituras retornam `PermissionDenied`. O estado mascarado de cada fundo pode ser consultado pelo host via `NdsDisplayControl::bg_scroll(engine, bg)`, para futura leitura pela PPU, ainda não implementada.
+Os valores são mantidos separadamente por engine. No DISPCNT da Engine B, os campos documentados como exclusivos da Engine A (bits 3, 18–19, 22 e 24–29) são lidos como zero e ignorados nas escritas. Os registradores BGxCNT conservam seus 16 bits. Os oito registradores BGxHOFS/BGxVOFS de cada engine aceitam apenas stores de 16 bits, descartam os bits 9–15 e são write-only; leituras retornam `PermissionDenied`. O estado mascarado de cada fundo pode ser consultado pelo host via `NdsDisplayControl::bg_scroll(engine, bg)`.
+
+Os parâmetros affine BG2/BG3 PA/PB/PC/PD aceitam stores de 16 bits e são mantidos como signed 8.8. Os pontos X/Y aceitam stores de 32 bits, são truncados para os 28 bits válidos e sign-extended a partir do bit 27 no estado exposto ao host. Todos esses registradores são write-only. `NdsDisplayControl::bg_affine(engine, 2|3)` retorna os quatro coeficientes e os dois pontos de referência signed. Esse é somente o estado programado pela CPU; não há acumulador interno por scanline, aplicação de transformações, fetch de tiles/bitmap ou renderização affine.
 
 DISPSTAT (`0x04000004`) e VCOUNT (`0x04000006`) são compartilhados pelos dois CPUs. DISPSTAT devolve os flags dinâmicos VBlank, HBlank e coincidência VCOUNT/LYC nos bits 0–2; seus enables de IRQ são independentes por CPU. O motor de scanline avança pelo relógio de barramento sincronizado, com 2130 ciclos por linha e 263 linhas por quadro. HBlank inicia no ciclo 1606 para ARM9 e 1613 para ARM7. VBlank é sinalizado nas linhas 192–261 e gera IRQ na entrada real da linha 192. A comparação de VCOUNT usa nove bits, e a IRQ de coincidência é gerada na transição para uma linha correspondente.
 
