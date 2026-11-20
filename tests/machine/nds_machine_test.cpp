@@ -1,6 +1,7 @@
 #include "oracis/machine/nds_machine.hpp"
 
 #include "oracis/memory/guest_memory_abi.h"
+#include "oracis/memory/nds_display_control.hpp"
 #include "oracis/recomp/runtime_arm.h"
 #include "oracis/recomp/runtime_scheduler.h"
 #include "oracis/recomp/static_dispatch_abi.h"
@@ -159,6 +160,16 @@ int main()
         bus_read_u16(engine_a_bg0cnt + 2u) != UINT16_C(0xBEEF) ||
         bus_read_u16(engine_b_bg0cnt + 4u) != UINT16_C(0xCDEF)) {
         return fail("2D Engine A/B display register bus bridge failed");
+    }
+
+    if (bus_read_u16(NdsDisplayControl::DispstatAddress) != 0u ||
+        bus_read_u16(NdsDisplayControl::VcountAddress) != 0u) {
+        return fail("DISPSTAT/VCOUNT were not connected through the machine bus");
+    }
+    bus_write_u16(
+        NdsDisplayControl::DispstatAddress, UINT16_C(0x0038));
+    if (bus_read_u16(NdsDisplayControl::DispstatAddress) != UINT16_C(0x0038)) {
+        return fail("DISPSTAT writable IRQ-enable bits were not retained");
     }
     bus_write_u32(engine_a_bg_palette, palette_marker);
     bus_write_u16(engine_a_obj_palette, UINT32_C(0x5566));

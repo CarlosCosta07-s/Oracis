@@ -435,12 +435,6 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
         }
         vram_bound_ = false;
     }
-    if (display_control_bound_) {
-        if (!oracis_bus_unbind_display_control(&display_control_)) {
-            return NdsMachineStatus::ShutdownFailed;
-        }
-        display_control_bound_ = false;
-    }
     if (interrupt_bound_) {
         if (!oracis_bus_unbind_interrupt_control(&interrupt_control_)) {
             return NdsMachineStatus::ShutdownFailed;

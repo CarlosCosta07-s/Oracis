@@ -1,5 +1,6 @@
 #include "oracis/memory/guest_memory_abi.h"
 #include "oracis/memory/nds_interrupt_control.hpp"
+#include "oracis/memory/nds_display_control.hpp"
 #include "oracis/memory/nds_system_clock.hpp"
 #include "oracis/memory/nds_timer_control.hpp"
 
@@ -28,7 +29,11 @@ int main()
     GuestMemory memory;
     NdsInterruptControl interrupts(memory);
     NdsTimerControl timers(memory, interrupts);
-    NdsSystemClock clock(timers);
+    NdsDisplayControl display(interrupts);
+    if (display.install() != oracis::memory::Status::Ok) {
+        return fail("display timing install failed");
+    }
+    NdsSystemClock clock(timers, display);
 
     ArmCpuState arm9{};
     ArmCpuState arm7{};
@@ -38,6 +43,7 @@ int main()
     if (!oracis_arm_runtime_bind_cpus(&arm9, &arm7) ||
         !oracis_bus_bind_memory(&memory) ||
         !oracis_bus_bind_interrupt_control(&interrupts) ||
+        !oracis_bus_bind_display_control(&display) ||
         !oracis_bus_bind_timer_control(&timers) ||
         !oracis_bus_bind_system_clock(&clock)) {
         return fail("system clock bus binding failed");
@@ -172,8 +178,39 @@ int main()
         return fail("overflowing idle-time report changed the global clock");
     }
 
+
+    /*
+     * Display timing follows the same dual-core watermark as the timer bank.
+     * ARM9 runs ahead; the display cannot advance until ARM7 catches up.
+     */
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::DispstatAddress, 2u,
+            UINT16_C(0x0010)) != oracis::memory::Status::Ok ||
+        display.write(
+            NDS_ARM7, NdsDisplayControl::DispstatAddress, 2u,
+            UINT16_C(0x0010)) != oracis::memory::Status::Ok) {
+        return fail("display HBlank interrupt setup failed");
+    }
+    if (clock.report_cpu_cycles(NDS_ARM9, 3224u) != NdsClockStatus::Ok ||
+        clock.global_bus_cycles() != 7u ||
+        clock.report_idle_bus_cycles(NDS_ARM7, 1599u) != NdsClockStatus::Ok ||
+        clock.global_bus_cycles() != 1606u ||
+        (display.read(
+            NDS_ARM9, NdsDisplayControl::DispstatAddress, 2u).value & 2u) == 0u ||
+        (display.read(
+            NDS_ARM7, NdsDisplayControl::DispstatAddress, 2u).value & 2u) != 0u) {
+        return fail("display scanline time did not follow the synchronized bus watermark");
+    }
+    if (clock.report_idle_bus_cycles(NDS_ARM9, 7u) != NdsClockStatus::Ok ||
+        clock.report_idle_bus_cycles(NDS_ARM7, 7u) != NdsClockStatus::Ok ||
+        clock.global_bus_cycles() != 1613u ||
+        (display.read(
+            NDS_ARM7, NdsDisplayControl::DispstatAddress, 2u).value & 2u) == 0u) {
+        return fail("ARM7 HBlank status did not follow the global 1613-cycle boundary");
+    }
     if (!oracis_bus_unbind_system_clock(&clock) ||
         !oracis_bus_unbind_timer_control(&timers) ||
+        !oracis_bus_unbind_display_control(&display) ||
         !oracis_bus_unbind_interrupt_control(&interrupts) ||
         !oracis_bus_unbind_memory(&memory)) {
         return fail("system clock bus teardown failed");
@@ -186,6 +223,6 @@ int main()
         return fail("clock reset did not clear synchronization state");
     }
 
-    std::puts("NDS synchronized ARM9/ARM7 clock and shared timer advancement passed");
+    std::puts("NDS synchronized ARM9/ARM7 clock, timers and display scanlines passed");
     return 0;
 }
