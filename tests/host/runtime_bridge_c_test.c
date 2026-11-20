@@ -222,6 +222,15 @@ int main(void)
         fprintf(stderr, "host bridge did not reject stale ARM7 entry bytes\\n");
         return 1;
     }
+    if (oracis_host_runtime_run_round(1u, NULL, NULL) !=
+            ORACIS_HOST_RUNTIME_ENTRYPOINT_UNRESOLVED ||
+        oracis_host_runtime_global_bus_cycles() != UINT64_C(0) ||
+        g_arm9_bank_calls != 0u || g_arm7_bank_calls != 0u) {
+        bus_write_u16(UINT32_C(0x02381000), UINT16_C(0x4770));
+        (void)oracis_arm_runtime_select_cpu(NDS_ARM9);
+        fprintf(stderr, "host bridge executed with a stale initial entry point\\n");
+        return 1;
+    }
     bus_write_u16(UINT32_C(0x02381000), UINT16_C(0x4770));
     if (oracis_host_runtime_validate_entrypoints(
             &arm9_entry, &arm7_entry) != ORACIS_HOST_RUNTIME_OK ||

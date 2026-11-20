@@ -409,6 +409,22 @@ extern "C" int oracis_host_runtime_run_round(
     if (!has_both_program_banks()) return ORACIS_HOST_RUNTIME_NO_PROGRAM_BANKS;
     if (!machine.program_loaded()) return ORACIS_HOST_RUNTIME_NO_PROGRAM_LOADED;
 
+    /*
+     * Do not let an unresolved or stale initial PC reach runtime_dispatch(),
+     * whose miss path is intentionally fatal. Validate both CPUs against the
+     * live guest bytes before opening either scheduling slice.
+     */
+    OracisHostRuntimeEntryPointReport arm9_entry{};
+    OracisHostRuntimeEntryPointReport arm7_entry{};
+    const int preflight_status = oracis_host_runtime_validate_entrypoints(
+        &arm9_entry, &arm7_entry);
+    if (preflight_status != ORACIS_HOST_RUNTIME_OK) {
+        return preflight_status;
+    }
+    if (arm9_entry.resolved == 0u || arm7_entry.resolved == 0u) {
+        return ORACIS_HOST_RUNTIME_ENTRYPOINT_UNRESOLVED;
+    }
+
     oracis::machine::NdsMachineStatus status;
     if (irq_context == nullptr) {
         status = machine.run_dual_core_round(
