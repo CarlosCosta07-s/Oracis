@@ -47,6 +47,8 @@ public:
     /* Trigger event-armed channels at the exact display event boundary. */
     Status trigger_vblank(NdsCpu cpu) noexcept;
     Status trigger_hblank(NdsCpu cpu) noexcept;
+    /* ARM9 display-sync DMA fires at the start of each visible scanline. */
+    Status trigger_display_sync(NdsCpu cpu) noexcept;
 
     GuestMemory &backing_memory() noexcept { return memory_; }
     NdsInterruptControl &interrupt_control() noexcept { return interrupts_; }

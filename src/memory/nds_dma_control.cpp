@@ -244,6 +244,14 @@ Status NdsDmaControl::trigger_hblank(NdsCpu cpu) noexcept
     return trigger_event(cpu, 2u);
 }
 
+Status NdsDmaControl::trigger_display_sync(NdsCpu cpu) noexcept
+{
+    if (!valid_cpu(cpu)) return Status::InvalidCpu;
+    /* ARM7 timing 3 is channel-specific wireless/GBA-slot DMA, not LCD sync. */
+    if (cpu != NDS_ARM9) return Status::Ok;
+    return trigger_event(cpu, 3u);
+}
+
 Status NdsDmaControl::write(
     NdsCpu cpu, uint32_t address,
     uint32_t width, uint32_t value) noexcept

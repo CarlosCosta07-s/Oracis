@@ -346,6 +346,82 @@ int main()
         return fail("HBlank DMA incorrectly fired during VBlank");
     }
 
+    /* ARM9 display-sync mode transfers once at each visible line start. */
+    display.reset_timing();
+    constexpr uint32_t display_sync_source = UINT32_C(0x02000E00);
+    constexpr uint32_t display_sync_destination = UINT32_C(0x02000F00);
+    const uint32_t display_sync_words[] = {
+        UINT32_C(0xA1B2C3D4), UINT32_C(0x10293847),
+        UINT32_C(0x55667788)
+    };
+    for (uint32_t index = 0u; index < 3u; ++index) {
+        if (memory.write(NDS_ARM9, display_sync_source + index * 4u,
+                4u, display_sync_words[index]) != Status::Ok) {
+            return fail("could not seed display-sync DMA source");
+        }
+    }
+    bus_write_u32(source_reg(2u), display_sync_source);
+    bus_write_u32(destination_reg(2u), display_sync_destination);
+    bus_write_u32(control_reg(2u),
+        UINT32_C(1) | (UINT32_C(3) << 27u) |
+        NdsDmaControl::RepeatMask | NdsDmaControl::WordTransferMask |
+        NdsDmaControl::EnableMask);
+    display.advance_bus_cycles(NdsDisplayControl::CyclesPerScanline);
+    if (memory.read(NDS_ARM9, display_sync_destination, 4u).value !=
+            display_sync_words[0] ||
+        (bus_read_u32(control_reg(2u)) & NdsDmaControl::EnableMask) == 0u ||
+        bus_read_u32(source_reg(2u)) != display_sync_source ||
+        bus_read_u32(destination_reg(2u)) != display_sync_destination) {
+        return fail("first visible-line display-sync DMA event failed");
+    }
+    display.advance_bus_cycles(NdsDisplayControl::CyclesPerScanline);
+    if (memory.read(NDS_ARM9, display_sync_destination + 4u, 4u).value !=
+            display_sync_words[1] ||
+        (bus_read_u32(control_reg(2u)) & NdsDmaControl::EnableMask) == 0u) {
+        return fail("display-sync DMA did not repeat at the next line start");
+    }
+    bus_write_u16(control_reg(2u) + 2u, 0u);
+
+    /* A non-repeating display-sync channel disarms after its first line. */
+    display.reset_timing();
+    bus_write_u32(source_reg(2u), display_sync_source);
+    bus_write_u32(destination_reg(2u), display_sync_destination + UINT32_C(0x20));
+    bus_write_u32(control_reg(2u),
+        UINT32_C(1) | (UINT32_C(3) << 27u) |
+        NdsDmaControl::WordTransferMask | NdsDmaControl::EnableMask);
+    display.advance_bus_cycles(NdsDisplayControl::CyclesPerScanline);
+    if (memory.read(NDS_ARM9,
+            display_sync_destination + UINT32_C(0x20), 4u).value !=
+            display_sync_words[0] ||
+        (bus_read_u32(control_reg(2u)) & NdsDmaControl::EnableMask) != 0u) {
+        return fail("one-shot display-sync DMA did not disarm after one line");
+    }
+    display.advance_bus_cycles(NdsDisplayControl::CyclesPerScanline);
+    if (memory.read(NDS_ARM9,
+            display_sync_destination + UINT32_C(0x24), 4u).value != 0u) {
+        return fail("one-shot display-sync DMA fired more than once");
+    }
+
+    /* Display-sync DMA pauses throughout VBlank and stays armed. */
+    display.reset_timing();
+    display.advance_bus_cycles(
+        static_cast<uint64_t>(NdsDisplayControl::VisibleScanlines) *
+        NdsDisplayControl::CyclesPerScanline);
+    constexpr uint32_t display_sync_vblank_destination =
+        UINT32_C(0x02000F80);
+    bus_write_u32(source_reg(2u), display_sync_source);
+    bus_write_u32(destination_reg(2u), display_sync_vblank_destination);
+    bus_write_u32(control_reg(2u),
+        UINT32_C(1) | (UINT32_C(3) << 27u) |
+        NdsDmaControl::RepeatMask | NdsDmaControl::WordTransferMask |
+        NdsDmaControl::EnableMask);
+    display.advance_bus_cycles(NdsDisplayControl::CyclesPerScanline);
+    if (memory.read(NDS_ARM9, display_sync_vblank_destination, 4u).value != 0u ||
+        (bus_read_u32(control_reg(2u)) & NdsDmaControl::EnableMask) == 0u) {
+        return fail("display-sync DMA fired during VBlank or disarmed prematurely");
+    }
+    bus_write_u16(control_reg(2u) + 2u, 0u);
+
     /* Invalid source memory is rejected before changing the destination. */
     const uint32_t guard_address = UINT32_C(0x02000A00);
     const uint32_t guard_before = UINT32_C(0xFEEDC0DE);

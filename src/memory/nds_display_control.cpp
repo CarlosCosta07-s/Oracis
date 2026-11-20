@@ -488,6 +488,14 @@ void NdsDisplayControl::advance_scanline() noexcept
 
     vcount_ = next_scanline;
 
+    /*
+     * NDS9 DMA timing 3 is synchronized to the start of each visible line.
+     * It is not a timer-overflow trigger (that belongs to DSi NDMA).
+     */
+    if (dma_ != nullptr && vcount_ < VisibleScanlines) {
+        static_cast<void>(dma_->trigger_display_sync(NDS_ARM9));
+    }
+
     /* The VBlank IRQ is tied to the real line-192 edge, not merely a
      * software VCOUNT jump into the VBlank range. The status flag remains
      * derived from the current line through read_dispstat(). */
