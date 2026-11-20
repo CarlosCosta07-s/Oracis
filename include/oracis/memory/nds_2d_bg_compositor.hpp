@@ -1,10 +1,10 @@
 /*
  * Nintendo DS 2D background scanline compositor.
  *
- * Combines the four text-BG fetch results using DISPCNT window masks,
- * BG priority/tie ordering, the backdrop palette entry, and the existing
- * colour-effect evaluator. OBJ and non-text BG sources remain explicit
- * unsupported inputs until their fetchers/rasterizers are available.
+ * Combines text and affine BG fetch results with OBJ pixels using DISPCNT
+ * window masks, BG priority/tie ordering, the backdrop palette entry, and
+ * the colour-effect evaluator. Unsupported BG palette modes and bitmap OBJ
+ * inputs remain explicit diagnostics.
  */
 #ifndef ORACIS_MEMORY_NDS_2D_BG_COMPOSITOR_HPP
 #define ORACIS_MEMORY_NDS_2D_BG_COMPOSITOR_HPP
