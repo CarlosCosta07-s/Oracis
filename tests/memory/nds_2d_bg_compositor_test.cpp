@@ -360,7 +360,7 @@ int main()
             NDS_ARM9, NdsDisplayControl::EngineABase + 10u, 2u,
             UINT16_C(0x0000)) != Status::Ok ||
         !write16(
-            extended_text_memory, UINT32_C(0x06000000), UINT16_C(0x2001)) ||
+            extended_text_memory, UINT32_C(0x06000000), UINT16_C(0x1001)) ||
         !write32(
             extended_text_memory, UINT32_C(0x06004040), UINT32_C(0x00000001))) {
         return fail("compositor text extended palette fixture initialization failed");
