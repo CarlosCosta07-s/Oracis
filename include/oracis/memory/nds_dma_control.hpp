@@ -78,6 +78,9 @@ private:
 
         /* ARM9-only DMAxFILL register backing (one word per channel). */
         uint32_t fill_data = 0u;
+
+        /* Mode-4 transfer completes at VBlank only after its first LCD request. */
+        bool main_memory_display_started = false;
     };
 
     static bool valid_cpu(NdsCpu cpu) noexcept;

@@ -245,10 +245,12 @@ Status NdsDmaControl::trigger_vblank(NdsCpu cpu) noexcept
             Channel &channel = channels_[0][index];
             if ((channel.control & EnableMask) == 0u ||
                 start_timing(cpu, channel.control) !=
-                    MainMemoryDisplayTiming) {
+                    MainMemoryDisplayTiming ||
+                !channel.main_memory_display_started) {
                 continue;
             }
             channel.control &= ~EnableMask;
+            channel.main_memory_display_started = false;
             if ((channel.control & IrqEnableMask) != 0u) {
                 (void)interrupts_.request_irq(
                     cpu, UINT32_C(1) << (8u + index));
@@ -341,6 +343,7 @@ Status NdsDmaControl::trigger_main_memory_display() noexcept
             return fifo_status;
         }
         channel.current_source += BurstBytes;
+        channel.main_memory_display_started = true;
         return Status::Ok;
     }
     return Status::Ok;
@@ -401,6 +404,9 @@ Status NdsDmaControl::write(
         (previous_control & EnableMask) == 0u &&
         (candidate & EnableMask) != 0u;
     channel.control = candidate;
+    if ((candidate & EnableMask) == 0u || enable_rising) {
+        channel.main_memory_display_started = false;
+    }
     if (!enable_rising) return Status::Ok;
 
     const uint32_t previous_source = channel.current_source;
