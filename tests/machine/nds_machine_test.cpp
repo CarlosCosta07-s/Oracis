@@ -334,6 +334,37 @@ int main()
     }
 
     /*
+     * IsDebugger (SWI 0x0F) reports the modeled main-RAM profile:
+     * 0 means retail DS (4MB); 1 would mean debugger hardware (8MB).
+     * The debugger memory profile is not currently supported by Oracis.
+     */
+    const NdsCpu debugger_query_cpus[2] = {NDS_ARM9, NDS_ARM7};
+    for (unsigned index = 0u; index < 2u; ++index) {
+        const NdsCpu cpu = debugger_query_cpus[index];
+        if (!oracis_arm_runtime_select_cpu(cpu)) {
+            return fail("CPU selection failed for IsDebugger");
+        }
+        ArmCpuState *state = machine.cpu_state(cpu);
+        state->R[0] = UINT32_C(0xFFFFFFFF);
+        state->R[1] = UINT32_C(0x11223344);
+        state->R[2] = UINT32_C(0x55667788);
+        state->R[3] = UINT32_C(0x99AABBCC);
+        const uint32_t saved_cpsr = state->cpsr;
+        runtime_swi(0x0Fu);
+        if (state->R[0] != 0u ||
+            state->R[1] != UINT32_C(0x11223344) ||
+            state->R[2] != UINT32_C(0x55667788) ||
+            state->R[3] != UINT32_C(0x99AABBCC) ||
+            state->cpsr != saved_cpsr) {
+            return fail("IsDebugger did not report the retail 4MB profile or corrupted registers");
+        }
+    }
+
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 selection failed after IsDebugger tests");
+    }
+
+    /*
      * NDS BIOS BitUnPack expands packed source units into 32-bit output
      * words. It applies dataOffset only to nonzero values unless bit 31
      * requests that zero values are offset too.

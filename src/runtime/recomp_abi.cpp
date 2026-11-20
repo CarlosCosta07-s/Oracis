@@ -749,6 +749,10 @@ void runtime_swi(uint32_t swi_imm)
         return;
     }
 
+    case 0x0Fu: /* NDS7/NDS9 IsDebugger: Oracis models retail 4MB Main RAM. */
+        g_cpu.R[0] = 0u;
+        return;
+
     case 0x10u: { /* NDS7/NDS9 BitUnPack: R0=source, R1=destination, R2=info. */
         if (!oracis_arm_runtime_bios_bit_unpack(
                 g_cpu.R[0], g_cpu.R[1], g_cpu.R[2])) {
