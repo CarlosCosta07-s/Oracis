@@ -217,6 +217,7 @@ int main()
     if (bitmap_opaque != UINT16_C(0x001F)) {
         return fail("bitmap OBJ EVA=16 did not preserve the source color");
     }
+    registers.bldcnt = 0u;
     const uint16_t bitmap_without_bg_target = Nds2dEffects::apply_color_effect(
         UINT16_C(0x001F), Nds2dLayer::Object,
         UINT16_C(0x03E0), Nds2dLayer::Bg1,
@@ -224,6 +225,7 @@ int main()
     if (bitmap_without_bg_target != UINT16_C(0x001F)) {
         return fail("bitmap OBJ blended without a selected BG second target");
     }
+    registers.bldcnt = static_cast<uint16_t>(1u << 12u);
     const uint16_t bitmap_with_obj_target = Nds2dEffects::apply_color_effect(
         UINT16_C(0x001F), Nds2dLayer::Object,
         UINT16_C(0x03E0), Nds2dLayer::Object,
