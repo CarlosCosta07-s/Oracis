@@ -279,11 +279,14 @@ extern "C" int oracis_host_runtime_validate_entrypoints(
     if (!has_both_program_banks()) return ORACIS_HOST_RUNTIME_NO_PROGRAM_BANKS;
     if (!machine.program_loaded()) return ORACIS_HOST_RUNTIME_NO_PROGRAM_LOADED;
 
+    const NdsCpu previous_cpu = g_nds_active;
     const auto inspect = [&machine](
-        NdsCpu cpu, OracisHostRuntimeEntryPointReport &report) {
+        NdsCpu cpu, OracisHostRuntimeEntryPointReport &report) -> bool {
         report = {};
+        if (!oracis_arm_runtime_select_cpu(cpu)) return false;
+
         const ArmCpuState *state = machine.cpu_state(cpu);
-        if (state == nullptr) return;
+        if (state == nullptr) return false;
 
         report.pc = state->R[15];
         report.cpsr = state->cpsr;
@@ -297,10 +300,15 @@ extern "C" int oracis_host_runtime_validate_entrypoints(
         report.candidate_count = candidate_count;
         report.has_inactive_candidate = inactive != nullptr ? 1u : 0u;
         report.resolved = entry != nullptr ? 1u : 0u;
+        return true;
     };
 
-    inspect(NDS_ARM9, *arm9_report);
-    inspect(NDS_ARM7, *arm7_report);
+    const bool arm9_inspected = inspect(NDS_ARM9, *arm9_report);
+    const bool arm7_inspected = inspect(NDS_ARM7, *arm7_report);
+    const bool cpu_restored = oracis_arm_runtime_select_cpu(previous_cpu);
+    if (!arm9_inspected || !arm7_inspected || !cpu_restored) {
+        return ORACIS_HOST_RUNTIME_MACHINE_ERROR;
+    }
     return ORACIS_HOST_RUNTIME_OK;
 }
 
