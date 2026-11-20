@@ -63,6 +63,18 @@ ReadResult NdsDmaControl::read(
 {
     if (!valid_cpu(cpu)) return {Status::InvalidCpu, 0u};
 
+    if (address >= FirstFillAddress &&
+        address < FirstFillAddress + FillRegisterBytes) {
+        if (cpu != NDS_ARM9) return {Status::Unmapped, 0u};
+        const uint32_t fill_offset = address - FirstFillAddress;
+        if (width != 4u || (fill_offset & 3u) != 0u) {
+            return {Status::InvalidWidth, 0u};
+        }
+        const unsigned fill_channel =
+            static_cast<unsigned>(fill_offset / 4u);
+        return {Status::Ok, channels_[0][fill_channel].fill_data};
+    }
+
     unsigned channel_index = 0u;
     uint32_t offset = 0u;
     if (!decode_address(address, channel_index, offset)) {
@@ -109,8 +121,8 @@ Status NdsDmaControl::execute_transfer(
     const uint32_t address_limit =
         cpu == NDS_ARM9 ? UINT32_C(0x0FFFFFFE)
                         : UINT32_C(0x07FFFFFE);
-    if ((state.source % width) != 0u ||
-        (state.destination % width) != 0u) {
+    if ((state.current_source % width) != 0u ||
+        (state.current_destination % width) != 0u) {
         return Status::InvalidRegion;
     }
 
@@ -141,15 +153,20 @@ Status NdsDmaControl::execute_transfer(
     uint32_t source_span = 0u;
     uint32_t destination_base = 0u;
     uint32_t destination_span = 0u;
-    if (!get_span(state.source, source_mode, source_base, source_span) ||
-        !get_span(state.destination, destination_mode,
+    if (!get_span(state.current_source, source_mode, source_base, source_span) ||
+        !get_span(state.current_destination, destination_mode,
                   destination_base, destination_span)) {
         return Status::AddressOverflow;
     }
 
-    const Status source_status =
-        memory_.validate_read(cpu, source_base, source_span);
-    if (source_status != Status::Ok) return source_status;
+    const bool fill_source = cpu == NDS_ARM9 && source_mode == 2u &&
+        state.current_source ==
+            FirstFillAddress + channel_index * UINT32_C(4);
+    if (!fill_source) {
+        const Status source_status =
+            memory_.validate_read(cpu, source_base, source_span);
+        if (source_status != Status::Ok) return source_status;
+    }
     const Status destination_status =
         memory_.validate_write(cpu, destination_base, destination_span);
     if (destination_status != Status::Ok) return destination_status;
@@ -157,7 +174,14 @@ Status NdsDmaControl::execute_transfer(
     uint32_t source = state.current_source;
     uint32_t destination = state.current_destination;
     for (uint32_t index = 0u; index < count; ++index) {
-        const ReadResult value = memory_.read(cpu, source, width);
+        const ReadResult value = fill_source
+            ? ReadResult{
+                Status::Ok,
+                width == 2u
+                    ? (state.fill_data & UINT32_C(0xFFFF))
+                    : state.fill_data
+            }
+            : memory_.read(cpu, source, width);
         if (!value) return value.status;
         const Status write_status =
             memory_.write(cpu, destination, width, value.value);
@@ -225,6 +249,19 @@ Status NdsDmaControl::write(
     uint32_t width, uint32_t value) noexcept
 {
     if (!valid_cpu(cpu)) return Status::InvalidCpu;
+
+    if (address >= FirstFillAddress &&
+        address < FirstFillAddress + FillRegisterBytes) {
+        if (cpu != NDS_ARM9) return Status::Unmapped;
+        const uint32_t fill_offset = address - FirstFillAddress;
+        if (width != 4u || (fill_offset & 3u) != 0u) {
+            return Status::InvalidWidth;
+        }
+        const unsigned fill_channel =
+            static_cast<unsigned>(fill_offset / 4u);
+        channels_[0][fill_channel].fill_data = value;
+        return Status::Ok;
+    }
 
     unsigned channel_index = 0u;
     uint32_t offset = 0u;

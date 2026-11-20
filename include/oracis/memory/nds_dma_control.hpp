@@ -21,6 +21,8 @@ public:
     static constexpr uint32_t ChannelCount = 4u;
     static constexpr uint32_t FirstRegisterAddress = UINT32_C(0x040000B0);
     static constexpr uint32_t LastRegisterAddress = UINT32_C(0x040000DF);
+    static constexpr uint32_t FirstFillAddress = UINT32_C(0x040000E0);
+    static constexpr uint32_t FillRegisterBytes = ChannelCount * 4u;
 
     static constexpr uint32_t DestinationControlShift = 21u;
     static constexpr uint32_t SourceControlShift = 23u;
@@ -59,6 +61,9 @@ private:
         /* Internal DMA pointers; never exposed through SAD/DAD reads. */
         uint32_t current_source = 0u;
         uint32_t current_destination = 0u;
+
+        /* ARM9-only DMAxFILL register backing (one word per channel). */
+        uint32_t fill_data = 0u;
     };
 
     static bool valid_cpu(NdsCpu cpu) noexcept;

@@ -190,6 +190,59 @@ int main()
         return fail("decrementing source/destination transfer failed");
     }
 
+    /* ARM9 DMAxFILL is a fixed source port for 16-bit and 32-bit fills. */
+    constexpr uint32_t arm9_fill0 = NdsDmaControl::FirstFillAddress;
+    constexpr uint32_t fill_destination32 = UINT32_C(0x02000A80);
+    constexpr uint32_t fill_destination16 = UINT32_C(0x02000AA0);
+    const uint32_t fill_word32 = UINT32_C(0x89ABCDEF);
+    const uint32_t fill_word16 = UINT32_C(0x1234ABCD);
+    bus_write_u32(arm9_fill0, fill_word32);
+    bus_write_u32(source_reg(0u), arm9_fill0);
+    bus_write_u32(destination_reg(0u), fill_destination32);
+    bus_write_u32(control_reg(0u),
+        UINT32_C(2) | NdsDmaControl::WordTransferMask |
+        (UINT32_C(2) << NdsDmaControl::SourceControlShift) |
+        NdsDmaControl::EnableMask);
+    if (bus_read_u32(arm9_fill0) != fill_word32 ||
+        memory.read(NDS_ARM9, fill_destination32, 4u).value != fill_word32 ||
+        memory.read(NDS_ARM9, fill_destination32 + 4u, 4u).value != fill_word32 ||
+        bus_read_u32(source_reg(0u)) != arm9_fill0 ||
+        bus_read_u32(destination_reg(0u)) != fill_destination32) {
+        return fail("ARM9 32-bit DMAxFILL transfer or programmed registers failed");
+    }
+
+    const uint32_t arm9_fill1 = NdsDmaControl::FirstFillAddress + 4u;
+    bus_write_u32(arm9_fill1, fill_word16);
+    bus_write_u32(source_reg(1u), arm9_fill1);
+    bus_write_u32(destination_reg(1u), fill_destination16);
+    bus_write_u32(control_reg(1u),
+        UINT32_C(3) |
+        (UINT32_C(2) << NdsDmaControl::SourceControlShift) |
+        NdsDmaControl::EnableMask);
+    for (uint32_t index = 0u; index < 3u; ++index) {
+        if (memory.read(NDS_ARM9, fill_destination16 + index * 2u, 2u).value !=
+            UINT32_C(0xABCD)) {
+            return fail("ARM9 16-bit DMAxFILL did not repeat the low halfword");
+        }
+    }
+    if (bus_read_u32(arm9_fill1) != fill_word16 ||
+        bus_read_u32(source_reg(1u)) != arm9_fill1 ||
+        bus_read_u32(destination_reg(1u)) != fill_destination16) {
+        return fail("ARM9 DMAxFILL register was not preserved after transfer");
+    }
+
+    const uint32_t arm9_fill3 =
+        NdsDmaControl::FirstFillAddress + UINT32_C(12);
+    bus_write_u32(arm9_fill3, UINT32_C(0x0F1E2D3C));
+    if (bus_read_u32(arm9_fill3) != UINT32_C(0x0F1E2D3C) ||
+        dma.read(NDS_ARM9, arm9_fill0, 2u).status != Status::InvalidWidth) {
+        return fail("DMA3FILL boundary or 32-bit register width validation failed");
+    }
+    if (dma.read(NDS_ARM7, arm9_fill0, 4u).status != Status::Unmapped ||
+        dma.write(NDS_ARM7, arm9_fill0, 4u, UINT32_C(0)) != Status::Unmapped) {
+        return fail("ARM7 incorrectly exposed the ARM9-only DMAxFILL registers");
+    }
+
     /* VBlank timing arms the channel without firing before a display event. */
     constexpr uint32_t deferred_source = UINT32_C(0x02000800);
     constexpr uint32_t deferred_destination = UINT32_C(0x02000900);
