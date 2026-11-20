@@ -64,7 +64,7 @@ public:
     /*
      * Compose one visible 256-pixel line. The caller's output is unchanged
      * unless all required BG, OBJ/OAM and backdrop reads succeed. Unsupported
-     * affine/bitmap BG or OBJ inputs return a diagnostic without partial output.
+     * unavailable palette allocations or bitmap OBJ inputs return a diagnostic without partial output.
      */
     Nds2dComposeResult render_scanline(
         unsigned engine_index,
