@@ -205,8 +205,9 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
             has_second ? second.layer : Nds2dLayer::Backdrop,
             window.region,
             has_second,
-            top.layer == Nds2dLayer::Object
-                ? top.object_index : UINT8_C(0xFF),
+            static_cast<uint8_t>(
+                top.layer == Nds2dLayer::Object
+                    ? top.object_index : UINT8_C(0xFF)),
             top.layer == Nds2dLayer::Object && top.force_alpha
         };
     }
