@@ -11,6 +11,7 @@
 #include <cstdint>
 
 #include "oracis/memory/nds_timer_control.hpp"
+#include "oracis/memory/nds_display_control.hpp"
 
 namespace oracis::memory {
 
@@ -23,8 +24,10 @@ enum class NdsClockStatus : uint8_t {
 
 class NdsSystemClock final {
 public:
-    explicit NdsSystemClock(NdsTimerControl &timers) noexcept
-        : timers_(timers) {}
+    NdsSystemClock(
+        NdsTimerControl &timers,
+        NdsDisplayControl &display) noexcept
+        : timers_(timers), display_(display) {}
 
     NdsSystemClock(const NdsSystemClock &) = delete;
     NdsSystemClock &operator=(const NdsSystemClock &) = delete;
@@ -50,12 +53,14 @@ public:
     void reset() noexcept;
 
     NdsTimerControl &timer_control() const noexcept { return timers_; }
+    NdsDisplayControl &display_control() const noexcept { return display_; }
 
 private:
     static bool valid_cpu(NdsCpu cpu) noexcept;
     static unsigned cpu_index(NdsCpu cpu) noexcept;
 
     NdsTimerControl &timers_;
+    NdsDisplayControl &display_;
     std::array<uint64_t, 2> cpu_cycles_{};
     uint64_t global_bus_cycles_ = 0u;
 };
