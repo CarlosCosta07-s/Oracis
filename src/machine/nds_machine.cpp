@@ -18,6 +18,7 @@ NdsMachine::NdsMachine(memory::SharedWramMode initial_wram_mode) noexcept
       vram_control_(memory_),
       video_memory_(memory_),
       interrupt_control_(memory_),
+      ipc_control_(interrupt_control_),
       display_control_(interrupt_control_),
       timer_control_(memory_, interrupt_control_),
       keypad_control_(memory_, interrupt_control_),
@@ -1143,6 +1144,12 @@ NdsMachineStatus NdsMachine::initialize() noexcept
         return rollback(NdsMachineStatus::BusBindingFailed);
     }
     interrupt_bound_ = true;
+
+    if (!oracis_bus_bind_ipc_control(&ipc_control_)) {
+        return rollback(NdsMachineStatus::BusBindingFailed);
+    }
+    ipc_bound_ = true;
+
     if (!oracis_bus_bind_display_control(&display_control_)) {
         return rollback(NdsMachineStatus::BusBindingFailed);
     }
@@ -1282,7 +1289,7 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
         bios_huffman_handler_bound_ || bios_diff_handler_bound_ ||
         memory_bound_ ||
         wram_bound_ || vram_bound_ || video_memory_bound_ ||
-        post_flag_bound_ || display_control_bound_ || interrupt_bound_ || timer_bound_ ||
+        post_flag_bound_ || display_control_bound_ || interrupt_bound_ || ipc_bound_ || timer_bound_ ||
         keypad_bound_ || clock_bound_ || validation_bound_;
     if (!owns_runtime && !initialized_) {
         return NdsMachineStatus::Ok;
@@ -1332,6 +1339,12 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
             return NdsMachineStatus::ShutdownFailed;
         }
         display_control_bound_ = false;
+    }
+    if (ipc_bound_) {
+        if (!oracis_bus_unbind_ipc_control(&ipc_control_)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        ipc_bound_ = false;
     }
     if (interrupt_bound_) {
         if (!oracis_bus_unbind_interrupt_control(&interrupt_control_)) {
