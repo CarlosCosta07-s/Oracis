@@ -540,6 +540,16 @@ int main()
         line.pixels[6].transparent ||
         line.pixels[6].rgb555 != UINT16_C(0x001F) ||
         line.pixels[6].bitmap_alpha_eva != 16u) {
+        std::fprintf(
+            stderr,
+            "Engine B bitmap diagnostic: status=%u memory=%u "
+            "transparent=%u rgb=%04X eva=%u object=%u\\n",
+            static_cast<unsigned>(result.status),
+            static_cast<unsigned>(result.memory_status),
+            line.pixels[6].transparent ? 1u : 0u,
+            static_cast<unsigned>(line.pixels[6].rgb555),
+            static_cast<unsigned>(line.pixels[6].bitmap_alpha_eva),
+            static_cast<unsigned>(line.pixels[6].object_index));
         return fail("Engine B 1D bitmap OBJ VRAM selection or capacity failed");
     }
 
