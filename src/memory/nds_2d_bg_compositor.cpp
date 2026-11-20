@@ -102,7 +102,7 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
         const bool affine_bg =
             Nds2dAffineBgFetcher::is_affine_tile_bg(
                 engine_index, bg, dispcnt) ||
-            Nds2dAffineBgFetcher::is_extended_affine_tile_bg(
+            Nds2dAffineBgFetcher::is_extended_bg_layer(
                 engine_index, bg, dispcnt);
         const Nds2dBgFetchResult result = affine_bg
             ? affine_fetcher.render_scanline(

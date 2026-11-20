@@ -280,22 +280,23 @@ int main()
         return fail("BG0/BG1 first/second-target alpha blend failed");
     }
 
-    /* Mode 3 BG3's bitmap variant remains unsupported and must fail closed. */
+    /* Extended tile-map palette slots remain unsupported and fail closed. */
     std::array<Nds2dCompositedPixel, 256> preserved = line;
     if (display.write(
             NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
-            (UINT32_C(3) << 0u) | (UINT32_C(1) << 11u)) != Status::Ok ||
+            (UINT32_C(3) << 0u) | (UINT32_C(1) << 11u) |
+                (UINT32_C(1) << 30u)) != Status::Ok ||
         display.write(
-            NDS_ARM9, NdsDisplayControl::EngineABase + 14u, 2u,
-            UINT16_C(0x0080)) != Status::Ok) {
-        return fail("unsupported extended bitmap BG fixture setup failed");
+            NDS_ARM9, NdsDisplayControl::EngineABase + 14u, 2u, 0u) !=
+            Status::Ok) {
+        return fail("unsupported extended tile palette fixture setup failed");
     }
     result = compositor.render_scanline(0u, display, 0u, line);
     if (result.status != Nds2dComposeStatus::UnsupportedBackgroundMode ||
         result.background_index != 3u ||
         line[0].rgb555 != preserved[0].rgb555 ||
         line[0].top_layer != preserved[0].top_layer) {
-        return fail("unsupported extended BG did not fail transactionally");
+        return fail("unsupported extended tile palette did not fail transactionally");
     }
 
     /* Missing backdrop/palette memory also preserves the caller's scanline. */

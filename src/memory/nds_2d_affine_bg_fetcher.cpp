@@ -61,7 +61,7 @@ bool Nds2dAffineBgFetcher::is_affine_tile_bg(
     return false;
 }
 
-bool Nds2dAffineBgFetcher::is_extended_affine_tile_bg(
+bool Nds2dAffineBgFetcher::is_extended_bg_layer(
     unsigned engine_index,
     unsigned bg_index,
     uint32_t dispcnt) noexcept
@@ -113,11 +113,20 @@ Nds2dBgFetchResult Nds2dAffineBgFetcher::render_scanline(
     }
     const bool classic_affine =
         is_affine_tile_bg(engine_index, bg_index, dispcnt);
-    const bool extended_affine =
-        is_extended_affine_tile_bg(engine_index, bg_index, dispcnt);
-    if ((!classic_affine && !extended_affine) ||
-        (dispcnt & kExtendedBgPaletteEnable) != 0u ||
-        (extended_affine && (bgcnt & UINT16_C(0x0080)) != 0u)) {
+    const bool extended_bg =
+        is_extended_bg_layer(engine_index, bg_index, dispcnt);
+    const bool extended_bitmap =
+        extended_bg && (bgcnt & UINT16_C(0x0080)) != 0u;
+    const bool extended_tile_map =
+        extended_bg && !extended_bitmap;
+    /*
+     * DISPCNT.30 selects the external palette only for 16-bit extended
+     * affine tile maps. Classic affine maps and both bitmap formats keep
+     * using the standard 256-color BG palette or direct RGB555 data.
+     */
+    if ((!classic_affine && !extended_bg) ||
+        (extended_tile_map &&
+         (dispcnt & kExtendedBgPaletteEnable) != 0u)) {
         return {Nds2dBgFetchStatus::UnsupportedMode, Status::Ok};
     }
 
@@ -139,14 +148,37 @@ Nds2dBgFetchResult Nds2dAffineBgFetcher::render_scanline(
     const uint64_t character_base =
         static_cast<uint64_t>(character_base_offset) +
         static_cast<uint64_t>(character_base_block) * UINT32_C(0x4000);
-    const uint64_t screen_base =
-        static_cast<uint64_t>(screen_base_offset) +
-        static_cast<uint64_t>(screen_base_block) * kScreenBlockBytes;
+    /*
+     * Bitmap BGs use BGxCNT screen-base blocks in 16 KiB units and ignore
+     * the DISPCNT 64 KiB screen-base extension used by tile maps.
+     */
+    const uint64_t screen_base = extended_bitmap
+        ? static_cast<uint64_t>(screen_base_block) * UINT32_C(0x4000)
+        : static_cast<uint64_t>(screen_base_offset) +
+            static_cast<uint64_t>(screen_base_block) * kScreenBlockBytes;
 
     const unsigned size =
         static_cast<unsigned>((bgcnt >> 14u) & UINT16_C(3));
     const uint32_t tiles_wide = UINT32_C(16) << size;
     const uint32_t dimensions = tiles_wide * kAffineTilePixels;
+    const uint32_t bitmap_width = size < 2u
+        ? (UINT32_C(128) << size)
+        : UINT32_C(512);
+    const uint32_t bitmap_height = size == 0u
+        ? UINT32_C(128)
+        : (size == 1u ? UINT32_C(256)
+                      : (size == 2u ? UINT32_C(256) : UINT32_C(512)));
+    const bool direct_color_bitmap =
+        extended_bitmap && (bgcnt & UINT16_C(0x0004)) != 0u;
+    const uint64_t bitmap_bytes =
+        static_cast<uint64_t>(bitmap_width) * bitmap_height *
+        (direct_color_bitmap ? UINT64_C(2) : UINT64_C(1));
+    if (extended_bitmap && engine_index == 1u &&
+        bitmap_bytes > UINT64_C(0x20000)) {
+        return {Nds2dBgFetchStatus::UnsupportedMode, Status::Ok};
+    }
+    const uint32_t source_width = extended_bitmap ? bitmap_width : dimensions;
+    const uint32_t source_height = extended_bitmap ? bitmap_height : dimensions;
     const bool wraparound = (bgcnt & UINT16_C(0x2000)) != 0u;
     const bool mosaic_enabled = (bgcnt & UINT16_C(0x0040)) != 0u;
     const NdsDisplayControl::BgAffineState affine =
@@ -174,20 +206,61 @@ Nds2dBgFetchResult Nds2dAffineBgFetcher::render_scanline(
         int64_t source_x = floor_fixed_8_8(source_x_fixed);
         int64_t source_y = floor_fixed_8_8(source_y_fixed);
         if (wraparound) {
-            source_x = positive_modulo(source_x, dimensions);
-            source_y = positive_modulo(source_y, dimensions);
+            source_x = positive_modulo(source_x, source_width);
+            source_y = positive_modulo(source_y, source_height);
         } else if (source_x < 0 || source_y < 0 ||
-                   source_x >= dimensions || source_y >= dimensions) {
+                   source_x >= source_width || source_y >= source_height) {
             continue;
         }
 
         const uint32_t pixel_x = static_cast<uint32_t>(source_x);
         const uint32_t pixel_y = static_cast<uint32_t>(source_y);
+
+        if (extended_bitmap) {
+            const uint64_t bitmap_pixel_index =
+                static_cast<uint64_t>(pixel_y) * bitmap_width + pixel_x;
+            const uint64_t bitmap_pixel_offset =
+                screen_base + bitmap_pixel_index *
+                    (direct_color_bitmap ? UINT64_C(2) : UINT64_C(1));
+            uint32_t bitmap_pixel_address = 0u;
+            if (!add_guest_offset(
+                    bg_vram_base, bitmap_pixel_offset,
+                    bitmap_pixel_address)) {
+                return memory_error(Status::AddressOverflow);
+            }
+
+            if (direct_color_bitmap) {
+                const ReadResult color =
+                    memory_.read(NDS_ARM9, bitmap_pixel_address, 2u);
+                if (!color) return memory_error(color.status);
+                if ((color.value & UINT32_C(0x8000)) == 0u) continue;
+                next_line[x].rgb555 =
+                    static_cast<uint16_t>(color.value & UINT32_C(0x7FFF));
+            } else {
+                const ReadResult color_index =
+                    memory_.read(NDS_ARM9, bitmap_pixel_address, 1u);
+                if (!color_index) return memory_error(color_index.status);
+                const uint32_t palette_index =
+                    static_cast<uint32_t>(color_index.value & UINT32_C(0xFF));
+                if (palette_index == 0u) continue;
+
+                const uint32_t palette_address =
+                    bg_palette_base + palette_index * sizeof(uint16_t);
+                const ReadResult color =
+                    memory_.read(NDS_ARM9, palette_address, 2u);
+                if (!color) return memory_error(color.status);
+                next_line[x].rgb555 =
+                    static_cast<uint16_t>(color.value & UINT32_C(0x7FFF));
+            }
+            next_line[x].transparent = false;
+            continue;
+        }
+
         const uint32_t tile_x = pixel_x / kAffineTilePixels;
         const uint32_t tile_y = pixel_y / kAffineTilePixels;
         const uint32_t map_index = tile_y * tiles_wide + tile_x;
 
-        const uint32_t map_entry_bytes = extended_affine ? 2u : 1u;
+        const uint32_t map_entry_bytes = extended_bg ? 2u : 1u;
         uint32_t map_address = 0u;
         if (!add_guest_offset(
                 bg_vram_base,
@@ -202,18 +275,18 @@ Nds2dBgFetchResult Nds2dAffineBgFetcher::render_scanline(
 
         const uint32_t map_attributes =
             static_cast<uint32_t>(map_entry.value);
-        const uint32_t tile_index = extended_affine
+        const uint32_t tile_index = extended_bg
             ? map_attributes & UINT32_C(0x03FF)
             : map_attributes & UINT32_C(0x00FF);
         const uint32_t local_x = pixel_x & UINT32_C(7);
         const uint32_t local_y = pixel_y & UINT32_C(7);
         const uint32_t tile_pixel_x =
-            extended_affine &&
+            extended_bg &&
                 (map_attributes & (UINT32_C(1) << 10u)) != 0u
             ? UINT32_C(7) - local_x
             : local_x;
         const uint32_t tile_pixel_y =
-            extended_affine &&
+            extended_bg &&
                 (map_attributes & (UINT32_C(1) << 11u)) != 0u
             ? UINT32_C(7) - local_y
             : local_y;
