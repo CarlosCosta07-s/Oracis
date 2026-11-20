@@ -261,7 +261,8 @@ int main()
         (UINT32_C(3) << NdsDmaControl::DestinationControlShift) |
         NdsDmaControl::EnableMask;
     bus_write_u32(control_reg(1u), hblank_repeat_control);
-    display.advance_bus_cycles(NdsDisplayControl::Arm9HblankStartCycle);
+    /* The current line has passed HBlank; wait until the next line's event. */
+    display.advance_bus_cycles(NdsDisplayControl::CyclesPerScanline);
     if (memory.read(NDS_ARM9, hblank_destination, 4u).value !=
             UINT32_C(0x13572468) ||
         bus_read_u32(source_reg(1u)) != hblank_source ||
