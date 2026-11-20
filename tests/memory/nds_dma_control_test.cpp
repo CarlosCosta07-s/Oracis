@@ -46,7 +46,7 @@ int main()
 
     GuestMemory memory;
     if (memory.map_ram(
-            UINT32_C(0x02000000), UINT32_C(0x00004000),
+            UINT32_C(0x02000000), UINT32_C(0x00020000),
             oracis::memory::Readable | oracis::memory::Writable,
             "dma-test-ram") != Status::Ok) {
         return fail("could not map DMA test RAM");
