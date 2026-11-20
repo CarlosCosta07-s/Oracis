@@ -518,6 +518,14 @@ int main()
         return fail("bitmap OBJ nonzero color-depth flag did not fail closed");
     }
 
+    /* Disable every other Engine B OAM entry; zeroed Attr0 enables normal OBJ0..127. */
+    for (unsigned object = 1u; object < 128u; ++object) {
+        const uint32_t entry = UINT32_C(0x07000400) + object * UINT32_C(8);
+        if (!write16(memory, entry, UINT16_C(0x0200))) {
+            return fail("Engine B disabled-entry bitmap fixture setup failed");
+        }
+    }
+
     /* Engine B uses its own OBJ VRAM half and a fixed 128 KiB 1D range. */
     if (!write_oam(
             memory, 1u, 0u,
