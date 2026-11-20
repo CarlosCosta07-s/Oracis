@@ -691,6 +691,32 @@ ReadResult GuestMemory::read(NdsCpu cpu,
     return {Status::Ok, value};
 }
 
+ReadResult GuestMemory::read_device(
+    uint32_t address, uint32_t width) const noexcept
+{
+    if (width != 1u && width != 2u && width != 4u) {
+        return {Status::InvalidWidth, 0u};
+    }
+
+    const Resolution result = resolve_any(address, width);
+    if (result.status != Status::Ok || result.region == nullptr) {
+        return {result.status, 0u};
+    }
+    if (!has_permission(result.region->permissions, Readable)) {
+        return {Status::PermissionDenied, 0u};
+    }
+
+    const auto &bytes = result.region->backing->bytes;
+    const uint32_t address_offset = address - result.region->base;
+    uint32_t value = 0u;
+    for (uint32_t index = 0u; index < width; ++index) {
+        const uint32_t byte_index =
+            backing_index(*result.region, address_offset + index);
+        value |= static_cast<uint32_t>(bytes[byte_index]) << (index * 8u);
+    }
+    return {Status::Ok, value};
+}
+
 Status GuestMemory::write(NdsCpu cpu,
                           uint32_t address,
                           uint32_t width,

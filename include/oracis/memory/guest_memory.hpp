@@ -158,6 +158,13 @@ public:
                              std::size_t count) noexcept;
 
     ReadResult read(NdsCpu cpu, uint32_t address, uint32_t width) const noexcept;
+
+    /*
+     * Read a mapped region on behalf of an internal device. Region and
+     * permission checks still apply, but CPU visibility masks are bypassed.
+     * This API must not be exposed through the guest CPU bus.
+     */
+    ReadResult read_device(uint32_t address, uint32_t width) const noexcept;
     Status write(NdsCpu cpu, uint32_t address, uint32_t width,
                  uint32_t value) noexcept;
 

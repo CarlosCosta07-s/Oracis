@@ -52,6 +52,36 @@ int main()
         return fail("disabled mapping was not invisible to both CPUs");
     }
 
+    GuestMemory device_memory;
+    if (device_memory.map_ram(
+            UINT32_C(0xF1000000), UINT32_C(0x100),
+            static_cast<uint8_t>(oracis::memory::Readable |
+                                 oracis::memory::Writable),
+            "device-only backing", oracis::memory::CpuAccessBoth) !=
+            Status::Ok ||
+        device_memory.write(
+            NDS_ARM9, UINT32_C(0xF1000000), 4u,
+            UINT32_C(0x1234ABCD)) != Status::Ok) {
+        return fail("device-side backing fixture setup failed");
+    }
+    const GuestMemory::CpuAccessUpdate hide_device_backing[] = {
+        {"device-only backing", oracis::memory::CpuAccessNone}
+    };
+    if (device_memory.update_cpu_access(
+            hide_device_backing, 1u) != Status::Ok ||
+        device_memory.read(
+            NDS_ARM9, UINT32_C(0xF1000000), 4u).status == Status::Ok ||
+        device_memory.read(
+            NDS_ARM7, UINT32_C(0xF1000000), 4u).status == Status::Ok ||
+        device_memory.read_device(
+            UINT32_C(0xF1000000), 4u).value != UINT32_C(0x1234ABCD) ||
+        device_memory.read_device(
+            UINT32_C(0xF1000100), 2u).status != Status::Unmapped ||
+        device_memory.read_device(
+            UINT32_C(0xF1000000), 3u).status != Status::InvalidWidth) {
+        return fail("device read did not bypass only CPU visibility");
+    }
+
     GuestMemory cpu_scoped;
     const uint8_t rw = static_cast<uint8_t>(
         oracis::memory::Readable | oracis::memory::Writable);

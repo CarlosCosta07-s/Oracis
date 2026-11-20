@@ -409,6 +409,95 @@ int main()
         return fail("VRAM I Sub OBJ 16KB window or ignored OFS failed");
     }
 
+    /*
+     * BG extended palettes are display-only: the VRAM bank's hidden physical
+     * backing remains readable to the PPU after the CPU view is deallocated.
+     */
+    for (uint32_t register_address : all_vram_controls) {
+        bus_write_u8(register_address, 0u);
+    }
+
+    bus_write_u8(NdsVramControl::VramCntEAddress, UINT8_C(0x80));
+    const uint32_t engine_a_palette_slot2 =
+        UINT32_C(0x06880000) + UINT32_C(0x4000) +
+        UINT32_C(0x0600) + UINT32_C(0x0002);
+    const uint32_t engine_a_palette_slot3 =
+        UINT32_C(0x06880000) + UINT32_C(0x6000) +
+        UINT32_C(0x0E00) + UINT32_C(0x0004);
+    if (memory.write(
+            NDS_ARM9, engine_a_palette_slot2, 2u,
+            UINT32_C(0x1234)) != Status::Ok ||
+        memory.write(
+            NDS_ARM9, engine_a_palette_slot3, 2u,
+            UINT32_C(0x5678)) != Status::Ok) {
+        return fail("Main Engine A BG extended-palette LCDC initialization failed");
+    }
+    bus_write_u8(NdsVramControl::VramCntEAddress, UINT8_C(0x84));
+    if (memory.read(
+            NDS_ARM9, UINT32_C(0x06880000), 2u).status == Status::Ok ||
+        control.read_extended_bg_palette(0u, 2u, 3u, 1u).value !=
+            UINT32_C(0x1234) ||
+        control.read_extended_bg_palette(0u, 3u, 7u, 2u).value !=
+            UINT32_C(0x5678)) {
+        return fail("VRAM E Engine A BG palette slot/color lookup failed");
+    }
+
+    /* VRAM F/G OFS=1 maps the upper two Main Engine A palette slots. */
+    bus_write_u8(NdsVramControl::VramCntEAddress, 0u);
+    bus_write_u8(NdsVramControl::VramCntGAddress, UINT8_C(0x80));
+    const uint32_t engine_a_g_slot2 =
+        UINT32_C(0x06894000) + UINT32_C(0x0400) + UINT32_C(0x0006);
+    const uint32_t engine_a_g_slot3 =
+        UINT32_C(0x06894000) + UINT32_C(0x2000) +
+        UINT32_C(0x0200) + UINT32_C(0x0008);
+    if (memory.write(
+            NDS_ARM9, engine_a_g_slot2, 2u,
+            UINT32_C(0x9ABC)) != Status::Ok ||
+        memory.write(
+            NDS_ARM9, engine_a_g_slot3, 2u,
+            UINT32_C(0xDEF0)) != Status::Ok) {
+        return fail("Main Engine A F/G extended-palette initialization failed");
+    }
+    bus_write_u8(NdsVramControl::VramCntGAddress, UINT8_C(0x8C));
+    if (control.read_extended_bg_palette(0u, 2u, 2u, 3u).value !=
+            UINT32_C(0x9ABC) ||
+        control.read_extended_bg_palette(0u, 3u, 1u, 4u).value !=
+            UINT32_C(0xDEF0)) {
+        return fail("VRAM G OFS=1 did not map extended BG palette slots 2/3");
+    }
+
+    /* E and G both claiming the same palette slot are reported as ambiguous. */
+    bus_write_u8(NdsVramControl::VramCntEAddress, UINT8_C(0x84));
+    if (control.read_extended_bg_palette(
+            0u, 2u, 2u, 3u).status != Status::Overlap) {
+        return fail("overlapping extended BG palette banks were not diagnosed");
+    }
+
+    /* Engine B allocates its four BG extended palette slots from VRAM H MST=2. */
+    bus_write_u8(NdsVramControl::VramCntEAddress, 0u);
+    bus_write_u8(NdsVramControl::VramCntGAddress, 0u);
+    bus_write_u8(NdsVramControl::VramCntHAddress, UINT8_C(0x80));
+    const uint32_t engine_b_palette_slot3 =
+        UINT32_C(0x06898000) + UINT32_C(0x6000) +
+        UINT32_C(0x0800) + UINT32_C(0x000A);
+    if (memory.write(
+            NDS_ARM9, engine_b_palette_slot3, 2u,
+            UINT32_C(0x2468)) != Status::Ok) {
+        return fail("Sub Engine B BG extended-palette LCDC initialization failed");
+    }
+    bus_write_u8(NdsVramControl::VramCntHAddress, UINT8_C(0x82));
+    if (memory.read(
+            NDS_ARM9, UINT32_C(0x06898000), 2u).status == Status::Ok ||
+        control.read_extended_bg_palette(1u, 3u, 4u, 5u).value !=
+            UINT32_C(0x2468)) {
+        return fail("VRAM H Engine B extended BG palette lookup failed");
+    }
+    bus_write_u8(NdsVramControl::VramCntHAddress, 0u);
+    if (control.read_extended_bg_palette(1u, 3u, 4u, 5u).status !=
+            Status::Unmapped) {
+        return fail("unallocated Engine B extended BG palette was not rejected");
+    }
+
     if (oracis_bus_unbind_memory(&memory)) {
         return fail("memory unbind succeeded while VRAM controller remained bound");
     }

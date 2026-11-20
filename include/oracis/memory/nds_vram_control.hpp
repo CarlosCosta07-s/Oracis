@@ -3,8 +3,8 @@
  *
  * This partial device maps all nine banks to ARM9 LCDC (MST=0), CPU-visible
  * BG/OBJ destinations supported by the A-I bank matrix, and C/D to ARM7
- * Work RAM (MST=2). Extended palettes, texture consumers and the PPU remain
- * separate, unimplemented graphics subsystems.
+ * Work RAM (MST=2). BG extended-palette memory is also readable internally
+ * by the display pipeline while remaining inaccessible to guest CPUs.
  */
 #ifndef ORACIS_MEMORY_NDS_VRAM_CONTROL_HPP
 #define ORACIS_MEMORY_NDS_VRAM_CONTROL_HPP
@@ -50,6 +50,16 @@ public:
     uint8_t control_c() const noexcept { return controls_[2]; }
     uint8_t control_d() const noexcept { return controls_[3]; }
     uint8_t status() const noexcept;
+
+    /*
+     * Read one 16-bit color from an extended BG2/BG3 palette. The palette
+     * number selects one of 16 256-color palettes within the BG's 8 KiB slot.
+     */
+    ReadResult read_extended_bg_palette(
+        unsigned engine_index,
+        unsigned bg_index,
+        uint8_t bg_palette,
+        uint8_t color_index) const noexcept;
     GuestMemory &backing_memory() const noexcept { return memory_; }
     bool installed() const noexcept { return installed_; }
 
