@@ -69,6 +69,25 @@ No modo 0, o mapa não deixa o espaço ARM7 vazio: conforme o comportamento docu
 
 Os bytes físicos das duas banks são armazenados em um backing interno com `CpuAccessNone`; os processadores acessam somente os mirrors que o modo WRAMCNT lhes atribui.
 
+### Paletas padrão e OAM
+
+`NdsVideoMemory` instala as regiões fixas de vídeo visíveis à CPU ARM9:
+
+| Endereço | Tamanho | Região |
+|---|---:|---|
+| `0x05000000` | 512 B | Engine A — paleta BG |
+| `0x05000200` | 512 B | Engine A — paleta OBJ |
+| `0x05000400` | 512 B | Engine B — paleta BG |
+| `0x05000600` | 512 B | Engine B — paleta OBJ |
+| `0x07000000` | 1 KiB | Engine A — OAM |
+| `0x07000400` | 1 KiB | Engine B — OAM |
+
+As quatro paletas formam os 2 KiB de palette RAM padrão; as duas tabelas OAM formam os 2 KiB de OAM padrão. As regiões são instaladas como backings distintos e marcadas com `CpuAccessArm9`: o ARM7 recebe `CpuAccessDenied`, não acesso espelhado ou conteúdo fictício.
+
+No caminho de escrita dos bancos recompilados, `NdsVideoMemory` ignora stores de 8 bits (STRB) sem modificar os bytes. Stores de 16/32 bits (STRH/STR) são enviados a `GuestMemory`, que valida a largura, a permissão e os limites da região. Leituras são feitas diretamente pelo mapa `GuestMemory`.
+
+Este dispositivo ainda não implementa acesso do PPU, avaliação de sprites/OAM, arbitragem por scanline, janelas de acesso durante desenho ou composição 2D. Ter os bytes acessíveis pela CPU não significa que eles já sejam exibidos na tela.
+
 ### Controlador de interrupções
 
 `NdsInterruptControl` mantém registradores separados para ARM9 e ARM7:
