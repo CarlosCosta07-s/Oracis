@@ -2,9 +2,10 @@
  * Nintendo DS 2D text-background tile/map fetcher.
  *
  * Fetches one 256-pixel scanline from a text BG using the live NDS display
- * registers, mapped BG VRAM, and standard BG palette RAM. Affine/bitmap BG,
- * OBJ evaluation, layer priority, windows and final composition are handled
- * by later stages.
+ * registers, mapped BG VRAM, standard BG palette RAM and, for 8bpp text
+ * tiles with DISPCNT bit 30 set, display-only extended BG palette VRAM.
+ * Affine/bitmap BG, OBJ evaluation, layer priority, windows and final
+ * composition are handled by later stages.
  */
 #ifndef ORACIS_MEMORY_NDS_2D_BG_FETCHER_HPP
 #define ORACIS_MEMORY_NDS_2D_BG_FETCHER_HPP
