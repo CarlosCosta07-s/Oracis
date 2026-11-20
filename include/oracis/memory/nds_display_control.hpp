@@ -52,7 +52,11 @@ public:
                  uint32_t width,
                  uint32_t value) noexcept;
 
-    /* Called only by NdsSystemClock at its synchronized bus-time watermark. */
+    /*
+     * Called only by NdsSystemClock at its synchronized bus-time watermark.
+     * VCOUNT synchronization writes are queued to the next line boundary;
+     * lines 202..212 are the recommended, not exclusive, write window.
+     */
     void advance_bus_cycles(uint64_t cycles) noexcept;
     void reset_timing() noexcept;
 

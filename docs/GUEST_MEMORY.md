@@ -101,7 +101,11 @@ Este dispositivo ainda não implementa acesso do PPU, avaliação de sprites/OAM
 
 Os valores são mantidos separadamente por engine. No DISPCNT da Engine B, os campos documentados como exclusivos da Engine A (bits 3, 18–19, 22 e 24–29) são lidos como zero e ignorados nas escritas. Os registradores de BG conservam seus 16 bits.
 
-O dispositivo devolve `Unmapped` para acessos ARM7, para `DISPSTAT/VCOUNT` e para os demais offsets ainda não implementados. Essa separação é intencional: o registrador de status e o contador vertical dependem de um relógio de scanlines; não há leitura fictícia de VCOUNT nem flags de VBlank/HBlank fabricadas. Os valores gravados ainda não são consumidos por um renderizador.
+DISPSTAT (`0x04000004`) e VCOUNT (`0x04000006`) são compartilhados pelos dois CPUs. DISPSTAT devolve os flags dinâmicos VBlank, HBlank e coincidência VCOUNT/LYC nos bits 0–2; seus enables de IRQ são independentes por CPU. O motor de scanline avança pelo relógio de barramento sincronizado, com 2130 ciclos por linha e 263 linhas por quadro. HBlank inicia no ciclo 1606 para ARM9 e 1613 para ARM7. VBlank é sinalizado nas linhas 192–261 e gera IRQ na entrada real da linha 192. A comparação de VCOUNT usa nove bits, e a IRQ de coincidência é gerada na transição para uma linha correspondente.
+
+VCOUNT aceita escritas de 16 bits e aplica o novo valor na próxima fronteira de scanline, sem alterar a fase de ciclos da linha atual. O hardware documenta a faixa 202–212 como janela recomendada para sincronização confiável; ela não é tratada aqui como uma proibição de escrita fora da faixa. Valores de linha fora de 0–262 são recusados. Um salto direto para dentro da faixa VBlank atualiza o flag de status, mas não simula o IRQ de entrada na linha 192.
+
+Os valores de DISPCNT/BG ainda não são consumidos por um renderizador. `Unmapped` para acessos ARM7, para `DISPSTAT/VCOUNT` e para os demais offsets ainda não implementados. Essa separação é intencional: o registrador de status e o contador vertical dependem de um relógio de scanlines; não há leitura fictícia de VCOUNT nem flags de VBlank/HBlank fabricadas. Os valores gravados ainda não são consumidos por um renderizador.
 
 ### Controlador de interrupções
 

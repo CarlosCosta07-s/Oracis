@@ -230,10 +230,30 @@ int main()
     display.advance_bus_cycles(
         static_cast<uint64_t>(NdsDisplayControl::CyclesPerScanline) * 3u);
     if (display.current_scanline() != 213u ||
+        interrupts.write(
+            NDS_ARM9, NdsInterruptControl::IfAddress, 4u, UINT32_C(1)) != Status::Ok ||
+        interrupts.write(
+            NDS_ARM7, NdsInterruptControl::IfAddress, 4u, UINT32_C(1)) != Status::Ok ||
         display.write(
             NDS_ARM7, NdsDisplayControl::VcountAddress, 2u,
-            UINT16_C(100)) != Status::PermissionDenied) {
-        return fail("VCOUNT write outside the documented sync window was accepted");
+            UINT16_C(200)) != Status::Ok ||
+        display.current_scanline() != 213u) {
+        return fail("VCOUNT write outside the recommended sync window was rejected or applied mid-line");
+    }
+    display.advance_bus_cycles(NdsDisplayControl::CyclesPerScanline);
+    if (display.current_scanline() != 200u ||
+        (display.read(
+            NDS_ARM9, NdsDisplayControl::DispstatAddress, 2u).value & 1u) == 0u ||
+        (interrupts.read(
+            NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value & 1u) != 0u ||
+        (interrupts.read(
+            NDS_ARM7, NdsInterruptControl::IfAddress, 4u).value & 1u) != 0u) {
+        return fail("VCOUNT jump into VBlank did not update status without fabricating a line-192 IRQ");
+    }
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::VcountAddress, 2u,
+            UINT16_C(300)) != Status::PermissionDenied) {
+        return fail("VCOUNT accepted a scanline outside the modeled 0..262 range");
     }
 
     std::puts("NDS Engine A/B registers, DISPSTAT/VCOUNT scanline timing and IRQs passed");

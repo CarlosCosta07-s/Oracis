@@ -181,11 +181,12 @@ Status NdsDisplayControl::write(
         if (!valid_cpu(cpu)) return Status::InvalidCpu;
         if (width != 2u) return Status::InvalidWidth;
 
-        /* The hardware documentation recommends synchronization writes
-         * only during scanlines 202..212. Apply accepted writes at line end. */
-        if (vcount_ < 202u || vcount_ > 212u) {
-            return Status::PermissionDenied;
-        }
+        /*
+         * VCOUNT is writable. The documented 202..212 interval is the
+         * recommended synchronization window, not an access restriction.
+         * Queue changes to the next scanline boundary to keep the local
+         * scanline clock coherent with the shared bus-time watermark.
+         */
         const uint16_t requested =
             static_cast<uint16_t>(value) & VcountMask;
         if (requested > LastScanline) return Status::PermissionDenied;
@@ -232,7 +233,6 @@ Status NdsDisplayControl::write(
 
 void NdsDisplayControl::advance_scanline() noexcept
 {
-    const bool vblank_before = is_vblank_line(vcount_);
     const std::array<bool, 2> vcount_match_before = {
         vcount_matches(0u), vcount_matches(1u)
     };
@@ -245,8 +245,10 @@ void NdsDisplayControl::advance_scanline() noexcept
     }
     vcount_ = next_scanline;
 
-    const bool vblank_after = is_vblank_line(vcount_);
-    if (!vblank_before && vblank_after) {
+    /* The VBlank IRQ is tied to the real line-192 edge, not merely a
+     * software VCOUNT jump into the VBlank range. The status flag remains
+     * derived from the current line through read_dispstat(). */
+    if (vcount_ == VisibleScanlines) {
         request_irq_if_enabled(0u, VblankIrqEnable, kIrqVblank);
         request_irq_if_enabled(1u, VblankIrqEnable, kIrqVblank);
     }
