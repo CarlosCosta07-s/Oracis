@@ -179,29 +179,16 @@ O critério de primeiro boot nativo continua sendo a execução observável e re
 
 ## 12. Auditoria local dos símbolos dos bancos
 
-Depois de emitir e compilar os quatro arquivos C dos bancos localmente, use o auditor para comparar os símbolos indefinidos dos objetos ARM9/ARM7 com os símbolos definidos pelos próprios bancos e pelas bibliotecas do runtime Oracis:
+Quando `ORACIS_LOCAL_BANK_DIR` está configurado, o CMake cria o alvo `oracis_audit_platinum_bank_symbols`. Ele usa os objetos exatos dos bancos ARM9/ARM7 e compara seus símbolos indefinidos com os símbolos fornecidos pelos objetos dos próprios bancos e pelos arquivos `liboracis_machine`, `liboracis_memory` e `liboracis_arm_state`.
 
-\`\`\`sh
-python tools/ndsrecomp/audit_bank_symbols.py \\
-  --banks \\
-    .oracis/objects/pokemon_platinum_usa_rev1_arm9.o \\
-    .oracis/objects/pokemon_platinum_usa_rev1_arm7.o \\
-  --runtime \\
-    build/liboracis_machine.a \\
-    build/liboracis_memory.a \\
-    build/liboracis_arm_state.a
-\`\`\`
+```sh
+cmake -S . -B build \
+  -DORACIS_LOCAL_BANK_DIR=.oracis/generated/pokemon-platinum-usa-rev1
+cmake --build build --target oracis_audit_platinum_bank_symbols
+```
 
-Os caminhos dos objetos e bibliotecas devem corresponder aos artefatos realmente produzidos pelo build local. O auditor aceita GNU \`nm\` ou LLVM \`llvm-nm\`, lê um objeto por chamada e distingue símbolos definidos por objetos/bibliotecas de referências indefinidas. O resultado agrupa referências compartilhadas entre CPUs, informa quais bancos as solicitam e retorna código diferente de zero quando houver símbolos sem provedor.
+O alvo usa o `CMAKE_NM` selecionado pelo toolchain (GNU `nm` ou LLVM `llvm-nm`). Ele agrupa referências compartilhadas entre CPUs, mostra quais objetos as solicitam e falha quando um símbolo não tem provedor. A CI executa esse alvo com fixtures sintéticas; ela não recebe ROM, segmentos extraídos, bancos comerciais ou objetos derivados do jogo.
 
-Símbolos fornecidos pelo compilador C ou pela plataforma só podem ser excluídos do resultado por meio de um arquivo local explícito, passado com \`--allowlist\`, contendo um símbolo por linha. Não coloque nesse arquivo helpers ARM, funções NitroSDK ou serviços que deveriam pertencer ao runtime Oracis. O allowlist é uma decisão local e revisável; não deve ser usado para mascarar lacunas de ABI.
+Símbolos fornecidos pelo compilador C ou pela plataforma só podem ser excluídos por meio de um arquivo local explícito, passado com `-DORACIS_BANK_SYMBOL_ALLOWLIST=/caminho/absoluto/simbolos.allow`. O arquivo contém um símbolo por linha, com comentários iniciados por `#`. Não coloque nele helpers ARM, funções NitroSDK ou serviços que deveriam pertencer ao runtime Oracis. O allowlist é uma decisão local e revisável; não deve mascarar lacunas de ABI.
 
-Exemplo de arquivo local (não versionado):
-
-\`\`\`text
-# Funções confirmadas como fornecidas pela libc do toolchain utilizado
-memcpy
-memset
-\`\`\`
-
-O auditor é exercitado por testes sintéticos da ferramenta. CI compila/testa o script, mas não recebe ROM, segmentos extraídos, bancos comerciais ou objetos derivados do jogo. A execução contra os bancos reais ainda precisa ser feita localmente e seu relatório deve ser revisado antes de habilitar execução.
+A execução contra os bancos reais ainda precisa ser feita localmente e seu relatório deve ser revisado antes de habilitar execução. A existência do alvo e o sucesso das fixtures não significam que os 48 símbolos reais já estejam resolvidos.

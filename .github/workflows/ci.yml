@@ -64,6 +64,7 @@ jobs:
             -DORACIS_LOCAL_BANK_DIR="$GITHUB_WORKSPACE/tests/fixtures/static_banks"
           cmake --build build --target oracis_compiled_bank_link_smoke --parallel
           ctest --test-dir build -R oracis_compiled_bank_link_smoke --output-on-failure
+          cmake --build build --target oracis_audit_platinum_bank_symbols --parallel
 
   runtime-tests:
     name: ARM runtime tests (no SDL3 dependency)

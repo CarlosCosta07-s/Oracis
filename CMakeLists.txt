@@ -16,6 +16,8 @@ option(ORACIS_BUILD_HOST "Build the SDL3 desktop/Android host" ON)
 option(ORACIS_FETCH_SDL3 "Download and build the pinned SDL3 release" ON)
 set(ORACIS_LOCAL_BANK_DIR "" CACHE PATH
     "Optional local directory containing emitted Platinum ARM9/ARM7 C banks")
+set(ORACIS_BANK_SYMBOL_ALLOWLIST "" CACHE FILEPATH
+    "Optional local allowlist for verified platform/C-runtime bank symbols")
 
 if(ORACIS_BUILD_HOST)
     if(ORACIS_FETCH_SDL3)
@@ -121,6 +123,8 @@ target_compile_features(oracis_machine PUBLIC cxx_std_20)
 # User-owned NDSRecomp output is optional and never fetched by CI. The bank
 # directory must contain the exact filenames produced by emit_platinum_banks.py.
 if(ORACIS_LOCAL_BANK_DIR)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
     get_filename_component(ORACIS_LOCAL_BANK_DIR
         "${ORACIS_LOCAL_BANK_DIR}" ABSOLUTE)
 
@@ -164,6 +168,48 @@ if(ORACIS_LOCAL_BANK_DIR)
         target_compile_definitions(${ORACIS_RUNTIME_TARGET} PRIVATE
             ORACIS_WITH_PLATINUM_STATIC_BANKS=1)
     endif()
+
+    set(_oracis_bank_audit_nm_args)
+    if(CMAKE_NM)
+        list(APPEND _oracis_bank_audit_nm_args --nm "${CMAKE_NM}")
+    endif()
+
+    set(_oracis_bank_audit_allowlist_args)
+    if(ORACIS_BANK_SYMBOL_ALLOWLIST)
+        get_filename_component(ORACIS_BANK_SYMBOL_ALLOWLIST
+            "${ORACIS_BANK_SYMBOL_ALLOWLIST}" ABSOLUTE)
+        if(NOT EXISTS "${ORACIS_BANK_SYMBOL_ALLOWLIST}")
+            message(FATAL_ERROR
+                "ORACIS_BANK_SYMBOL_ALLOWLIST does not exist: "
+                "${ORACIS_BANK_SYMBOL_ALLOWLIST}")
+        endif()
+        list(APPEND _oracis_bank_audit_allowlist_args
+            --allowlist "${ORACIS_BANK_SYMBOL_ALLOWLIST}")
+    endif()
+
+    # Audit the exact objects linked into the local machine plus the symbols
+    # exported by the Oracis runtime archives. This target is local-only.
+    add_custom_target(oracis_audit_platinum_bank_symbols
+        COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/ndsrecomp/audit_bank_symbols.py"
+            --banks
+            $<TARGET_OBJECTS:oracis_platinum_arm9_bank>
+            $<TARGET_OBJECTS:oracis_platinum_arm7_bank>
+            --runtime
+            "$<TARGET_FILE:oracis_machine>"
+            "$<TARGET_FILE:oracis_memory>"
+            "$<TARGET_FILE:oracis_arm_state>"
+            ${_oracis_bank_audit_nm_args}
+            ${_oracis_bank_audit_allowlist_args}
+        COMMAND_EXPAND_LISTS
+        DEPENDS
+            oracis_platinum_arm9_bank
+            oracis_platinum_arm7_bank
+            oracis_machine
+            oracis_memory
+            oracis_arm_state
+        VERBATIM
+    )
 endif()
 
 # The SDL host consumes the independent machine/runtime libraries.
