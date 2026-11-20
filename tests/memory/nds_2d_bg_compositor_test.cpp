@@ -126,6 +126,52 @@ int main()
         return fail("OBJ/BG priority merge failed");
     }
 
+    /* Semi-transparent OBJ forces alpha and blends against BG1 target 2. */
+    if (!write16(memory, UINT32_C(0x07000000), UINT16_C(0x0400)) ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 0x50u, 2u,
+            UINT16_C(0x0240)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 0x52u, 2u,
+            UINT16_C(0x0808)) != Status::Ok) {
+        return fail("semi-transparent OBJ fixture setup failed");
+    }
+    result = compositor.render_scanline(0u, display, 0u, line);
+    if (result.status != Nds2dComposeStatus::Ok ||
+        line[0].top_layer != Nds2dLayer::Object ||
+        !line[0].top_object_semi_transparent ||
+        line[0].second_layer != Nds2dLayer::Bg1 ||
+        line[0].rgb555 != UINT16_C(0x4210)) {
+        return fail("semi-transparent OBJ first-target alpha blend failed");
+    }
+
+    /* OBJ-window coverage changes the per-pixel window region and layer mask. */
+    if (!write16(memory, UINT32_C(0x07000000), UINT16_C(0x0800)) ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            (UINT32_C(1) << 8u) | (UINT32_C(1) << 9u) |
+                (UINT32_C(1) << 15u)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 0x4Au, 2u,
+            UINT16_C(0x2100)) != Status::Ok) {
+        return fail("OBJ-window compositor fixture setup failed");
+    }
+    result = compositor.render_scanline(0u, display, 0u, line);
+    if (result.status != Nds2dComposeStatus::Ok ||
+        line[0].window_region != Nds2dWindowRegion::ObjectWindow ||
+        line[0].top_layer != Nds2dLayer::Bg0 ||
+        line[8].window_region != Nds2dWindowRegion::Outside ||
+        line[8].top_layer != Nds2dLayer::Backdrop) {
+        return fail("OBJ-window region/layer mask composition failed");
+    }
+
+    /* Turn OBJ/OBJ-window off before the BG-only ordering checks. */
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            (UINT32_C(1) << 8u) | (UINT32_C(1) << 9u)) != Status::Ok) {
+        return fail("OBJ disable after compositor tests failed");
+    }
+
     /* Equal priorities are resolved BG0, BG1, BG2, BG3. */
     if (display.write(
             NDS_ARM9, NdsDisplayControl::EngineABase + 8u, 2u,
