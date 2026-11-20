@@ -41,7 +41,15 @@ int main()
         memory.map_ram(
             UINT32_C(0x06000000), UINT32_C(0x00020000),
             static_cast<uint8_t>(Readable | Writable),
-            "compositor Engine A BG VRAM", CpuAccessArm9) != Status::Ok) {
+            "compositor Engine A BG VRAM", CpuAccessArm9) != Status::Ok ||
+        memory.map_ram(
+            UINT32_C(0x06400000), UINT32_C(0x00040000),
+            static_cast<uint8_t>(Readable | Writable),
+            "compositor Main OBJ VRAM", CpuAccessArm9) != Status::Ok ||
+        memory.map_ram(
+            UINT32_C(0x07000000), UINT32_C(0x00000800),
+            static_cast<uint8_t>(Readable | Writable),
+            "compositor OAM", CpuAccessArm9) != Status::Ok) {
         return fail("synthetic compositor memory map setup failed");
     }
 
