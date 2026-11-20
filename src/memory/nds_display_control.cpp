@@ -1,4 +1,5 @@
 #include "oracis/memory/nds_display_control.hpp"
+#include "oracis/memory/nds_dma_control.hpp"
 
 #include <algorithm>
 
@@ -491,6 +492,10 @@ void NdsDisplayControl::advance_scanline() noexcept
      * software VCOUNT jump into the VBlank range. The status flag remains
      * derived from the current line through read_dispstat(). */
     if (vcount_ == VisibleScanlines) {
+        if (dma_ != nullptr) {
+            static_cast<void>(dma_->trigger_vblank(NDS_ARM9));
+            static_cast<void>(dma_->trigger_vblank(NDS_ARM7));
+        }
         request_irq_if_enabled(0u, VblankIrqEnable, kIrqVblank);
         request_irq_if_enabled(1u, VblankIrqEnable, kIrqVblank);
     }
@@ -531,6 +536,9 @@ void NdsDisplayControl::advance_bus_cycles(uint64_t cycles) noexcept
         if (line_cycle_ == Arm9HblankStartCycle &&
             !hblank_irq_fired_[0]) {
             hblank_irq_fired_[0] = true;
+            if (dma_ != nullptr && vcount_ < VisibleScanlines) {
+                static_cast<void>(dma_->trigger_hblank(NDS_ARM9));
+            }
             request_irq_if_enabled(0u, HblankIrqEnable, kIrqHblank);
         }
         if (line_cycle_ == Arm7HblankStartCycle &&

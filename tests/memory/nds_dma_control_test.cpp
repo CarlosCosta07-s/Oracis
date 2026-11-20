@@ -1,5 +1,6 @@
 #include "oracis/memory/guest_memory_abi.h"
 #include "oracis/memory/nds_dma_control.hpp"
+#include "oracis/memory/nds_display_control.hpp"
 #include "oracis/memory/nds_interrupt_control.hpp"
 #include "oracis/recomp/runtime_arm.h"
 
@@ -51,6 +52,10 @@ int main()
     }
     NdsInterruptControl interrupts(memory);
     NdsDmaControl dma(memory, interrupts);
+    oracis::memory::NdsDisplayControl display(interrupts, &dma);
+    if (display.install() != Status::Ok) {
+        return fail("display event source installation failed");
+    }
 
     ArmCpuState arm9{};
     ArmCpuState arm7{};
@@ -195,10 +200,77 @@ int main()
     bus_write_u32(destination_reg(3u), deferred_destination);
     bus_write_u32(control_reg(3u),
         UINT32_C(1) | (UINT32_C(1) << 27u) |
-        NdsDmaControl::WordTransferMask | NdsDmaControl::EnableMask);
+        NdsDmaControl::WordTransferMask | NdsDmaControl::IrqEnableMask |
+        NdsDmaControl::EnableMask);
     if (memory.read(NDS_ARM9, deferred_destination, 4u).value != 0u ||
         (bus_read_u32(control_reg(3u)) & NdsDmaControl::EnableMask) == 0u) {
         return fail("VBlank DMA did not stay armed without an event");
+    }
+    bus_write_u32(NdsInterruptControl::IeAddress, UINT32_C(1) << 11u);
+    display.advance_bus_cycles(
+        static_cast<uint64_t>(NdsDisplayControl::VisibleScanlines) *
+        NdsDisplayControl::CyclesPerScanline);
+    if (memory.read(NDS_ARM9, deferred_destination, 4u).value !=
+            UINT32_C(0xCAFE1234) ||
+        (bus_read_u32(control_reg(3u)) & NdsDmaControl::EnableMask) != 0u ||
+        (bus_read_u32(NdsInterruptControl::IfAddress) &
+            (UINT32_C(1) << 11u)) == 0u) {
+        return fail("VBlank event did not execute one-shot DMA and request IRQ");
+    }
+
+    /* ARM9 HBlank DMA repeats once per visible line and reloads destination. */
+    display.reset_timing();
+    constexpr uint32_t hblank_source = UINT32_C(0x02000B00);
+    constexpr uint32_t hblank_destination = UINT32_C(0x02000C00);
+    if (memory.write(NDS_ARM9, hblank_source, 4u,
+            UINT32_C(0x13572468)) != Status::Ok ||
+        memory.write(NDS_ARM9, hblank_source + 4u, 4u,
+            UINT32_C(0x24681357)) != Status::Ok) {
+        return fail("could not seed HBlank DMA source");
+    }
+    bus_write_u32(source_reg(1u), hblank_source);
+    bus_write_u32(destination_reg(1u), hblank_destination);
+    bus_write_u32(control_reg(1u),
+        UINT32_C(1) | (UINT32_C(2) << 27u) |
+        NdsDmaControl::RepeatMask | NdsDmaControl::WordTransferMask |
+        (UINT32_C(3) << NdsDmaControl::DestinationControlShift) |
+        NdsDmaControl::EnableMask);
+    display.advance_bus_cycles(NdsDisplayControl::Arm9HblankStartCycle);
+    if (memory.read(NDS_ARM9, hblank_destination, 4u).value !=
+            UINT32_C(0x13572468) ||
+        (bus_read_u32(control_reg(1u)) & NdsDmaControl::EnableMask) == 0u) {
+        return fail("first HBlank DMA repeat did not execute");
+    }
+    display.advance_bus_cycles(NdsDisplayControl::CyclesPerScanline);
+    if (memory.read(NDS_ARM9, hblank_destination, 4u).value !=
+            UINT32_C(0x24681357) ||
+        bus_read_u32(source_reg(1u)) != hblank_source + 8u ||
+        bus_read_u32(destination_reg(1u)) != hblank_destination ||
+        (bus_read_u32(control_reg(1u)) & NdsDmaControl::EnableMask) == 0u) {
+        return fail("repeating HBlank DMA did not advance source and reload destination");
+    }
+    bus_write_u16(control_reg(1u) + 2u, 0u);
+
+    /* Arm an HBlank transfer only after entering VBlank; it must remain pending. */
+    display.reset_timing();
+    display.advance_bus_cycles(
+        static_cast<uint64_t>(NdsDisplayControl::VisibleScanlines) *
+        NdsDisplayControl::CyclesPerScanline);
+    constexpr uint32_t paused_destination = UINT32_C(0x02000D00);
+    if (memory.write(NDS_ARM9, paused_destination, 4u,
+            UINT32_C(0xDEADBEEF)) != Status::Ok) {
+        return fail("could not seed paused HBlank destination");
+    }
+    bus_write_u32(source_reg(2u), hblank_source);
+    bus_write_u32(destination_reg(2u), paused_destination);
+    bus_write_u32(control_reg(2u),
+        UINT32_C(1) | (UINT32_C(2) << 27u) |
+        NdsDmaControl::WordTransferMask | NdsDmaControl::EnableMask);
+    display.advance_bus_cycles(NdsDisplayControl::Arm9HblankStartCycle);
+    if (memory.read(NDS_ARM9, paused_destination, 4u).value !=
+            UINT32_C(0xDEADBEEF) ||
+        (bus_read_u32(control_reg(2u)) & NdsDmaControl::EnableMask) == 0u) {
+        return fail("HBlank DMA incorrectly fired during VBlank");
     }
 
     /* Invalid source memory is rejected before changing the destination. */

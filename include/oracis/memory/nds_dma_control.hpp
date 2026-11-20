@@ -42,6 +42,10 @@ public:
     Status write(NdsCpu cpu, uint32_t address,
                  uint32_t width, uint32_t value) noexcept;
 
+    /* Trigger event-armed channels at the exact display event boundary. */
+    Status trigger_vblank(NdsCpu cpu) noexcept;
+    Status trigger_hblank(NdsCpu cpu) noexcept;
+
     GuestMemory &backing_memory() noexcept { return memory_; }
     NdsInterruptControl &interrupt_control() noexcept { return interrupts_; }
 
@@ -62,8 +66,10 @@ private:
         NdsCpu cpu, unsigned channel, uint32_t programmed_count) noexcept;
     static uint32_t start_timing(NdsCpu cpu, uint32_t control) noexcept;
 
-    Status execute_immediate(
-        NdsCpu cpu, unsigned channel, Channel &state) noexcept;
+    Status execute_transfer(
+        NdsCpu cpu, unsigned channel, Channel &state,
+        bool immediate) noexcept;
+    Status trigger_event(NdsCpu cpu, uint32_t timing) noexcept;
 
     GuestMemory &memory_;
     NdsInterruptControl &interrupts_;

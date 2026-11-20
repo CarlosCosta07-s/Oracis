@@ -20,7 +20,7 @@ NdsMachine::NdsMachine(memory::SharedWramMode initial_wram_mode) noexcept
       interrupt_control_(memory_),
       ipc_control_(interrupt_control_),
       dma_control_(memory_, interrupt_control_),
-      display_control_(interrupt_control_),
+      display_control_(interrupt_control_, &dma_control_),
       timer_control_(memory_, interrupt_control_),
       keypad_control_(memory_, interrupt_control_),
       system_clock_(timer_control_, display_control_)

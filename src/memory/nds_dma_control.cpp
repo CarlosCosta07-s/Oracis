@@ -88,8 +88,9 @@ ReadResult NdsDmaControl::read(
     return {Status::Ok, (channel.control >> shift) & UINT32_C(0xFFFF)};
 }
 
-Status NdsDmaControl::execute_immediate(
-    NdsCpu cpu, unsigned channel_index, Channel &state) noexcept
+Status NdsDmaControl::execute_transfer(
+    NdsCpu cpu, unsigned channel_index, Channel &state,
+    bool immediate) noexcept
 {
     const uint32_t control = state.control;
     const uint32_t source_mode =
@@ -177,12 +178,46 @@ Status NdsDmaControl::execute_immediate(
     state.destination = destination_mode == 3u
         ? state.destination : destination;
 
-    state.control &= ~EnableMask;
+    const bool repeat = !immediate && (control & RepeatMask) != 0u;
+    if (!repeat) state.control &= ~EnableMask;
     if ((control & IrqEnableMask) != 0u) {
         (void)interrupts_.request_irq(
             cpu, UINT32_C(1) << (8u + channel_index));
     }
     return Status::Ok;
+}
+
+Status NdsDmaControl::trigger_event(
+    NdsCpu cpu, uint32_t timing) noexcept
+{
+    if (!valid_cpu(cpu)) return Status::InvalidCpu;
+    Status first_error = Status::Ok;
+    for (unsigned index = 0u; index < ChannelCount; ++index) {
+        Channel &channel = channels_[cpu_index(cpu)][index];
+        if ((channel.control & EnableMask) == 0u ||
+            start_timing(cpu, channel.control) != timing) {
+            continue;
+        }
+        const Status result = execute_transfer(cpu, index, channel, false);
+        if (result != Status::Ok) {
+            /* A failing event-triggered channel is disarmed, never retried blindly. */
+            channel.control &= ~EnableMask;
+            if (first_error == Status::Ok) first_error = result;
+        }
+    }
+    return first_error;
+}
+
+Status NdsDmaControl::trigger_vblank(NdsCpu cpu) noexcept
+{
+    return trigger_event(cpu, 1u);
+}
+
+Status NdsDmaControl::trigger_hblank(NdsCpu cpu) noexcept
+{
+    if (!valid_cpu(cpu)) return Status::InvalidCpu;
+    if (cpu != NDS_ARM9) return Status::Ok;
+    return trigger_event(cpu, 2u);
 }
 
 Status NdsDmaControl::write(
@@ -228,7 +263,8 @@ Status NdsDmaControl::write(
         return Status::Ok;
     }
 
-    const Status result = execute_immediate(cpu, channel_index, channel);
+    const Status result = execute_transfer(
+        cpu, channel_index, channel, true);
     if (result != Status::Ok) {
         channel.control = previous_control;
         return result;

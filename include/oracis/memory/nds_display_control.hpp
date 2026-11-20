@@ -16,6 +16,8 @@
 
 namespace oracis::memory {
 
+class NdsDmaControl;
+
 class NdsDisplayControl final {
 public:
     static constexpr uint32_t EngineABase = UINT32_C(0x04000000);
@@ -79,8 +81,10 @@ public:
     static constexpr uint16_t ScanlinesPerFrame = 263u;
     static constexpr uint16_t LastScanline = ScanlinesPerFrame - 1u;
 
-    explicit NdsDisplayControl(NdsInterruptControl &interrupts) noexcept
-        : interrupts_(interrupts) {}
+    explicit NdsDisplayControl(
+        NdsInterruptControl &interrupts,
+        NdsDmaControl *dma = nullptr) noexcept
+        : interrupts_(interrupts), dma_(dma) {}
     NdsDisplayControl(const NdsDisplayControl &) = delete;
     NdsDisplayControl &operator=(const NdsDisplayControl &) = delete;
 
@@ -155,6 +159,7 @@ private:
         unsigned cpu_index, uint16_t enable_bit, uint32_t irq_mask) noexcept;
 
     NdsInterruptControl &interrupts_;
+    NdsDmaControl *dma_ = nullptr;
     std::array<EngineState, 2> engines_{};
     std::array<CpuStatus, 2> cpu_status_{};
     std::array<bool, 2> hblank_irq_fired_{};
