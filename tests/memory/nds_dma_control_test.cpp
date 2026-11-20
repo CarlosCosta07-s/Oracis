@@ -57,6 +57,7 @@ int main()
     if (display.install() != Status::Ok) {
         return fail("display event source installation failed");
     }
+    dma.attach_display_control(display);
 
     ArmCpuState arm9{};
     ArmCpuState arm7{};
@@ -425,6 +426,76 @@ int main()
     }
     bus_write_u16(control_reg(2u) + 2u, 0u);
 
+    /* ARM9 main-memory display DMA supplies 4-word FIFO bursts on demand. */
+    display.reset_timing();
+    constexpr uint32_t mmem_source = UINT32_C(0x02001000);
+    constexpr uint32_t mmem_words[] = {
+        UINT32_C(0x7FFF0001), UINT32_C(0x7FFE0002),
+        UINT32_C(0x7FFD0003), UINT32_C(0x7FFC0004),
+        UINT32_C(0x7FFB0005), UINT32_C(0x7FFA0006),
+        UINT32_C(0x7FF90007), UINT32_C(0x7FF80008)
+    };
+    for (uint32_t index = 0u; index < 8u; ++index) {
+        if (memory.write(NDS_ARM9, mmem_source + index * 4u,
+                4u, mmem_words[index]) != Status::Ok) {
+            return fail("could not seed main-memory display DMA source");
+        }
+    }
+    if (display.write(NDS_ARM9, NdsDisplayControl::EngineABase,
+            4u, UINT32_C(3) << 16u) != Status::Ok) {
+        return fail("could not select Engine A main-memory display mode");
+    }
+    (void)interrupts.write(
+        NDS_ARM9, NdsInterruptControl::IfAddress, 4u, Dma0Irq);
+    (void)interrupts.write(
+        NDS_ARM9, NdsInterruptControl::IeAddress, 4u, Dma0Irq);
+    bus_write_u32(source_reg(0u), mmem_source);
+    bus_write_u32(destination_reg(0u),
+        NdsDisplayControl::MainMemoryDisplayFifoAddress);
+    bus_write_u32(control_reg(0u),
+        UINT32_C(4) |
+        (UINT32_C(2) << NdsDmaControl::DestinationControlShift) |
+        (UINT32_C(4) << 27u) |
+        NdsDmaControl::WordTransferMask | NdsDmaControl::IrqEnableMask |
+        NdsDmaControl::EnableMask);
+    if (display.main_memory_display_fifo_words() != 0u ||
+        (bus_read_u32(control_reg(0u)) & NdsDmaControl::EnableMask) == 0u) {
+        return fail("main-memory display DMA did not arm without eager transfer");
+    }
+    constexpr uint16_t expected_mmem_pixels[] = {
+        UINT16_C(0x0001), UINT16_C(0x7FFF),
+        UINT16_C(0x0002), UINT16_C(0x7FFE),
+        UINT16_C(0x0003), UINT16_C(0x7FFD),
+        UINT16_C(0x0004), UINT16_C(0x7FFC)
+    };
+    for (uint32_t pixel = 0u; pixel < 8u; ++pixel) {
+        const auto actual = display.consume_main_memory_display_pixel();
+        if (!actual || actual.value != expected_mmem_pixels[pixel]) {
+            return fail("main-memory display FIFO returned incorrect RGB555 pixel order");
+        }
+    }
+    if (display.main_memory_display_fifo_words() != 0u) {
+        return fail("main-memory display FIFO did not drain after eight pixels");
+    }
+    const auto refilled_pixel = display.consume_main_memory_display_pixel();
+    if (!refilled_pixel || refilled_pixel.value != UINT32_C(5) ||
+        display.main_memory_display_fifo_words() != 4u ||
+        bus_read_u32(source_reg(0u)) != mmem_source ||
+        bus_read_u32(destination_reg(0u)) !=
+            NdsDisplayControl::MainMemoryDisplayFifoAddress) {
+        return fail("main-memory display DMA did not refill the next four-word block");
+    }
+    display.advance_bus_cycles(
+        static_cast<uint64_t>(NdsDisplayControl::VisibleScanlines) *
+        NdsDisplayControl::CyclesPerScanline);
+    if ((bus_read_u32(control_reg(0u)) & NdsDmaControl::EnableMask) != 0u ||
+        display.main_memory_display_fifo_words() != 0u ||
+        (interrupts.read(NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value &
+            Dma0Irq) == 0u) {
+        return fail("main-memory display DMA did not stop and IRQ at VBlank");
+    }
+    (void)display.write(NDS_ARM9, NdsDisplayControl::EngineABase, 4u, 0u);
+
     /* Invalid source memory is rejected before changing the destination. */
     const uint32_t guard_address = UINT32_C(0x02000A00);
     const uint32_t guard_before = UINT32_C(0xFEEDC0DE);
@@ -449,6 +520,6 @@ int main()
         return fail("DMA bus teardown failed");
     }
 
-    std::puts("NDS DMA programmed registers, internal pointers, event repeats and IRQ passed");
+    std::puts("NDS DMA memory transfers, display events, main-memory FIFO bursts and IRQs passed");
     return 0;
 }

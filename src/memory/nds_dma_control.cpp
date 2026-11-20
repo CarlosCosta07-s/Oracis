@@ -1,4 +1,5 @@
 #include "oracis/memory/nds_dma_control.hpp"
+#include "oracis/memory/nds_display_control.hpp"
 
 namespace oracis::memory {
 
@@ -234,7 +235,27 @@ Status NdsDmaControl::trigger_event(
 
 Status NdsDmaControl::trigger_vblank(NdsCpu cpu) noexcept
 {
-    return trigger_event(cpu, 1u);
+    if (!valid_cpu(cpu)) return Status::InvalidCpu;
+    const Status event_status = trigger_event(cpu, 1u);
+
+    /* Main-memory display DMA remains armed between FIFO bursts, then ends
+     * at the visible-to-VBlank edge so software can re-arm the next frame. */
+    if (cpu == NDS_ARM9) {
+        for (unsigned index = 0u; index < ChannelCount; ++index) {
+            Channel &channel = channels_[0][index];
+            if ((channel.control & EnableMask) == 0u ||
+                start_timing(cpu, channel.control) !=
+                    MainMemoryDisplayTiming) {
+                continue;
+            }
+            channel.control &= ~EnableMask;
+            if ((channel.control & IrqEnableMask) != 0u) {
+                (void)interrupts_.request_irq(
+                    cpu, UINT32_C(1) << (8u + index));
+            }
+        }
+    }
+    return event_status;
 }
 
 Status NdsDmaControl::trigger_hblank(NdsCpu cpu) noexcept
@@ -250,6 +271,79 @@ Status NdsDmaControl::trigger_display_sync(NdsCpu cpu) noexcept
     /* ARM7 timing 3 is channel-specific wireless/GBA-slot DMA, not LCD sync. */
     if (cpu != NDS_ARM9) return Status::Ok;
     return trigger_event(cpu, 3u);
+}
+
+Status NdsDmaControl::trigger_main_memory_display() noexcept
+{
+    if (display_control_ == nullptr) return Status::Unmapped;
+    /* The LCD requests another four-word block only when the FIFO is empty. */
+    if (display_control_->main_memory_display_fifo_words() != 0u) {
+        return Status::Ok;
+    }
+
+    constexpr uint32_t MainRamBase = UINT32_C(0x02000000);
+    constexpr uint64_t MainRamEnd = UINT64_C(0x03000000);
+    constexpr uint32_t BurstBytes = MainMemoryDisplayBurstWords * 4u;
+
+    for (unsigned index = 0u; index < ChannelCount; ++index) {
+        Channel &channel = channels_[0][index];
+        if ((channel.control & EnableMask) == 0u ||
+            start_timing(NDS_ARM9, channel.control) !=
+                MainMemoryDisplayTiming) {
+            continue;
+        }
+
+        const uint32_t source_mode =
+            (channel.control >> SourceControlShift) & 3u;
+        const uint32_t destination_mode =
+            (channel.control >> DestinationControlShift) & 3u;
+        const bool word_transfer =
+            (channel.control & WordTransferMask) != 0u;
+        const uint32_t programmed_count =
+            channel.control & count_mask(NDS_ARM9, index);
+        if (!word_transfer || programmed_count != MainMemoryDisplayBurstWords ||
+            source_mode != 0u || destination_mode != 2u ||
+            channel.current_destination != MainMemoryDisplayFifoAddress) {
+            channel.control &= ~EnableMask;
+            return Status::InvalidRegion;
+        }
+
+        const uint64_t source_end =
+            static_cast<uint64_t>(channel.current_source) + BurstBytes;
+        if (channel.current_source < MainRamBase ||
+            source_end > MainRamEnd ||
+            (channel.current_source & UINT32_C(3)) != 0u) {
+            channel.control &= ~EnableMask;
+            return Status::AddressOverflow;
+        }
+        const Status source_status = memory_.validate_read(
+            NDS_ARM9, channel.current_source, BurstBytes);
+        if (source_status != Status::Ok) {
+            channel.control &= ~EnableMask;
+            return source_status;
+        }
+
+        uint32_t words[MainMemoryDisplayBurstWords]{};
+        for (uint32_t word = 0u; word < MainMemoryDisplayBurstWords; ++word) {
+            const ReadResult value = memory_.read(
+                NDS_ARM9, channel.current_source + word * 4u, 4u);
+            if (!value) {
+                channel.control &= ~EnableMask;
+                return value.status;
+            }
+            words[word] = value.value;
+        }
+
+        const Status fifo_status =
+            display_control_->enqueue_main_memory_display_block(words);
+        if (fifo_status != Status::Ok) {
+            channel.control &= ~EnableMask;
+            return fifo_status;
+        }
+        channel.current_source += BurstBytes;
+        return Status::Ok;
+    }
+    return Status::Ok;
 }
 
 Status NdsDmaControl::write(

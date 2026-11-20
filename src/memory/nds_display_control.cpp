@@ -30,6 +30,65 @@ unsigned NdsDisplayControl::cpu_index(NdsCpu cpu) noexcept
     return cpu == NDS_ARM9 ? 0u : 1u;
 }
 
+void NdsDisplayControl::clear_main_memory_display_fifo() noexcept
+{
+    main_memory_display_fifo_ = {};
+    main_memory_display_fifo_read_index_ = 0u;
+    main_memory_display_fifo_write_index_ = 0u;
+    main_memory_display_fifo_count_ = 0u;
+    main_memory_display_pixel_half_ = 0u;
+}
+
+Status NdsDisplayControl::enqueue_main_memory_display_block(
+    const uint32_t *words) noexcept
+{
+    if (!installed_) return Status::Unmapped;
+    if (words == nullptr) return Status::InvalidRegion;
+    if (main_memory_display_fifo_count_ != 0u) {
+        return Status::PermissionDenied;
+    }
+    for (uint32_t index = 0u;
+         index < MainMemoryDisplayFifoCapacityWords; ++index) {
+        main_memory_display_fifo_[index] = words[index];
+    }
+    main_memory_display_fifo_read_index_ = 0u;
+    main_memory_display_fifo_write_index_ = 0u;
+    main_memory_display_fifo_count_ = MainMemoryDisplayFifoCapacityWords;
+    main_memory_display_pixel_half_ = 0u;
+    return Status::Ok;
+}
+
+ReadResult NdsDisplayControl::consume_main_memory_display_pixel() noexcept
+{
+    if (!installed_) return {Status::Unmapped, 0u};
+    if ((engines_[0].dispcnt & UINT32_C(0x00030000)) !=
+            UINT32_C(0x00030000) || vcount_ >= VisibleScanlines) {
+        return {Status::PermissionDenied, 0u};
+    }
+    if (main_memory_display_fifo_count_ == 0u) {
+        if (dma_ == nullptr) return {Status::Unmapped, 0u};
+        const Status refill = dma_->trigger_main_memory_display();
+        if (refill != Status::Ok) return {refill, 0u};
+        if (main_memory_display_fifo_count_ == 0u) {
+            return {Status::Unmapped, 0u};
+        }
+    }
+
+    const uint32_t word =
+        main_memory_display_fifo_[main_memory_display_fifo_read_index_];
+    const uint32_t shift = main_memory_display_pixel_half_ * 16u;
+    const uint32_t pixel = (word >> shift) & UINT32_C(0x7FFF);
+    ++main_memory_display_pixel_half_;
+    if (main_memory_display_pixel_half_ == 2u) {
+        main_memory_display_pixel_half_ = 0u;
+        main_memory_display_fifo_read_index_ =
+            (main_memory_display_fifo_read_index_ + 1u) %
+            MainMemoryDisplayFifoCapacityWords;
+        --main_memory_display_fifo_count_;
+    }
+    return {Status::Ok, pixel};
+}
+
 uint32_t NdsDisplayControl::dispcnt(unsigned engine_index) const noexcept
 {
     if (engine_index >= engines_.size()) return 0u;
@@ -181,6 +240,14 @@ Status NdsDisplayControl::install() noexcept
 ReadResult NdsDisplayControl::read(
     NdsCpu cpu, uint32_t address, uint32_t width) const noexcept
 {
+    if (address == MainMemoryDisplayFifoAddress) {
+        if (!installed_) return {Status::Unmapped, 0u};
+        if (!valid_cpu(cpu)) return {Status::InvalidCpu, 0u};
+        if (cpu != NDS_ARM9) return {Status::Unmapped, 0u};
+        if (width != 4u) return {Status::InvalidWidth, 0u};
+        return {Status::PermissionDenied, 0u};
+    }
+
     if (address == DispstatAddress || address == VcountAddress) {
         if (!installed_) return {Status::Unmapped, 0u};
         if (!valid_cpu(cpu)) return {Status::InvalidCpu, 0u};
@@ -282,6 +349,23 @@ Status NdsDisplayControl::write(
     uint32_t width,
     uint32_t value) noexcept
 {
+    if (address == MainMemoryDisplayFifoAddress) {
+        if (!installed_) return Status::Unmapped;
+        if (!valid_cpu(cpu)) return Status::InvalidCpu;
+        if (cpu != NDS_ARM9) return Status::Unmapped;
+        if (width != 4u) return Status::InvalidWidth;
+        if (main_memory_display_fifo_count_ >=
+            MainMemoryDisplayFifoCapacityWords) {
+            return Status::PermissionDenied;
+        }
+        main_memory_display_fifo_[main_memory_display_fifo_write_index_] = value;
+        main_memory_display_fifo_write_index_ =
+            (main_memory_display_fifo_write_index_ + 1u) %
+            MainMemoryDisplayFifoCapacityWords;
+        ++main_memory_display_fifo_count_;
+        return Status::Ok;
+    }
+
     if (address == DispstatAddress) {
         if (!installed_) return Status::Unmapped;
         if (!valid_cpu(cpu)) return Status::InvalidCpu;
@@ -504,6 +588,7 @@ void NdsDisplayControl::advance_scanline() noexcept
             static_cast<void>(dma_->trigger_vblank(NDS_ARM9));
             static_cast<void>(dma_->trigger_vblank(NDS_ARM7));
         }
+        clear_main_memory_display_fifo();
         request_irq_if_enabled(0u, VblankIrqEnable, kIrqVblank);
         request_irq_if_enabled(1u, VblankIrqEnable, kIrqVblank);
     }
@@ -564,6 +649,7 @@ void NdsDisplayControl::advance_bus_cycles(uint64_t cycles) noexcept
 
 void NdsDisplayControl::reset_timing() noexcept
 {
+    clear_main_memory_display_fifo();
     vcount_ = 0u;
     line_cycle_ = 0u;
     pending_vcount_write_ = false;

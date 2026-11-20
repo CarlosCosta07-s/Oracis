@@ -3,7 +3,8 @@
  *
  * Each CPU owns four channels. SAD/DAD/COUNT remain the guest-visible
  * programmed registers; transfer pointers are private channel state.
- * Immediate, display-synchronized and event-triggered transfers currently target mapped memory.
+ * Immediate and display-event transfers target mapped memory; ARM9 main-memory
+ * display DMA has a dedicated four-word FIFO transfer path.
  */
 #ifndef ORACIS_MEMORY_NDS_DMA_CONTROL_HPP
 #define ORACIS_MEMORY_NDS_DMA_CONTROL_HPP
@@ -16,6 +17,8 @@
 
 namespace oracis::memory {
 
+class NdsDisplayControl;
+
 class NdsDmaControl final {
 public:
     static constexpr uint32_t ChannelCount = 4u;
@@ -23,6 +26,10 @@ public:
     static constexpr uint32_t LastRegisterAddress = UINT32_C(0x040000DF);
     static constexpr uint32_t FirstFillAddress = UINT32_C(0x040000E0);
     static constexpr uint32_t FillRegisterBytes = ChannelCount * 4u;
+    static constexpr uint32_t MainMemoryDisplayTiming = 4u;
+    static constexpr uint32_t MainMemoryDisplayBurstWords = 4u;
+    static constexpr uint32_t MainMemoryDisplayFifoAddress =
+        UINT32_C(0x04000068);
 
     static constexpr uint32_t DestinationControlShift = 21u;
     static constexpr uint32_t SourceControlShift = 23u;
@@ -49,6 +56,11 @@ public:
     Status trigger_hblank(NdsCpu cpu) noexcept;
     /* ARM9 display-sync DMA fires at the start of each visible scanline. */
     Status trigger_display_sync(NdsCpu cpu) noexcept;
+    /* Fills the empty main-memory display FIFO with one four-word burst. */
+    Status trigger_main_memory_display() noexcept;
+    void attach_display_control(NdsDisplayControl &display) noexcept {
+        display_control_ = &display;
+    }
 
     GuestMemory &backing_memory() noexcept { return memory_; }
     NdsInterruptControl &interrupt_control() noexcept { return interrupts_; }
@@ -85,6 +97,7 @@ private:
 
     GuestMemory &memory_;
     NdsInterruptControl &interrupts_;
+    NdsDisplayControl *display_control_ = nullptr;
     std::array<std::array<Channel, ChannelCount>, 2> channels_{};
 };
 

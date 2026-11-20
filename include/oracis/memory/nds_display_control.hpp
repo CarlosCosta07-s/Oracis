@@ -35,6 +35,9 @@ public:
     static constexpr uint32_t BldcntOffset = UINT32_C(0x0050);
     static constexpr uint32_t BldalphaOffset = UINT32_C(0x0052);
     static constexpr uint32_t BldyOffset = UINT32_C(0x0054);
+    static constexpr uint32_t MainMemoryDisplayFifoAddress =
+        UINT32_C(0x04000068);
+    static constexpr uint32_t MainMemoryDisplayFifoCapacityWords = 4u;
     static constexpr uint32_t BgCount = 4u;
     static constexpr uint16_t BgScrollValueMask = UINT16_C(0x01FF);
     static constexpr uint32_t BgAffineReferenceMask = UINT32_C(0x0FFFFFFF);
@@ -107,6 +110,15 @@ public:
     void advance_bus_cycles(uint64_t cycles) noexcept;
     void reset_timing() noexcept;
 
+    /* Consume one RGB555 pixel from Engine A's main-memory display FIFO. */
+    ReadResult consume_main_memory_display_pixel() noexcept;
+    uint32_t main_memory_display_fifo_words() const noexcept {
+        return main_memory_display_fifo_count_;
+    }
+    Status enqueue_main_memory_display_block(
+        const uint32_t *words) noexcept;
+    void clear_main_memory_display_fifo() noexcept;
+
     NdsInterruptControl &interrupt_control() const noexcept {
         return interrupts_;
     }
@@ -163,6 +175,12 @@ private:
     std::array<EngineState, 2> engines_{};
     std::array<CpuStatus, 2> cpu_status_{};
     std::array<bool, 2> hblank_irq_fired_{};
+    std::array<uint32_t, MainMemoryDisplayFifoCapacityWords>
+        main_memory_display_fifo_{};
+    uint32_t main_memory_display_fifo_read_index_ = 0u;
+    uint32_t main_memory_display_fifo_write_index_ = 0u;
+    uint32_t main_memory_display_fifo_count_ = 0u;
+    uint32_t main_memory_display_pixel_half_ = 0u;
     uint16_t vcount_ = 0u;
     uint32_t line_cycle_ = 0u;
     bool pending_vcount_write_ = false;

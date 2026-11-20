@@ -25,6 +25,7 @@ NdsMachine::NdsMachine(memory::SharedWramMode initial_wram_mode) noexcept
       keypad_control_(memory_, interrupt_control_),
       system_clock_(timer_control_, display_control_)
 {
+    dma_control_.attach_display_control(display_control_);
 }
 
 NdsMachine::~NdsMachine()
