@@ -397,14 +397,21 @@ Nds2dObjFetchResult Nds2dObjFetcher::render_scanline(
                 return memory_error(object_index, memory_status);
             }
 
-            Nds2dObjPixel &current = next_line.pixels[screen_x];
-            if (outranks(priority, object_index, current)) {
-                current.rgb555 =
-                    static_cast<uint16_t>(palette_color & UINT16_C(0x7FFF));
-                current.priority = priority;
-                current.object_index = object_index;
-                current.transparent = false;
-                current.semi_transparent = obj_mode == 1u;
+            const Nds2dObjPixel candidate{
+                static_cast<uint16_t>(palette_color & UINT16_C(0x7FFF)),
+                priority,
+                object_index,
+                false,
+                obj_mode == 1u
+            };
+            Nds2dObjPixel &top = next_line.pixels[screen_x];
+            Nds2dObjPixel &second = next_line.second_pixels[screen_x];
+
+            if (outranks(priority, object_index, top)) {
+                second = top;
+                top = candidate;
+            } else if (outranks(priority, object_index, second)) {
+                second = candidate;
             }
         }
     }

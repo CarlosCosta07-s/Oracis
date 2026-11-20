@@ -130,7 +130,7 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
             object_line.object_window_coverage[x]);
 
         /* Four BGs, one already-resolved OBJ pixel, and the backdrop. */
-        std::array<Candidate, NdsDisplayControl::BgCount + 2u> candidates{};
+        std::array<Candidate, NdsDisplayControl::BgCount + 3u> candidates{};
         std::size_t candidate_count = 0u;
 
         const auto insert_candidate = [&candidates, &candidate_count](
@@ -162,17 +162,21 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
             });
         }
 
-        const Nds2dObjPixel &object_pixel = object_line.pixels[x];
-        if (!object_pixel.transparent &&
-            Nds2dEffects::layer_visible(window, Nds2dLayer::Object)) {
-            insert_candidate(Candidate{
-                object_pixel.rgb555,
-                object_pixel.priority,
-                object_pixel.object_index,
-                Nds2dLayer::Object,
-                object_pixel.object_index,
-                object_pixel.semi_transparent
-            });
+        if (Nds2dEffects::layer_visible(window, Nds2dLayer::Object)) {
+            const auto insert_object_pixel =
+                [&insert_candidate](const Nds2dObjPixel &object_pixel) noexcept {
+                    if (object_pixel.transparent) return;
+                    insert_candidate(Candidate{
+                        object_pixel.rgb555,
+                        object_pixel.priority,
+                        object_pixel.object_index,
+                        Nds2dLayer::Object,
+                        object_pixel.object_index,
+                        object_pixel.semi_transparent
+                    });
+                };
+            insert_object_pixel(object_line.pixels[x]);
+            insert_object_pixel(object_line.second_pixels[x]);
         }
 
         /* Backdrop is below every BG and is never hidden by window masks. */
@@ -208,7 +212,9 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
             static_cast<uint8_t>(
                 top.layer == Nds2dLayer::Object
                     ? top.object_index : UINT8_C(0xFF)),
-            top.layer == Nds2dLayer::Object && top.force_alpha
+            top.layer == Nds2dLayer::Object && top.force_alpha,
+            second.layer == Nds2dLayer::Object
+                ? second.object_index : UINT8_C(0xFF)
         };
     }
 

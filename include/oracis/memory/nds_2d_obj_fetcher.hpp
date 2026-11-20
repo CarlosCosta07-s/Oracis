@@ -37,7 +37,9 @@ struct Nds2dObjPixel {
 };
 
 struct Nds2dObjScanline {
+    /* Nearest visible OBJ pixel and the next lower OBJ pixel at each X. */
     std::array<Nds2dObjPixel, 256> pixels{};
+    std::array<Nds2dObjPixel, 256> second_pixels{};
     std::array<bool, 256> object_window_coverage{};
 };
 

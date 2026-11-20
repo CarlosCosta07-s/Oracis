@@ -145,6 +145,42 @@ int main()
         return fail("semi-transparent OBJ first-target alpha blend failed");
     }
 
+    /*
+     * A semitransparent top OBJ blends against the next OBJ candidate when
+     * OBJ is enabled as a second target; BG1 must not displace that OBJ layer.
+     */
+    if (!write16(memory, UINT32_C(0x05000202), UINT16_C(0x001F)) ||
+        !write16(memory, UINT32_C(0x05000204), UINT16_C(0x03E0)) ||
+        !write32(memory, UINT32_C(0x06400020), UINT32_C(0x22222222)) ||
+        !write16(memory, UINT32_C(0x07000000), UINT16_C(0x0400)) ||
+        !write16(memory, UINT32_C(0x07000002), UINT16_C(0x0000)) ||
+        !write16(memory, UINT32_C(0x07000004), UINT16_C(0x0000)) ||
+        !write16(memory, UINT32_C(0x07000008), UINT16_C(0x0000)) ||
+        !write16(memory, UINT32_C(0x0700000A), UINT16_C(0x0000)) ||
+        !write16(memory, UINT32_C(0x0700000C), UINT16_C(0x0000)) ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            (UINT32_C(1) << 8u) | (UINT32_C(1) << 9u) |
+                (UINT32_C(1) << 12u)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 0x50u, 2u,
+            UINT16_C(0x1050)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 0x52u, 2u,
+            UINT16_C(0x0808)) != Status::Ok) {
+        return fail("OBJ-over-OBJ alpha fixture setup failed");
+    }
+    result = compositor.render_scanline(0u, display, 0u, line);
+    if (result.status != Nds2dComposeStatus::Ok ||
+        line[0].top_layer != Nds2dLayer::Object ||
+        line[0].top_object_index != 0u ||
+        !line[0].top_object_semi_transparent ||
+        line[0].second_layer != Nds2dLayer::Object ||
+        line[0].second_object_index != 1u ||
+        line[0].rgb555 != UINT16_C(0x0210)) {
+        return fail("second OBJ was not selected as the alpha blend target");
+    }
+
     /* OBJ-window coverage changes the per-pixel window region and layer mask. */
     if (!write16(memory, UINT32_C(0x07000000), UINT16_C(0x0800)) ||
         display.write(

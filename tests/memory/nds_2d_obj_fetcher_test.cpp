@@ -147,7 +147,9 @@ int main()
     result = fetcher.render_scanline(0u, display, 10u, line);
     if (result.status != Nds2dObjFetchStatus::Ok ||
         line.pixels[5].object_index != 0u ||
-        line.pixels[5].rgb555 != UINT16_C(0x294A)) {
+        line.pixels[5].rgb555 != UINT16_C(0x294A) ||
+        line.second_pixels[5].transparent ||
+        line.second_pixels[5].object_index != 1u) {
         return fail("equal-priority OAM index ordering failed");
     }
     if (!write_oam(
@@ -165,7 +167,8 @@ int main()
     result = fetcher.render_scanline(0u, display, 10u, line);
     if (result.status != Nds2dObjFetchStatus::Ok ||
         line.pixels[5].object_index != 0u ||
-        line.pixels[5].priority != 2u) {
+        line.pixels[5].priority != 2u ||
+        line.second_pixels[5].object_index != 1u) {
         return fail("OBJ priority field did not override OAM tie ordering");
     }
 

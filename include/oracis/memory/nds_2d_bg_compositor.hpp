@@ -38,6 +38,7 @@ struct Nds2dCompositedPixel {
     bool second_pixel_available = false;
     uint8_t top_object_index = UINT8_C(0xFF);
     bool top_object_semi_transparent = false;
+    uint8_t second_object_index = UINT8_C(0xFF);
 };
 
 struct Nds2dComposeResult {
