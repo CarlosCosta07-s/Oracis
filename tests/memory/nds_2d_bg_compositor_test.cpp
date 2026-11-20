@@ -156,7 +156,7 @@ int main()
     std::array<Nds2dCompositedPixel, 256> preserved = line;
     if (display.write(
             NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
-            (UINT32_C(1) << 3u) | (UINT32_C(1) << 11u)) != Status::Ok) {
+            (UINT32_C(1) << 0u) | (UINT32_C(1) << 11u)) != Status::Ok) {
         return fail("unsupported BG mode fixture setup failed");
     }
     result = compositor.render_scanline(0u, display, 0u, line);
