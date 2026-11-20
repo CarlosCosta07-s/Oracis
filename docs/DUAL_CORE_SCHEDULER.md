@@ -44,6 +44,12 @@ O IRQ é entregue somente fora de uma fatia ativa. O bit IF continua pendente at
 
 O round só alterna sua CPU inicial depois de terminar com sucesso.
 
+## Pré-validação dos pontos de entrada
+
+A ponte C oferece `oracis_host_runtime_validate_entrypoints()` depois que os dois bancos estão registrados e os dois segmentos foram carregados. Ela consulta os PCs atuais de ARM9/ARM7, usa o CPSR.T de cada estado e chama o mesmo lookup estático que será usado na execução, incluindo o callback de identidade dos bytes vivos. O relatório de cada CPU contém PC, CPSR, status do lookup, quantidade de candidatos, indicação de candidato inativo por divergência de identidade e se uma entrada foi resolvida.
+
+A pré-validação não executa código, não prova cobertura de branches indiretos/overlays e não substitui a preparação de estado de boot do BIOS/NitroSDK. Ela apenas detecta antes do primeiro dispatch se os endereços de entrada carregados correspondem a linhas ARM/Thumb ativas nos bancos registrados. O host desktop registra esse resultado no log, sem iniciar a execução automaticamente.
+
 ## Limites atuais
 
 O SDL host agora inicializa e encerra `NdsMachine` por meio da ponte C em `oracis/host/runtime_bridge.h`, e o input do teclado é encaminhado ao dispositivo vinculado. A ponte oferece `oracis_host_runtime_run_round()`, que só executa quando ambos os bancos estão registrados e aceita um provider C para o LR arquitetural; a base vetorial é selecionada pela máquina a partir do CP15 ARM9. O loop SDL ainda não chama essa função porque os bancos reais e o provider arquitetural não estão prontos. Os bancos reais ARM9/ARM7 ainda não foram emitidos pelo pipeline NDSRecomp. A implementação também ainda não ordena eventos DS concorrentes nem substitui a necessidade de integrar DMA, IPC, vídeo, áudio e tempos de acesso ao barramento.
