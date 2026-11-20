@@ -218,22 +218,6 @@ int main()
         return fail("OBJ-window coverage was not separated from color pixels");
     }
 
-    if (!write_oam(
-            memory, 0u, 0u,
-            UINT16_C(0x0100),
-            UINT16_C(0x0000),
-            UINT16_C(0x0000)) ||
-        display.write(
-            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
-            UINT32_C(1) << 12u) != Status::Ok) {
-        return fail("affine OBJ fixture setup failed");
-    }
-    result = fetcher.render_scanline(0u, display, 0u, line);
-    if (result.status != Nds2dObjFetchStatus::UnsupportedAffine ||
-        result.object_index != 0u) {
-        return fail("affine OBJ did not fail explicitly");
-    }
-
     /*
      * Affine matrix 3 lives in OAM's interleaved parameter slots. Identity
      * mapping must preserve the original 8x8 source texel layout.
