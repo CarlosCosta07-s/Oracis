@@ -189,6 +189,25 @@ int main(int argc, char *argv[])
     const int image_status =
         oracis_host_runtime_load_local_platinum_segments(NULL);
     if (image_status == ORACIS_HOST_RUNTIME_OK) {
+        OracisHostRuntimeEntryPointReport arm9_entry = {0};
+        OracisHostRuntimeEntryPointReport arm7_entry = {0};
+        const int preflight_status = oracis_host_runtime_validate_entrypoints(
+            &arm9_entry, &arm7_entry);
+        if (preflight_status == ORACIS_HOST_RUNTIME_OK) {
+            SDL_Log(
+                "Static entry preflight: ARM9 PC=0x%08X resolved=%s "
+                "(lookup=%u candidates=%u); ARM7 PC=0x%08X resolved=%s "
+                "(lookup=%u candidates=%u). Execution remains disabled.",
+                arm9_entry.pc, arm9_entry.resolved ? "yes" : "no",
+                arm9_entry.lookup_status, arm9_entry.candidate_count,
+                arm7_entry.pc, arm7_entry.resolved ? "yes" : "no",
+                arm7_entry.lookup_status, arm7_entry.candidate_count);
+        } else {
+            SDL_LogWarn(
+                SDL_LOG_CATEGORY_APPLICATION,
+                "Static entry preflight unavailable (bridge=%d).",
+                preflight_status);
+        }
         SDL_Log(
             "Local Platinum USA Rev 1 ARM9/ARM7 images were size/hash verified "
             "and loaded into guest memory. Native execution remains disabled "
