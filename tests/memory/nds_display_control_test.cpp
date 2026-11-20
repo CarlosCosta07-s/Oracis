@@ -262,6 +262,83 @@ int main()
         return fail("Engine B BG3 affine masking, width, isolation or CPU permission failed");
     }
 
+
+    /*
+     * Window bounds, mosaic and BLDY are write-only. WININ/WINOUT,
+     * BLDCNT and BLDALPHA are read/write with their documented masks.
+     */
+    constexpr uint32_t engine_a_effects = UINT32_C(0x04000040);
+    constexpr uint32_t engine_b_effects = UINT32_C(0x04001040);
+    if (display.write(
+            NDS_ARM9, engine_a_effects, 2u, UINT16_C(0x1234)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, engine_a_effects + 2u, 2u, UINT16_C(0x5678)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, engine_a_effects + 4u, 2u, UINT16_C(0x9ABC)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, engine_a_effects + 6u, 2u, UINT16_C(0xDEF0)) != Status::Ok ||
+        display.read(NDS_ARM9, engine_a_effects, 2u).status !=
+            Status::PermissionDenied ||
+        display.write(
+            NDS_ARM9, engine_a_effects + 8u, 2u, UINT16_C(0xFFFF)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, engine_a_effects + 10u, 2u, UINT16_C(0xFFFF)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, engine_a_effects + 12u, 2u, UINT16_C(0xA55A)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, engine_a_effects + 16u, 2u, UINT16_C(0xFFFF)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, engine_a_effects + 18u, 2u, UINT16_C(0xFFFF)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, engine_a_effects + 20u, 2u, UINT16_C(0xFFFF)) != Status::Ok) {
+        return fail("Engine A window and blend register writes failed");
+    }
+    const auto engine_a_effect_state = display.window_blend(0u);
+    if (engine_a_effect_state.bounds[0] != UINT16_C(0x1234) ||
+        engine_a_effect_state.bounds[1] != UINT16_C(0x5678) ||
+        engine_a_effect_state.bounds[2] != UINT16_C(0x9ABC) ||
+        engine_a_effect_state.bounds[3] != UINT16_C(0xDEF0) ||
+        engine_a_effect_state.winin != NdsDisplayControl::WindowMask ||
+        engine_a_effect_state.winout != NdsDisplayControl::WindowMask ||
+        engine_a_effect_state.mosaic != UINT16_C(0xA55A) ||
+        engine_a_effect_state.bldcnt != NdsDisplayControl::BlendControlMask ||
+        engine_a_effect_state.bldalpha != NdsDisplayControl::BlendAlphaMask ||
+        engine_a_effect_state.bldy != NdsDisplayControl::BlendYMask ||
+        display.read(NDS_ARM9, engine_a_effects + 8u, 2u).value !=
+            NdsDisplayControl::WindowMask ||
+        display.read(NDS_ARM9, engine_a_effects + 16u, 2u).value !=
+            NdsDisplayControl::BlendControlMask ||
+        display.read(NDS_ARM9, engine_a_effects + 18u, 2u).value !=
+            NdsDisplayControl::BlendAlphaMask ||
+        display.read(NDS_ARM9, engine_a_effects + 12u, 2u).status !=
+            Status::PermissionDenied ||
+        display.read(NDS_ARM9, engine_a_effects + 20u, 2u).status !=
+            Status::PermissionDenied) {
+        return fail("Engine A window/blend masks, read/write or write-only behavior failed");
+    }
+
+    if (display.write(
+            NDS_ARM9, engine_b_effects + 8u, 2u, UINT16_C(0xA53C)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, engine_b_effects + 16u, 2u, UINT16_C(0x3FFF)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, engine_b_effects + 20u, 2u, UINT16_C(0x0021)) != Status::Ok ||
+        display.window_blend(1u).winin != UINT16_C(0x253C) ||
+        display.window_blend(1u).bldcnt != UINT16_C(0x3FFF) ||
+        display.window_blend(1u).bldy != UINT16_C(0x0001) ||
+        display.window_blend(0u).winin != NdsDisplayControl::WindowMask ||
+        display.write(
+            NDS_ARM9, engine_a_effects + 8u, 4u,
+            UINT32_C(0x12345678)) != Status::InvalidWidth ||
+        display.write(
+            NDS_ARM9, engine_a_effects + 14u, 2u,
+            UINT16_C(0x1234)) != Status::Unmapped ||
+        display.write(
+            NDS_ARM7, engine_a_effects + 8u, 2u,
+            UINT16_C(0x1234)) != Status::Unmapped) {
+        return fail("Engine B window/blend state isolation, masks or widths failed");
+    }
+
     /* The NDS9 and NDS7 HBlank flags have distinct phase lengths. */
     display.advance_bus_cycles(NdsDisplayControl::Arm9HblankStartCycle - 1u);
     if ((display.read(

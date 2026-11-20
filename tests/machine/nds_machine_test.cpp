@@ -163,6 +163,12 @@ int main()
     bus_write_u16(UINT32_C(0x04000020), UINT16_C(0xFF00));
     bus_write_u32(UINT32_C(0x04000028), UINT32_C(0xF8765432));
     bus_write_u32(UINT32_C(0x0400103C), UINT32_C(0xF0000001));
+
+    bus_write_u16(UINT32_C(0x04000040), UINT16_C(0x1234));
+    bus_write_u16(UINT32_C(0x04000048), UINT16_C(0xFFFF));
+    bus_write_u16(UINT32_C(0x04000050), UINT16_C(0xFFFF));
+    bus_write_u16(UINT32_C(0x04000052), UINT16_C(0xFFFF));
+    bus_write_u16(UINT32_C(0x04000054), UINT16_C(0xFFFF));
     if (bus_read_u32(engine_a_dispcnt) != UINT32_C(0x00010013) ||
         bus_read_u32(engine_b_dispcnt) != UINT32_C(0x80000021) ||
         bus_read_u16(engine_a_bg0cnt) != UINT16_C(0x1234) ||
@@ -176,7 +182,16 @@ int main()
             UINT16_C(0x01FF) ||
         machine.display_control().bg_affine(0u, 2u).pa != -256 ||
         machine.display_control().bg_affine(0u, 2u).reference_x != -126462926 ||
-        machine.display_control().bg_affine(1u, 3u).reference_y != 1) {
+        machine.display_control().bg_affine(1u, 3u).reference_y != 1 ||
+        machine.display_control().window_blend(0u).bounds[0] != UINT16_C(0x1234) ||
+        machine.display_control().window_blend(0u).winin !=
+            NdsDisplayControl::WindowMask ||
+        machine.display_control().window_blend(0u).bldcnt !=
+            NdsDisplayControl::BlendControlMask ||
+        machine.display_control().window_blend(0u).bldalpha !=
+            NdsDisplayControl::BlendAlphaMask ||
+        machine.display_control().window_blend(0u).bldy !=
+            NdsDisplayControl::BlendYMask) {
         return fail("2D Engine A/B display register bus bridge failed");
     }
 

@@ -26,9 +26,20 @@ public:
     static constexpr uint32_t BgControlOffset = UINT32_C(0x0008);
     static constexpr uint32_t BgScrollOffset = UINT32_C(0x0010);
     static constexpr uint32_t BgAffineOffset = UINT32_C(0x0020);
+    static constexpr uint32_t WindowBoundsOffset = UINT32_C(0x0040);
+    static constexpr uint32_t WininOffset = UINT32_C(0x0048);
+    static constexpr uint32_t WinoutOffset = UINT32_C(0x004A);
+    static constexpr uint32_t MosaicOffset = UINT32_C(0x004C);
+    static constexpr uint32_t BldcntOffset = UINT32_C(0x0050);
+    static constexpr uint32_t BldalphaOffset = UINT32_C(0x0052);
+    static constexpr uint32_t BldyOffset = UINT32_C(0x0054);
     static constexpr uint32_t BgCount = 4u;
     static constexpr uint16_t BgScrollValueMask = UINT16_C(0x01FF);
     static constexpr uint32_t BgAffineReferenceMask = UINT32_C(0x0FFFFFFF);
+    static constexpr uint16_t WindowMask = UINT16_C(0x3F3F);
+    static constexpr uint16_t BlendControlMask = UINT16_C(0x3FFF);
+    static constexpr uint16_t BlendAlphaMask = UINT16_C(0x1F1F);
+    static constexpr uint16_t BlendYMask = UINT16_C(0x001F);
 
     struct BgScrollState {
         uint16_t horizontal = 0u;
@@ -42,6 +53,17 @@ public:
         int16_t pd = 0;
         int32_t reference_x = 0;
         int32_t reference_y = 0;
+    };
+
+    struct WindowBlendState {
+        /* WIN0H, WIN1H, WIN0V, WIN1V in register order. */
+        std::array<uint16_t, 4> bounds{};
+        uint16_t winin = 0u;
+        uint16_t winout = 0u;
+        uint16_t mosaic = 0u;
+        uint16_t bldcnt = 0u;
+        uint16_t bldalpha = 0u;
+        uint16_t bldy = 0u;
     };
 
     static constexpr uint32_t EngineBDispcntSupportedMask =
@@ -88,6 +110,8 @@ public:
         unsigned engine_index, unsigned bg_index) const noexcept;
     BgAffineState bg_affine(
         unsigned engine_index, unsigned bg_index) const noexcept;
+    WindowBlendState window_blend(
+        unsigned engine_index) const noexcept;
 
 private:
     struct EngineState {
@@ -96,6 +120,7 @@ private:
         std::array<uint16_t, BgCount> bg_hofs{};
         std::array<uint16_t, BgCount> bg_vofs{};
         std::array<BgAffineState, 2> bg_affine{};
+        WindowBlendState window_blend{};
     };
 
     struct CpuStatus {

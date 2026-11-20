@@ -46,6 +46,13 @@ NdsDisplayControl::BgAffineState NdsDisplayControl::bg_affine(
     return engines_[engine_index].bg_affine[bg_index - 2u];
 }
 
+NdsDisplayControl::WindowBlendState NdsDisplayControl::window_blend(
+    unsigned engine_index) const noexcept
+{
+    if (engine_index >= engines_.size()) return {};
+    return engines_[engine_index].window_blend;
+}
+
 namespace {
 
 int32_t sign_extend_affine_reference(uint32_t value) noexcept
@@ -89,8 +96,19 @@ bool NdsDisplayControl::locate_engine_register(
         register_offset < BgScrollOffset + kBgScrollBytes) {
         return true;
     }
-    return register_offset >= BgAffineOffset &&
-           register_offset < BgAffineOffset + kBgAffineBytes;
+    if (register_offset >= BgAffineOffset &&
+        register_offset < BgAffineOffset + kBgAffineBytes) {
+        return true;
+    }
+    return (register_offset >= WindowBoundsOffset &&
+            register_offset <= WindowBoundsOffset + UINT32_C(0x0006) &&
+            (register_offset & 1u) == 0u) ||
+           register_offset == WininOffset ||
+           register_offset == WinoutOffset ||
+           register_offset == MosaicOffset ||
+           register_offset == BldcntOffset ||
+           register_offset == BldalphaOffset ||
+           register_offset == BldyOffset;
 }
 
 bool NdsDisplayControl::is_vblank_line(uint16_t scanline) noexcept
@@ -215,6 +233,30 @@ ReadResult NdsDisplayControl::read(
              width == 4u)) {
             return {Status::PermissionDenied, 0u}; /* Affine registers are write-only. */
         }
+        return {Status::InvalidWidth, 0u};
+    }
+
+    if (offset >= WindowBoundsOffset &&
+        offset <= WindowBoundsOffset + UINT32_C(0x0006)) {
+        if (width != 2u) return {Status::InvalidWidth, 0u};
+        return {Status::PermissionDenied, 0u}; /* WIN0H/WIN1H/WIN0V/WIN1V are write-only. */
+    }
+
+    const WindowBlendState &effects = engine.window_blend;
+    if (width != 2u) return {Status::InvalidWidth, 0u};
+    switch (offset) {
+    case WininOffset:
+        return {Status::Ok, effects.winin};
+    case WinoutOffset:
+        return {Status::Ok, effects.winout};
+    case MosaicOffset:
+    case BldyOffset:
+        return {Status::PermissionDenied, 0u};
+    case BldcntOffset:
+        return {Status::Ok, effects.bldcnt};
+    case BldalphaOffset:
+        return {Status::Ok, effects.bldalpha};
+    default:
         return {Status::InvalidWidth, 0u};
     }
     return {Status::InvalidWidth, 0u};
@@ -346,6 +388,40 @@ Status NdsDisplayControl::write(
             else affine.reference_y = coordinate;
             return Status::Ok;
         }
+        return Status::InvalidWidth;
+    }
+
+    if (offset >= WindowBoundsOffset &&
+        offset <= WindowBoundsOffset + UINT32_C(0x0006)) {
+        if (width != 2u) return Status::InvalidWidth;
+        const unsigned bound_index =
+            static_cast<unsigned>((offset - WindowBoundsOffset) / 2u);
+        engine.window_blend.bounds[bound_index] = static_cast<uint16_t>(value);
+        return Status::Ok;
+    }
+
+    if (width != 2u) return Status::InvalidWidth;
+    WindowBlendState &effects = engine.window_blend;
+    switch (offset) {
+    case WininOffset:
+        effects.winin = static_cast<uint16_t>(value) & WindowMask;
+        return Status::Ok;
+    case WinoutOffset:
+        effects.winout = static_cast<uint16_t>(value) & WindowMask;
+        return Status::Ok;
+    case MosaicOffset:
+        effects.mosaic = static_cast<uint16_t>(value);
+        return Status::Ok;
+    case BldcntOffset:
+        effects.bldcnt = static_cast<uint16_t>(value) & BlendControlMask;
+        return Status::Ok;
+    case BldalphaOffset:
+        effects.bldalpha = static_cast<uint16_t>(value) & BlendAlphaMask;
+        return Status::Ok;
+    case BldyOffset:
+        effects.bldy = static_cast<uint16_t>(value) & BlendYMask;
+        return Status::Ok;
+    default:
         return Status::InvalidWidth;
     }
     return Status::InvalidWidth;
