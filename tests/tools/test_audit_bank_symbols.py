@@ -4,15 +4,26 @@
 from __future__ import annotations
 
 from pathlib import Path
+import importlib.util
 import subprocess
+import sys
 import tempfile
 import unittest
 
-from audit_bank_symbols import (
-    AuditError,
-    audit_bank_symbols,
-    parse_nm_posix,
+ROOT = Path(__file__).resolve().parents[2]
+SCRIPT = ROOT / "tools" / "ndsrecomp" / "audit_bank_symbols.py"
+SPEC = importlib.util.spec_from_file_location(
+    "oracis_audit_bank_symbols_test_target", SCRIPT
 )
+if SPEC is None or SPEC.loader is None:
+    raise RuntimeError(f"Cannot load symbol auditor module: {SCRIPT}")
+auditor = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = auditor
+SPEC.loader.exec_module(auditor)
+
+AuditError = auditor.AuditError
+audit_bank_symbols = auditor.audit_bank_symbols
+parse_nm_posix = auditor.parse_nm_posix
 
 
 class AuditBankSymbolsTests(unittest.TestCase):
@@ -30,22 +41,30 @@ class AuditBankSymbolsTests(unittest.TestCase):
 
     def test_parses_posix_nm_undefined_and_defined_symbols(self) -> None:
         self.assertEqual(
-            parse_nm_posix("callee U         \nweak_ref w         \nignored T 0 4\n",
-                           undefined=True),
+            parse_nm_posix(
+                "callee U         \nweak_ref w         \nignored T 0 4\n",
+                undefined=True,
+            ),
             {"callee", "weak_ref"},
         )
         self.assertEqual(
-            parse_nm_posix("callee T 00000000 4\nobject D 00000004 4\n",
-                           undefined=False),
+            parse_nm_posix(
+                "callee T 00000000 4\nobject D 00000004 4\n",
+                undefined=False,
+            ),
             {"callee", "object"},
         )
 
     def test_resolves_cross_bank_and_runtime_symbols_and_allowlists_platform(self) -> None:
         outputs = {
-            ("-u", "arm9.o"): "arm7_service U\nmemcpy U\nshared_helper U\n",
-            ("-u", "arm7.o"): "arm9_service U\nshared_helper U\n",
-            ("--defined-only", "arm9.o"): "arm9_service T 0 4\n",
-            ("--defined-only", "arm7.o"): "arm7_service T 0 4\n",
+            ("-u", "arm9.o"):
+                "arm7_service U\nmemcpy U\nshared_helper U\n",
+            ("-u", "arm7.o"):
+                "arm9_service U\nshared_helper U\n",
+            ("--defined-only", "arm9.o"):
+                "arm9_service T 0 4\n",
+            ("--defined-only", "arm7.o"):
+                "arm7_service T 0 4\n",
             ("--defined-only", "liboracis.a"):
                 "shared_helper T 0 4\n",
         }
@@ -53,9 +72,7 @@ class AuditBankSymbolsTests(unittest.TestCase):
         def runner(command, **kwargs):
             mode = "-u" if "-u" in command else "--defined-only"
             key = (mode, Path(command[-1]).name)
-            return subprocess.CompletedProcess(
-                command, 0, outputs[key], ""
-            )
+            return subprocess.CompletedProcess(command, 0, outputs[key], "")
 
         allowlist = self.root / "symbols.allow"
         allowlist.write_text(
@@ -88,7 +105,9 @@ class AuditBankSymbolsTests(unittest.TestCase):
         report = audit_bank_symbols(
             [self.arm9], [self.runtime], nm="nm", runner=runner
         )
-        self.assertEqual(report["unresolved_symbols"], {"missing_nitro_service"})
+        self.assertEqual(
+            report["unresolved_symbols"], {"missing_nitro_service"}
+        )
 
     def test_rejects_missing_inputs_before_invoking_nm(self) -> None:
         called = False
