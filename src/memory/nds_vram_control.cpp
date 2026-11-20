@@ -22,6 +22,15 @@ struct VramBank {
     const char *alias_name;
 };
 
+struct Arm9VideoView {
+    uint8_t bank_index;
+    uint8_t mst;
+    uint8_t ofs;
+    uint32_t address;
+    uint32_t size;
+    const char *alias_name;
+};
+
 constexpr std::array<VramBank, 9> kVramBanks{{
     {UINT32_C(0x06800000), UINT32_C(0x00000000), kBank128K,
      NdsVramControl::VramCntAAddress, "NDS VRAM A ARM9 LCDC"},
@@ -41,6 +50,32 @@ constexpr std::array<VramBank, 9> kVramBanks{{
      NdsVramControl::VramCntHAddress, "NDS VRAM H ARM9 LCDC"},
     {UINT32_C(0x068A0000), UINT32_C(0x000A0000), kBank16K,
      NdsVramControl::VramCntIAddress, "NDS VRAM I ARM9 LCDC"}
+}};
+
+/* CPU-visible BG/OBJ windows for the A/B/C/D banks. */
+constexpr std::array<Arm9VideoView, 22> kArm9VideoViews{{
+    {0u, 1u, 0u, UINT32_C(0x06000000), kBank128K, "NDS VRAM A Main BG OFS0"},
+    {0u, 1u, 1u, UINT32_C(0x06020000), kBank128K, "NDS VRAM A Main BG OFS1"},
+    {0u, 1u, 2u, UINT32_C(0x06040000), kBank128K, "NDS VRAM A Main BG OFS2"},
+    {0u, 1u, 3u, UINT32_C(0x06060000), kBank128K, "NDS VRAM A Main BG OFS3"},
+    {1u, 1u, 0u, UINT32_C(0x06000000), kBank128K, "NDS VRAM B Main BG OFS0"},
+    {1u, 1u, 1u, UINT32_C(0x06020000), kBank128K, "NDS VRAM B Main BG OFS1"},
+    {1u, 1u, 2u, UINT32_C(0x06040000), kBank128K, "NDS VRAM B Main BG OFS2"},
+    {1u, 1u, 3u, UINT32_C(0x06060000), kBank128K, "NDS VRAM B Main BG OFS3"},
+    {2u, 1u, 0u, UINT32_C(0x06000000), kBank128K, "NDS VRAM C Main BG OFS0"},
+    {2u, 1u, 1u, UINT32_C(0x06020000), kBank128K, "NDS VRAM C Main BG OFS1"},
+    {2u, 1u, 2u, UINT32_C(0x06040000), kBank128K, "NDS VRAM C Main BG OFS2"},
+    {2u, 1u, 3u, UINT32_C(0x06060000), kBank128K, "NDS VRAM C Main BG OFS3"},
+    {3u, 1u, 0u, UINT32_C(0x06000000), kBank128K, "NDS VRAM D Main BG OFS0"},
+    {3u, 1u, 1u, UINT32_C(0x06020000), kBank128K, "NDS VRAM D Main BG OFS1"},
+    {3u, 1u, 2u, UINT32_C(0x06040000), kBank128K, "NDS VRAM D Main BG OFS2"},
+    {3u, 1u, 3u, UINT32_C(0x06060000), kBank128K, "NDS VRAM D Main BG OFS3"},
+    {0u, 2u, 0u, UINT32_C(0x06400000), kBank128K, "NDS VRAM A Main OBJ OFS0"},
+    {0u, 2u, 1u, UINT32_C(0x06420000), kBank128K, "NDS VRAM A Main OBJ OFS1"},
+    {1u, 2u, 0u, UINT32_C(0x06400000), kBank128K, "NDS VRAM B Main OBJ OFS0"},
+    {1u, 2u, 1u, UINT32_C(0x06420000), kBank128K, "NDS VRAM B Main OBJ OFS1"},
+    {2u, 4u, 0u, UINT32_C(0x06200000), kBank128K, "NDS VRAM C Sub BG"},
+    {3u, 4u, 0u, UINT32_C(0x06600000), kBank128K, "NDS VRAM D Sub OBJ"}
 }};
 
 constexpr uint32_t kVramCBacking =
@@ -65,15 +100,30 @@ int NdsVramControl::bank_index_for_address(uint32_t address) noexcept
     return -1;
 }
 
-int NdsVramControl::lcdc_bank_index_for_address(uint32_t address) noexcept
+int NdsVramControl::arm9_vram_bank_index_for_address(
+    uint32_t address) const noexcept
 {
     for (std::size_t index = 0u; index < kVramBanks.size(); ++index) {
         const VramBank &bank = kVramBanks[index];
         const uint64_t end =
             static_cast<uint64_t>(bank.lcdc_address) + bank.size;
-        if (address >= bank.lcdc_address &&
+        if (lcdc_enabled(controls_[index]) && address >= bank.lcdc_address &&
             static_cast<uint64_t>(address) < end) {
             return static_cast<int>(index);
+        }
+    }
+
+    for (const Arm9VideoView &view : kArm9VideoViews) {
+        const uint8_t control = controls_[view.bank_index];
+        const uint8_t ofs = static_cast<uint8_t>((control >> 3u) & 0x03u);
+        const bool active = (control & UINT8_C(0x87)) ==
+                static_cast<uint8_t>(UINT8_C(0x80) | view.mst) &&
+            ofs == view.ofs;
+        const uint64_t end =
+            static_cast<uint64_t>(view.address) + view.size;
+        if (active && address >= view.address &&
+            static_cast<uint64_t>(address) < end) {
+            return static_cast<int>(view.bank_index);
         }
     }
     return -1;
@@ -129,6 +179,16 @@ Status NdsVramControl::install()
             CpuAccessNone);
         if (result != Status::Ok) return result;
     }
+    for (const Arm9VideoView &view : kArm9VideoViews) {
+        const VramBank &bank = kVramBanks[view.bank_index];
+        result = memory_.map_alias(
+            view.address,
+            kVramBackingBase + bank.backing_offset,
+            view.size,
+            view.alias_name,
+            CpuAccessNone);
+        if (result != Status::Ok) return result;
+    }
 
     struct Arm7Window {
         uint32_t address;
@@ -168,18 +228,30 @@ Status NdsVramControl::apply_controls(
             : static_cast<uint8_t>(CpuAccessNone);
     };
 
-    std::array<GuestMemory::CpuAccessUpdate, 13> updates{};
+    std::array<GuestMemory::CpuAccessUpdate, 35> updates{};
     for (std::size_t index = 0u; index < kVramBanks.size(); ++index) {
         updates[index] = {
             kVramBanks[index].alias_name,
             lcdc_access_for(lcdc_enabled(controls[index]))
         };
     }
+    for (std::size_t index = 0u; index < kArm9VideoViews.size(); ++index) {
+        const Arm9VideoView &view = kArm9VideoViews[index];
+        const uint8_t control = controls[view.bank_index];
+        const uint8_t ofs = static_cast<uint8_t>((control >> 3u) & 0x03u);
+        const bool enabled = (control & UINT8_C(0x87)) ==
+                static_cast<uint8_t>(UINT8_C(0x80) | view.mst) &&
+            ofs == view.ofs;
+        updates[9u + index] = {
+            view.alias_name,
+            lcdc_access_for(enabled)
+        };
+    }
 
-    updates[9] = {kVramCWindow0, arm7_access_for(c_window, 0)};
-    updates[10] = {kVramCWindow1, arm7_access_for(c_window, 1)};
-    updates[11] = {kVramDWindow0, arm7_access_for(d_window, 0)};
-    updates[12] = {kVramDWindow1, arm7_access_for(d_window, 1)};
+    updates[31] = {kVramCWindow0, arm7_access_for(c_window, 0)};
+    updates[32] = {kVramCWindow1, arm7_access_for(c_window, 1)};
+    updates[33] = {kVramDWindow0, arm7_access_for(d_window, 0)};
+    updates[34] = {kVramDWindow1, arm7_access_for(d_window, 1)};
 
     /*
      * Validate all aliases before mutation. If C and D target the same ARM7
@@ -241,9 +313,8 @@ Status NdsVramControl::write(
         /* GBATEK: LCDC VRAM ignores byte stores. ARM7 C/D Work RAM is the
          * documented exception and is deliberately left to GuestMemory. */
         if (cpu == NDS_ARM9 && width == 1u) {
-            const int lcdc_index = lcdc_bank_index_for_address(address);
-            if (lcdc_index >= 0 &&
-                lcdc_enabled(controls_[static_cast<std::size_t>(lcdc_index)])) {
+            const int mapped_index = arm9_vram_bank_index_for_address(address);
+            if (mapped_index >= 0) {
                 return Status::Ok;
             }
         }

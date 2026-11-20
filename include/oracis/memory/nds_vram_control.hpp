@@ -54,7 +54,7 @@ public:
 
 private:
     static int bank_index_for_address(uint32_t address) noexcept;
-    static int lcdc_bank_index_for_address(uint32_t address) noexcept;
+    static int arm9_vram_bank_index_for_address(uint32_t address) const noexcept;
     static int arm7_window_index(uint8_t control) noexcept;
     static bool allocated_to_arm7(uint8_t control) noexcept;
     static bool lcdc_enabled(uint8_t control) noexcept;

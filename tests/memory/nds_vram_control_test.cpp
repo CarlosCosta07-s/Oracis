@@ -231,6 +231,72 @@ int main()
         return fail("VRAMSTAT did not clear when C/D left ARM7 Work RAM mode");
     }
 
+    /* Main Engine A BG slots: VRAM A-D occupy the four 128KB offsets. */
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 selection before main BG/OBJ mapping failed");
+    }
+    constexpr uint32_t bg_registers[] = {
+        NdsVramControl::VramCntAAddress,
+        NdsVramControl::VramCntBAddress,
+        NdsVramControl::VramCntCAddress,
+        NdsVramControl::VramCntDAddress
+    };
+    constexpr uint32_t bg_addresses[] = {
+        UINT32_C(0x06000000), UINT32_C(0x06020000),
+        UINT32_C(0x06040000), UINT32_C(0x06060000)
+    };
+    constexpr uint32_t bg_markers[] = {
+        UINT32_C(0xA1A1A1A1), UINT32_C(0xB2B2B2B2),
+        UINT32_C(0xC3C3C3C3), UINT32_C(0xD4D4D4D4)
+    };
+    for (uint32_t i = 0u; i < 4u; ++i) {
+        bus_write_u8(bg_registers[i], static_cast<uint8_t>(0x81u + i * 8u));
+    }
+    for (uint32_t i = 0u; i < 4u; ++i) {
+        bus_write_u32(bg_addresses[i], bg_markers[i]);
+        bus_write_u32(bg_addresses[i] + NdsVramControl::BankSize - 4u,
+                      ~bg_markers[i]);
+    }
+    for (uint32_t i = 0u; i < 4u; ++i) {
+        if (bus_read_u32(bg_addresses[i]) != bg_markers[i] ||
+            bus_read_u32(bg_addresses[i] + NdsVramControl::BankSize - 4u) !=
+                ~bg_markers[i] ||
+            memory.read(NDS_ARM7, bg_addresses[i], 4u).status == Status::Ok) {
+            return fail("main Engine A BG bank/offset mapping failed");
+        }
+    }
+
+    /* Duplicate slot assignment is ambiguous and must preserve prior views. */
+    if (control.write(
+            NDS_ARM9, NdsVramControl::VramCntBAddress, 1u, UINT8_C(0x81)) !=
+            Status::Overlap ||
+        bus_read_u32(bg_addresses[0]) != bg_markers[0] ||
+        bus_read_u32(bg_addresses[1]) != bg_markers[1]) {
+        return fail("duplicate Main BG slot was not rejected transactionally");
+    }
+
+    /* Main Engine A OBJ supports A/B only, with OFS selecting one of two slots. */
+    bus_write_u8(NdsVramControl::VramCntAAddress, UINT8_C(0x82));
+    bus_write_u8(NdsVramControl::VramCntBAddress, UINT8_C(0x8A));
+    bus_write_u32(UINT32_C(0x06400000), UINT32_C(0xAA55AA55));
+    bus_write_u32(UINT32_C(0x06420000), UINT32_C(0xBB66BB66));
+    bus_write_u8(UINT32_C(0x06400000), UINT8_C(0x00));
+    bus_write_u8(UINT32_C(0x06420000), UINT8_C(0x00));
+    if (bus_read_u32(UINT32_C(0x06400000)) != UINT32_C(0xAA55AA55) ||
+        bus_read_u32(UINT32_C(0x06420000)) != UINT32_C(0xBB66BB66)) {
+        return fail("main Engine A OBJ mapping or ignored byte stores failed");
+    }
+
+    /* Engine B BG/OBJ are fixed C/D destinations at MST=4. */
+    bus_write_u8(NdsVramControl::VramCntCAddress, UINT8_C(0x84));
+    bus_write_u8(NdsVramControl::VramCntDAddress, UINT8_C(0x84));
+    bus_write_u32(UINT32_C(0x06200000), UINT32_C(0xCC77CC77));
+    bus_write_u32(UINT32_C(0x06600000), UINT32_C(0xDD88DD88));
+    if (bus_read_u32(UINT32_C(0x06200000)) != UINT32_C(0xCC77CC77) ||
+        bus_read_u32(UINT32_C(0x06600000)) != UINT32_C(0xDD88DD88)) {
+        return fail("Engine B BG/OBJ C/D destinations failed");
+    }
+
     if (oracis_bus_unbind_memory(&memory)) {
         return fail("memory unbind succeeded while VRAM controller remained bound");
     }
@@ -240,6 +306,6 @@ int main()
         return fail("VRAM/GuestMemory/CPU unbinding failed");
     }
 
-    std::puts("VRAM A-I LCDC mapping, C/D ARM7 mapping, VRAMSTAT and remapping passed");
+    std::puts("VRAM LCDC, main/sub BG/OBJ CPU mappings, byte-store rules and ARM7 C/D mapping passed");
     return 0;
 }
