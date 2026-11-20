@@ -29,6 +29,8 @@ void *g_bios_crc16_context = nullptr;
 OracisArmRuntimeBiosCrc16Handler g_bios_crc16_handler = nullptr;
 void *g_bios_bit_unpack_context = nullptr;
 OracisArmRuntimeBiosBitUnpackHandler g_bios_bit_unpack_handler = nullptr;
+void *g_bios_lz77_context = nullptr;
+OracisArmRuntimeBiosLz77Handler g_bios_lz77_handler = nullptr;
 
 } // namespace
 
@@ -250,6 +252,47 @@ int oracis_arm_runtime_bios_bit_unpack(
     return g_bios_bit_unpack_handler(
         g_bios_bit_unpack_context, g_nds_active,
         source, destination, parameters);
+}
+
+int oracis_arm_runtime_bind_bios_lz77_handler(
+    void *context, OracisArmRuntimeBiosLz77Handler handler)
+{
+    if (context == nullptr || handler == nullptr) return 0;
+    if (g_bios_lz77_handler != nullptr || g_bios_lz77_context != nullptr) {
+        return g_bios_lz77_context == context &&
+            g_bios_lz77_handler == handler ? 1 : 0;
+    }
+    g_bios_lz77_context = context;
+    g_bios_lz77_handler = handler;
+    return 1;
+}
+
+int oracis_arm_runtime_unbind_bios_lz77_handler(
+    void *context, OracisArmRuntimeBiosLz77Handler handler)
+{
+    if (context == nullptr || handler == nullptr ||
+        g_bios_lz77_context != context ||
+        g_bios_lz77_handler != handler) {
+        return 0;
+    }
+    g_bios_lz77_context = nullptr;
+    g_bios_lz77_handler = nullptr;
+    return 1;
+}
+
+int oracis_arm_runtime_bios_lz77(
+    uint32_t source, uint32_t destination, uint32_t write_halfwords)
+{
+    if (write_halfwords > 1u ||
+        g_bios_lz77_handler == nullptr ||
+        g_bios_lz77_context == nullptr ||
+        oracis_active_cpu_state == nullptr ||
+        (g_nds_active != NDS_ARM9 && g_nds_active != NDS_ARM7)) {
+        return 0;
+    }
+    return g_bios_lz77_handler(
+        g_bios_lz77_context, g_nds_active,
+        source, destination, write_halfwords);
 }
 
 int oracis_arm_runtime_coprocessor_transfer(
@@ -581,6 +624,19 @@ void runtime_swi(uint32_t swi_imm)
         if (!oracis_arm_runtime_bios_bit_unpack(
                 g_cpu.R[0], g_cpu.R[1], g_cpu.R[2])) {
             abi_failure("runtime_swi BitUnPack (invalid or unsupported memory span)");
+        }
+        return;
+    }
+
+    case 0x11u: /* NDS7/NDS9 LZ77UnCompWram: byte writes. */
+    case 0x12u: { /* NDS7/NDS9 LZ77UnCompVram: halfword writes. */
+        const uint32_t write_halfwords =
+            (swi_imm & UINT32_C(0x00FFFFFF)) == 0x12u ? 1u : 0u;
+        if (!oracis_arm_runtime_bios_lz77(
+                g_cpu.R[0], g_cpu.R[1], write_halfwords)) {
+            abi_failure(write_halfwords != 0u
+                ? "runtime_swi LZ77UnCompVram (invalid or unsupported stream/span)"
+                : "runtime_swi LZ77UnCompWram (invalid or unsupported stream/span)");
         }
         return;
     }

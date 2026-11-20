@@ -58,6 +58,11 @@ typedef int (*OracisArmRuntimeBiosBitUnpackHandler)(
     void *context, NdsCpu cpu, uint32_t source,
     uint32_t destination, uint32_t parameters);
 
+/* Checked NDS BIOS LZ77UnCompWram/Vram services (SWI 0x11/0x12). */
+typedef int (*OracisArmRuntimeBiosLz77Handler)(
+    void *context, NdsCpu cpu, uint32_t source,
+    uint32_t destination, uint32_t write_halfwords);
+
 int oracis_arm_runtime_bind_cpus(ArmCpuState *arm9, ArmCpuState *arm7);
 int oracis_arm_runtime_unbind_cpus(ArmCpuState *arm9, ArmCpuState *arm7);
 int oracis_arm_runtime_bind_power_handler(
@@ -91,6 +96,12 @@ int oracis_arm_runtime_unbind_bios_bit_unpack_handler(
     void *context, OracisArmRuntimeBiosBitUnpackHandler handler);
 int oracis_arm_runtime_bios_bit_unpack(
     uint32_t source, uint32_t destination, uint32_t parameters);
+int oracis_arm_runtime_bind_bios_lz77_handler(
+    void *context, OracisArmRuntimeBiosLz77Handler handler);
+int oracis_arm_runtime_unbind_bios_lz77_handler(
+    void *context, OracisArmRuntimeBiosLz77Handler handler);
+int oracis_arm_runtime_bios_lz77(
+    uint32_t source, uint32_t destination, uint32_t write_halfwords);
 int oracis_arm_runtime_request_halt(NdsCpu cpu);
 int oracis_arm_runtime_write_arm7_halt_control(uint8_t value);
 int oracis_arm_runtime_select_cpu(NdsCpu cpu);

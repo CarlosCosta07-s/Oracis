@@ -497,6 +497,159 @@ int main()
     }
 
     /*
+     * NDS BIOS LZ77UnCompWram (0x11) expands LZ10 byte streams. The stream
+     * writes "ABC" literally, then repeats the prior three-byte window.
+     */
+    constexpr uint32_t lz77_wram_source = UINT32_C(0x02001B00);
+    constexpr uint32_t lz77_wram_destination = UINT32_C(0x02001B21);
+    const uint8_t lz77_wram_stream[] = {
+        0x10u, 9u, 0u, 0u, 0x10u, 'A', 'B', 'C', 0x30u, 0x02u, 0u, 0u
+    };
+    const uint8_t lz77_wram_expected[] = {
+        'A', 'B', 'C', 'A', 'B', 'C', 'A', 'B', 'C'
+    };
+    if (machine.guest_memory().write_bytes(
+            NDS_ARM9, lz77_wram_source, lz77_wram_stream,
+            static_cast<uint32_t>(sizeof(lz77_wram_stream))) !=
+        oracis::memory::Status::Ok) {
+        return fail("could not seed LZ77 WRAM stream");
+    }
+
+    const NdsCpu lz77_cpus[2] = {NDS_ARM9, NDS_ARM7};
+    for (unsigned index = 0u; index < 2u; ++index) {
+        const NdsCpu cpu = lz77_cpus[index];
+        if (!oracis_arm_runtime_select_cpu(cpu)) {
+            return fail("CPU selection failed for LZ77 WRAM");
+        }
+        ArmCpuState *state = machine.cpu_state(cpu);
+        state->R[0] = lz77_wram_source;
+        state->R[1] = lz77_wram_destination + index * 0x20u;
+        const uint32_t saved_r2 = state->R[2];
+        runtime_swi(0x11u);
+        if (state->R[0] != lz77_wram_source ||
+            state->R[1] != lz77_wram_destination + index * 0x20u ||
+            state->R[2] != saved_r2) {
+            return fail("LZ77 WRAM changed input registers");
+        }
+        for (uint32_t byte = 0u; byte < sizeof(lz77_wram_expected); ++byte) {
+            if (machine.guest_memory().read(
+                    cpu, lz77_wram_destination + index * 0x20u + byte,
+                    1u).value != lz77_wram_expected[byte]) {
+                return fail("LZ77 WRAM literal/back-reference expansion failed");
+            }
+        }
+    }
+
+    /*
+     * LZ77UnCompVram (0x12) emits halfwords. This even-sized output uses
+     * five literals followed by a five-byte overlapping back-reference.
+     */
+    constexpr uint32_t lz77_vram_source = UINT32_C(0x02001B40);
+    constexpr uint32_t lz77_vram_destination = UINT32_C(0x02001B62);
+    const uint8_t lz77_vram_stream[] = {
+        0x10u, 10u, 0u, 0u, 0x04u, 'H', 'E', 'L', 'L', 'O', 0x20u, 0x04u
+    };
+    const uint8_t lz77_vram_expected[] = {
+        'H', 'E', 'L', 'L', 'O', 'H', 'E', 'L', 'L', 'O'
+    };
+    if (machine.guest_memory().write_bytes(
+            NDS_ARM9, lz77_vram_source, lz77_vram_stream,
+            static_cast<uint32_t>(sizeof(lz77_vram_stream))) !=
+        oracis::memory::Status::Ok) {
+        return fail("could not seed LZ77 VRAM stream");
+    }
+    for (unsigned index = 0u; index < 2u; ++index) {
+        const NdsCpu cpu = lz77_cpus[index];
+        if (!oracis_arm_runtime_select_cpu(cpu)) {
+            return fail("CPU selection failed for LZ77 VRAM");
+        }
+        ArmCpuState *state = machine.cpu_state(cpu);
+        state->R[0] = lz77_vram_source;
+        state->R[1] = lz77_vram_destination + index * 0x20u;
+        runtime_swi(0x12u);
+        for (uint32_t byte = 0u; byte < sizeof(lz77_vram_expected); ++byte) {
+            if (machine.guest_memory().read(
+                    cpu, lz77_vram_destination + index * 0x20u + byte,
+                    1u).value != lz77_vram_expected[byte]) {
+                return fail("LZ77 VRAM halfword output differed from expected bytes");
+            }
+        }
+    }
+
+    /* In-place decompression is safe because the complete output is staged. */
+    constexpr uint32_t lz77_overlap = UINT32_C(0x02001B80);
+    if (machine.guest_memory().write_bytes(
+            NDS_ARM9, lz77_overlap, lz77_wram_stream,
+            static_cast<uint32_t>(sizeof(lz77_wram_stream))) !=
+            oracis::memory::Status::Ok ||
+        !oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("could not prepare overlapping LZ77 input");
+    }
+    arm9_state->R[0] = lz77_overlap;
+    arm9_state->R[1] = lz77_overlap;
+    runtime_swi(0x11u);
+    for (uint32_t byte = 0u; byte < sizeof(lz77_wram_expected); ++byte) {
+        if (machine.guest_memory().read(
+                NDS_ARM9, lz77_overlap + byte, 1u).value !=
+            lz77_wram_expected[byte]) {
+            return fail("overlapping LZ77 source was corrupted during decoding");
+        }
+    }
+
+    /* Invalid type, bad history references, alignment and odd VRAM sizes fail. */
+    constexpr uint32_t lz77_guard_source = UINT32_C(0x02001BC0);
+    constexpr uint32_t lz77_guard_destination = UINT32_C(0x02001BE0);
+    const uint8_t lz77_bad_type[] = {
+        0x11u, 4u, 0u, 0u, 0u, 0u, 0u, 0u
+    };
+    const uint8_t lz77_bad_history[] = {
+        0x10u, 3u, 0u, 0u, 0x80u, 0x00u, 0x00u
+    };
+    const uint8_t lz77_odd_size[] = {
+        0x10u, 3u, 0u, 0u, 0x00u, 'X', 'Y', 'Z'
+    };
+    const uint32_t lz77_guard_value = UINT32_C(0xA55A3CC3);
+    if (machine.guest_memory().write(
+            NDS_ARM9, lz77_guard_destination, 4u,
+            lz77_guard_value) != oracis::memory::Status::Ok ||
+        machine.guest_memory().write_bytes(
+            NDS_ARM9, lz77_guard_source, lz77_bad_type,
+            static_cast<uint32_t>(sizeof(lz77_bad_type))) !=
+            oracis::memory::Status::Ok ||
+        !oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("could not prepare invalid LZ77 stream tests");
+    }
+    if (oracis_arm_runtime_bios_lz77(
+            lz77_guard_source, lz77_guard_destination, 0u) != 0 ||
+        machine.guest_memory().read(
+            NDS_ARM9, lz77_guard_destination, 4u).value != lz77_guard_value ||
+        machine.guest_memory().write_bytes(
+            NDS_ARM9, lz77_guard_source, lz77_bad_history,
+            static_cast<uint32_t>(sizeof(lz77_bad_history))) !=
+            oracis::memory::Status::Ok ||
+        oracis_arm_runtime_bios_lz77(
+            lz77_guard_source, lz77_guard_destination, 0u) != 0 ||
+        machine.guest_memory().read(
+            NDS_ARM9, lz77_guard_destination, 4u).value != lz77_guard_value ||
+        machine.guest_memory().write_bytes(
+            NDS_ARM9, lz77_guard_source, lz77_odd_size,
+            static_cast<uint32_t>(sizeof(lz77_odd_size))) !=
+            oracis::memory::Status::Ok ||
+        oracis_arm_runtime_bios_lz77(
+            lz77_guard_source, lz77_guard_destination, 1u) != 0 ||
+        oracis_arm_runtime_bios_lz77(
+            lz77_guard_source + 1u, lz77_guard_destination, 0u) != 0 ||
+        oracis_arm_runtime_bios_lz77(
+            lz77_guard_source, lz77_guard_destination + 1u, 1u) != 0) {
+        return fail("LZ77 accepted invalid type/history/alignment/VRAM size");
+    }
+    if (machine.guest_memory().read(
+            NDS_ARM9, lz77_guard_destination, 4u).value !=
+        lz77_guard_value) {
+        return fail("rejected LZ77 stream modified the destination");
+    }
+
+    /*
      * The native bus bridge must enforce NDS palette/OAM store widths;
      * direct GuestMemory writes do not model STRB suppression.
      */
