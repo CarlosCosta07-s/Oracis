@@ -213,7 +213,8 @@ uint16_t Nds2dEffects::apply_color_effect(
     bool second_pixel_available,
     bool window_allows_effects,
     const NdsDisplayControl::WindowBlendState &registers,
-    bool force_alpha_blending) noexcept
+    bool force_alpha_blending,
+    uint8_t bitmap_obj_alpha_eva) noexcept
 {
     const uint16_t first = first_rgb555 & kRgb555Mask;
     const uint16_t second = second_rgb555 & kRgb555Mask;
@@ -229,6 +230,20 @@ uint16_t Nds2dEffects::apply_color_effect(
         second_target != 0u &&
         (bldcnt & static_cast<uint16_t>(second_target << 8u)) != 0u &&
         second_pixel_available;
+
+    /*
+     * Bitmap OBJ carries its own 4-bit alpha contribution in OAM and a
+     * per-pixel alpha flag. This coefficient replaces BLDALPHA EVA/EVB.
+     */
+    if (bitmap_obj_alpha_eva != 0u) {
+        if (!is_second_target || second_layer == Nds2dLayer::Object) {
+            return first;
+        }
+        const uint16_t eva = bitmap_obj_alpha_eva > 16u
+            ? UINT16_C(16) : bitmap_obj_alpha_eva;
+        return alpha_blend(
+            first, second, eva, static_cast<uint16_t>(16u - eva));
+    }
 
     const uint16_t effect_mode =
         static_cast<uint16_t>((bldcnt >> 6u) & UINT16_C(0x0003));

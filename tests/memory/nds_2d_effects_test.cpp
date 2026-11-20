@@ -197,6 +197,44 @@ int main()
         return fail("brightness-down RGB555 calculation was incorrect");
     }
 
+    /*
+     * Bitmap OBJ uses its own alpha EVA instead of BLDALPHA. It only blends
+     * with an enabled second-target BG and never with another OBJ.
+     */
+    registers.bldcnt = static_cast<uint16_t>(1u << 9u);
+    registers.bldalpha = 0u;
+    const uint16_t bitmap_half_alpha = Nds2dEffects::apply_color_effect(
+        UINT16_C(0x001F), Nds2dLayer::Object,
+        UINT16_C(0x03E0), Nds2dLayer::Bg1,
+        true, true, registers, true, 8u);
+    if (bitmap_half_alpha != UINT16_C(0x0210)) {
+        return fail("bitmap OBJ alpha EVA did not replace BLDALPHA factors");
+    }
+    const uint16_t bitmap_opaque = Nds2dEffects::apply_color_effect(
+        UINT16_C(0x001F), Nds2dLayer::Object,
+        UINT16_C(0x03E0), Nds2dLayer::Bg1,
+        true, true, registers, true, 16u);
+    if (bitmap_opaque != UINT16_C(0x001F)) {
+        return fail("bitmap OBJ EVA=16 did not preserve the source color");
+    }
+    const uint16_t bitmap_without_bg_target = Nds2dEffects::apply_color_effect(
+        UINT16_C(0x001F), Nds2dLayer::Object,
+        UINT16_C(0x03E0), Nds2dLayer::Bg1,
+        true, true, registers, true, 8u);
+    if (bitmap_without_bg_target != UINT16_C(0x001F)) {
+        return fail("bitmap OBJ blended without a selected BG second target");
+    }
+    const uint16_t bitmap_with_obj_target = Nds2dEffects::apply_color_effect(
+        UINT16_C(0x001F), Nds2dLayer::Object,
+        UINT16_C(0x03E0), Nds2dLayer::Object,
+        true, true,
+        NdsDisplayControl::WindowBlendState{
+            .bldcnt = static_cast<uint16_t>(1u << (8u + 4u))},
+        true, 8u);
+    if (bitmap_with_obj_target != UINT16_C(0x001F)) {
+        return fail("bitmap OBJ used another OBJ as its alpha target");
+    }
+
     /* Coefficients greater than 16 are interpreted as 16/16. */
     registers.bldcnt = static_cast<uint16_t>((1u << 6u) | (1u << 5u) | (1u << 8u));
     registers.bldalpha = UINT16_C(0x001F);

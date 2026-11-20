@@ -87,7 +87,8 @@ public:
         bool second_pixel_available,
         bool window_allows_effects,
         const NdsDisplayControl::WindowBlendState &registers,
-        bool force_alpha_blending = false) noexcept;
+        bool force_alpha_blending = false,
+        uint8_t bitmap_obj_alpha_eva = 0u) noexcept;
 
 private:
     static bool contains(
