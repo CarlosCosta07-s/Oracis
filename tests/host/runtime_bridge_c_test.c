@@ -86,11 +86,19 @@ int main(void)
         return 1;
     }
 
+    const NdsStaticValidation arm9_validation = {
+        UINT32_C(0x02001000), (uint32_t)sizeof(arm9_program),
+        arm9_program, NULL, 0u
+    };
+    const NdsStaticValidation arm7_validation = {
+        UINT32_C(0x02381000), (uint32_t)sizeof(arm7_program),
+        arm7_program, NULL, 0u
+    };
     const NdsDispatchEntry arm9_table[] = {
-        {UINT32_C(0x02001000), 0u, &arm9_test_bank, NULL}
+        {UINT32_C(0x02001000), 0u, &arm9_test_bank, &arm9_validation}
     };
     const NdsDispatchEntry arm7_table[] = {
-        {UINT32_C(0x02381000), 1u, &arm7_test_bank, NULL}
+        {UINT32_C(0x02381000), 1u, &arm7_test_bank, &arm7_validation}
     };
     if (oracis_static_dispatch_register_bank(
             NDS_ARM9, arm9_table, 1u, "host-c-test-arm9") !=
@@ -153,6 +161,34 @@ int main(void)
     if (oracis_host_runtime_validate_entrypoints(NULL, &arm7_entry) !=
         ORACIS_HOST_RUNTIME_INVALID_ARGUMENT) {
         fprintf(stderr, "host bridge accepted a null entry-point report\\n");
+        return 1;
+    }
+
+    /* A registered row is inactive when its expected bytes no longer match. */
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM7)) {
+        fprintf(stderr, "host bridge could not select ARM7 for identity test\\n");
+        return 1;
+    }
+    bus_write_u16(UINT32_C(0x02381000), UINT16_C(0x4771));
+    if (oracis_host_runtime_validate_entrypoints(
+            &arm9_entry, &arm7_entry) != ORACIS_HOST_RUNTIME_OK ||
+        arm9_entry.resolved != 1u ||
+        arm7_entry.resolved != 0u ||
+        arm7_entry.lookup_status != ORACIS_DISPATCH_LOOKUP_MISS ||
+        arm7_entry.candidate_count != 1u ||
+        arm7_entry.has_inactive_candidate != 1u) {
+        bus_write_u16(UINT32_C(0x02381000), UINT16_C(0x4770));
+        (void)oracis_arm_runtime_select_cpu(NDS_ARM9);
+        fprintf(stderr, "host bridge did not reject stale ARM7 entry bytes\\n");
+        return 1;
+    }
+    bus_write_u16(UINT32_C(0x02381000), UINT16_C(0x4770));
+    if (oracis_host_runtime_validate_entrypoints(
+            &arm9_entry, &arm7_entry) != ORACIS_HOST_RUNTIME_OK ||
+        arm9_entry.resolved != 1u || arm7_entry.resolved != 1u ||
+        arm7_entry.has_inactive_candidate != 0u) {
+        (void)oracis_arm_runtime_select_cpu(NDS_ARM9);
+        fprintf(stderr, "host bridge did not restore ARM7 entry identity\\n");
         return 1;
     }
 
