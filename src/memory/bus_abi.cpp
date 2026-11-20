@@ -4,6 +4,7 @@
 #include "oracis/memory/nds_wram_control.hpp"
 #include "oracis/memory/nds_vram_control.hpp"
 #include "oracis/memory/nds_video_memory.hpp"
+#include "oracis/memory/nds_display_control.hpp"
 #include "oracis/memory/nds_interrupt_control.hpp"
 #include "oracis/memory/nds_timer_control.hpp"
 #include "oracis/memory/nds_keypad_control.hpp"
@@ -20,6 +21,7 @@ oracis::memory::GuestMemory *g_guest_memory = nullptr;
 oracis::memory::NdsWramControl *g_wram_control = nullptr;
 oracis::memory::NdsVramControl *g_vram_control = nullptr;
 oracis::memory::NdsVideoMemory *g_video_memory = nullptr;
+oracis::memory::NdsDisplayControl *g_display_control = nullptr;
 oracis::memory::NdsInterruptControl *g_interrupt_control = nullptr;
 oracis::memory::NdsTimerControl *g_timer_control = nullptr;
 oracis::memory::NdsKeypadControl *g_keypad_control = nullptr;
@@ -57,6 +59,14 @@ oracis::memory::GuestMemory &bound_memory(const char *operation,
 uint32_t read_bus(uint32_t address, uint32_t width, const char *operation)
 {
     auto &memory = bound_memory(operation, address, width);
+    if (g_display_control != nullptr) {
+        const auto mmio = g_display_control->read(
+            g_nds_active, address, width);
+        if (mmio.status != oracis::memory::Status::Unmapped) {
+            if (!mmio) bus_failure(operation, address, width, mmio.status);
+            return mmio.value;
+        }
+    }
     if (g_keypad_control != nullptr) {
         const auto mmio = g_keypad_control->read(
             g_nds_active, address, width);
@@ -108,6 +118,16 @@ void write_bus(uint32_t address,
                const char *operation)
 {
     auto &memory = bound_memory(operation, address, width);
+    if (g_display_control != nullptr) {
+        const auto mmio = g_display_control->write(
+            g_nds_active, address, width, value);
+        if (mmio != oracis::memory::Status::Unmapped) {
+            if (mmio != oracis::memory::Status::Ok) {
+                bus_failure(operation, address, width, mmio);
+            }
+            return;
+        }
+    }
     if (g_keypad_control != nullptr) {
         const auto mmio = g_keypad_control->write(
             g_nds_active, address, width, value);
@@ -198,6 +218,7 @@ extern "C" int oracis_bus_unbind_memory(void *memory)
          &g_vram_control->backing_memory() == g_guest_memory) ||
         (g_video_memory != nullptr &&
          &g_video_memory->backing_memory() == g_guest_memory) ||
+        g_display_control != nullptr ||
         (g_interrupt_control != nullptr &&
          &g_interrupt_control->backing_memory() == g_guest_memory) ||
         (g_timer_control != nullptr &&
@@ -275,6 +296,26 @@ extern "C" int oracis_bus_unbind_video_memory(void *video_memory)
         return 0;
     }
     g_video_memory = nullptr;
+    return 1;
+}
+
+extern "C" int oracis_bus_bind_display_control(void *display_control)
+{
+    if (display_control == nullptr || g_guest_memory == nullptr) return 0;
+    auto *device =
+        static_cast<oracis::memory::NdsDisplayControl *>(display_control);
+    if (!device->installed() || g_display_control != nullptr) return 0;
+    g_display_control = device;
+    return 1;
+}
+
+extern "C" int oracis_bus_unbind_display_control(void *display_control)
+{
+    if (display_control == nullptr || g_display_control !=
+            static_cast<oracis::memory::NdsDisplayControl *>(display_control)) {
+        return 0;
+    }
+    g_display_control = nullptr;
     return 1;
 }
 

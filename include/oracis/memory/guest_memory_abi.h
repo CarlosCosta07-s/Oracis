@@ -30,6 +30,10 @@ int oracis_bus_unbind_vram_control(void *control);
 int oracis_bus_bind_video_memory(void *video_memory);
 int oracis_bus_unbind_video_memory(void *video_memory);
 
+/* Bind the ARM9 Engine A/B display register device. */
+int oracis_bus_bind_display_control(void *display_control);
+int oracis_bus_unbind_display_control(void *display_control);
+
 /* Bind a live NdsInterruptControl device after binding its GuestMemory object. */
 int oracis_bus_bind_interrupt_control(void *control);
 int oracis_bus_unbind_interrupt_control(void *control);

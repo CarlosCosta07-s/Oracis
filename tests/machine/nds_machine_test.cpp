@@ -141,6 +141,25 @@ int main()
     if (!machine.video_memory().installed()) {
         return fail("fixed video memory device was not installed");
     }
+
+    if (!machine.display_control().installed()) {
+        return fail("2D display register device was not installed");
+    }
+    constexpr uint32_t engine_a_dispcnt = UINT32_C(0x04000000);
+    constexpr uint32_t engine_b_dispcnt = UINT32_C(0x04001000);
+    constexpr uint32_t engine_a_bg0cnt = UINT32_C(0x04000008);
+    constexpr uint32_t engine_b_bg0cnt = UINT32_C(0x04001008);
+    bus_write_u32(engine_a_dispcnt, UINT32_C(0x00010013));
+    bus_write_u32(engine_b_dispcnt, UINT32_C(0x80000021));
+    bus_write_u32(engine_a_bg0cnt, UINT32_C(0xBEEF1234));
+    bus_write_u16(engine_b_bg0cnt + 4u, UINT16_C(0xCDEF));
+    if (bus_read_u32(engine_a_dispcnt) != UINT32_C(0x00010013) ||
+        bus_read_u32(engine_b_dispcnt) != UINT32_C(0x80000021) ||
+        bus_read_u16(engine_a_bg0cnt) != UINT16_C(0x1234) ||
+        bus_read_u16(engine_a_bg0cnt + 2u) != UINT16_C(0xBEEF) ||
+        bus_read_u16(engine_b_bg0cnt + 4u) != UINT16_C(0xCDEF)) {
+        return fail("2D Engine A/B display register bus bridge failed");
+    }
     bus_write_u32(engine_a_bg_palette, palette_marker);
     bus_write_u16(engine_a_obj_palette, UINT32_C(0x5566));
     bus_write_u32(engine_b_bg_palette, UINT32_C(0xB1B2B3B4));
