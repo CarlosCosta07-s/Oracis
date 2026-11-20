@@ -1,10 +1,10 @@
 /*
  * Nintendo DS OBJ/OAM scanline fetcher.
  *
- * Supports tiled OBJ in 4bpp/8bpp modes, non-affine flips, 1D/2D character
- * mapping, signed 8.8 affine matrices, double-size bounds, palette
- * transparency, mosaic and OBJ-window coverage. Bitmap OBJ remains
- * explicitly unsupported.
+ * Supports tiled OBJ in 4bpp/8bpp modes and direct-color bitmap OBJ in 1D
+ * and 2D mappings. Both paths share non-affine flips, signed 8.8 affine
+ * matrices, double-size bounds, mosaic and OAM ordering; tiled OBJ also
+ * supports palette transparency and OBJ-window coverage.
  */
 #ifndef ORACIS_MEMORY_NDS_2D_OBJ_FETCHER_HPP
 #define ORACIS_MEMORY_NDS_2D_OBJ_FETCHER_HPP
@@ -34,6 +34,8 @@ struct Nds2dObjPixel {
     uint8_t object_index = UINT8_C(0xFF);
     bool transparent = true;
     bool semi_transparent = false;
+    /* Bitmap OBJ's per-pixel alpha after combining alphaBMP and alphaOAM. */
+    uint8_t bitmap_alpha_eva = 0u;
 };
 
 struct Nds2dObjScanline {
@@ -58,8 +60,8 @@ public:
     Nds2dObjFetcher &operator=(const Nds2dObjFetcher &) = delete;
 
     /*
-     * Rasterizes tiled OBJ entries intersecting one visible line, including
-     * affine reverse-mapping via the selected OAM PA/PB/PC/PD matrix group.
+     * Rasterizes tiled and bitmap OBJ entries intersecting one visible line,
+     * including affine reverse-mapping via the selected OAM matrix group.
      * Output is committed only after all required OAM/VRAM/palette reads.
      */
     Nds2dObjFetchResult render_scanline(

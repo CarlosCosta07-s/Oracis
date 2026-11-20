@@ -18,6 +18,10 @@ constexpr uint32_t kEngineBObjPaletteBase = UINT32_C(0x05000600);
 constexpr uint32_t kObjEnable = UINT32_C(1) << 12u;
 constexpr uint32_t kObjWindowEnable = UINT32_C(1) << 15u;
 constexpr uint32_t kObjOneDimensional = UINT32_C(1) << 4u;
+constexpr uint32_t kObjBitmapWidth256 = UINT32_C(1) << 5u;
+constexpr uint32_t kObjBitmapOneDimensional = UINT32_C(1) << 6u;
+constexpr uint32_t kObjBitmapVramExtended = UINT32_C(1) << 22u;
+constexpr uint32_t kObjBitmapColorDepth = UINT32_C(1) << 13u;
 constexpr uint32_t kObjBoundaryShift = 20u;
 constexpr uint32_t kObjCount = 128u;
 constexpr uint32_t kObjEntryBytes = 8u;
@@ -217,9 +221,18 @@ Nds2dObjFetchResult Nds2dObjFetcher::render_scanline(
 
         const unsigned obj_mode =
             static_cast<unsigned>((attr0 >> 10u) & UINT16_C(3));
+        const bool bitmap_obj = obj_mode == 3u;
         if ((obj_mode == 0u || obj_mode == 1u) && !obj_enabled) continue;
         if (obj_mode == 2u && !obj_window_enabled) continue;
-        if (obj_mode == 3u && !obj_enabled) continue;
+        if (bitmap_obj && !obj_enabled) continue;
+
+        /*
+         * Bitmap OBJ stores alphaOAM in Attr2[12:15]. A zero coefficient
+         * makes the whole OBJ transparent and must not reach the rasterizer.
+         */
+        const uint8_t bitmap_alpha_oam = static_cast<uint8_t>(
+            (attr2 >> 12u) & UINT16_C(0x000F));
+        if (bitmap_obj && bitmap_alpha_oam == 0u) continue;
 
         const unsigned shape =
             static_cast<unsigned>((attr0 >> 14u) & UINT16_C(3));
@@ -245,10 +258,31 @@ Nds2dObjFetchResult Nds2dObjFetcher::render_scanline(
         const int right = sprite_x + static_cast<int>(bounds_width);
         if (right <= 0 || sprite_x >= 256) continue;
 
-        if (obj_mode == 3u) {
+        const unsigned bitmap_mapping = static_cast<unsigned>(
+            (dispcnt >> 5u) & UINT32_C(3));
+        const bool bitmap_one_dimensional =
+            bitmap_obj && bitmap_mapping == 2u;
+        if (bitmap_obj &&
+            (((attr0 & kObjBitmapColorDepth) != 0u) ||
+             bitmap_mapping == 3u)) {
             return unsupported(
-                Nds2dObjFetchStatus::UnsupportedBitmap, object_index);
+                Nds2dObjFetchStatus::UnsupportedMapping, object_index);
         }
+
+        const uint32_t bitmap_width =
+            (dispcnt & kObjBitmapWidth256) != 0u
+                ? UINT32_C(256) : UINT32_C(128);
+        const uint32_t bitmap_boundary =
+            engine_index == 0u &&
+            (dispcnt & kObjBitmapVramExtended) != 0u
+                ? UINT32_C(256) : UINT32_C(128);
+        const uint32_t bitmap_vram_capacity = bitmap_obj
+            ? (bitmap_one_dimensional
+                ? (engine_index == 0u &&
+                   (dispcnt & kObjBitmapVramExtended) != 0u
+                    ? UINT32_C(0x40000) : UINT32_C(0x20000))
+                : kObj2dCharacterBytes)
+            : 0u;
 
         AffineMatrix matrix{};
         if (affine) {
@@ -327,6 +361,98 @@ Nds2dObjFetchResult Nds2dObjFetcher::render_scanline(
             if (source_x < 0 || source_row < 0 ||
                 source_x >= static_cast<int32_t>(width) ||
                 source_row >= static_cast<int32_t>(height)) {
+                continue;
+            }
+
+            if (bitmap_obj) {
+                const uint32_t bitmap_source_x =
+                    static_cast<uint32_t>(source_x);
+                const uint32_t bitmap_source_y =
+                    static_cast<uint32_t>(source_row);
+                uint64_t bitmap_pixel_offset = 0u;
+
+                if (bitmap_one_dimensional) {
+                    /*
+                     * 1D bitmap data is a linear, tightly packed RGB555
+                     * surface starting at TileName * 128/256 bytes.
+                     * Its source width is the OAM object's width.
+                     */
+                    const uint64_t bitmap_base =
+                        static_cast<uint64_t>(tile_index) * bitmap_boundary;
+                    const uint64_t linear_pixel =
+                        static_cast<uint64_t>(bitmap_source_y) * width +
+                        bitmap_source_x;
+                    bitmap_pixel_offset =
+                        bitmap_base + linear_pixel * sizeof(uint16_t);
+                } else {
+                    /*
+                     * 2D bitmap data is tiled in 8x8 character-name units,
+                     * but pixels inside each tile remain scanline-linear.
+                     * Name bits are split into X (low bits) and Y (high).
+                     */
+                    const uint32_t tiles_wide = bitmap_width / 8u;
+                    const uint32_t tile_x_mask = tiles_wide - 1u;
+                    const uint64_t bitmap_tile_name =
+                        static_cast<uint64_t>(tile_index) +
+                        static_cast<uint64_t>(bitmap_source_y / 8u) *
+                            tiles_wide +
+                        bitmap_source_x / 8u;
+                    const uint64_t tile_base =
+                        (bitmap_tile_name & tile_x_mask) *
+                            UINT64_C(0x10) +
+                        (bitmap_tile_name & ~static_cast<uint64_t>(
+                            tile_x_mask)) * UINT64_C(0x80);
+                    const uint64_t in_tile_pixel =
+                        static_cast<uint64_t>(bitmap_source_y & 7u) *
+                            bitmap_width * sizeof(uint16_t) +
+                        static_cast<uint64_t>(bitmap_source_x & 7u) *
+                            sizeof(uint16_t);
+                    bitmap_pixel_offset = tile_base + in_tile_pixel;
+                }
+
+                if (bitmap_pixel_offset + sizeof(uint16_t) >
+                    bitmap_vram_capacity) {
+                    return memory_error(object_index, Status::Unmapped);
+                }
+
+                uint32_t bitmap_pixel_address = 0u;
+                if (!add_address(
+                        obj_vram_base, bitmap_pixel_offset,
+                        bitmap_pixel_address)) {
+                    return memory_error(
+                        object_index, Status::AddressOverflow);
+                }
+
+                uint16_t bitmap_pixel = 0u;
+                if (!read_halfword(
+                        memory_, bitmap_pixel_address,
+                        bitmap_pixel, memory_status)) {
+                    return memory_error(object_index, memory_status);
+                }
+
+                /* Bit 15 is alphaBMP; a clear flag makes this texel transparent. */
+                if ((bitmap_pixel & UINT16_C(0x8000)) == 0u) continue;
+
+                const uint8_t bitmap_alpha_eva = static_cast<uint8_t>(
+                    bitmap_alpha_oam + 1u);
+                const Nds2dObjPixel candidate{
+                    static_cast<uint16_t>(
+                        bitmap_pixel & UINT16_C(0x7FFF)),
+                    priority,
+                    object_index,
+                    false,
+                    false,
+                    bitmap_alpha_eva
+                };
+                Nds2dObjPixel &top = next_line.pixels[screen_x];
+                Nds2dObjPixel &second = next_line.second_pixels[screen_x];
+
+                if (outranks(priority, object_index, top)) {
+                    second = top;
+                    top = candidate;
+                } else if (outranks(priority, object_index, second)) {
+                    second = candidate;
+                }
                 continue;
             }
 

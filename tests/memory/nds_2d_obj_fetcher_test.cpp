@@ -355,6 +355,192 @@ int main()
         return fail("Engine B affine matrix lookup or identity sampling failed");
     }
 
-    std::puts("NDS Engine A/B OBJ OAM, affine identity/scale/rotation/double-size, 4bpp/8bpp, flips, priority and OBJ-window tests passed");
+    /*
+     * 2D Bitmap OBJ, 128-dot source width: the character name addresses an
+     * 8x8 tile, while each tile's rows keep the full 128-pixel line stride.
+     */
+    if (!write_oam(
+            memory, 0u, 0u,
+            UINT16_C(0x0C0A),
+            UINT16_C(5u),
+            static_cast<uint16_t>((7u << 12u) | 0u)) ||
+        !write16(memory, UINT32_C(0x06400000), UINT16_C(0x801F)) ||
+        !write16(memory, UINT32_C(0x06400002), UINT16_C(0x7C00)) ||
+        !write16(memory, UINT32_C(0x06400004), UINT16_C(0x83E0)) ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            UINT32_C(1) << 12u) != Status::Ok) {
+        return fail("2D 128-dot bitmap OBJ fixture setup failed");
+    }
+    result = fetcher.render_scanline(0u, display, 10u, line);
+    if (result.status != Nds2dObjFetchStatus::Ok ||
+        line.pixels[5].transparent ||
+        line.pixels[5].rgb555 != UINT16_C(0x001F) ||
+        line.pixels[5].bitmap_alpha_eva != 8u ||
+        !line.pixels[6].transparent ||
+        line.pixels[7].rgb555 != UINT16_C(0x03E0)) {
+        return fail("2D 128-dot bitmap OBJ RGB555/alphaBMP sampling failed");
+    }
+
+    /* 2D/256 mapping doubles the source row stride to 512 bytes. */
+    if (!write_oam(
+            memory, 0u, 0u,
+            UINT16_C(0x0C0A),
+            UINT16_C(5u),
+            static_cast<uint16_t>((15u << 12u) | 0u)) ||
+        !write16(
+            memory, UINT32_C(0x06400000) + UINT32_C(512),
+            UINT16_C(0xFC00)) ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            (UINT32_C(1) << 12u) | (UINT32_C(1) << 5u)) != Status::Ok) {
+        return fail("2D 256-dot bitmap OBJ fixture setup failed");
+    }
+    result = fetcher.render_scanline(0u, display, 11u, line);
+    if (result.status != Nds2dObjFetchStatus::Ok ||
+        line.pixels[5].transparent ||
+        line.pixels[5].rgb555 != UINT16_C(0x7C00) ||
+        line.pixels[5].bitmap_alpha_eva != 16u) {
+        return fail("2D 256-dot bitmap OBJ row stride or opaque alpha failed");
+    }
+
+    /* 1D mapping starts at TileName * 128 bytes and stores the object linearly. */
+    if (!write_oam(
+            memory, 0u, 0u,
+            UINT16_C(0x0C0A),
+            UINT16_C(5u),
+            static_cast<uint16_t>((7u << 12u) | 1u)) ||
+        !write16(
+            memory, UINT32_C(0x06400000) + UINT32_C(128),
+            UINT16_C(0x83E0)) ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            (UINT32_C(1) << 12u) |
+                (UINT32_C(1) << 6u)) != Status::Ok) {
+        return fail("1D bitmap OBJ fixture setup failed");
+    }
+    result = fetcher.render_scanline(0u, display, 10u, line);
+    if (result.status != Nds2dObjFetchStatus::Ok ||
+        line.pixels[5].transparent ||
+        line.pixels[5].rgb555 != UINT16_C(0x03E0)) {
+        return fail("1D bitmap OBJ character-name boundary failed");
+    }
+
+    /* Engine A's bitmap VRAM extension changes the 1D name boundary to 256. */
+    if (!write_oam(
+            memory, 0u, 0u,
+            UINT16_C(0x0C0A),
+            UINT16_C(5u),
+            static_cast<uint16_t>((7u << 12u) | 1u)) ||
+        !write16(
+            memory, UINT32_C(0x06400000) + UINT32_C(256),
+            UINT16_C(0xFC00)) ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            (UINT32_C(1) << 12u) | (UINT32_C(1) << 6u) |
+                (UINT32_C(1) << 22u)) != Status::Ok) {
+        return fail("1D extended bitmap OBJ fixture setup failed");
+    }
+    result = fetcher.render_scanline(0u, display, 10u, line);
+    if (result.status != Nds2dObjFetchStatus::Ok ||
+        line.pixels[5].transparent ||
+        line.pixels[5].rgb555 != UINT16_C(0x7C00)) {
+        return fail("1D 256-byte bitmap OBJ boundary failed");
+    }
+
+    /* αOAM=0 disables the complete bitmap OBJ; αBMP=0 disables one pixel. */
+    if (!write_oam(
+            memory, 0u, 0u,
+            UINT16_C(0x0C0A),
+            UINT16_C(5u),
+            UINT16_C(1u)) ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            (UINT32_C(1) << 12u) |
+                (UINT32_C(1) << 6u)) != Status::Ok) {
+        return fail("bitmap OBJ zero alpha-OAM fixture setup failed");
+    }
+    result = fetcher.render_scanline(0u, display, 10u, line);
+    if (result.status != Nds2dObjFetchStatus::Ok ||
+        !line.pixels[5].transparent) {
+        return fail("bitmap OBJ Alpha-OAM zero did not suppress the object");
+    }
+
+    if (!write_oam(
+            memory, 0u, 0u,
+            UINT16_C(0x0C0A),
+            UINT16_C(5u),
+            static_cast<uint16_t>((7u << 12u) | 1u)) ||
+        !write16(
+            memory, UINT32_C(0x06400000) + UINT32_C(128),
+            UINT16_C(0x03E0))) {
+        return fail("bitmap OBJ alphaBMP-zero fixture setup failed");
+    }
+    result = fetcher.render_scanline(0u, display, 10u, line);
+    if (result.status != Nds2dObjFetchStatus::Ok ||
+        !line.pixels[5].transparent) {
+        return fail("bitmap OBJ alphaBMP zero was not transparent");
+    }
+
+    /* Reserved mapping 3 and nonzero bitmap color-depth bit fail transactionally. */
+    Nds2dObjScanline preserved_bitmap_line = line;
+    line.pixels[0].rgb555 = UINT16_C(0x4321);
+    if (!write_oam(
+            memory, 0u, 0u,
+            UINT16_C(0x0C0A) | UINT16_C(0x2000),
+            UINT16_C(5u),
+            static_cast<uint16_t>((7u << 12u) | 1u)) ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            (UINT32_C(1) << 12u) |
+                (UINT32_C(3) << 5u)) != Status::Ok) {
+        return fail("reserved bitmap OBJ mapping fixture setup failed");
+    }
+    result = fetcher.render_scanline(0u, display, 10u, line);
+    if (result.status != Nds2dObjFetchStatus::UnsupportedMapping ||
+        line.pixels[0].rgb555 != UINT16_C(0x4321)) {
+        return fail("reserved bitmap OBJ mapping did not fail closed");
+    }
+
+    if (!write_oam(
+            memory, 0u, 0u,
+            UINT16_C(0x0C0A) | UINT16_C(0x2000),
+            UINT16_C(5u),
+            static_cast<uint16_t>((7u << 12u) | 1u)) ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            UINT32_C(1) << 12u) != Status::Ok) {
+        return fail("bitmap OBJ color-depth rejection fixture setup failed");
+    }
+    result = fetcher.render_scanline(0u, display, 10u, line);
+    if (result.status != Nds2dObjFetchStatus::UnsupportedMapping ||
+        line.pixels[0].rgb555 != UINT16_C(0x4321)) {
+        return fail("bitmap OBJ nonzero color-depth flag did not fail closed");
+    }
+
+    /* Engine B uses its own OBJ VRAM half and a fixed 128 KiB 1D range. */
+    if (!write_oam(
+            memory, 1u, 0u,
+            UINT16_C(0x0C00),
+            UINT16_C(6u),
+            static_cast<uint16_t>((15u << 12u) | 2u)) ||
+        !write16(
+            memory, UINT32_C(0x06600000) + UINT32_C(256),
+            UINT16_C(0x801F)) ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineBBase, 4u,
+            (UINT32_C(1) << 12u) |
+                (UINT32_C(1) << 6u)) != Status::Ok) {
+        return fail("Engine B bitmap OBJ fixture setup failed");
+    }
+    result = fetcher.render_scanline(1u, display, 0u, line);
+    if (result.status != Nds2dObjFetchStatus::Ok ||
+        line.pixels[6].transparent ||
+        line.pixels[6].rgb555 != UINT16_C(0x001F) ||
+        line.pixels[6].bitmap_alpha_eva != 16u) {
+        return fail("Engine B 1D bitmap OBJ VRAM selection or capacity failed");
+    }
+
+    std::puts("NDS Engine A/B tiled/bitmap OBJ, affine transforms, alpha, mapping, priority and OBJ-window tests passed");
     return 0;
 }
