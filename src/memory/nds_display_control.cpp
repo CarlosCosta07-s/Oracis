@@ -397,8 +397,17 @@ Status NdsDisplayControl::write(
 
         if ((bg_offset == 8u || bg_offset == 12u) && width == 4u) {
             const int32_t coordinate = sign_extend_affine_reference(value);
-            if (bg_offset == 8u) affine.reference_x = coordinate;
-            else affine.reference_y = coordinate;
+            if (bg_offset == 8u) {
+                affine.reference_x = coordinate;
+                if (vcount_ < VisibleScanlines) {
+                    affine.line_reference_x = coordinate;
+                }
+            } else {
+                affine.reference_y = coordinate;
+                if (vcount_ < VisibleScanlines) {
+                    affine.line_reference_y = coordinate;
+                }
+            }
             return Status::Ok;
         }
         return Status::InvalidWidth;
@@ -452,6 +461,30 @@ void NdsDisplayControl::advance_scanline() noexcept
         next_scanline = pending_vcount_;
         pending_vcount_write_ = false;
     }
+    /*
+     * BG2/BG3 reference points have an internal scanline accumulator.
+     * PB/PD advance it at each line boundary. The programmed 19.8 reference
+     * is reloaded at frame wrap; visible-line BGxX/BGxY writes replace the
+     * current internal origin immediately in the register-write path.
+     */
+    for (EngineState &engine : engines_) {
+        for (BgAffineState &affine : engine.bg_affine) {
+            if (next_scanline == 0u) {
+                affine.line_reference_x = affine.reference_x;
+                affine.line_reference_y = affine.reference_y;
+            } else {
+                const int64_t next_x =
+                    static_cast<int64_t>(affine.line_reference_x) + affine.pb;
+                const int64_t next_y =
+                    static_cast<int64_t>(affine.line_reference_y) + affine.pd;
+                affine.line_reference_x = sign_extend_affine_reference(
+                    static_cast<uint32_t>(next_x));
+                affine.line_reference_y = sign_extend_affine_reference(
+                    static_cast<uint32_t>(next_y));
+            }
+        }
+    }
+
     vcount_ = next_scanline;
 
     /* The VBlank IRQ is tied to the real line-192 edge, not merely a
@@ -520,6 +553,12 @@ void NdsDisplayControl::reset_timing() noexcept
     pending_vcount_write_ = false;
     pending_vcount_ = 0u;
     hblank_irq_fired_ = {};
+    for (EngineState &engine : engines_) {
+        for (BgAffineState &affine : engine.bg_affine) {
+            affine.line_reference_x = affine.reference_x;
+            affine.line_reference_y = affine.reference_y;
+        }
+    }
 }
 
 } // namespace oracis::memory

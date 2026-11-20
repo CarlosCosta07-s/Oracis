@@ -1,4 +1,5 @@
 #include "oracis/memory/nds_2d_bg_compositor.hpp"
+#include "oracis/memory/nds_2d_affine_bg_fetcher.hpp"
 
 #include <array>
 #include <cstddef>
@@ -92,13 +93,19 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
         return object_error(object_result);
     }
 
-    Nds2dTextBgFetcher fetcher(memory_);
+    Nds2dTextBgFetcher text_fetcher(memory_);
+    Nds2dAffineBgFetcher affine_fetcher(memory_);
     std::array<std::array<Nds2dBgPixel, 256>, NdsDisplayControl::BgCount>
         background_lines{};
 
     for (unsigned bg = 0u; bg < NdsDisplayControl::BgCount; ++bg) {
-        const Nds2dBgFetchResult result = fetcher.render_scanline(
-            engine_index, bg, display, scanline, background_lines[bg]);
+        const Nds2dBgFetchResult result =
+            Nds2dAffineBgFetcher::is_affine_tile_bg(
+                engine_index, bg, dispcnt)
+            ? affine_fetcher.render_scanline(
+                engine_index, bg, display, scanline, background_lines[bg])
+            : text_fetcher.render_scanline(
+                engine_index, bg, display, scanline, background_lines[bg]);
         if (result.status == Nds2dBgFetchStatus::Ok ||
             result.status == Nds2dBgFetchStatus::Disabled) {
             continue;

@@ -53,6 +53,9 @@ public:
         int16_t pd = 0;
         int32_t reference_x = 0;
         int32_t reference_y = 0;
+        /* Internal affine reference point for the currently rendered line. */
+        int32_t line_reference_x = 0;
+        int32_t line_reference_y = 0;
     };
 
     struct WindowBlendState {
