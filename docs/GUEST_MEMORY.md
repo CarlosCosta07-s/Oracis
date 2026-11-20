@@ -104,6 +104,18 @@ Este dispositivo ainda não implementa acesso do PPU, avaliação de sprites/OAM
 | `0x04000028/2C` e `0x04000038/3C` | Engine A — BG2/BG3 X/Y | 32 bits, escrita; signed 19.8 em 28 bits válidos |
 | `0x04001020–0x04001026` e `0x04001030–0x04001036` | Engine B — BG2/BG3 PA/PB/PC/PD | 16 bits, escrita; signed 8.8 |
 | `0x04001028/2C` e `0x04001038/3C` | Engine B — BG2/BG3 X/Y | 32 bits, escrita; signed 19.8 em 28 bits válidos |
+| `0x04000040–0x04000046` | Engine A — WIN0H/WIN1H/WIN0V/WIN1V | 16 bits, escrita |
+| `0x04000048/4A` | Engine A — WININ/WINOUT | 16 bits, leitura/escrita; máscara `0x3F3F` |
+| `0x0400004C` | Engine A — MOSAIC | 16 bits, escrita |
+| `0x04000050` | Engine A — BLDCNT | 16 bits, leitura/escrita; máscara `0x3FFF` |
+| `0x04000052` | Engine A — BLDALPHA | 16 bits, leitura/escrita; máscara `0x1F1F` |
+| `0x04000054` | Engine A — BLDY | 16 bits, escrita; máscara `0x001F` |
+| `0x04001040–0x04001046` | Engine B — WIN0H/WIN1H/WIN0V/WIN1V | 16 bits, escrita |
+| `0x04001048/4A` | Engine B — WININ/WINOUT | 16 bits, leitura/escrita; máscara `0x3F3F` |
+| `0x0400104C` | Engine B — MOSAIC | 16 bits, escrita |
+| `0x04001050` | Engine B — BLDCNT | 16 bits, leitura/escrita; máscara `0x3FFF` |
+| `0x04001052` | Engine B — BLDALPHA | 16 bits, leitura/escrita; máscara `0x1F1F` |
+| `0x04001054` | Engine B — BLDY | 16 bits, escrita; máscara `0x001F` |
 
 Os valores são mantidos separadamente por engine. No DISPCNT da Engine B, os campos documentados como exclusivos da Engine A (bits 3, 18–19, 22 e 24–29) são lidos como zero e ignorados nas escritas. Os registradores BGxCNT conservam seus 16 bits. Os oito registradores BGxHOFS/BGxVOFS de cada engine aceitam apenas stores de 16 bits, descartam os bits 9–15 e são write-only; leituras retornam `PermissionDenied`. O estado mascarado de cada fundo pode ser consultado pelo host via `NdsDisplayControl::bg_scroll(engine, bg)`.
 
@@ -113,7 +125,9 @@ DISPSTAT (`0x04000004`) e VCOUNT (`0x04000006`) são compartilhados pelos dois C
 
 VCOUNT aceita escritas de 16 bits e aplica o novo valor na próxima fronteira de scanline, sem alterar a fase de ciclos da linha atual. O hardware documenta a faixa 202–212 como janela recomendada para sincronização confiável; ela não é tratada aqui como uma proibição de escrita fora da faixa. Valores de linha fora de 0–262 são recusados. Um salto direto para dentro da faixa VBlank atualiza o flag de status, mas não simula o IRQ de entrada na linha 192.
 
-Os valores de DISPCNT, BGxCNT e BGxHOFS/BGxVOFS ainda não são consumidos por um renderizador. Os registradores de configuração/scroll retornam `Unmapped` para acessos ARM7; DISPSTAT/VCOUNT são compartilhados e funcionam nos dois CPUs. Os demais offsets não implementados permanecem `Unmapped`.
+O estado de janela/efeitos também é separado por engine. WIN0H/WIN1H/WIN0V/WIN1V aceitam stores de 16 bits e são write-only. WININ/WINOUT são read/write e preservam apenas os bits `0x3F3F`; MOSAIC é write-only e retém os 16 bits. BLDCNT é read/write com máscara `0x3FFF`; BLDALPHA é read/write com máscara `0x1F1F`; BLDY é write-only com máscara `0x001F`. Stores/read fora de 16 bits são recusados. O host consulta os valores programados por `NdsDisplayControl::window_blend(engine)`.
+
+O estado de registradores não equivale a processamento de pixels: ainda não existem teste de inclusão nas janelas, seleção de WIN0/WIN1/OBJ-window por pixel, composição de mosaico, cálculo de semitransparência/brightness, prioridade de camadas, ou compositor de scanline. Os registros de controle e os valores de BG continuam sem consumidor PPU. Configuração, scroll, affine e efeitos gráficos retornam `Unmapped` para ARM7; DISPSTAT/VCOUNT são compartilhados e funcionam nos dois CPUs. Os demais offsets não implementados permanecem `Unmapped`.
 
 ### Controlador de interrupções
 
