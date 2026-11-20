@@ -1,10 +1,19 @@
 #include "oracis/memory/nds_display_control.hpp"
 
+#include <algorithm>
+
 namespace oracis::memory {
 namespace {
 
 constexpr uint32_t kDispcntBytes = 4u;
 constexpr uint32_t kBgRegisterBytes = NdsDisplayControl::BgCount * 2u;
+constexpr uint16_t kVblankFlag = UINT16_C(1u << 0u);
+constexpr uint16_t kHblankFlag = UINT16_C(1u << 1u);
+constexpr uint16_t kVcountMatchFlag = UINT16_C(1u << 2u);
+
+constexpr uint32_t kIrqVblank = UINT32_C(1u << 0u);
+constexpr uint32_t kIrqHblank = UINT32_C(1u << 1u);
+constexpr uint32_t kIrqVcount = UINT32_C(1u << 2u);
 
 } // namespace
 
@@ -13,7 +22,12 @@ bool NdsDisplayControl::valid_cpu(NdsCpu cpu) noexcept
     return cpu == NDS_ARM9 || cpu == NDS_ARM7;
 }
 
-bool NdsDisplayControl::locate_register(
+unsigned NdsDisplayControl::cpu_index(NdsCpu cpu) noexcept
+{
+    return cpu == NDS_ARM9 ? 0u : 1u;
+}
+
+bool NdsDisplayControl::locate_engine_register(
     uint32_t address,
     unsigned &engine_index,
     uint32_t &register_offset) noexcept
@@ -37,10 +51,55 @@ bool NdsDisplayControl::locate_register(
            register_offset < BgControlOffset + kBgRegisterBytes;
 }
 
+bool NdsDisplayControl::is_vblank_line(uint16_t scanline) noexcept
+{
+    return scanline >= VisibleScanlines && scanline < LastScanline;
+}
+
+uint16_t NdsDisplayControl::vcount_compare(unsigned index) const noexcept
+{
+    const uint16_t control = cpu_status_[index].control;
+    return static_cast<uint16_t>(
+        ((control >> 8u) & UINT16_C(0x00FF)) |
+        ((control & UINT16_C(0x0080)) << 1u));
+}
+
+bool NdsDisplayControl::vcount_matches(unsigned index) const noexcept
+{
+    return vcount_compare(index) == vcount_;
+}
+
+void NdsDisplayControl::request_irq_if_enabled(
+    unsigned index, uint16_t enable_bit, uint32_t irq_mask) noexcept
+{
+    if ((cpu_status_[index].control & enable_bit) != 0u) {
+        const NdsCpu cpu = index == 0u ? NDS_ARM9 : NDS_ARM7;
+        static_cast<void>(interrupts_.request_irq(cpu, irq_mask));
+    }
+}
+
+uint16_t NdsDisplayControl::read_dispstat(NdsCpu cpu) const noexcept
+{
+    const unsigned index = cpu_index(cpu);
+    uint16_t value = cpu_status_[index].control;
+
+    if (is_vblank_line(vcount_)) value |= kVblankFlag;
+
+    const uint32_t hblank_start =
+        cpu == NDS_ARM9 ? Arm9HblankStartCycle : Arm7HblankStartCycle;
+    if (line_cycle_ >= hblank_start) value |= kHblankFlag;
+    if (vcount_matches(index)) value |= kVcountMatchFlag;
+
+    return value;
+}
+
 Status NdsDisplayControl::install() noexcept
 {
     if (installed_) return Status::InvalidRegion;
+
     engines_ = {};
+    cpu_status_ = {};
+    reset_timing();
     installed_ = true;
     return Status::Ok;
 }
@@ -48,18 +107,27 @@ Status NdsDisplayControl::install() noexcept
 ReadResult NdsDisplayControl::read(
     NdsCpu cpu, uint32_t address, uint32_t width) const noexcept
 {
+    if (address == DispstatAddress || address == VcountAddress) {
+        if (!installed_) return {Status::Unmapped, 0u};
+        if (!valid_cpu(cpu)) return {Status::InvalidCpu, 0u};
+        if (width != 2u) return {Status::InvalidWidth, 0u};
+        return {
+            Status::Ok,
+            address == DispstatAddress
+                ? read_dispstat(cpu)
+                : static_cast<uint32_t>(vcount_ & VcountMask)
+        };
+    }
+
     unsigned engine_index = 0u;
     uint32_t offset = 0u;
-    if (!locate_register(address, engine_index, offset)) {
+    if (!locate_engine_register(address, engine_index, offset)) {
         return {Status::Unmapped, 0u};
     }
     if (!installed_) return {Status::Unmapped, 0u};
     if (!valid_cpu(cpu)) return {Status::InvalidCpu, 0u};
 
-    /*
-     * The two 2D register blocks are in the ARM9 I/O map. The ARM7 uses a
-     * different I/O map at these addresses; let its own devices inspect them.
-     */
+    /* DISPCNT and BGxCNT belong to the ARM9-accessible 2D engines. */
     if (cpu != NDS_ARM9) return {Status::Unmapped, 0u};
 
     const EngineState &engine = engines_[engine_index];
@@ -91,9 +159,45 @@ Status NdsDisplayControl::write(
     uint32_t width,
     uint32_t value) noexcept
 {
+    if (address == DispstatAddress) {
+        if (!installed_) return Status::Unmapped;
+        if (!valid_cpu(cpu)) return Status::InvalidCpu;
+        if (width != 2u) return Status::InvalidWidth;
+
+        const unsigned index = cpu_index(cpu);
+        const bool matched_before = vcount_matches(index);
+        cpu_status_[index].control =
+            static_cast<uint16_t>(value) & DispstatWritableMask;
+        const bool matched_after = vcount_matches(index);
+        if (!matched_before && matched_after) {
+            request_irq_if_enabled(
+                index, VcountIrqEnable, kIrqVcount);
+        }
+        return Status::Ok;
+    }
+
+    if (address == VcountAddress) {
+        if (!installed_) return Status::Unmapped;
+        if (!valid_cpu(cpu)) return Status::InvalidCpu;
+        if (width != 2u) return Status::InvalidWidth;
+
+        /* The hardware documentation recommends synchronization writes
+         * only during scanlines 202..212. Apply accepted writes at line end. */
+        if (vcount_ < 202u || vcount_ > 212u) {
+            return Status::PermissionDenied;
+        }
+        const uint16_t requested =
+            static_cast<uint16_t>(value) & VcountMask;
+        if (requested > LastScanline) return Status::PermissionDenied;
+
+        pending_vcount_ = requested;
+        pending_vcount_write_ = true;
+        return Status::Ok;
+    }
+
     unsigned engine_index = 0u;
     uint32_t offset = 0u;
-    if (!locate_register(address, engine_index, offset)) {
+    if (!locate_engine_register(address, engine_index, offset)) {
         return Status::Unmapped;
     }
     if (!installed_) return Status::Unmapped;
@@ -124,6 +228,87 @@ Status NdsDisplayControl::write(
         return Status::Ok;
     }
     return Status::InvalidWidth;
+}
+
+void NdsDisplayControl::advance_scanline() noexcept
+{
+    const bool vblank_before = is_vblank_line(vcount_);
+    const std::array<bool, 2> vcount_match_before = {
+        vcount_matches(0u), vcount_matches(1u)
+    };
+
+    uint16_t next_scanline = vcount_ == LastScanline
+        ? 0u : static_cast<uint16_t>(vcount_ + 1u);
+    if (pending_vcount_write_) {
+        next_scanline = pending_vcount_;
+        pending_vcount_write_ = false;
+    }
+    vcount_ = next_scanline;
+
+    const bool vblank_after = is_vblank_line(vcount_);
+    if (!vblank_before && vblank_after) {
+        request_irq_if_enabled(0u, VblankIrqEnable, kIrqVblank);
+        request_irq_if_enabled(1u, VblankIrqEnable, kIrqVblank);
+    }
+
+    for (unsigned index = 0u; index < cpu_status_.size(); ++index) {
+        if (!vcount_match_before[index] && vcount_matches(index)) {
+            request_irq_if_enabled(
+                index, VcountIrqEnable, kIrqVcount);
+        }
+    }
+
+    hblank_irq_fired_ = {};
+}
+
+void NdsDisplayControl::advance_bus_cycles(uint64_t cycles) noexcept
+{
+    if (!installed_ || cycles == 0u) return;
+
+    while (cycles != 0u) {
+        uint32_t next_event = CyclesPerScanline - line_cycle_;
+
+        if (!hblank_irq_fired_[0] &&
+            line_cycle_ < Arm9HblankStartCycle) {
+            next_event = std::min(
+                next_event, Arm9HblankStartCycle - line_cycle_);
+        }
+        if (!hblank_irq_fired_[1] &&
+            line_cycle_ < Arm7HblankStartCycle) {
+            next_event = std::min(
+                next_event, Arm7HblankStartCycle - line_cycle_);
+        }
+
+        const uint32_t step = static_cast<uint32_t>(
+            std::min<uint64_t>(cycles, next_event));
+        line_cycle_ += step;
+        cycles -= step;
+
+        if (line_cycle_ == Arm9HblankStartCycle &&
+            !hblank_irq_fired_[0]) {
+            hblank_irq_fired_[0] = true;
+            request_irq_if_enabled(0u, HblankIrqEnable, kIrqHblank);
+        }
+        if (line_cycle_ == Arm7HblankStartCycle &&
+            !hblank_irq_fired_[1]) {
+            hblank_irq_fired_[1] = true;
+            request_irq_if_enabled(1u, HblankIrqEnable, kIrqHblank);
+        }
+
+        if (line_cycle_ == CyclesPerScanline) {
+            line_cycle_ = 0u;
+            advance_scanline();
+        }
+    }
+}
+
+void NdsDisplayControl::reset_timing() noexcept
+{
+    vcount_ = 0u;
+    line_cycle_ = 0u;
+    pending_vcount_write_ = false;
+    pending_vcount_ = 0u;
+    hblank_irq_fired_ = {};
 }
 
 } // namespace oracis::memory
