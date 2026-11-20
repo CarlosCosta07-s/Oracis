@@ -104,6 +104,9 @@ public:
         return interrupts_;
     }
     bool installed() const noexcept { return installed_; }
+    uint32_t dispcnt(unsigned engine_index) const noexcept;
+    uint16_t bg_control(
+        unsigned engine_index, unsigned bg_index) const noexcept;
     uint16_t current_scanline() const noexcept { return vcount_; }
     uint32_t scanline_cycle() const noexcept { return line_cycle_; }
     BgScrollState bg_scroll(

@@ -94,6 +94,7 @@ add_library(oracis_memory STATIC
     src/memory/nds_video_memory.cpp
     src/memory/nds_display_control.cpp
     src/memory/nds_2d_effects.cpp
+    src/memory/nds_2d_bg_fetcher.cpp
     src/memory/nds_interrupt_control.cpp
     src/memory/nds_timer_control.cpp
     src/memory/nds_keypad_control.cpp
@@ -217,6 +218,12 @@ if(BUILD_TESTING)
     )
     target_link_libraries(oracis_nds_2d_effects_test PRIVATE oracis_memory)
     add_test(NAME oracis_nds_2d_effects_test COMMAND oracis_nds_2d_effects_test)
+
+    add_executable(oracis_nds_2d_bg_fetcher_test
+        tests/memory/nds_2d_bg_fetcher_test.cpp
+    )
+    target_link_libraries(oracis_nds_2d_bg_fetcher_test PRIVATE oracis_memory)
+    add_test(NAME oracis_nds_2d_bg_fetcher_test COMMAND oracis_nds_2d_bg_fetcher_test)
 
     add_executable(oracis_nds_interrupt_control_test
         tests/memory/nds_interrupt_control_test.cpp

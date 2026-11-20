@@ -29,6 +29,19 @@ unsigned NdsDisplayControl::cpu_index(NdsCpu cpu) noexcept
     return cpu == NDS_ARM9 ? 0u : 1u;
 }
 
+uint32_t NdsDisplayControl::dispcnt(unsigned engine_index) const noexcept
+{
+    if (engine_index >= engines_.size()) return 0u;
+    return engines_[engine_index].dispcnt;
+}
+
+uint16_t NdsDisplayControl::bg_control(
+    unsigned engine_index, unsigned bg_index) const noexcept
+{
+    if (engine_index >= engines_.size() || bg_index >= BgCount) return 0u;
+    return engines_[engine_index].bgcnt[bg_index];
+}
+
 NdsDisplayControl::BgScrollState NdsDisplayControl::bg_scroll(
     unsigned engine_index, unsigned bg_index) const noexcept
 {
