@@ -27,8 +27,19 @@ typedef enum OracisHostRuntimeStatus {
     ORACIS_HOST_RUNTIME_BANKS_ALREADY_REGISTERED = 8,
     ORACIS_HOST_RUNTIME_LOCAL_IMAGE_MISSING = 9,
     ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR = 10,
-    ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID = 11
+    ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID = 11,
+    ORACIS_HOST_RUNTIME_INVALID_ARGUMENT = 12
 } OracisHostRuntimeStatus;
+
+/* Result of checking the current ARM9/ARM7 start PCs against registered banks. */
+typedef struct OracisHostRuntimeEntryPointReport {
+    uint32_t pc;
+    uint32_t cpsr;
+    uint32_t lookup_status;
+    uint32_t candidate_count;
+    uint32_t has_inactive_candidate;
+    uint32_t resolved;
+} OracisHostRuntimeEntryPointReport;
 
 /* Initializes the process-wide NDS machine and binds its base devices. */
 int oracis_host_runtime_initialize(void);
@@ -65,6 +76,15 @@ int oracis_host_runtime_load_program_segments(
     const OracisHostProgramSegment *arm9,
     const OracisHostProgramSegment *arm7);
 int oracis_host_runtime_program_loaded(void);
+
+/*
+ * Preflight both loaded start PCs using the live-byte validation callback.
+ * A successful call may still report resolved=0 for either CPU; lookup_status
+ * is an OracisDispatchLookupStatus value and no guest code is executed.
+ */
+int oracis_host_runtime_validate_entrypoints(
+    OracisHostRuntimeEntryPointReport *arm9,
+    OracisHostRuntimeEntryPointReport *arm7);
 
 /*
  * Load the locally extracted Platinum USA Rev 1 ARM9/ARM7 images.
