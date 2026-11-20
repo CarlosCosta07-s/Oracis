@@ -24,7 +24,14 @@ public:
     static constexpr uint32_t DispstatAddress = UINT32_C(0x04000004);
     static constexpr uint32_t VcountAddress = UINT32_C(0x04000006);
     static constexpr uint32_t BgControlOffset = UINT32_C(0x0008);
+    static constexpr uint32_t BgScrollOffset = UINT32_C(0x0010);
     static constexpr uint32_t BgCount = 4u;
+    static constexpr uint16_t BgScrollValueMask = UINT16_C(0x01FF);
+
+    struct BgScrollState {
+        uint16_t horizontal = 0u;
+        uint16_t vertical = 0u;
+    };
 
     static constexpr uint32_t EngineBDispcntSupportedMask =
         UINT32_C(0xC0B3FFF7);
@@ -66,11 +73,15 @@ public:
     bool installed() const noexcept { return installed_; }
     uint16_t current_scanline() const noexcept { return vcount_; }
     uint32_t scanline_cycle() const noexcept { return line_cycle_; }
+    BgScrollState bg_scroll(
+        unsigned engine_index, unsigned bg_index) const noexcept;
 
 private:
     struct EngineState {
         uint32_t dispcnt = 0u;
         std::array<uint16_t, BgCount> bgcnt{};
+        std::array<uint16_t, BgCount> bg_hofs{};
+        std::array<uint16_t, BgCount> bg_vofs{};
     };
 
     struct CpuStatus {

@@ -155,11 +155,21 @@ int main()
     bus_write_u32(engine_b_dispcnt, UINT32_C(0x80000021));
     bus_write_u32(engine_a_bg0cnt, UINT32_C(0xBEEF1234));
     bus_write_u16(engine_b_bg0cnt + 4u, UINT16_C(0xCDEF));
+
+    bus_write_u16(UINT32_C(0x04000010), UINT16_C(0x0234));
+    bus_write_u16(UINT32_C(0x04000012), UINT16_C(0x0102));
+    bus_write_u16(UINT32_C(0x0400101E), UINT16_C(0xFFFF));
     if (bus_read_u32(engine_a_dispcnt) != UINT32_C(0x00010013) ||
         bus_read_u32(engine_b_dispcnt) != UINT32_C(0x80000021) ||
         bus_read_u16(engine_a_bg0cnt) != UINT16_C(0x1234) ||
         bus_read_u16(engine_a_bg0cnt + 2u) != UINT16_C(0xBEEF) ||
-        bus_read_u16(engine_b_bg0cnt + 4u) != UINT16_C(0xCDEF)) {
+        bus_read_u16(engine_b_bg0cnt + 4u) != UINT16_C(0xCDEF) ||
+        machine.display_control().bg_scroll(0u, 0u).horizontal !=
+            UINT16_C(0x0034) ||
+        machine.display_control().bg_scroll(0u, 0u).vertical !=
+            UINT16_C(0x0102) ||
+        machine.display_control().bg_scroll(1u, 3u).vertical !=
+            UINT16_C(0x01FF)) {
         return fail("2D Engine A/B display register bus bridge failed");
     }
 

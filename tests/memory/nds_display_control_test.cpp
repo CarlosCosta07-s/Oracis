@@ -140,6 +140,50 @@ int main()
         return fail("DISPSTAT IRQ enables and 9-bit VCOUNT compare did not persist per CPU");
     }
 
+
+    /*
+     * BGxHOFS/BGxVOFS are write-only 16-bit registers. Only bits 0..8 are
+     * implemented; the other bits are ignored on writes.
+     */
+    constexpr uint32_t engine_a_scroll_base = UINT32_C(0x04000010);
+    constexpr uint32_t engine_b_scroll_base = UINT32_C(0x04001010);
+    if (display.write(
+            NDS_ARM9, engine_a_scroll_base, 2u, UINT16_C(0xFFFF)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, engine_a_scroll_base + 2u, 2u, UINT16_C(0x1234)) != Status::Ok ||
+        display.bg_scroll(0u, 0u).horizontal != UINT16_C(0x01FF) ||
+        display.bg_scroll(0u, 0u).vertical != UINT16_C(0x0034) ||
+        display.read(NDS_ARM9, engine_a_scroll_base, 2u).status !=
+            Status::PermissionDenied ||
+        display.read(NDS_ARM9, engine_a_scroll_base + 2u, 2u).status !=
+            Status::PermissionDenied) {
+        return fail("BG0 horizontal/vertical scroll masking or write-only semantics failed");
+    }
+
+    if (display.write(
+            NDS_ARM9, engine_b_scroll_base + 8u, 2u,
+            UINT16_C(0xABCD)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, engine_b_scroll_base + 10u, 2u,
+            UINT16_C(0xFFFF)) != Status::Ok ||
+        display.bg_scroll(1u, 2u).horizontal != UINT16_C(0x01CD) ||
+        display.bg_scroll(1u, 2u).vertical != UINT16_C(0x01FF) ||
+        display.bg_scroll(0u, 2u).horizontal != 0u ||
+        display.write(
+            NDS_ARM9, engine_a_scroll_base + 2u, 4u,
+            UINT32_C(0x12345678)) != Status::InvalidWidth ||
+        display.write(
+            NDS_ARM9, engine_a_scroll_base, 1u,
+            UINT32_C(0x12)) != Status::InvalidWidth ||
+        display.read(
+            NDS_ARM9, engine_b_scroll_base + 8u, 2u).status !=
+            Status::PermissionDenied ||
+        display.write(
+            NDS_ARM7, engine_a_scroll_base, 2u,
+            UINT16_C(0x1234)) != Status::Unmapped) {
+        return fail("BG scroll 16-bit width, engine isolation or CPU permissions failed");
+    }
+
     /* The NDS9 and NDS7 HBlank flags have distinct phase lengths. */
     display.advance_bus_cycles(NdsDisplayControl::Arm9HblankStartCycle - 1u);
     if ((display.read(

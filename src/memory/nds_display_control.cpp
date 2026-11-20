@@ -7,6 +7,7 @@ namespace {
 
 constexpr uint32_t kDispcntBytes = 4u;
 constexpr uint32_t kBgRegisterBytes = NdsDisplayControl::BgCount * 2u;
+constexpr uint32_t kBgScrollBytes = NdsDisplayControl::BgCount * 4u;
 constexpr uint16_t kVblankFlag = UINT16_C(1u << 0u);
 constexpr uint16_t kHblankFlag = UINT16_C(1u << 1u);
 constexpr uint16_t kVcountMatchFlag = UINT16_C(1u << 2u);
@@ -25,6 +26,14 @@ bool NdsDisplayControl::valid_cpu(NdsCpu cpu) noexcept
 unsigned NdsDisplayControl::cpu_index(NdsCpu cpu) noexcept
 {
     return cpu == NDS_ARM9 ? 0u : 1u;
+}
+
+NdsDisplayControl::BgScrollState NdsDisplayControl::bg_scroll(
+    unsigned engine_index, unsigned bg_index) const noexcept
+{
+    if (engine_index >= engines_.size() || bg_index >= BgCount) return {};
+    const EngineState &engine = engines_[engine_index];
+    return {engine.bg_hofs[bg_index], engine.bg_vofs[bg_index]};
 }
 
 bool NdsDisplayControl::locate_engine_register(
@@ -47,8 +56,12 @@ bool NdsDisplayControl::locate_engine_register(
 
     register_offset = address - base;
     if (register_offset < kDispcntBytes) return true;
-    return register_offset >= BgControlOffset &&
-           register_offset < BgControlOffset + kBgRegisterBytes;
+    if (register_offset >= BgControlOffset &&
+        register_offset < BgControlOffset + kBgRegisterBytes) {
+        return true;
+    }
+    return register_offset >= BgScrollOffset &&
+           register_offset < BgScrollOffset + kBgScrollBytes;
 }
 
 bool NdsDisplayControl::is_vblank_line(uint16_t scanline) noexcept
@@ -150,6 +163,13 @@ ReadResult NdsDisplayControl::read(
                 (static_cast<uint32_t>(engine.bgcnt[first_bg + 1u]) << 16u)
         };
     }
+
+    if (offset >= BgScrollOffset) {
+        const uint32_t scroll_offset = offset - BgScrollOffset;
+        if ((scroll_offset & 1u) == 0u && width == 2u) {
+            return {Status::PermissionDenied, 0u}; /* BGxHOFS/BGxVOFS are write-only. */
+        }
+    }
     return {Status::InvalidWidth, 0u};
 }
 
@@ -227,6 +247,24 @@ Status NdsDisplayControl::write(
         engine.bgcnt[first_bg + 1u] =
             static_cast<uint16_t>(value >> 16u);
         return Status::Ok;
+    }
+
+    if (offset >= BgScrollOffset) {
+        const uint32_t scroll_offset = offset - BgScrollOffset;
+        if ((scroll_offset & 1u) == 0u && width == 2u) {
+            const unsigned bg_index = static_cast<unsigned>(scroll_offset / 4u);
+            const unsigned component = static_cast<unsigned>(scroll_offset % 4u);
+            const uint16_t scroll_value =
+                static_cast<uint16_t>(value) & BgScrollValueMask;
+            if (component == 0u) {
+                engine.bg_hofs[bg_index] = scroll_value;
+                return Status::Ok;
+            }
+            if (component == 2u) {
+                engine.bg_vofs[bg_index] = scroll_value;
+                return Status::Ok;
+            }
+        }
     }
     return Status::InvalidWidth;
 }
