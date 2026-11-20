@@ -186,22 +186,22 @@ int main()
         memory.write(
             NDS_ARM9,
             UINT32_C(0x06880000) + UINT32_C(0x0000) +
-                UINT32_C(0x0A00) + UINT32_C(20),
+                UINT32_C(0x1400) + UINT32_C(20),
             2u, UINT32_C(0x1357)) != Status::Ok ||
         memory.write(
             NDS_ARM9,
             UINT32_C(0x06880000) + UINT32_C(0x4000) +
-                UINT32_C(0x0A00) + UINT32_C(20),
+                UINT32_C(0x1400) + UINT32_C(20),
             2u, UINT32_C(0x5A3C)) != Status::Ok ||
         memory.write(
             NDS_ARM9,
             UINT32_C(0x06880000) + UINT32_C(0x2000) +
-                UINT32_C(0x0B00) + UINT32_C(22),
+                UINT32_C(0x1600) + UINT32_C(22),
             2u, UINT32_C(0x2468)) != Status::Ok ||
         memory.write(
             NDS_ARM9,
             UINT32_C(0x06880000) + UINT32_C(0x6000) +
-                UINT32_C(0x0B00) + UINT32_C(22),
+                UINT32_C(0x1600) + UINT32_C(22),
             2u, UINT32_C(0x6B4D)) != Status::Ok ||
         text_palette_vram.write(
             NDS_ARM9, NdsVramControl::VramCntEAddress, 1u,
