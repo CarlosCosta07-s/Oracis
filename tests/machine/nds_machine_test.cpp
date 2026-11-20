@@ -868,6 +868,83 @@ int main()
     }
 
     /*
+     * NDS9 Diff8bitUnFilterWram (0x16) restores byte samples by summing
+     * subsequent modulo-256 deltas onto the preceding decoded sample.
+     */
+    constexpr uint32_t diff8_source = UINT32_C(0x02001F00);
+    constexpr uint32_t diff8_destination = UINT32_C(0x02001F21);
+    const uint8_t diff8_stream[] = {
+        0x81u, 5u, 0u, 0u, 10u, 1u, 1u, 1u, 1u
+    };
+    const uint8_t diff8_expected[] = {10u, 11u, 12u, 13u, 14u};
+    if (machine.guest_memory().write_bytes(
+            NDS_ARM9, diff8_source, diff8_stream,
+            static_cast<uint32_t>(sizeof(diff8_stream))) !=
+            oracis::memory::Status::Ok ||
+        !oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("could not prepare Diff8 unfilter test");
+    }
+    arm9_state->R[0] = diff8_source;
+    arm9_state->R[1] = diff8_destination;
+    runtime_swi(0x16u);
+    for (uint32_t index = 0u; index < sizeof(diff8_expected); ++index) {
+        if (machine.guest_memory().read(
+                NDS_ARM9, diff8_destination + index, 1u).value !=
+            diff8_expected[index]) {
+            return fail("Diff8 unfilter did not accumulate modulo-256 deltas");
+        }
+    }
+
+    /*
+     * NDS9 Diff16bitUnFilter (0x18) accumulates little-endian halfword deltas
+     * modulo 65536 and writes halfword units.
+     */
+    constexpr uint32_t diff16_source = UINT32_C(0x02001F40);
+    constexpr uint32_t diff16_destination = UINT32_C(0x02001F62);
+    const uint8_t diff16_stream[] = {
+        0x82u, 6u, 0u, 0u,
+        0xF0u, 0xFFu, 0x30u, 0x00u, 0xF0u, 0xFFu
+    };
+    const uint16_t diff16_expected[] = {
+        UINT16_C(0xFFF0), UINT16_C(0x0020), UINT16_C(0x0010)
+    };
+    if (machine.guest_memory().write_bytes(
+            NDS_ARM9, diff16_source, diff16_stream,
+            static_cast<uint32_t>(sizeof(diff16_stream))) !=
+        oracis::memory::Status::Ok) {
+        return fail("could not seed Diff16 unfilter stream");
+    }
+    arm9_state->R[0] = diff16_source;
+    arm9_state->R[1] = diff16_destination;
+    runtime_swi(0x18u);
+    for (uint32_t index = 0u; index < 3u; ++index) {
+        if (machine.guest_memory().read(
+                NDS_ARM9, diff16_destination + index * 2u, 2u).value !=
+            diff16_expected[index]) {
+            return fail("Diff16 unfilter did not accumulate modulo-65536 deltas");
+        }
+    }
+
+    /* These differential BIOS services are NDS9-only and fail closed otherwise. */
+    constexpr uint32_t diff_guard_destination = UINT32_C(0x02001FA0);
+    constexpr uint32_t diff_guard_value = UINT32_C(0xA55AC33C);
+    if (machine.guest_memory().write(
+            NDS_ARM7, diff_guard_destination, 4u,
+            diff_guard_value) != oracis::memory::Status::Ok ||
+        !oracis_arm_runtime_select_cpu(NDS_ARM7) ||
+        oracis_arm_runtime_bios_diff(diff8_source, diff_guard_destination, 1u) != 0 ||
+        machine.guest_memory().read(
+            NDS_ARM7, diff_guard_destination, 4u).value != diff_guard_value) {
+        return fail("Diff8/16 services were exposed to ARM7");
+    }
+
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9) ||
+        oracis_arm_runtime_bios_diff(diff16_source, diff16_destination + 1u, 2u) != 0 ||
+        oracis_arm_runtime_bios_diff(diff8_source + 1u, diff8_destination, 1u) != 0) {
+        return fail("differential BIOS service accepted invalid alignment");
+    }
+
+    /*
      * The native bus bridge must enforce NDS palette/OAM store widths;
      * direct GuestMemory writes do not model STRB suppression.
      */

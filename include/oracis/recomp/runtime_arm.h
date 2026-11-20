@@ -73,6 +73,11 @@ typedef int (*OracisArmRuntimeBiosHuffmanHandler)(
     void *context, NdsCpu cpu, uint32_t source,
     uint32_t destination, uint32_t callback_structure);
 
+/* Checked NDS9-only differential unfilter BIOS services (SWI 0x16/0x18). */
+typedef int (*OracisArmRuntimeBiosDiffHandler)(
+    void *context, NdsCpu cpu, uint32_t source,
+    uint32_t destination, uint32_t unit_width);
+
 int oracis_arm_runtime_bind_cpus(ArmCpuState *arm9, ArmCpuState *arm7);
 int oracis_arm_runtime_unbind_cpus(ArmCpuState *arm9, ArmCpuState *arm7);
 int oracis_arm_runtime_bind_power_handler(
@@ -124,6 +129,12 @@ int oracis_arm_runtime_unbind_bios_huffman_handler(
     void *context, OracisArmRuntimeBiosHuffmanHandler handler);
 int oracis_arm_runtime_bios_huffman(
     uint32_t source, uint32_t destination, uint32_t callback_structure);
+int oracis_arm_runtime_bind_bios_diff_handler(
+    void *context, OracisArmRuntimeBiosDiffHandler handler);
+int oracis_arm_runtime_unbind_bios_diff_handler(
+    void *context, OracisArmRuntimeBiosDiffHandler handler);
+int oracis_arm_runtime_bios_diff(
+    uint32_t source, uint32_t destination, uint32_t unit_width);
 int oracis_arm_runtime_request_halt(NdsCpu cpu);
 int oracis_arm_runtime_write_arm7_halt_control(uint8_t value);
 int oracis_arm_runtime_select_cpu(NdsCpu cpu);

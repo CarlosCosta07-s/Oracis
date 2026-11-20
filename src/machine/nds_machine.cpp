@@ -853,6 +853,110 @@ int NdsMachine::runtime_bios_huffman_handler(
 }
 
 
+int NdsMachine::runtime_bios_diff_handler(
+    void *context,
+    NdsCpu cpu,
+    uint32_t source,
+    uint32_t destination,
+    uint32_t unit_width)
+{
+    auto *machine = static_cast<NdsMachine *>(context);
+    if (machine == nullptr || !machine->initialized_ ||
+        cpu != NDS_ARM9 || g_nds_active != cpu ||
+        machine->cpu_state(cpu) != oracis_active_cpu_state ||
+        (unit_width != 1u && unit_width != 2u) ||
+        (source & 3u) != 0u ||
+        (unit_width == 2u && (destination & 1u) != 0u)) {
+        return 0;
+    }
+
+    constexpr uint64_t GuestAddressEnd = UINT64_C(0x1'0000'0000);
+    const uint64_t header_end =
+        static_cast<uint64_t>(source) + UINT64_C(4);
+    if (header_end >= GuestAddressEnd) return 0;
+
+    const memory::ReadResult header_read =
+        machine->memory_.read(cpu, source, 4u);
+    if (!header_read) return 0;
+
+    const uint32_t header = header_read.value;
+    const uint32_t expected_unit_code = unit_width == 1u ? 1u : 2u;
+    const uint32_t output_size = header >> 8u;
+    if ((header & UINT32_C(0xF0)) != UINT32_C(0x80) ||
+        (header & UINT32_C(0x0F)) != expected_unit_code ||
+        (output_size % unit_width) != 0u) {
+        return 0;
+    }
+    if (output_size == 0u) return 1;
+
+    const uint64_t source_end = header_end + output_size;
+    const uint64_t destination_end =
+        static_cast<uint64_t>(destination) + output_size;
+    if (source_end > GuestAddressEnd ||
+        destination_end > GuestAddressEnd ||
+        machine->memory_.validate_read(
+            cpu, static_cast<uint32_t>(header_end), output_size) !=
+            memory::Status::Ok ||
+        machine->memory_.validate_write(
+            cpu, destination, output_size) != memory::Status::Ok) {
+        return 0;
+    }
+
+    /*
+     * The first unit is the original sample. Each later unit is an unsigned
+     * delta added modulo the sample width. Stage the entire stream so source
+     * and destination can overlap without corrupting unread deltas.
+     */
+    try {
+        if (unit_width == 1u) {
+            std::vector<uint8_t> output(output_size, 0u);
+            uint32_t accumulator = 0u;
+            for (uint32_t index = 0u; index < output_size; ++index) {
+                const memory::ReadResult encoded = machine->memory_.read(
+                    cpu, static_cast<uint32_t>(header_end + index), 1u);
+                if (!encoded) return 0;
+                accumulator = index == 0u
+                    ? (encoded.value & UINT32_C(0xFF))
+                    : ((accumulator + encoded.value) & UINT32_C(0xFF));
+                output[index] = static_cast<uint8_t>(accumulator);
+            }
+            return machine->memory_.write_bytes(
+                cpu, destination, output.data(), output_size) ==
+                memory::Status::Ok ? 1 : 0;
+        }
+
+        std::vector<uint16_t> output(output_size / 2u, 0u);
+        uint32_t accumulator = 0u;
+        for (uint32_t index = 0u; index < output.size(); ++index) {
+            const uint64_t address = header_end +
+                static_cast<uint64_t>(index) * 2u;
+            const memory::ReadResult encoded = machine->memory_.read(
+                cpu, static_cast<uint32_t>(address), 2u);
+            if (!encoded) return 0;
+            accumulator = index == 0u
+                ? (encoded.value & UINT32_C(0xFFFF))
+                : ((accumulator + encoded.value) & UINT32_C(0xFFFF));
+            output[index] = static_cast<uint16_t>(accumulator);
+        }
+
+        for (uint32_t index = 0u; index < output.size(); ++index) {
+            const uint64_t address =
+                static_cast<uint64_t>(destination) +
+                static_cast<uint64_t>(index) * 2u;
+            if (machine->memory_.write(
+                    cpu, static_cast<uint32_t>(address), 2u,
+                    output[index]) != memory::Status::Ok) {
+                return 0;
+            }
+        }
+    } catch (const std::bad_alloc &) {
+        return 0;
+    }
+
+    return 1;
+}
+
+
 int NdsMachine::runtime_validate_dispatch_bytes(
     NdsCpu cpu,
     const NdsStaticValidation *validation,
@@ -987,6 +1091,12 @@ NdsMachineStatus NdsMachine::initialize() noexcept
         return rollback(NdsMachineStatus::RuntimeAlreadyBound);
     }
     bios_huffman_handler_bound_ = true;
+
+    if (!oracis_arm_runtime_bind_bios_diff_handler(
+            this, &NdsMachine::runtime_bios_diff_handler)) {
+        return rollback(NdsMachineStatus::RuntimeAlreadyBound);
+    }
+    bios_diff_handler_bound_ = true;
 
     if (wram_control_.install() != memory::Status::Ok ||
         vram_control_.install() != memory::Status::Ok ||
@@ -1158,7 +1268,8 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
         coprocessor_handler_bound_ || bios_memory_handler_bound_ ||
         bios_crc16_handler_bound_ || bios_bit_unpack_handler_bound_ ||
         bios_lz77_handler_bound_ || bios_rle_handler_bound_ ||
-        bios_huffman_handler_bound_ || memory_bound_ ||
+        bios_huffman_handler_bound_ || bios_diff_handler_bound_ ||
+        memory_bound_ ||
         wram_bound_ || vram_bound_ || video_memory_bound_ ||
         display_control_bound_ || interrupt_bound_ || timer_bound_ ||
         keypad_bound_ || clock_bound_ || validation_bound_;
@@ -1234,6 +1345,13 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
             return NdsMachineStatus::ShutdownFailed;
         }
         memory_bound_ = false;
+    }
+    if (bios_diff_handler_bound_) {
+        if (!oracis_arm_runtime_unbind_bios_diff_handler(
+                this, &NdsMachine::runtime_bios_diff_handler)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        bios_diff_handler_bound_ = false;
     }
     if (bios_huffman_handler_bound_) {
         if (!oracis_arm_runtime_unbind_bios_huffman_handler(

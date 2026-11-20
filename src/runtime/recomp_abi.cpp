@@ -35,6 +35,8 @@ void *g_bios_rle_context = nullptr;
 OracisArmRuntimeBiosRleHandler g_bios_rle_handler = nullptr;
 void *g_bios_huffman_context = nullptr;
 OracisArmRuntimeBiosHuffmanHandler g_bios_huffman_handler = nullptr;
+void *g_bios_diff_context = nullptr;
+OracisArmRuntimeBiosDiffHandler g_bios_diff_handler = nullptr;
 
 } // namespace
 
@@ -379,6 +381,47 @@ int oracis_arm_runtime_bios_huffman(
     return g_bios_huffman_handler(
         g_bios_huffman_context, g_nds_active,
         source, destination, callback_structure);
+}
+
+int oracis_arm_runtime_bind_bios_diff_handler(
+    void *context, OracisArmRuntimeBiosDiffHandler handler)
+{
+    if (context == nullptr || handler == nullptr) return 0;
+    if (g_bios_diff_handler != nullptr || g_bios_diff_context != nullptr) {
+        return g_bios_diff_context == context &&
+            g_bios_diff_handler == handler ? 1 : 0;
+    }
+    g_bios_diff_context = context;
+    g_bios_diff_handler = handler;
+    return 1;
+}
+
+int oracis_arm_runtime_unbind_bios_diff_handler(
+    void *context, OracisArmRuntimeBiosDiffHandler handler)
+{
+    if (context == nullptr || handler == nullptr ||
+        g_bios_diff_context != context ||
+        g_bios_diff_handler != handler) {
+        return 0;
+    }
+    g_bios_diff_context = nullptr;
+    g_bios_diff_handler = nullptr;
+    return 1;
+}
+
+int oracis_arm_runtime_bios_diff(
+    uint32_t source, uint32_t destination, uint32_t unit_width)
+{
+    if ((unit_width != 1u && unit_width != 2u) ||
+        g_bios_diff_handler == nullptr ||
+        g_bios_diff_context == nullptr ||
+        oracis_active_cpu_state == nullptr ||
+        g_nds_active != NDS_ARM9) {
+        return 0;
+    }
+    return g_bios_diff_handler(
+        g_bios_diff_context, g_nds_active,
+        source, destination, unit_width);
 }
 
 int oracis_arm_runtime_coprocessor_transfer(
@@ -731,6 +774,19 @@ void runtime_swi(uint32_t swi_imm)
         if (!oracis_arm_runtime_bios_huffman(
                 g_cpu.R[0], g_cpu.R[1], g_cpu.R[3])) {
             abi_failure("runtime_swi HuffUnComp (invalid/unsupported stream or callback mode)");
+        }
+        return;
+    }
+
+    case 0x16u: /* NDS9 Diff8bitUnFilterWram: byte units. */
+    case 0x18u: { /* NDS9 Diff16bitUnFilter: halfword units. */
+        const uint32_t unit_width =
+            (swi_imm & UINT32_C(0x00FFFFFF)) == 0x18u ? 2u : 1u;
+        if (!oracis_arm_runtime_bios_diff(
+                g_cpu.R[0], g_cpu.R[1], unit_width)) {
+            abi_failure(unit_width == 2u
+                ? "runtime_swi Diff16bitUnFilter (invalid/unsupported stream/span)"
+                : "runtime_swi Diff8bitUnFilterWram (invalid/unsupported stream/span)");
         }
         return;
     }
