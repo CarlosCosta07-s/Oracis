@@ -25,57 +25,59 @@ struct VramBank {
 struct Arm9VideoView {
     uint8_t bank_index;
     uint8_t mst;
-    uint8_t ofs;
+    uint8_t ofs_mask;
+    uint8_t ofs_value;
     uint32_t address;
     uint32_t size;
     const char *alias_name;
 };
 
-constexpr std::array<VramBank, 9> kVramBanks{{
-    {UINT32_C(0x06800000), UINT32_C(0x00000000), kBank128K,
-     NdsVramControl::VramCntAAddress, "NDS VRAM A ARM9 LCDC"},
-    {UINT32_C(0x06820000), UINT32_C(0x00020000), kBank128K,
-     NdsVramControl::VramCntBAddress, "NDS VRAM B ARM9 LCDC"},
-    {UINT32_C(0x06840000), UINT32_C(0x00040000), kBank128K,
-     NdsVramControl::VramCntCAddress, "NDS VRAM C ARM9 LCDC"},
-    {UINT32_C(0x06860000), UINT32_C(0x00060000), kBank128K,
-     NdsVramControl::VramCntDAddress, "NDS VRAM D ARM9 LCDC"},
-    {UINT32_C(0x06880000), UINT32_C(0x00080000), kBank64K,
-     NdsVramControl::VramCntEAddress, "NDS VRAM E ARM9 LCDC"},
-    {UINT32_C(0x06890000), UINT32_C(0x00090000), kBank16K,
-     NdsVramControl::VramCntFAddress, "NDS VRAM F ARM9 LCDC"},
-    {UINT32_C(0x06894000), UINT32_C(0x00094000), kBank16K,
-     NdsVramControl::VramCntGAddress, "NDS VRAM G ARM9 LCDC"},
-    {UINT32_C(0x06898000), UINT32_C(0x00098000), kBank32K,
-     NdsVramControl::VramCntHAddress, "NDS VRAM H ARM9 LCDC"},
-    {UINT32_C(0x068A0000), UINT32_C(0x000A0000), kBank16K,
-     NdsVramControl::VramCntIAddress, "NDS VRAM I ARM9 LCDC"}
-}};
-
-/* CPU-visible BG/OBJ windows for the A/B/C/D banks. */
-constexpr std::array<Arm9VideoView, 22> kArm9VideoViews{{
-    {0u, 1u, 0u, UINT32_C(0x06000000), kBank128K, "NDS VRAM A Main BG OFS0"},
-    {0u, 1u, 1u, UINT32_C(0x06020000), kBank128K, "NDS VRAM A Main BG OFS1"},
-    {0u, 1u, 2u, UINT32_C(0x06040000), kBank128K, "NDS VRAM A Main BG OFS2"},
-    {0u, 1u, 3u, UINT32_C(0x06060000), kBank128K, "NDS VRAM A Main BG OFS3"},
-    {1u, 1u, 0u, UINT32_C(0x06000000), kBank128K, "NDS VRAM B Main BG OFS0"},
-    {1u, 1u, 1u, UINT32_C(0x06020000), kBank128K, "NDS VRAM B Main BG OFS1"},
-    {1u, 1u, 2u, UINT32_C(0x06040000), kBank128K, "NDS VRAM B Main BG OFS2"},
-    {1u, 1u, 3u, UINT32_C(0x06060000), kBank128K, "NDS VRAM B Main BG OFS3"},
-    {2u, 1u, 0u, UINT32_C(0x06000000), kBank128K, "NDS VRAM C Main BG OFS0"},
-    {2u, 1u, 1u, UINT32_C(0x06020000), kBank128K, "NDS VRAM C Main BG OFS1"},
-    {2u, 1u, 2u, UINT32_C(0x06040000), kBank128K, "NDS VRAM C Main BG OFS2"},
-    {2u, 1u, 3u, UINT32_C(0x06060000), kBank128K, "NDS VRAM C Main BG OFS3"},
-    {3u, 1u, 0u, UINT32_C(0x06000000), kBank128K, "NDS VRAM D Main BG OFS0"},
-    {3u, 1u, 1u, UINT32_C(0x06020000), kBank128K, "NDS VRAM D Main BG OFS1"},
-    {3u, 1u, 2u, UINT32_C(0x06040000), kBank128K, "NDS VRAM D Main BG OFS2"},
-    {3u, 1u, 3u, UINT32_C(0x06060000), kBank128K, "NDS VRAM D Main BG OFS3"},
-    {0u, 2u, 0u, UINT32_C(0x06400000), kBank128K, "NDS VRAM A Main OBJ OFS0"},
-    {0u, 2u, 1u, UINT32_C(0x06420000), kBank128K, "NDS VRAM A Main OBJ OFS1"},
-    {1u, 2u, 0u, UINT32_C(0x06400000), kBank128K, "NDS VRAM B Main OBJ OFS0"},
-    {1u, 2u, 1u, UINT32_C(0x06420000), kBank128K, "NDS VRAM B Main OBJ OFS1"},
-    {2u, 4u, 0u, UINT32_C(0x06200000), kBank128K, "NDS VRAM C Sub BG"},
-    {3u, 4u, 0u, UINT32_C(0x06600000), kBank128K, "NDS VRAM D Sub OBJ"}
+/* CPU-visible BG/OBJ windows. Extended palettes and texture memory are
+ * display-controller destinations and deliberately have no CPU aliases. */
+constexpr std::array<Arm9VideoView, 43> kArm9VideoViews{{
+    {0u, 1u, 3u, 0u, UINT32_C(0x06000000), kBank128K, "NDS VRAM A Main BG OFS0"},
+    {0u, 1u, 3u, 1u, UINT32_C(0x06020000), kBank128K, "NDS VRAM A Main BG OFS1"},
+    {0u, 1u, 3u, 2u, UINT32_C(0x06040000), kBank128K, "NDS VRAM A Main BG OFS2"},
+    {0u, 1u, 3u, 3u, UINT32_C(0x06060000), kBank128K, "NDS VRAM A Main BG OFS3"},
+    {1u, 1u, 3u, 0u, UINT32_C(0x06000000), kBank128K, "NDS VRAM B Main BG OFS0"},
+    {1u, 1u, 3u, 1u, UINT32_C(0x06020000), kBank128K, "NDS VRAM B Main BG OFS1"},
+    {1u, 1u, 3u, 2u, UINT32_C(0x06040000), kBank128K, "NDS VRAM B Main BG OFS2"},
+    {1u, 1u, 3u, 3u, UINT32_C(0x06060000), kBank128K, "NDS VRAM B Main BG OFS3"},
+    {2u, 1u, 3u, 0u, UINT32_C(0x06000000), kBank128K, "NDS VRAM C Main BG OFS0"},
+    {2u, 1u, 3u, 1u, UINT32_C(0x06020000), kBank128K, "NDS VRAM C Main BG OFS1"},
+    {2u, 1u, 3u, 2u, UINT32_C(0x06040000), kBank128K, "NDS VRAM C Main BG OFS2"},
+    {2u, 1u, 3u, 3u, UINT32_C(0x06060000), kBank128K, "NDS VRAM C Main BG OFS3"},
+    {3u, 1u, 3u, 0u, UINT32_C(0x06000000), kBank128K, "NDS VRAM D Main BG OFS0"},
+    {3u, 1u, 3u, 1u, UINT32_C(0x06020000), kBank128K, "NDS VRAM D Main BG OFS1"},
+    {3u, 1u, 3u, 2u, UINT32_C(0x06040000), kBank128K, "NDS VRAM D Main BG OFS2"},
+    {3u, 1u, 3u, 3u, UINT32_C(0x06060000), kBank128K, "NDS VRAM D Main BG OFS3"},
+    {0u, 2u, 3u, 0u, UINT32_C(0x06400000), kBank128K, "NDS VRAM A Main OBJ OFS0"},
+    {0u, 2u, 3u, 1u, UINT32_C(0x06420000), kBank128K, "NDS VRAM A Main OBJ OFS1"},
+    {1u, 2u, 3u, 0u, UINT32_C(0x06400000), kBank128K, "NDS VRAM B Main OBJ OFS0"},
+    {1u, 2u, 3u, 1u, UINT32_C(0x06420000), kBank128K, "NDS VRAM B Main OBJ OFS1"},
+    {2u, 4u, 0u, 0u, UINT32_C(0x06200000), kBank128K, "NDS VRAM C Sub BG"},
+    {3u, 4u, 0u, 0u, UINT32_C(0x06600000), kBank128K, "NDS VRAM D Sub OBJ"},
+    {4u, 1u, 0u, 0u, UINT32_C(0x06000000), kBank64K, "NDS VRAM E Main BG"},
+    {4u, 2u, 0u, 0u, UINT32_C(0x06400000), kBank64K, "NDS VRAM E Main OBJ"},
+    {5u, 1u, 3u, 0u, UINT32_C(0x06000000), kBank16K, "NDS VRAM F Main BG OFS0"},
+    {5u, 1u, 3u, 1u, UINT32_C(0x06004000), kBank16K, "NDS VRAM F Main BG OFS1"},
+    {5u, 1u, 3u, 2u, UINT32_C(0x06010000), kBank16K, "NDS VRAM F Main BG OFS2"},
+    {5u, 1u, 3u, 3u, UINT32_C(0x06014000), kBank16K, "NDS VRAM F Main BG OFS3"},
+    {5u, 2u, 3u, 0u, UINT32_C(0x06400000), kBank16K, "NDS VRAM F Main OBJ OFS0"},
+    {5u, 2u, 3u, 1u, UINT32_C(0x06404000), kBank16K, "NDS VRAM F Main OBJ OFS1"},
+    {5u, 2u, 3u, 2u, UINT32_C(0x06410000), kBank16K, "NDS VRAM F Main OBJ OFS2"},
+    {5u, 2u, 3u, 3u, UINT32_C(0x06414000), kBank16K, "NDS VRAM F Main OBJ OFS3"},
+    {6u, 1u, 3u, 0u, UINT32_C(0x06000000), kBank16K, "NDS VRAM G Main BG OFS0"},
+    {6u, 1u, 3u, 1u, UINT32_C(0x06004000), kBank16K, "NDS VRAM G Main BG OFS1"},
+    {6u, 1u, 3u, 2u, UINT32_C(0x06010000), kBank16K, "NDS VRAM G Main BG OFS2"},
+    {6u, 1u, 3u, 3u, UINT32_C(0x06014000), kBank16K, "NDS VRAM G Main BG OFS3"},
+    {6u, 2u, 3u, 0u, UINT32_C(0x06400000), kBank16K, "NDS VRAM G Main OBJ OFS0"},
+    {6u, 2u, 3u, 1u, UINT32_C(0x06404000), kBank16K, "NDS VRAM G Main OBJ OFS1"},
+    {6u, 2u, 3u, 2u, UINT32_C(0x06410000), kBank16K, "NDS VRAM G Main OBJ OFS2"},
+    {6u, 2u, 3u, 3u, UINT32_C(0x06414000), kBank16K, "NDS VRAM G Main OBJ OFS3"},
+    {7u, 1u, 0u, 0u, UINT32_C(0x06200000), kBank32K, "NDS VRAM H Sub BG"},
+    {8u, 1u, 0u, 0u, UINT32_C(0x06208000), kBank16K, "NDS VRAM I Sub BG"},
+    {8u, 2u, 0u, 0u, UINT32_C(0x06600000), kBank16K, "NDS VRAM I Sub OBJ"}
 }};
 
 constexpr uint32_t kVramCBacking =
@@ -118,7 +120,7 @@ int NdsVramControl::arm9_vram_bank_index_for_address(
         const uint8_t ofs = static_cast<uint8_t>((control >> 3u) & 0x03u);
         const bool active = (control & UINT8_C(0x87)) ==
                 static_cast<uint8_t>(UINT8_C(0x80) | view.mst) &&
-            (view.mst == 4u || ofs == view.ofs);
+            ((ofs & view.ofs_mask) == view.ofs_value);
         const uint64_t end =
             static_cast<uint64_t>(view.address) + view.size;
         if (active && address >= view.address &&
@@ -228,7 +230,7 @@ Status NdsVramControl::apply_controls(
             : static_cast<uint8_t>(CpuAccessNone);
     };
 
-    std::array<GuestMemory::CpuAccessUpdate, 35> updates{};
+    std::array<GuestMemory::CpuAccessUpdate, 56> updates{};
     for (std::size_t index = 0u; index < kVramBanks.size(); ++index) {
         updates[index] = {
             kVramBanks[index].alias_name,
@@ -241,17 +243,17 @@ Status NdsVramControl::apply_controls(
         const uint8_t ofs = static_cast<uint8_t>((control >> 3u) & 0x03u);
         const bool enabled = (control & UINT8_C(0x87)) ==
                 static_cast<uint8_t>(UINT8_C(0x80) | view.mst) &&
-            (view.mst == 4u || ofs == view.ofs);
+            ((ofs & view.ofs_mask) == view.ofs_value);
         updates[9u + index] = {
             view.alias_name,
             lcdc_access_for(enabled)
         };
     }
 
-    updates[31] = {kVramCWindow0, arm7_access_for(c_window, 0)};
-    updates[32] = {kVramCWindow1, arm7_access_for(c_window, 1)};
-    updates[33] = {kVramDWindow0, arm7_access_for(d_window, 0)};
-    updates[34] = {kVramDWindow1, arm7_access_for(d_window, 1)};
+    updates[52] = {kVramCWindow0, arm7_access_for(c_window, 0)};
+    updates[53] = {kVramCWindow1, arm7_access_for(c_window, 1)};
+    updates[54] = {kVramDWindow0, arm7_access_for(d_window, 0)};
+    updates[55] = {kVramDWindow1, arm7_access_for(d_window, 1)};
 
     /*
      * Validate all aliases before mutation. If C and D target the same ARM7

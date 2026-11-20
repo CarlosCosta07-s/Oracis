@@ -1,9 +1,10 @@
 /*
  * Nintendo DS VRAM bank controller.
  *
- * This partial device maps all nine banks to ARM9 LCDC (MST=0). Banks C/D
- * additionally support ARM7 Work RAM (MST=2). Other destinations remain
- * unmapped until their graphics/peripheral consumers are implemented.
+ * This partial device maps all nine banks to ARM9 LCDC (MST=0), CPU-visible
+ * BG/OBJ destinations supported by the A-I bank matrix, and C/D to ARM7
+ * Work RAM (MST=2). Extended palettes, texture consumers and the PPU remain
+ * separate, unimplemented graphics subsystems.
  */
 #ifndef ORACIS_MEMORY_NDS_VRAM_CONTROL_HPP
 #define ORACIS_MEMORY_NDS_VRAM_CONTROL_HPP

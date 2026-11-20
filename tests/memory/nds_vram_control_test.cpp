@@ -297,6 +297,115 @@ int main()
         return fail("Engine B BG/OBJ C/D destinations failed");
     }
 
+
+    /*
+     * E/F/G complete the CPU-visible Main Engine A BG/OBJ subset.
+     * F/G select one of four 16KB placements:
+     * base + 0x4000*OFS.0 + 0x10000*OFS.1.
+     */
+    constexpr uint32_t all_vram_controls[] = {
+        NdsVramControl::VramCntAAddress,
+        NdsVramControl::VramCntBAddress,
+        NdsVramControl::VramCntCAddress,
+        NdsVramControl::VramCntDAddress,
+        NdsVramControl::VramCntEAddress,
+        NdsVramControl::VramCntFAddress,
+        NdsVramControl::VramCntGAddress,
+        NdsVramControl::VramCntHAddress,
+        NdsVramControl::VramCntIAddress
+    };
+    for (uint32_t register_address : all_vram_controls) {
+        bus_write_u8(register_address, 0u);
+    }
+
+    const auto compact_bank_address = [](uint32_t base, uint32_t ofs) {
+        return base + ((ofs & 1u) * UINT32_C(0x00004000)) +
+            ((ofs & 2u) * UINT32_C(0x00008000));
+    };
+    const auto exercise_compact_bank = [&](uint32_t register_address,
+                                           uint32_t mst,
+                                           uint32_t base_address) {
+        for (uint32_t ofs = 0u; ofs < 4u; ++ofs) {
+            const uint8_t setting = static_cast<uint8_t>(
+                UINT32_C(0x80) | mst | (ofs << 3u));
+            bus_write_u8(register_address, setting);
+            const uint32_t target = compact_bank_address(base_address, ofs);
+            const uint32_t marker = UINT32_C(0xF0000000) |
+                (mst << 24u) | (ofs << 16u) |
+                (register_address & UINT32_C(0x0000FFFF));
+            bus_write_u32(target, marker);
+            /* STRB is ignored in all ARM9 VRAM CPU windows. */
+            bus_write_u8(target, UINT8_C(0x00));
+            if (memory.read(NDS_ARM9, target, 4u).status != Status::Ok ||
+                bus_read_u32(target) != marker) {
+                return false;
+            }
+            for (uint32_t other = 0u; other < 4u; ++other) {
+                if (other == ofs) continue;
+                const uint32_t inactive = compact_bank_address(base_address, other);
+                if (memory.read(NDS_ARM9, inactive, 4u).status == Status::Ok) {
+                    return false;
+                }
+            }
+        }
+        bus_write_u8(register_address, 0u);
+        return true;
+    };
+
+    if (!exercise_compact_bank(
+            NdsVramControl::VramCntFAddress, 1u, UINT32_C(0x06000000)) ||
+        !exercise_compact_bank(
+            NdsVramControl::VramCntGAddress, 1u, UINT32_C(0x06000000)) ||
+        !exercise_compact_bank(
+            NdsVramControl::VramCntFAddress, 2u, UINT32_C(0x06400000)) ||
+        !exercise_compact_bank(
+            NdsVramControl::VramCntGAddress, 2u, UINT32_C(0x06400000))) {
+        return fail("VRAM F/G Main BG/OBJ OFS bit placement or byte-store behavior failed");
+    }
+
+    /* Bank E ignores OFS for both Main BG and Main OBJ. */
+    bus_write_u8(NdsVramControl::VramCntEAddress, UINT8_C(0x99));
+    bus_write_u32(UINT32_C(0x06000000), UINT32_C(0xE1E1E1E1));
+    bus_write_u32(UINT32_C(0x0600FFFC), UINT32_C(0xE2E2E2E2));
+    if (bus_read_u32(UINT32_C(0x06000000)) != UINT32_C(0xE1E1E1E1) ||
+        bus_read_u32(UINT32_C(0x0600FFFC)) != UINT32_C(0xE2E2E2E2) ||
+        memory.read(NDS_ARM7, UINT32_C(0x06000000), 4u).status == Status::Ok) {
+        return fail("VRAM E Main BG 64KB window or ignored OFS failed");
+    }
+    bus_write_u8(NdsVramControl::VramCntEAddress, UINT8_C(0x9A));
+    bus_write_u32(UINT32_C(0x06400000), UINT32_C(0xE3E3E3E3));
+    bus_write_u32(UINT32_C(0x0640FFFC), UINT32_C(0xE4E4E4E4));
+    if (bus_read_u32(UINT32_C(0x06400000)) != UINT32_C(0xE3E3E3E3) ||
+        bus_read_u32(UINT32_C(0x0640FFFC)) != UINT32_C(0xE4E4E4E4)) {
+        return fail("VRAM E Main OBJ 64KB window or ignored OFS failed");
+    }
+
+    /*
+     * Engine B supports C/D in MST=4, H/I in MST=1 for BG, and I in MST=2
+     * for OBJ. OFS is ignored for H and I.
+     */
+    bus_write_u8(NdsVramControl::VramCntEAddress, 0u);
+    bus_write_u8(NdsVramControl::VramCntHAddress, UINT8_C(0x99));
+    bus_write_u8(NdsVramControl::VramCntIAddress, UINT8_C(0x91));
+    bus_write_u32(UINT32_C(0x06200000), UINT32_C(0x48484848));
+    bus_write_u32(UINT32_C(0x06207FFC), UINT32_C(0x48494949));
+    bus_write_u32(UINT32_C(0x06208000), UINT32_C(0x49494949));
+    bus_write_u32(UINT32_C(0x0620BFFC), UINT32_C(0x494A4A4A));
+    if (bus_read_u32(UINT32_C(0x06200000)) != UINT32_C(0x48484848) ||
+        bus_read_u32(UINT32_C(0x06207FFC)) != UINT32_C(0x48494949) ||
+        bus_read_u32(UINT32_C(0x06208000)) != UINT32_C(0x49494949) ||
+        bus_read_u32(UINT32_C(0x0620BFFC)) != UINT32_C(0x494A4A4A)) {
+        return fail("VRAM H/I Sub BG sizes, adjacency or ignored OFS failed");
+    }
+    bus_write_u8(NdsVramControl::VramCntHAddress, 0u);
+    bus_write_u8(NdsVramControl::VramCntIAddress, UINT8_C(0x9A));
+    bus_write_u32(UINT32_C(0x06600000), UINT32_C(0x494B4B4B));
+    bus_write_u32(UINT32_C(0x06603FFC), UINT32_C(0x494C4C4C));
+    if (bus_read_u32(UINT32_C(0x06600000)) != UINT32_C(0x494B4B4B) ||
+        bus_read_u32(UINT32_C(0x06603FFC)) != UINT32_C(0x494C4C4C)) {
+        return fail("VRAM I Sub OBJ 16KB window or ignored OFS failed");
+    }
+
     if (oracis_bus_unbind_memory(&memory)) {
         return fail("memory unbind succeeded while VRAM controller remained bound");
     }
