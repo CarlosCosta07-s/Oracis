@@ -86,7 +86,7 @@ Sem acesso a dados, o helper substitui o 1S embutido no custo-base pelo fetch S 
 - Somente CODE Main RAM: aplica o ajuste CDI em `num_data` e usa a mesma regra de sobreposição.
 - Nenhum lado em Main RAM: soma CODE + DATA e acrescenta um ciclo para instruções de leitura.
 
-As classes de CODE aceitas são Main RAM, BIOS ARM7, WRAM, os primeiros 4 KB de I/O, OAM e a faixa de VRAM C/D atribuída como Work RAM. Para esta última, `NdsVramControl` valida enable+MST=2 e OFS=0/1 antes de tornar o alias visível ao ARM7; colisões de C/D no mesmo slot são rejeitadas de forma transacional. Palette RAM, Gamecard, Wi-Fi e endereços não modelados continuam fail-closed. O controlador ainda não implementa os destinos MST diferentes de LCDC e Work RAM C/D (BG/OBJ, motores A/B, texturas, extended palettes ou paletas), nem a renderização/PPU.
+As classes de CODE aceitas são Main RAM, BIOS ARM7, WRAM, os primeiros 4 KB de I/O, OAM e a faixa de VRAM C/D atribuída como Work RAM. Para esta última, `NdsVramControl` valida enable+MST=2 e OFS=0/1 antes de tornar o alias visível ao ARM7; colisões de C/D no mesmo slot são rejeitadas de forma transacional. Palette RAM, Gamecard, Wi-Fi e endereços não modelados continuam fail-closed. O controlador agora expõe aliases de CPU para A-D Main BG (MST=1, OFS=0..3), A/B Main OBJ (MST=2, OFS=0..1) e C/D Sub BG/OBJ (MST=4); aliases de E/F/G/H/I para BG/OBJ adicionais, extended palettes e textura continuam pendentes. A existência desses aliases não implementa os consumidores de BG/OBJ, registradores de engine 2D, composição, OAM ou renderização/PPU.
 
 ## Multiply ARM7TDMI
 
