@@ -133,6 +133,51 @@ int main(void)
         fprintf(stderr, "C host bridge failed to load/verify ARM7 private image\n");
         return 1;
     }
+    OracisHostRuntimeEntryPointReport arm9_entry = {0};
+    OracisHostRuntimeEntryPointReport arm7_entry = {0};
+    if (oracis_host_runtime_validate_entrypoints(
+            &arm9_entry, &arm7_entry) != ORACIS_HOST_RUNTIME_OK ||
+        arm9_entry.pc != UINT32_C(0x02001000) ||
+        arm9_entry.resolved != 1u ||
+        arm9_entry.lookup_status != ORACIS_DISPATCH_LOOKUP_FOUND ||
+        arm9_entry.candidate_count != 1u ||
+        arm7_entry.pc != UINT32_C(0x02381000) ||
+        arm7_entry.resolved != 1u ||
+        arm7_entry.lookup_status != ORACIS_DISPATCH_LOOKUP_FOUND ||
+        arm7_entry.candidate_count != 1u ||
+        (arm7_entry.cpsr & CPSR_T_BIT) == 0u) {
+        fprintf(stderr, "host bridge failed to preflight both ARM/Thumb entry points\\n");
+        return 1;
+    }
+
+    if (oracis_host_runtime_validate_entrypoints(NULL, &arm7_entry) !=
+        ORACIS_HOST_RUNTIME_INVALID_ARGUMENT) {
+        fprintf(stderr, "host bridge accepted a null entry-point report\\n");
+        return 1;
+    }
+
+    /* The lookup mode comes from CPSR.T, not from an address low bit. */
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM7)) {
+        fprintf(stderr, "host bridge could not select ARM7 for mode preflight\\n");
+        return 1;
+    }
+    oracis_active_cpu_state->cpsr &= ~CPSR_T_BIT;
+    if (oracis_host_runtime_validate_entrypoints(
+            &arm9_entry, &arm7_entry) != ORACIS_HOST_RUNTIME_OK ||
+        arm7_entry.resolved != 0u ||
+        arm7_entry.lookup_status != ORACIS_DISPATCH_LOOKUP_MISS ||
+        arm7_entry.candidate_count != 0u) {
+        oracis_active_cpu_state->cpsr |= CPSR_T_BIT;
+        (void)oracis_arm_runtime_select_cpu(NDS_ARM9);
+        fprintf(stderr, "host bridge ignored ARM7 CPSR.T during entry preflight\\n");
+        return 1;
+    }
+    oracis_active_cpu_state->cpsr |= CPSR_T_BIT;
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        fprintf(stderr, "host bridge could not restore ARM9 selection\\n");
+        return 1;
+    }
+
     if (oracis_host_runtime_load_program_segments(
             &arm9_image, &arm7_image) != ORACIS_HOST_RUNTIME_MACHINE_ERROR) {
         fprintf(stderr, "C host bridge accepted a duplicate program load\n");
