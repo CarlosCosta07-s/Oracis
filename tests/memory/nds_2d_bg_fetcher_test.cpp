@@ -174,6 +174,119 @@ int main()
         return fail("disabled BG did not yield a transparent scanline");
     }
 
+    /*
+     * DISPCNT.30 promotes text BGs with 16-bit maps to 8bpp and selects
+     * the extended 256-color palette using map-entry bits 12-15.
+     */
+    NdsVramControl text_palette_vram(memory);
+    if (text_palette_vram.install() != Status::Ok ||
+        text_palette_vram.write(
+            NDS_ARM9, NdsVramControl::VramCntEAddress, 1u,
+            UINT32_C(0x80)) != Status::Ok ||
+        memory.write(
+            NDS_ARM9,
+            UINT32_C(0x06880000) + UINT32_C(0x0000) +
+                UINT32_C(0x0A00) + UINT32_C(20),
+            2u, UINT32_C(0x1357)) != Status::Ok ||
+        memory.write(
+            NDS_ARM9,
+            UINT32_C(0x06880000) + UINT32_C(0x4000) +
+                UINT32_C(0x0A00) + UINT32_C(20),
+            2u, UINT32_C(0x5A3C)) != Status::Ok ||
+        memory.write(
+            NDS_ARM9,
+            UINT32_C(0x06880000) + UINT32_C(0x2000) +
+                UINT32_C(0x0B00) + UINT32_C(22),
+            2u, UINT32_C(0x2468)) != Status::Ok ||
+        memory.write(
+            NDS_ARM9,
+            UINT32_C(0x06880000) + UINT32_C(0x6000) +
+                UINT32_C(0x0B00) + UINT32_C(22),
+            2u, UINT32_C(0x6B4D)) != Status::Ok ||
+        text_palette_vram.write(
+            NDS_ARM9, NdsVramControl::VramCntEAddress, 1u,
+            UINT32_C(0x84)) != Status::Ok) {
+        return fail("text extended palette VRAM E fixture setup failed");
+    }
+
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            (UINT32_C(1) << 8u) | (UINT32_C(1) << 30u)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 8u, 2u,
+            UINT16_C(0x2004)) != Status::Ok ||
+        !write16(memory, UINT32_C(0x06000000), UINT16_C(0xA001)) ||
+        !write32(memory, UINT32_C(0x06004040), UINT32_C(0x0000000A))) {
+        return fail("BG0 extended palette slot 2 fixture setup failed");
+    }
+    Nds2dTextBgFetcher extended_text_fetcher(
+        memory, &text_palette_vram);
+    result = extended_text_fetcher.render_scanline(
+        0u, 0u, display, 0u, scanline);
+    if (result.status != Nds2dBgFetchStatus::Ok ||
+        scanline[0].transparent || scanline[0].rgb555 != UINT16_C(0x5A3C) ||
+        !scanline[1].transparent) {
+        return fail("BG0 extended palette slot 2 or promoted 8bpp fetch failed");
+    }
+
+    /* BG0CNT.13=0 routes the same BG to slot 0 instead of slot 2. */
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 8u, 2u,
+            UINT16_C(0x0004)) != Status::Ok) {
+        return fail("BG0 extended palette slot 0 selection setup failed");
+    }
+    result = extended_text_fetcher.render_scanline(
+        0u, 0u, display, 0u, scanline);
+    if (result.status != Nds2dBgFetchStatus::Ok ||
+        scanline[0].transparent || scanline[0].rgb555 != UINT16_C(0x1357)) {
+        return fail("BG0CNT.13 did not switch between slots 0 and 2");
+    }
+
+    /* BG1CNT.13 selects slot 3; with zero it selects slot 1. */
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            (UINT32_C(1) << 9u) | (UINT32_C(1) << 30u)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 10u, 2u,
+            UINT16_C(0x2104)) != Status::Ok ||
+        !write16(memory, UINT32_C(0x06000800), UINT16_C(0xB001)) ||
+        !write32(memory, UINT32_C(0x06004040), UINT32_C(0x0000000B))) {
+        return fail("BG1 extended palette slot 3 fixture setup failed");
+    }
+    result = extended_text_fetcher.render_scanline(
+        0u, 1u, display, 0u, scanline);
+    if (result.status != Nds2dBgFetchStatus::Ok ||
+        scanline[0].transparent || scanline[0].rgb555 != UINT16_C(0x6B4D)) {
+        return fail("BG1CNT.13 did not select extended palette slot 3");
+    }
+
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 10u, 2u,
+            UINT16_C(0x0104)) != Status::Ok) {
+        return fail("BG1 extended palette slot 1 selection setup failed");
+    }
+    result = extended_text_fetcher.render_scanline(
+        0u, 1u, display, 0u, scanline);
+    if (result.status != Nds2dBgFetchStatus::Ok ||
+        scanline[0].transparent || scanline[0].rgb555 != UINT16_C(0x2468)) {
+        return fail("BG1CNT.13 did not switch to extended palette slot 1");
+    }
+
+    /* Missing VRAM assignment is rejected without committing a partial line. */
+    GuestMemory empty_vram_memory;
+    NdsVramControl empty_vram(empty_vram_memory);
+    if (empty_vram.install() != Status::Ok) {
+        return fail("unallocated text extended palette VRAM install failed");
+    }
+    Nds2dTextBgFetcher no_palette_fetcher(memory, &empty_vram);
+    scanline[0].rgb555 = UINT16_C(0x2345);
+    result = no_palette_fetcher.render_scanline(
+        0u, 1u, display, 0u, scanline);
+    if (result.status != Nds2dBgFetchStatus::UnsupportedMode ||
+        scanline[0].rgb555 != UINT16_C(0x2345)) {
+        return fail("unallocated text extended palette did not fail closed");
+    }
+
     std::puts("NDS Engine A/B text BG tile, map, palette, mosaic and transparency fetch passed");
     return 0;
 }

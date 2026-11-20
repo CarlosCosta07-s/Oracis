@@ -319,6 +319,66 @@ int main()
         return fail("missing backdrop did not fail transactionally");
     }
 
-    std::puts("NDS BG scanline priority, backdrop, window and alpha compositor passed");
+        /*
+     * Text BG extended palettes must pass through the same compositor
+     * while keeping palette VRAM inaccessible to both guest CPUs.
+     */
+    GuestMemory extended_text_memory;
+    if (extended_text_memory.map_ram(
+            UINT32_C(0x05000000), UINT32_C(0x800),
+            static_cast<uint8_t>(Readable | Writable),
+            "extended text standard palette", CpuAccessArm9) != Status::Ok ||
+        extended_text_memory.map_ram(
+            UINT32_C(0x06000000), UINT32_C(0x20000),
+            static_cast<uint8_t>(Readable | Writable),
+            "extended text BG VRAM", CpuAccessArm9) != Status::Ok) {
+        return fail("compositor text extended palette memory setup failed");
+    }
+    NdsInterruptControl extended_text_interrupts(extended_text_memory);
+    NdsDisplayControl extended_text_display(extended_text_interrupts);
+    NdsVramControl extended_text_vram(extended_text_memory);
+    if (extended_text_display.install() != Status::Ok ||
+        extended_text_vram.install() != Status::Ok ||
+        extended_text_vram.write(
+            NDS_ARM9, NdsVramControl::VramCntEAddress, 1u,
+            UINT32_C(0x80)) != Status::Ok ||
+        extended_text_memory.write(
+            NDS_ARM9,
+            UINT32_C(0x06880000) + UINT32_C(0x0000) +
+                UINT32_C(0x0200) + UINT32_C(2),
+            2u, UINT32_C(0x4A2B)) != Status::Ok ||
+        extended_text_vram.write(
+            NDS_ARM9, NdsVramControl::VramCntEAddress, 1u,
+            UINT32_C(0x84)) != Status::Ok ||
+        extended_text_display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            (UINT32_C(1) << 8u) | (UINT32_C(1) << 30u)) != Status::Ok ||
+        extended_text_display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 8u, 2u,
+            UINT16_C(0x0004)) != Status::Ok ||
+        extended_text_display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 10u, 2u,
+            UINT16_C(0x0000)) != Status::Ok ||
+        !write16(
+            extended_text_memory, UINT32_C(0x06000000), UINT16_C(0x2001)) ||
+        !write32(
+            extended_text_memory, UINT32_C(0x06004040), UINT32_C(0x00000001))) {
+        return fail("compositor text extended palette fixture initialization failed");
+    }
+    Nds2dBgCompositor extended_text_compositor(
+        extended_text_memory, &extended_text_vram);
+    std::array<Nds2dCompositedPixel, 256> extended_text_line{};
+    const Nds2dComposeResult extended_text_result =
+        extended_text_compositor.render_scanline(
+            0u, extended_text_display, 0u, extended_text_line);
+    if (extended_text_result.status != Nds2dComposeStatus::Ok ||
+        extended_text_line[0].top_layer != Nds2dLayer::Bg0 ||
+        extended_text_line[0].rgb555 != UINT16_C(0x4A2B) ||
+        extended_text_memory.read(
+            NDS_ARM9, UINT32_C(0x06880000), 2u).status == Status::Ok) {
+        return fail("text extended palette was not composed or leaked to CPU VRAM");
+    }
+
+std::puts("NDS BG scanline priority, backdrop, window and alpha compositor passed");
     return 0;
 }

@@ -14,6 +14,7 @@
 
 #include "oracis/memory/guest_memory.hpp"
 #include "oracis/memory/nds_display_control.hpp"
+#include "oracis/memory/nds_vram_control.hpp"
 
 namespace oracis::memory {
 
@@ -42,16 +43,18 @@ struct Nds2dBgPixel {
 
 class Nds2dTextBgFetcher final {
 public:
-    explicit Nds2dTextBgFetcher(GuestMemory &memory) noexcept
-        : memory_(memory) {}
+    explicit Nds2dTextBgFetcher(
+        GuestMemory &memory,
+        NdsVramControl *vram_control = nullptr) noexcept
+        : memory_(memory), vram_control_(vram_control) {}
 
     Nds2dTextBgFetcher(const Nds2dTextBgFetcher &) = delete;
     Nds2dTextBgFetcher &operator=(const Nds2dTextBgFetcher &) = delete;
 
     /*
      * Fetches a complete visible scanline into a temporary buffer and commits
-     * only on success. BG VRAM and palette data are read through the existing
-     * ARM9 guest map; there is no second backing store or emulated CPU path.
+     * only on success. Standard BG VRAM/palettes use the ARM9 guest map;
+     * extended palettes use the PPU-only VRAM controller interface.
      */
     Nds2dBgFetchResult render_scanline(
         unsigned engine_index,
@@ -70,6 +73,7 @@ private:
         uint32_t base, uint64_t offset, uint32_t &address) noexcept;
 
     GuestMemory &memory_;
+    NdsVramControl *vram_control_ = nullptr;
 };
 
 } // namespace oracis::memory

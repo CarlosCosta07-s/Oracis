@@ -109,8 +109,10 @@ Nds2dBgFetchResult Nds2dTextBgFetcher::render_scanline(
         return {Nds2dBgFetchStatus::Disabled, Status::Ok};
     }
 
+    const bool extended_palette_enabled =
+        (dispcnt & kExtendedBgPaletteEnable) != 0u;
     if (!text_mode_supported(engine_index, bg_index, dispcnt) ||
-        (dispcnt & kExtendedBgPaletteEnable) != 0u) {
+        (extended_palette_enabled && vram_control_ == nullptr)) {
         return {Nds2dBgFetchStatus::UnsupportedMode, Status::Ok};
     }
 
@@ -147,7 +149,12 @@ Nds2dBgFetchResult Nds2dTextBgFetcher::render_scanline(
         (screen_size & 2u) != 0u ? 512u : 256u;
     const uint16_t width_tiles =
         static_cast<uint16_t>(screen_width / kPixelsPerTile);
-    const bool color_256 = (bgcnt & UINT16_C(0x0080)) != 0u;
+    /*
+     * With DISPCNT.30 the text BG consumes 8bpp tiles from its extended
+     * 256-color palette. Otherwise BGxCNT.7 selects normal 4bpp/8bpp tiles.
+     */
+    const bool color_256 = extended_palette_enabled ||
+        (bgcnt & UINT16_C(0x0080)) != 0u;
     const uint32_t tile_bytes = color_256 ? 64u : 32u;
     const NdsDisplayControl::BgScrollState scroll =
         display.bg_scroll(engine_index, bg_index);
@@ -241,17 +248,35 @@ Nds2dBgFetchResult Nds2dTextBgFetcher::render_scanline(
             continue;
         }
 
-        const uint32_t palette_index = color_256
-            ? color_index
-            : palette_bank * 16u + color_index;
-        const uint32_t palette_address =
-            bg_palette_base + palette_index * sizeof(uint16_t);
-        const ReadResult palette =
-            memory_.read(NDS_ARM9, palette_address, 2u);
-        if (!palette) return memory_error(palette.status);
-
-        output_pixel.rgb555 =
-            static_cast<uint16_t>(palette.value & UINT32_C(0x7FFF));
+        if (extended_palette_enabled) {
+            const uint8_t palette_slot = bg_index <= 1u
+                ? static_cast<uint8_t>(
+                    bg_index + (((bgcnt >> 13u) & UINT16_C(1)) * 2u))
+                : static_cast<uint8_t>(bg_index);
+            const ReadResult palette = vram_control_->read_extended_bg_palette_slot(
+                engine_index,
+                palette_slot,
+                static_cast<uint8_t>(palette_bank),
+                static_cast<uint8_t>(color_index));
+            if (palette.status == Status::Unmapped ||
+                palette.status == Status::Overlap) {
+                return {Nds2dBgFetchStatus::UnsupportedMode, Status::Ok};
+            }
+            if (!palette) return memory_error(palette.status);
+            output_pixel.rgb555 =
+                static_cast<uint16_t>(palette.value & UINT32_C(0x7FFF));
+        } else {
+            const uint32_t palette_index = color_256
+                ? color_index
+                : palette_bank * 16u + color_index;
+            const uint32_t palette_address =
+                bg_palette_base + palette_index * sizeof(uint16_t);
+            const ReadResult palette =
+                memory_.read(NDS_ARM9, palette_address, 2u);
+            if (!palette) return memory_error(palette.status);
+            output_pixel.rgb555 =
+                static_cast<uint16_t>(palette.value & UINT32_C(0x7FFF));
+        }
         output_pixel.transparent = false;
     }
 
