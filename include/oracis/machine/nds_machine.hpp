@@ -241,6 +241,9 @@ private:
         void *context, NdsCpu cpu, uint32_t initial_crc,
         uint32_t source, uint32_t length,
         uint32_t *result, uint32_t *last_halfword);
+    static int runtime_bios_bit_unpack_handler(
+        void *context, NdsCpu cpu, uint32_t source,
+        uint32_t destination, uint32_t parameters);
     static int runtime_validate_dispatch_bytes(
         NdsCpu cpu, const NdsStaticValidation *validation,
         uint32_t pc, uint32_t thumb, void *context);
@@ -268,6 +271,7 @@ private:
     bool coprocessor_handler_bound_ = false;
     bool bios_memory_handler_bound_ = false;
     bool bios_crc16_handler_bound_ = false;
+    bool bios_bit_unpack_handler_bound_ = false;
     bool memory_bound_ = false;
     bool wram_bound_ = false;
     bool vram_bound_ = false;

@@ -334,6 +334,169 @@ int main()
     }
 
     /*
+     * NDS BIOS BitUnPack expands packed source units into 32-bit output
+     * words. It applies dataOffset only to nonzero values unless bit 31
+     * requests that zero values are offset too.
+     */
+    constexpr uint32_t bit_unpack_source = UINT32_C(0x02001720);
+    constexpr uint32_t bit_unpack_destination = UINT32_C(0x02001740);
+    constexpr uint32_t bit_unpack_parameters = UINT32_C(0x02001700);
+    const uint8_t bit_unpack_source_data[] = {UINT8_C(0xB2)};
+    const uint8_t bit_unpack_info[] = {
+        1u, 0u, 1u, 4u, 3u, 0u, 0u, 0u
+    }; /* sourceSize=1, sourceWidth=1, destWidth=4, offset=3 */
+    if (machine.guest_memory().write_bytes(
+            NDS_ARM9, bit_unpack_source, bit_unpack_source_data, 1u) !=
+            oracis::memory::Status::Ok ||
+        machine.guest_memory().write_bytes(
+            NDS_ARM9, bit_unpack_parameters, bit_unpack_info, 8u) !=
+            oracis::memory::Status::Ok) {
+        return fail("could not seed BitUnPack source and parameters");
+    }
+
+    const NdsCpu bit_unpack_cpus[2] = {NDS_ARM9, NDS_ARM7};
+    for (unsigned index = 0u; index < 2u; ++index) {
+        const NdsCpu cpu = bit_unpack_cpus[index];
+        if (!oracis_arm_runtime_select_cpu(cpu)) {
+            return fail("CPU selection failed for BitUnPack");
+        }
+        ArmCpuState *state = machine.cpu_state(cpu);
+        state->R[0] = bit_unpack_source;
+        state->R[1] = bit_unpack_destination;
+        state->R[2] = bit_unpack_parameters;
+        runtime_swi(0x10u);
+        if (machine.guest_memory().read(
+                cpu, bit_unpack_destination, 4u).value !=
+            UINT32_C(0x40440040)) {
+            return fail("BitUnPack 1-to-4 expansion or nonzero offset failed");
+        }
+    }
+
+    /* The high dataOffset bit requests offsetting zero-valued source units. */
+    constexpr uint32_t bit_unpack_zero_source = UINT32_C(0x02001780);
+    constexpr uint32_t bit_unpack_zero_destination = UINT32_C(0x020017A0);
+    constexpr uint32_t bit_unpack_zero_parameters = UINT32_C(0x02001760);
+    const uint8_t bit_unpack_zeros[4] = {0u, 0u, 0u, 0u};
+    const uint8_t bit_unpack_zero_info[8] = {
+        4u, 0u, 2u, 8u, 0x20u, 0u, 0u, 0x80u
+    }; /* 2-to-8 expansion, offset=0x20, including zeros */
+    if (machine.guest_memory().write_bytes(
+            NDS_ARM9, bit_unpack_zero_source,
+            bit_unpack_zeros, 4u) != oracis::memory::Status::Ok ||
+        machine.guest_memory().write_bytes(
+            NDS_ARM9, bit_unpack_zero_parameters,
+            bit_unpack_zero_info, 8u) != oracis::memory::Status::Ok) {
+        return fail("could not seed zero-offset BitUnPack case");
+    }
+    for (unsigned index = 0u; index < 2u; ++index) {
+        const NdsCpu cpu = bit_unpack_cpus[index];
+        if (!oracis_arm_runtime_select_cpu(cpu)) {
+            return fail("CPU selection failed for zero-offset BitUnPack");
+        }
+        ArmCpuState *state = machine.cpu_state(cpu);
+        state->R[0] = bit_unpack_zero_source;
+        state->R[1] = bit_unpack_zero_destination;
+        state->R[2] = bit_unpack_zero_parameters;
+        runtime_swi(0x10u);
+        for (uint32_t word = 0u; word < 4u; ++word) {
+            if (machine.guest_memory().read(
+                    cpu, bit_unpack_zero_destination + word * 4u, 4u).value !=
+                UINT32_C(0x20202020)) {
+                return fail("BitUnPack zero-value offset flag was ignored");
+            }
+        }
+    }
+
+    /*
+     * Source and destination may overlap: the BIOS expansion must consume
+     * the complete packed input before writing its larger output range.
+     */
+    constexpr uint32_t bit_unpack_overlap = UINT32_C(0x02001900);
+    constexpr uint32_t bit_unpack_overlap_info = UINT32_C(0x020018E0);
+    const uint8_t bit_unpack_overlap_data[] = {
+        UINT8_C(0xE4), UINT8_C(0x1B), UINT8_C(0x55), UINT8_C(0xAA)
+    };
+    const uint8_t bit_unpack_overlap_params[] = {
+        4u, 0u, 2u, 8u, 0u, 0u, 0u, 0u
+    };
+    const uint8_t bit_unpack_overlap_expected[16] = {
+        0u, 1u, 2u, 3u, 3u, 2u, 1u, 0u,
+        1u, 1u, 1u, 1u, 2u, 2u, 2u, 2u
+    };
+    if (machine.guest_memory().write_bytes(
+            NDS_ARM9, bit_unpack_overlap,
+            bit_unpack_overlap_data, 4u) != oracis::memory::Status::Ok ||
+        machine.guest_memory().write_bytes(
+            NDS_ARM9, bit_unpack_overlap_info,
+            bit_unpack_overlap_params, 8u) != oracis::memory::Status::Ok ||
+        !oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("could not prepare overlapping BitUnPack test");
+    }
+    arm9_state->R[0] = bit_unpack_overlap;
+    arm9_state->R[1] = bit_unpack_overlap;
+    arm9_state->R[2] = bit_unpack_overlap_info;
+    runtime_swi(0x10u);
+    for (uint32_t byte = 0u; byte < 16u; ++byte) {
+        if (machine.guest_memory().read(
+                NDS_ARM9, bit_unpack_overlap + byte, 1u).value !=
+            bit_unpack_overlap_expected[byte]) {
+            return fail("BitUnPack corrupted overlapping source data");
+        }
+    }
+
+    /* Malformed widths, output-size and value overflow fail before writes. */
+    constexpr uint32_t bit_unpack_guard_source = UINT32_C(0x02001A00);
+    constexpr uint32_t bit_unpack_guard_destination = UINT32_C(0x02001A20);
+    constexpr uint32_t bit_unpack_guard_parameters = UINT32_C(0x02001A40);
+    const uint8_t bit_unpack_guard_byte[] = {1u};
+    const uint8_t bit_unpack_bad_size[] = {
+        1u, 0u, 8u, 8u, 0u, 0u, 0u, 0u
+    }; /* Output would be one byte, not a whole word. */
+    const uint8_t bit_unpack_bad_value[] = {
+        1u, 0u, 1u, 4u, 15u, 0u, 0u, 0u
+    }; /* A set source bit plus offset 15 exceeds four bits. */
+    if (machine.guest_memory().write_bytes(
+            NDS_ARM9, bit_unpack_guard_source, bit_unpack_guard_byte, 1u) !=
+            oracis::memory::Status::Ok ||
+        machine.guest_memory().write_bytes(
+            NDS_ARM9, bit_unpack_guard_parameters, bit_unpack_bad_size, 8u) !=
+            oracis::memory::Status::Ok ||
+        machine.guest_memory().write(
+            NDS_ARM9, bit_unpack_guard_destination, 4u,
+            UINT32_C(0xA5A55A5A)) != oracis::memory::Status::Ok ||
+        !oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("could not prepare BitUnPack malformed-input tests");
+    }
+    if (oracis_arm_runtime_bios_bit_unpack(
+            bit_unpack_guard_source, bit_unpack_guard_destination,
+            bit_unpack_guard_parameters) != 0 ||
+        machine.guest_memory().read(
+            NDS_ARM9, bit_unpack_guard_destination, 4u).value !=
+            UINT32_C(0xA5A55A5A)) {
+        return fail("BitUnPack accepted output that was not word-sized");
+    }
+    if (machine.guest_memory().write_bytes(
+            NDS_ARM9, bit_unpack_guard_parameters, bit_unpack_bad_value, 8u) !=
+        oracis::memory::Status::Ok ||
+        oracis_arm_runtime_bios_bit_unpack(
+            bit_unpack_guard_source, bit_unpack_guard_destination,
+            bit_unpack_guard_parameters) != 0 ||
+        machine.guest_memory().read(
+            NDS_ARM9, bit_unpack_guard_destination, 4u).value !=
+            UINT32_C(0xA5A55A5A) ||
+        oracis_arm_runtime_bios_bit_unpack(
+            bit_unpack_guard_source, bit_unpack_guard_destination + 1u,
+            bit_unpack_guard_parameters) != 0 ||
+        oracis_arm_runtime_bios_bit_unpack(
+            UINT32_C(0xFFFFFFFE), bit_unpack_guard_destination,
+            bit_unpack_guard_parameters) != 0 ||
+        oracis_arm_runtime_bios_bit_unpack(
+            bit_unpack_guard_source, bit_unpack_guard_destination,
+            UINT32_C(0xFFFFFFFC)) != 0) {
+        return fail("BitUnPack accepted overflow, misalignment or invalid values");
+    }
+
+    /*
      * The native bus bridge must enforce NDS palette/OAM store widths;
      * direct GuestMemory writes do not model STRB suppression.
      */

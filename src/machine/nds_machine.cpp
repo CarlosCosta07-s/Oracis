@@ -7,6 +7,8 @@
 
 #include <exception>
 #include <limits>
+#include <new>
+#include <vector>
 
 namespace oracis::machine {
 
@@ -264,6 +266,158 @@ int NdsMachine::runtime_bios_crc16_handler(
     return 1;
 }
 
+int NdsMachine::runtime_bios_bit_unpack_handler(
+    void *context,
+    NdsCpu cpu,
+    uint32_t source,
+    uint32_t destination,
+    uint32_t parameters)
+{
+    auto *machine = static_cast<NdsMachine *>(context);
+    if (machine == nullptr || !machine->initialized_ ||
+        !valid_cpu(cpu) || g_nds_active != cpu ||
+        machine->cpu_state(cpu) != oracis_active_cpu_state ||
+        (destination & 3u) != 0u) {
+        return 0;
+    }
+
+    constexpr uint64_t GuestAddressEnd = UINT64_C(0x1'0000'0000);
+    const uint64_t parameters_end =
+        static_cast<uint64_t>(parameters) + UINT64_C(8);
+    if (parameters_end > GuestAddressEnd ||
+        machine->memory_.validate_read(cpu, parameters, 8u) !=
+            memory::Status::Ok) {
+        return 0;
+    }
+
+    /*
+     * TUnpackStruct is packed: sourceSize (LE16), sourceWidth,
+     * destWidth, then dataOffset (LE32). Read bytes explicitly so the
+     * parameter block itself need not be naturally aligned.
+     */
+    uint8_t info[8]{};
+    for (uint32_t index = 0u; index < 8u; ++index) {
+        const memory::ReadResult byte = machine->memory_.read(
+            cpu, parameters + index, 1u);
+        if (!byte) return 0;
+        info[index] = static_cast<uint8_t>(byte.value);
+    }
+
+    const uint32_t source_size =
+        static_cast<uint32_t>(info[0]) |
+        (static_cast<uint32_t>(info[1]) << 8u);
+    const uint32_t source_width = info[2];
+    const uint32_t destination_width = info[3];
+    const uint32_t raw_offset =
+        static_cast<uint32_t>(info[4]) |
+        (static_cast<uint32_t>(info[5]) << 8u) |
+        (static_cast<uint32_t>(info[6]) << 16u) |
+        (static_cast<uint32_t>(info[7]) << 24u);
+    const bool offset_zero_values =
+        (raw_offset & UINT32_C(0x80000000)) != 0u;
+    const uint32_t data_offset =
+        raw_offset & UINT32_C(0x7FFFFFFF);
+
+    const bool valid_source_width =
+        source_width == 1u || source_width == 2u ||
+        source_width == 4u || source_width == 8u;
+    const bool valid_destination_width =
+        destination_width == 1u || destination_width == 2u ||
+        destination_width == 4u || destination_width == 8u ||
+        destination_width == 16u || destination_width == 32u;
+    if (!valid_source_width || !valid_destination_width ||
+        destination_width < source_width) {
+        return 0;
+    }
+
+    const uint64_t source_units =
+        (static_cast<uint64_t>(source_size) * 8u) / source_width;
+    const uint64_t output_bits =
+        source_units * static_cast<uint64_t>(destination_width);
+    if ((output_bits & UINT64_C(31)) != 0u) return 0;
+
+    const uint64_t output_bytes = output_bits / 8u;
+    if (output_bytes > UINT32_MAX) return 0;
+    if (source_size == 0u) return 1;
+
+    const uint64_t source_end =
+        static_cast<uint64_t>(source) + source_size;
+    const uint64_t destination_end =
+        static_cast<uint64_t>(destination) + output_bytes;
+    if (source_end > GuestAddressEnd ||
+        destination_end > GuestAddressEnd ||
+        machine->memory_.validate_read(cpu, source, source_size) !=
+            memory::Status::Ok ||
+        machine->memory_.validate_write(
+            cpu, destination, static_cast<uint32_t>(output_bytes)) !=
+            memory::Status::Ok) {
+        return 0;
+    }
+
+    /*
+     * Stage both input and output before the first write. This preserves
+     * correctness for overlapping source/destination ranges and guarantees
+     * that malformed values never leave a partially expanded destination.
+     */
+    try {
+        std::vector<uint8_t> source_data(source_size);
+        for (uint32_t index = 0u; index < source_size; ++index) {
+            const memory::ReadResult byte = machine->memory_.read(
+                cpu, source + index, 1u);
+            if (!byte) return 0;
+            source_data[index] = static_cast<uint8_t>(byte.value);
+        }
+
+        const uint32_t word_count =
+            static_cast<uint32_t>(output_bits / 32u);
+        std::vector<uint32_t> output_words(word_count, 0u);
+        const uint32_t units_per_byte = 8u / source_width;
+        const uint32_t units_per_word = 32u / destination_width;
+        const uint32_t source_mask =
+            (UINT32_C(1) << source_width) - 1u;
+        const uint64_t destination_mask = destination_width == 32u
+            ? UINT64_C(0xFFFFFFFF)
+            : ((UINT64_C(1) << destination_width) - 1u);
+
+        for (uint64_t unit = 0u; unit < source_units; ++unit) {
+            const uint32_t source_byte =
+                source_data[static_cast<std::size_t>(unit / units_per_byte)];
+            const uint32_t source_shift =
+                static_cast<uint32_t>(unit % units_per_byte) * source_width;
+            const uint32_t value =
+                (source_byte >> source_shift) & source_mask;
+            const uint64_t adjusted =
+                (value != 0u || offset_zero_values)
+                    ? static_cast<uint64_t>(value) + data_offset
+                    : static_cast<uint64_t>(value);
+            if (adjusted > destination_mask) return 0;
+
+            const uint32_t word_index =
+                static_cast<uint32_t>(unit / units_per_word);
+            const uint32_t destination_shift =
+                static_cast<uint32_t>(unit % units_per_word) *
+                destination_width;
+            output_words[word_index] |=
+                static_cast<uint32_t>(adjusted) << destination_shift;
+        }
+
+        for (uint32_t index = 0u; index < word_count; ++index) {
+            const uint64_t address =
+                static_cast<uint64_t>(destination) +
+                static_cast<uint64_t>(index) * 4u;
+            if (machine->memory_.write(
+                    cpu, static_cast<uint32_t>(address), 4u,
+                    output_words[index]) != memory::Status::Ok) {
+                return 0;
+            }
+        }
+    } catch (const std::bad_alloc &) {
+        return 0;
+    }
+
+    return 1;
+}
+
 int NdsMachine::runtime_validate_dispatch_bytes(
     NdsCpu cpu,
     const NdsStaticValidation *validation,
@@ -374,6 +528,12 @@ NdsMachineStatus NdsMachine::initialize() noexcept
         return rollback(NdsMachineStatus::RuntimeAlreadyBound);
     }
     bios_crc16_handler_bound_ = true;
+
+    if (!oracis_arm_runtime_bind_bios_bit_unpack_handler(
+            this, &NdsMachine::runtime_bios_bit_unpack_handler)) {
+        return rollback(NdsMachineStatus::RuntimeAlreadyBound);
+    }
+    bios_bit_unpack_handler_bound_ = true;
 
     if (wram_control_.install() != memory::Status::Ok ||
         vram_control_.install() != memory::Status::Ok ||
@@ -543,7 +703,8 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
     const bool owns_runtime =
         runtime_bound_ || power_handler_bound_ ||
         coprocessor_handler_bound_ || bios_memory_handler_bound_ ||
-        bios_crc16_handler_bound_ || memory_bound_ ||
+        bios_crc16_handler_bound_ || bios_bit_unpack_handler_bound_ ||
+        memory_bound_ ||
         wram_bound_ || vram_bound_ || video_memory_bound_ ||
         display_control_bound_ || interrupt_bound_ || timer_bound_ ||
         keypad_bound_ || clock_bound_ || validation_bound_;
@@ -619,6 +780,13 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
             return NdsMachineStatus::ShutdownFailed;
         }
         memory_bound_ = false;
+    }
+    if (bios_bit_unpack_handler_bound_) {
+        if (!oracis_arm_runtime_unbind_bios_bit_unpack_handler(
+                this, &NdsMachine::runtime_bios_bit_unpack_handler)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        bios_bit_unpack_handler_bound_ = false;
     }
     if (bios_crc16_handler_bound_) {
         if (!oracis_arm_runtime_unbind_bios_crc16_handler(

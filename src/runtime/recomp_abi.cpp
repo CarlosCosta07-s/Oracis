@@ -27,6 +27,8 @@ void *g_bios_memory_context = nullptr;
 OracisArmRuntimeBiosMemoryHandler g_bios_memory_handler = nullptr;
 void *g_bios_crc16_context = nullptr;
 OracisArmRuntimeBiosCrc16Handler g_bios_crc16_handler = nullptr;
+void *g_bios_bit_unpack_context = nullptr;
+OracisArmRuntimeBiosBitUnpackHandler g_bios_bit_unpack_handler = nullptr;
 
 } // namespace
 
@@ -207,6 +209,47 @@ int oracis_arm_runtime_bios_crc16(
         g_bios_crc16_context, g_nds_active,
         initial_crc & UINT32_C(0xFFFF), source, length,
         result, last_halfword);
+}
+
+int oracis_arm_runtime_bind_bios_bit_unpack_handler(
+    void *context, OracisArmRuntimeBiosBitUnpackHandler handler)
+{
+    if (context == nullptr || handler == nullptr) return 0;
+    if (g_bios_bit_unpack_handler != nullptr ||
+        g_bios_bit_unpack_context != nullptr) {
+        return g_bios_bit_unpack_context == context &&
+            g_bios_bit_unpack_handler == handler ? 1 : 0;
+    }
+    g_bios_bit_unpack_context = context;
+    g_bios_bit_unpack_handler = handler;
+    return 1;
+}
+
+int oracis_arm_runtime_unbind_bios_bit_unpack_handler(
+    void *context, OracisArmRuntimeBiosBitUnpackHandler handler)
+{
+    if (context == nullptr || handler == nullptr ||
+        g_bios_bit_unpack_context != context ||
+        g_bios_bit_unpack_handler != handler) {
+        return 0;
+    }
+    g_bios_bit_unpack_context = nullptr;
+    g_bios_bit_unpack_handler = nullptr;
+    return 1;
+}
+
+int oracis_arm_runtime_bios_bit_unpack(
+    uint32_t source, uint32_t destination, uint32_t parameters)
+{
+    if (g_bios_bit_unpack_handler == nullptr ||
+        g_bios_bit_unpack_context == nullptr ||
+        oracis_active_cpu_state == nullptr ||
+        (g_nds_active != NDS_ARM9 && g_nds_active != NDS_ARM7)) {
+        return 0;
+    }
+    return g_bios_bit_unpack_handler(
+        g_bios_bit_unpack_context, g_nds_active,
+        source, destination, parameters);
 }
 
 int oracis_arm_runtime_coprocessor_transfer(
@@ -530,6 +573,14 @@ void runtime_swi(uint32_t swi_imm)
         g_cpu.R[0] = result & UINT32_C(0xFFFF);
         if (length != 0u) {
             g_cpu.R[3] = last_halfword & UINT32_C(0xFFFF);
+        }
+        return;
+    }
+
+    case 0x10u: { /* NDS7/NDS9 BitUnPack: R0=source, R1=destination, R2=info. */
+        if (!oracis_arm_runtime_bios_bit_unpack(
+                g_cpu.R[0], g_cpu.R[1], g_cpu.R[2])) {
+            abi_failure("runtime_swi BitUnPack (invalid or unsupported memory span)");
         }
         return;
     }
