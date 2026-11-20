@@ -30,7 +30,8 @@ extern NdsCpu g_nds_active;
 
 enum {
     ORACIS_ARM_RUNTIME_POWER_HALT = 0,
-    ORACIS_ARM_RUNTIME_POWER_ARM7_HALTCNT = 1
+    ORACIS_ARM_RUNTIME_POWER_ARM7_HALTCNT = 1,
+    ORACIS_ARM_RUNTIME_POWER_ARM9_POSTFLG = 2
 };
 
 typedef int (*OracisArmRuntimePowerHandler)(
@@ -137,6 +138,7 @@ int oracis_arm_runtime_bios_diff(
     uint32_t source, uint32_t destination, uint32_t unit_width);
 int oracis_arm_runtime_request_halt(NdsCpu cpu);
 int oracis_arm_runtime_write_arm7_halt_control(uint8_t value);
+int oracis_arm_runtime_write_arm9_post_flag(uint32_t value);
 int oracis_arm_runtime_select_cpu(NdsCpu cpu);
 ArmCpuState *oracis_arm_runtime_current_state(void);
 

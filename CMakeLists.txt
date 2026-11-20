@@ -94,6 +94,7 @@ add_library(oracis_memory STATIC
     src/memory/nds_wram_control.cpp
     src/memory/nds_vram_control.cpp
     src/memory/nds_video_memory.cpp
+    src/memory/nds_post_flag.cpp
     src/memory/nds_display_control.cpp
     src/memory/nds_2d_effects.cpp
     src/memory/nds_2d_bg_fetcher.cpp
@@ -255,6 +256,12 @@ if(BUILD_TESTING)
     )
     target_link_libraries(oracis_nds_video_memory_test PRIVATE oracis_memory)
     add_test(NAME oracis_nds_video_memory_test COMMAND oracis_nds_video_memory_test)
+
+    add_executable(oracis_nds_post_flag_test
+        tests/memory/nds_post_flag_test.cpp
+    )
+    target_link_libraries(oracis_nds_post_flag_test PRIVATE oracis_memory)
+    add_test(NAME oracis_nds_post_flag_test COMMAND oracis_nds_post_flag_test)
 
     add_executable(oracis_nds_display_control_test
         tests/memory/nds_display_control_test.cpp

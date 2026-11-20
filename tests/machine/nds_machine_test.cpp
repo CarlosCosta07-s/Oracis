@@ -334,6 +334,24 @@ int main()
     }
 
     /*
+     * NDS9 CustomPost (SWI 0x1F) consumes R0 and updates POSTFLG. The
+     * POSTFLG post-boot bit is sticky for the life of this machine.
+     */
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 selection failed for CustomPost");
+    }
+    arm9_state->R[0] = UINT32_C(3);
+    runtime_swi(0x1Fu);
+    if (bus_read_u8(UINT32_C(0x04000300)) != UINT8_C(3)) {
+        return fail("ARM9 CustomPost did not update POSTFLG");
+    }
+    arm9_state->R[0] = 0u;
+    runtime_swi(0x1Fu);
+    if (bus_read_u8(UINT32_C(0x04000300)) != UINT8_C(1)) {
+        return fail("ARM9 CustomPost incorrectly cleared POSTFLG bit 0");
+    }
+
+    /*
      * IsDebugger (SWI 0x0F) reports the modeled main-RAM profile:
      * 0 means retail DS (4MB); 1 would mean debugger hardware (8MB).
      * The debugger memory profile is not currently supported by Oracis.

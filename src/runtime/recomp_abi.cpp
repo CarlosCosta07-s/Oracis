@@ -462,6 +462,17 @@ int oracis_arm_runtime_write_arm7_halt_control(uint8_t value)
         ORACIS_ARM_RUNTIME_POWER_ARM7_HALTCNT, value);
 }
 
+int oracis_arm_runtime_write_arm9_post_flag(uint32_t value)
+{
+    if (g_power_handler == nullptr || g_power_context == nullptr ||
+        oracis_active_cpu_state == nullptr || g_nds_active != NDS_ARM9) {
+        return 0;
+    }
+    return g_power_handler(
+        g_power_context, NDS_ARM9,
+        ORACIS_ARM_RUNTIME_POWER_ARM9_POSTFLG, value);
+}
+
 int oracis_arm_runtime_select_cpu(NdsCpu cpu)
 {
     if (g_arm9_state == nullptr || g_arm7_state == nullptr) return 0;
@@ -814,13 +825,21 @@ void runtime_swi(uint32_t swi_imm)
         }
         return;
 
-    case 0x1Fu: /* NDS7 CustomHalt writes the byte argument from R2 to HALTCNT. */
-        if (g_nds_active != NDS_ARM7 ||
-            !oracis_arm_runtime_write_arm7_halt_control(
-                static_cast<uint8_t>(g_cpu.R[2]))) {
-            abi_failure("runtime_swi CustomHalt (unsupported CPU/mode)");
+    case 0x1Fu: /* NDS7 CustomHalt / NDS9 CustomPost. */
+        if (g_nds_active == NDS_ARM7) {
+            if (!oracis_arm_runtime_write_arm7_halt_control(
+                    static_cast<uint8_t>(g_cpu.R[2]))) {
+                abi_failure("runtime_swi CustomHalt (unsupported CPU/mode)");
+            }
+            return;
         }
-        return;
+        if (g_nds_active == NDS_ARM9) {
+            if (!oracis_arm_runtime_write_arm9_post_flag(g_cpu.R[0])) {
+                abi_failure("runtime_swi CustomPost (POSTFLG update failed)");
+            }
+            return;
+        }
+        abi_failure("runtime_swi CustomPost/CustomHalt (unsupported CPU)");
 
     case 0x07u: /* Sleep pauses additional hardware domains not modeled yet. */
         abi_failure("runtime_swi Sleep (power-domain suspension unsupported)");

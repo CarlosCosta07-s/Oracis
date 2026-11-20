@@ -73,6 +73,11 @@ int NdsMachine::runtime_power_handler(
         return machine->write_arm7_halt_control(
             static_cast<uint8_t>(value)) == NdsMachineStatus::Ok ? 1 : 0;
     }
+    if (operation == ORACIS_ARM_RUNTIME_POWER_ARM9_POSTFLG &&
+        cpu == NDS_ARM9) {
+        return machine->post_flag_.write_from_bios(cpu, value) ==
+            memory::Status::Ok ? 1 : 0;
+    }
     return 0;
 }
 
@@ -1016,7 +1021,7 @@ NdsMachineStatus NdsMachine::initialize() noexcept
 {
     if (initialized_ || wram_control_.installed() ||
         vram_control_.installed() || video_memory_.installed() ||
-        display_control_.installed()) {
+        post_flag_.installed() || display_control_.installed()) {
         return NdsMachineStatus::AlreadyInitialized;
     }
 
@@ -1101,6 +1106,7 @@ NdsMachineStatus NdsMachine::initialize() noexcept
     if (wram_control_.install() != memory::Status::Ok ||
         vram_control_.install() != memory::Status::Ok ||
         video_memory_.install() != memory::Status::Ok ||
+        post_flag_.install() != memory::Status::Ok ||
         display_control_.install() != memory::Status::Ok ||
         arm9_tcm_.install() != memory::Status::Ok) {
         return rollback(NdsMachineStatus::MemoryMapFailed);
@@ -1111,6 +1117,11 @@ NdsMachineStatus NdsMachine::initialize() noexcept
         return rollback(NdsMachineStatus::BusBindingFailed);
     }
     memory_bound_ = true;
+
+    if (!oracis_bus_bind_post_flag(&post_flag_)) {
+        return rollback(NdsMachineStatus::BusBindingFailed);
+    }
+    post_flag_bound_ = true;
 
     if (!oracis_bus_bind_wram_control(&wram_control_)) {
         return rollback(NdsMachineStatus::BusBindingFailed);
@@ -1271,7 +1282,7 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
         bios_huffman_handler_bound_ || bios_diff_handler_bound_ ||
         memory_bound_ ||
         wram_bound_ || vram_bound_ || video_memory_bound_ ||
-        display_control_bound_ || interrupt_bound_ || timer_bound_ ||
+        post_flag_bound_ || display_control_bound_ || interrupt_bound_ || timer_bound_ ||
         keypad_bound_ || clock_bound_ || validation_bound_;
     if (!owns_runtime && !initialized_) {
         return NdsMachineStatus::Ok;
@@ -1333,6 +1344,12 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
             return NdsMachineStatus::ShutdownFailed;
         }
         video_memory_bound_ = false;
+    }
+    if (post_flag_bound_) {
+        if (!oracis_bus_unbind_post_flag(&post_flag_)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        post_flag_bound_ = false;
     }
     if (wram_bound_) {
         if (!oracis_bus_unbind_wram_control(&wram_control_)) {

@@ -22,6 +22,7 @@
 #include "oracis/memory/nds_wram_control.hpp"
 #include "oracis/memory/nds_vram_control.hpp"
 #include "oracis/memory/nds_video_memory.hpp"
+#include "oracis/memory/nds_post_flag.hpp"
 #include "oracis/memory/nds_display_control.hpp"
 
 /* Forward-declared here to keep the machine header independent of runtime_arm.h. */
@@ -267,6 +268,7 @@ private:
     memory::NdsWramControl wram_control_;
     memory::NdsVramControl vram_control_;
     memory::NdsVideoMemory video_memory_;
+    memory::NdsPostFlag post_flag_;
     memory::NdsInterruptControl interrupt_control_;
     memory::NdsDisplayControl display_control_;
     memory::NdsTimerControl timer_control_;
@@ -292,6 +294,7 @@ private:
     bool wram_bound_ = false;
     bool vram_bound_ = false;
     bool video_memory_bound_ = false;
+    bool post_flag_bound_ = false;
     bool display_control_bound_ = false;
     bool interrupt_bound_ = false;
     bool timer_bound_ = false;
