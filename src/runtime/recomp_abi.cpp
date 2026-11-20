@@ -33,6 +33,8 @@ void *g_bios_lz77_context = nullptr;
 OracisArmRuntimeBiosLz77Handler g_bios_lz77_handler = nullptr;
 void *g_bios_rle_context = nullptr;
 OracisArmRuntimeBiosRleHandler g_bios_rle_handler = nullptr;
+void *g_bios_huffman_context = nullptr;
+OracisArmRuntimeBiosHuffmanHandler g_bios_huffman_handler = nullptr;
 
 } // namespace
 
@@ -336,6 +338,47 @@ int oracis_arm_runtime_bios_rle(
     return g_bios_rle_handler(
         g_bios_rle_context, g_nds_active,
         source, destination, write_halfwords);
+}
+
+int oracis_arm_runtime_bind_bios_huffman_handler(
+    void *context, OracisArmRuntimeBiosHuffmanHandler handler)
+{
+    if (context == nullptr || handler == nullptr) return 0;
+    if (g_bios_huffman_handler != nullptr ||
+        g_bios_huffman_context != nullptr) {
+        return g_bios_huffman_context == context &&
+            g_bios_huffman_handler == handler ? 1 : 0;
+    }
+    g_bios_huffman_context = context;
+    g_bios_huffman_handler = handler;
+    return 1;
+}
+
+int oracis_arm_runtime_unbind_bios_huffman_handler(
+    void *context, OracisArmRuntimeBiosHuffmanHandler handler)
+{
+    if (context == nullptr || handler == nullptr ||
+        g_bios_huffman_context != context ||
+        g_bios_huffman_handler != handler) {
+        return 0;
+    }
+    g_bios_huffman_context = nullptr;
+    g_bios_huffman_handler = nullptr;
+    return 1;
+}
+
+int oracis_arm_runtime_bios_huffman(
+    uint32_t source, uint32_t destination, uint32_t callback_structure)
+{
+    if (g_bios_huffman_handler == nullptr ||
+        g_bios_huffman_context == nullptr ||
+        oracis_active_cpu_state == nullptr ||
+        (g_nds_active != NDS_ARM9 && g_nds_active != NDS_ARM7)) {
+        return 0;
+    }
+    return g_bios_huffman_handler(
+        g_bios_huffman_context, g_nds_active,
+        source, destination, callback_structure);
 }
 
 int oracis_arm_runtime_coprocessor_transfer(
@@ -680,6 +723,14 @@ void runtime_swi(uint32_t swi_imm)
             abi_failure(write_halfwords != 0u
                 ? "runtime_swi LZ77UnCompVram (invalid or unsupported stream/span)"
                 : "runtime_swi LZ77UnCompWram (invalid or unsupported stream/span)");
+        }
+        return;
+    }
+
+    case 0x13u: { /* NDS7/NDS9 HuffUnComp: packed symbols, 32-bit writes. */
+        if (!oracis_arm_runtime_bios_huffman(
+                g_cpu.R[0], g_cpu.R[1], g_cpu.R[3])) {
+            abi_failure("runtime_swi HuffUnComp (invalid/unsupported stream or callback mode)");
         }
         return;
     }

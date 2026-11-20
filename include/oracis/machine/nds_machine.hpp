@@ -250,6 +250,9 @@ private:
     static int runtime_bios_rle_handler(
         void *context, NdsCpu cpu, uint32_t source,
         uint32_t destination, uint32_t write_halfwords);
+    static int runtime_bios_huffman_handler(
+        void *context, NdsCpu cpu, uint32_t source,
+        uint32_t destination, uint32_t callback_structure);
     static int runtime_validate_dispatch_bytes(
         NdsCpu cpu, const NdsStaticValidation *validation,
         uint32_t pc, uint32_t thumb, void *context);
@@ -280,6 +283,7 @@ private:
     bool bios_bit_unpack_handler_bound_ = false;
     bool bios_lz77_handler_bound_ = false;
     bool bios_rle_handler_bound_ = false;
+    bool bios_huffman_handler_bound_ = false;
     bool memory_bound_ = false;
     bool wram_bound_ = false;
     bool vram_bound_ = false;

@@ -68,6 +68,11 @@ typedef int (*OracisArmRuntimeBiosRleHandler)(
     void *context, NdsCpu cpu, uint32_t source,
     uint32_t destination, uint32_t write_halfwords);
 
+/* Checked direct-memory NDS BIOS HuffUnComp service (SWI 0x13). */
+typedef int (*OracisArmRuntimeBiosHuffmanHandler)(
+    void *context, NdsCpu cpu, uint32_t source,
+    uint32_t destination, uint32_t callback_structure);
+
 int oracis_arm_runtime_bind_cpus(ArmCpuState *arm9, ArmCpuState *arm7);
 int oracis_arm_runtime_unbind_cpus(ArmCpuState *arm9, ArmCpuState *arm7);
 int oracis_arm_runtime_bind_power_handler(
@@ -113,6 +118,12 @@ int oracis_arm_runtime_unbind_bios_rle_handler(
     void *context, OracisArmRuntimeBiosRleHandler handler);
 int oracis_arm_runtime_bios_rle(
     uint32_t source, uint32_t destination, uint32_t write_halfwords);
+int oracis_arm_runtime_bind_bios_huffman_handler(
+    void *context, OracisArmRuntimeBiosHuffmanHandler handler);
+int oracis_arm_runtime_unbind_bios_huffman_handler(
+    void *context, OracisArmRuntimeBiosHuffmanHandler handler);
+int oracis_arm_runtime_bios_huffman(
+    uint32_t source, uint32_t destination, uint32_t callback_structure);
 int oracis_arm_runtime_request_halt(NdsCpu cpu);
 int oracis_arm_runtime_write_arm7_halt_control(uint8_t value);
 int oracis_arm_runtime_select_cpu(NdsCpu cpu);

@@ -666,6 +666,193 @@ int NdsMachine::runtime_bios_rle_handler(
 }
 
 
+int NdsMachine::runtime_bios_huffman_handler(
+    void *context,
+    NdsCpu cpu,
+    uint32_t source,
+    uint32_t destination,
+    uint32_t callback_structure)
+{
+    auto *machine = static_cast<NdsMachine *>(context);
+    if (machine == nullptr || !machine->initialized_ ||
+        !valid_cpu(cpu) || g_nds_active != cpu ||
+        machine->cpu_state(cpu) != oracis_active_cpu_state ||
+        callback_structure != 0u ||
+        (source & 3u) != 0u || (destination & 3u) != 0u) {
+        /*
+         * NDS BIOS callback streams require invoking guest function pointers
+         * for reads. Oracis does not yet bridge guest callbacks, so reject
+         * that mode rather than silently bypass the requested data source.
+         */
+        return 0;
+    }
+
+    constexpr uint64_t GuestAddressEnd = UINT64_C(0x1'0000'0000);
+    const uint64_t header_end =
+        static_cast<uint64_t>(source) + UINT64_C(4);
+    if (header_end >= GuestAddressEnd) return 0;
+
+    const memory::ReadResult header_read =
+        machine->memory_.read(cpu, source, 4u);
+    if (!header_read) return 0;
+
+    const uint32_t header = header_read.value;
+    const uint32_t symbol_width = header & UINT32_C(0x0F);
+    const uint32_t output_size = header >> 8u;
+    if ((header & UINT32_C(0xF0)) != UINT32_C(0x20) ||
+        (symbol_width != 4u && symbol_width != 8u) ||
+        (output_size & 3u) != 0u) {
+        return 0;
+    }
+    if (output_size == 0u) return 1;
+
+    const uint64_t destination_end =
+        static_cast<uint64_t>(destination) + output_size;
+    if (destination_end > GuestAddressEnd ||
+        machine->memory_.validate_write(
+            cpu, destination, output_size) != memory::Status::Ok) {
+        return 0;
+    }
+
+    const memory::ReadResult tree_size_read = machine->memory_.read(
+        cpu, source + 4u, 1u);
+    if (!tree_size_read) return 0;
+
+    const uint32_t tree_size = tree_size_read.value & UINT32_C(0xFF);
+    const uint32_t tree_bytes = tree_size * 2u + 1u;
+    const uint64_t tree_base = static_cast<uint64_t>(source) + 5u;
+    const uint64_t tree_end = tree_base + tree_bytes;
+    if (tree_end > GuestAddressEnd ||
+        machine->memory_.validate_read(
+            cpu, static_cast<uint32_t>(tree_base), tree_bytes) !=
+            memory::Status::Ok) {
+        return 0;
+    }
+
+    /*
+     * The tree starts at the byte after the size field. Each non-leaf
+     * descriptor points to a pair at
+     *   (node_address & ~1) + (offset + 1) * 2
+     * with the branch selecting the left/right byte. Stage the tree so
+     * repeated random-access walks are bounded and independent of writes.
+     */
+    try {
+        std::vector<uint8_t> tree(tree_bytes, 0u);
+        for (uint32_t index = 0u; index < tree_bytes; ++index) {
+            const memory::ReadResult byte = machine->memory_.read(
+                cpu, static_cast<uint32_t>(tree_base + index), 1u);
+            if (!byte) return 0;
+            tree[index] = static_cast<uint8_t>(byte.value);
+        }
+
+        const uint64_t symbol_count =
+            (static_cast<uint64_t>(output_size) * 8u) / symbol_width;
+        const uint32_t symbols_per_word = 32u / symbol_width;
+        const uint32_t word_count = output_size / 4u;
+        std::vector<uint32_t> output_words(word_count, 0u);
+
+        uint64_t compressed_cursor = tree_end;
+        uint32_t compressed_word = 0u;
+        uint32_t compressed_bits_remaining = 0u;
+
+        const auto read_bit = [&]() noexcept -> int {
+            if (compressed_bits_remaining == 0u) {
+                if (compressed_cursor + 4u > GuestAddressEnd) return -1;
+                uint32_t word = 0u;
+                for (uint32_t byte_index = 0u; byte_index < 4u; ++byte_index) {
+                    const memory::ReadResult byte = machine->memory_.read(
+                        cpu,
+                        static_cast<uint32_t>(compressed_cursor + byte_index),
+                        1u);
+                    if (!byte) return -1;
+                    word |= (byte.value & UINT32_C(0xFF)) <<
+                        (byte_index * 8u);
+                }
+                compressed_cursor += 4u;
+                compressed_word = word;
+                compressed_bits_remaining = 32u;
+            }
+
+            const uint32_t bit_position = compressed_bits_remaining - 1u;
+            const int bit = static_cast<int>(
+                (compressed_word >> bit_position) & UINT32_C(1));
+            --compressed_bits_remaining;
+            return bit;
+        };
+
+        const uint32_t symbol_mask =
+            symbol_width == 4u ? UINT32_C(0x0F) : UINT32_C(0xFF);
+        for (uint64_t symbol_index = 0u;
+             symbol_index < symbol_count; ++symbol_index) {
+            uint32_t node_index = 0u;
+            uint32_t symbol = 0u;
+            bool found_leaf = false;
+
+            /*
+             * A valid path cannot visit more tree bytes than the tree
+             * contains. This bound also rejects cyclic/corrupt descriptors.
+             */
+            for (uint32_t depth = 0u; depth < tree_bytes; ++depth) {
+                if (node_index >= tree_bytes) return 0;
+                const uint32_t descriptor = tree[node_index];
+                const int branch = read_bit();
+                if (branch < 0) return 0;
+
+                const uint64_t node_address = tree_base + node_index;
+                const uint64_t child_address =
+                    (node_address & ~UINT64_C(1)) +
+                    static_cast<uint64_t>(
+                        (descriptor & UINT32_C(0x3F)) + 1u) * 2u +
+                    static_cast<uint32_t>(branch);
+                if (child_address < tree_base || child_address >= tree_end) {
+                    return 0;
+                }
+                const uint32_t child_index =
+                    static_cast<uint32_t>(child_address - tree_base);
+                const bool child_is_leaf = branch != 0
+                    ? (descriptor & UINT32_C(0x40)) != 0u
+                    : (descriptor & UINT32_C(0x80)) != 0u;
+
+                if (child_is_leaf) {
+                    symbol = tree[child_index];
+                    found_leaf = true;
+                    break;
+                }
+                node_index = child_index;
+            }
+
+            if (!found_leaf || (symbol & ~symbol_mask) != 0u) return 0;
+            const uint32_t word_index =
+                static_cast<uint32_t>(symbol_index / symbols_per_word);
+            const uint32_t bit_shift =
+                static_cast<uint32_t>(symbol_index % symbols_per_word) *
+                symbol_width;
+            output_words[word_index] |= symbol << bit_shift;
+        }
+
+        /*
+         * BIOS Huffman stores whole 32-bit words. A multiple-of-four output
+         * size means every symbol belongs to a complete staged destination
+         * word; no implicit overrun or uninitialized padding is permitted.
+         */
+        for (uint32_t index = 0u; index < word_count; ++index) {
+            const uint64_t address =
+                static_cast<uint64_t>(destination) +
+                static_cast<uint64_t>(index) * 4u;
+            if (machine->memory_.write(
+                    cpu, static_cast<uint32_t>(address), 4u,
+                    output_words[index]) != memory::Status::Ok) {
+                return 0;
+            }
+        }
+    } catch (const std::bad_alloc &) {
+        return 0;
+    }
+
+    return 1;
+}
+
+
 int NdsMachine::runtime_validate_dispatch_bytes(
     NdsCpu cpu,
     const NdsStaticValidation *validation,
@@ -794,6 +981,12 @@ NdsMachineStatus NdsMachine::initialize() noexcept
         return rollback(NdsMachineStatus::RuntimeAlreadyBound);
     }
     bios_rle_handler_bound_ = true;
+
+    if (!oracis_arm_runtime_bind_bios_huffman_handler(
+            this, &NdsMachine::runtime_bios_huffman_handler)) {
+        return rollback(NdsMachineStatus::RuntimeAlreadyBound);
+    }
+    bios_huffman_handler_bound_ = true;
 
     if (wram_control_.install() != memory::Status::Ok ||
         vram_control_.install() != memory::Status::Ok ||
@@ -965,7 +1158,7 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
         coprocessor_handler_bound_ || bios_memory_handler_bound_ ||
         bios_crc16_handler_bound_ || bios_bit_unpack_handler_bound_ ||
         bios_lz77_handler_bound_ || bios_rle_handler_bound_ ||
-        memory_bound_ ||
+        bios_huffman_handler_bound_ || memory_bound_ ||
         wram_bound_ || vram_bound_ || video_memory_bound_ ||
         display_control_bound_ || interrupt_bound_ || timer_bound_ ||
         keypad_bound_ || clock_bound_ || validation_bound_;
@@ -1041,6 +1234,13 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
             return NdsMachineStatus::ShutdownFailed;
         }
         memory_bound_ = false;
+    }
+    if (bios_huffman_handler_bound_) {
+        if (!oracis_arm_runtime_unbind_bios_huffman_handler(
+                this, &NdsMachine::runtime_bios_huffman_handler)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        bios_huffman_handler_bound_ = false;
     }
     if (bios_rle_handler_bound_) {
         if (!oracis_arm_runtime_unbind_bios_rle_handler(

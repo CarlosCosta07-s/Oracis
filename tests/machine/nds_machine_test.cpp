@@ -745,6 +745,129 @@ int main()
     }
 
     /*
+     * NDS BIOS HuffUnComp (0x13) reads MSB-first bits from little-endian
+     * 32-bit words and packs output symbols from the least-significant end.
+     * This 8-bit tree maps 0->'A' and 1->'B', yielding "AABB".
+     */
+    constexpr uint32_t huffman8_source = UINT32_C(0x02001D00);
+    constexpr uint32_t huffman8_destination = UINT32_C(0x02001D40);
+    const uint8_t huffman8_stream[] = {
+        0x28u, 4u, 0u, 0u,  /* Type 2, 8-bit symbols, four output bytes. */
+        1u,                 /* Tree size: (1 * 2) + 1 = three bytes. */
+        0xC0u, 'A', 'B',    /* Root: both children are leaf symbols. */
+        0u, 0u, 0u, 0x30u   /* Bits 00 11 -> A A B B. */
+    };
+    if (machine.guest_memory().write_bytes(
+            NDS_ARM9, huffman8_source, huffman8_stream,
+            static_cast<uint32_t>(sizeof(huffman8_stream))) !=
+        oracis::memory::Status::Ok) {
+        return fail("could not seed 8-bit Huffman stream");
+    }
+
+    const NdsCpu huffman_cpus[2] = {NDS_ARM9, NDS_ARM7};
+    for (unsigned index = 0u; index < 2u; ++index) {
+        const NdsCpu cpu = huffman_cpus[index];
+        if (!oracis_arm_runtime_select_cpu(cpu)) {
+            return fail("CPU selection failed for 8-bit Huffman");
+        }
+        ArmCpuState *state = machine.cpu_state(cpu);
+        state->R[0] = huffman8_source;
+        state->R[1] = huffman8_destination + index * 0x20u;
+        state->R[2] = UINT32_C(0xDEADBEEF); /* Direct mode ignores R2. */
+        state->R[3] = 0u;                   /* No callback structure. */
+        runtime_swi(0x13u);
+        if (machine.guest_memory().read(
+                cpu, huffman8_destination + index * 0x20u, 4u).value !=
+            UINT32_C(0x42424141)) {
+            return fail("8-bit Huffman symbols/word packing were incorrect");
+        }
+    }
+
+    /*
+     * The 4-bit form expands eight symbols into a single 32-bit word.
+     * Alternating bits select symbols 3 and A; the low nibble is first.
+     */
+    constexpr uint32_t huffman4_source = UINT32_C(0x02001D80);
+    constexpr uint32_t huffman4_destination = UINT32_C(0x02001DC0);
+    const uint8_t huffman4_stream[] = {
+        0x04u, 4u, 0u, 0u,  /* Type 2, 4-bit symbols, four output bytes. */
+        1u, 0xC0u, 0x03u, 0x0Au,
+        0x55u, 0x55u, 0x55u, 0x55u
+    };
+    if (machine.guest_memory().write_bytes(
+            NDS_ARM9, huffman4_source, huffman4_stream,
+            static_cast<uint32_t>(sizeof(huffman4_stream))) !=
+        oracis::memory::Status::Ok) {
+        return fail("could not seed 4-bit Huffman stream");
+    }
+    for (unsigned index = 0u; index < 2u; ++index) {
+        const NdsCpu cpu = huffman_cpus[index];
+        if (!oracis_arm_runtime_select_cpu(cpu)) {
+            return fail("CPU selection failed for 4-bit Huffman");
+        }
+        ArmCpuState *state = machine.cpu_state(cpu);
+        state->R[0] = huffman4_source;
+        state->R[1] = huffman4_destination + index * 0x20u;
+        state->R[2] = 0u;
+        state->R[3] = 0u;
+        runtime_swi(0x13u);
+        if (machine.guest_memory().read(
+                cpu, huffman4_destination + index * 0x20u, 4u).value !=
+            UINT32_C(0xA3A3A3A3)) {
+            return fail("4-bit Huffman nibble order/packing was incorrect");
+        }
+    }
+
+    /* Invalid width/tree/output alignment/callback mode must not write. */
+    constexpr uint32_t huffman_guard_source = UINT32_C(0x02001E00);
+    constexpr uint32_t huffman_guard_destination = UINT32_C(0x02001E40);
+    const uint8_t huffman_bad_width[] = {
+        0x21u, 4u, 0u, 0u, 1u, 0xC0u, 'A', 'B', 0u, 0u, 0u, 0u
+    };
+    const uint8_t huffman_bad_tree[] = {
+        0x28u, 4u, 0u, 0u, 1u, 0xFFu, 'A', 'B', 0u, 0u, 0u, 0u
+    };
+    const uint8_t huffman_partial_output[] = {
+        0x28u, 5u, 0u, 0u, 1u, 0xC0u, 'A', 'B', 0u, 0u, 0u, 0u
+    };
+    const uint32_t huffman_guard_value = UINT32_C(0x5AA5C33C);
+    if (machine.guest_memory().write(
+            NDS_ARM9, huffman_guard_destination, 4u,
+            huffman_guard_value) != oracis::memory::Status::Ok ||
+        machine.guest_memory().write_bytes(
+            NDS_ARM9, huffman_guard_source, huffman_bad_width,
+            static_cast<uint32_t>(sizeof(huffman_bad_width))) !=
+            oracis::memory::Status::Ok ||
+        !oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("could not prepare invalid Huffman tests");
+    }
+    if (oracis_arm_runtime_bios_huffman(
+            huffman_guard_source, huffman_guard_destination, 0u) != 0 ||
+        machine.guest_memory().write_bytes(
+            NDS_ARM9, huffman_guard_source, huffman_bad_tree,
+            static_cast<uint32_t>(sizeof(huffman_bad_tree))) !=
+            oracis::memory::Status::Ok ||
+        oracis_arm_runtime_bios_huffman(
+            huffman_guard_source, huffman_guard_destination, 0u) != 0 ||
+        machine.guest_memory().write_bytes(
+            NDS_ARM9, huffman_guard_source, huffman_partial_output,
+            static_cast<uint32_t>(sizeof(huffman_partial_output))) !=
+            oracis::memory::Status::Ok ||
+        oracis_arm_runtime_bios_huffman(
+            huffman_guard_source, huffman_guard_destination, 0u) != 0 ||
+        oracis_arm_runtime_bios_huffman(
+            huffman8_source, huffman_guard_destination, 1u) != 0 ||
+        oracis_arm_runtime_bios_huffman(
+            huffman8_source + 1u, huffman_guard_destination, 0u) != 0 ||
+        oracis_arm_runtime_bios_huffman(
+            huffman8_source, huffman_guard_destination + 1u, 0u) != 0 ||
+        machine.guest_memory().read(
+            NDS_ARM9, huffman_guard_destination, 4u).value !=
+            huffman_guard_value) {
+        return fail("Huffman accepted invalid stream/alignment/callback or modified destination");
+    }
+
+    /*
      * The native bus bridge must enforce NDS palette/OAM store widths;
      * direct GuestMemory writes do not model STRB suppression.
      */
