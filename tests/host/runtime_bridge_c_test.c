@@ -146,7 +146,7 @@ int main(void)
         arm7_entry.lookup_status != ORACIS_DISPATCH_LOOKUP_FOUND ||
         arm7_entry.candidate_count != 1u ||
         (arm7_entry.cpsr & CPSR_T_BIT) == 0u) {
-        fprintf(stderr, "host bridge failed to preflight both ARM/Thumb entry points\\n");
+        fprintf(stderr, "host bridge failed to preflight both ARM/Thumb entry points\n");
         return 1;
     }
 
@@ -169,12 +169,12 @@ int main(void)
         arm7_entry.candidate_count != 0u) {
         oracis_active_cpu_state->cpsr |= CPSR_T_BIT;
         (void)oracis_arm_runtime_select_cpu(NDS_ARM9);
-        fprintf(stderr, "host bridge ignored ARM7 CPSR.T during entry preflight\\n");
+        fprintf(stderr, "host bridge ignored ARM7 CPSR.T during entry preflight\n");
         return 1;
     }
     oracis_active_cpu_state->cpsr |= CPSR_T_BIT;
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
-        fprintf(stderr, "host bridge could not restore ARM9 selection\\n");
+        fprintf(stderr, "host bridge could not restore ARM9 selection\n");
         return 1;
     }
 
