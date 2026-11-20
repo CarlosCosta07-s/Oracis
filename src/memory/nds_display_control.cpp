@@ -149,19 +149,23 @@ ReadResult NdsDisplayControl::read(
         return {Status::Ok, engine.dispcnt};
     }
 
-    const uint32_t bg_offset = offset - BgControlOffset;
-    if ((bg_offset & 1u) == 0u && width == 2u) {
-        const unsigned bg_index = static_cast<unsigned>(bg_offset / 2u);
-        return {Status::Ok, engine.bgcnt[bg_index]};
-    }
-    if ((bg_offset & 3u) == 0u && width == 4u &&
-        bg_offset + 4u <= kBgRegisterBytes) {
-        const unsigned first_bg = static_cast<unsigned>(bg_offset / 2u);
-        return {
-            Status::Ok,
-            static_cast<uint32_t>(engine.bgcnt[first_bg]) |
-                (static_cast<uint32_t>(engine.bgcnt[first_bg + 1u]) << 16u)
-        };
+    if (offset >= BgControlOffset &&
+        offset < BgControlOffset + kBgRegisterBytes) {
+        const uint32_t bg_offset = offset - BgControlOffset;
+        if ((bg_offset & 1u) == 0u && width == 2u) {
+            const unsigned bg_index = static_cast<unsigned>(bg_offset / 2u);
+            return {Status::Ok, engine.bgcnt[bg_index]};
+        }
+        if ((bg_offset & 3u) == 0u && width == 4u &&
+            bg_offset + 4u <= kBgRegisterBytes) {
+            const unsigned first_bg = static_cast<unsigned>(bg_offset / 2u);
+            return {
+                Status::Ok,
+                static_cast<uint32_t>(engine.bgcnt[first_bg]) |
+                    (static_cast<uint32_t>(engine.bgcnt[first_bg + 1u]) << 16u)
+            };
+        }
+        return {Status::InvalidWidth, 0u};
     }
 
     if (offset >= BgScrollOffset) {
@@ -234,19 +238,23 @@ Status NdsDisplayControl::write(
         return Status::Ok;
     }
 
-    const uint32_t bg_offset = offset - BgControlOffset;
-    if ((bg_offset & 1u) == 0u && width == 2u) {
-        const unsigned bg_index = static_cast<unsigned>(bg_offset / 2u);
-        engine.bgcnt[bg_index] = static_cast<uint16_t>(value);
-        return Status::Ok;
-    }
-    if ((bg_offset & 3u) == 0u && width == 4u &&
-        bg_offset + 4u <= kBgRegisterBytes) {
-        const unsigned first_bg = static_cast<unsigned>(bg_offset / 2u);
-        engine.bgcnt[first_bg] = static_cast<uint16_t>(value);
-        engine.bgcnt[first_bg + 1u] =
-            static_cast<uint16_t>(value >> 16u);
-        return Status::Ok;
+    if (offset >= BgControlOffset &&
+        offset < BgControlOffset + kBgRegisterBytes) {
+        const uint32_t bg_offset = offset - BgControlOffset;
+        if ((bg_offset & 1u) == 0u && width == 2u) {
+            const unsigned bg_index = static_cast<unsigned>(bg_offset / 2u);
+            engine.bgcnt[bg_index] = static_cast<uint16_t>(value);
+            return Status::Ok;
+        }
+        if ((bg_offset & 3u) == 0u && width == 4u &&
+            bg_offset + 4u <= kBgRegisterBytes) {
+            const unsigned first_bg = static_cast<unsigned>(bg_offset / 2u);
+            engine.bgcnt[first_bg] = static_cast<uint16_t>(value);
+            engine.bgcnt[first_bg + 1u] =
+                static_cast<uint16_t>(value >> 16u);
+            return Status::Ok;
+        }
+        return Status::InvalidWidth;
     }
 
     if (offset >= BgScrollOffset) {

@@ -120,7 +120,9 @@ int main()
         display.read(NDS_ARM9, NdsDisplayControl::DispstatAddress, 4u).status !=
             Status::InvalidWidth ||
         display.read(NDS_ARM9, UINT32_C(0x04001010), 2u).status !=
-            Status::Unmapped) {
+            Status::PermissionDenied ||
+        display.read(NDS_ARM9, UINT32_C(0x0400101F), 2u).status !=
+            Status::InvalidWidth) {
         return fail("CPU visibility or out-of-scope display register routing failed");
     }
 
