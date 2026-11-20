@@ -59,9 +59,8 @@ public:
 
     /*
      * Compose one visible 256-pixel line. The caller's output is unchanged
-     * unless all enabled text BG fetches and the backdrop read succeed.
-     * Window evaluation is performed per pixel; OBJ-window coverage is false
-     * until the OBJ rasterizer supplies that input.
+     * unless all required BG, OBJ/OAM and backdrop reads succeed. Unsupported
+     * affine/bitmap BG or OBJ inputs return a diagnostic without partial output.
      */
     Nds2dComposeResult render_scanline(
         unsigned engine_index,
