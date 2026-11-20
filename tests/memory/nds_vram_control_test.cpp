@@ -288,8 +288,8 @@ int main()
     }
 
     /* Engine B BG/OBJ are fixed C/D destinations at MST=4. */
-    bus_write_u8(NdsVramControl::VramCntCAddress, UINT8_C(0x84));
-    bus_write_u8(NdsVramControl::VramCntDAddress, UINT8_C(0x84));
+    bus_write_u8(NdsVramControl::VramCntCAddress, UINT8_C(0x9C));
+    bus_write_u8(NdsVramControl::VramCntDAddress, UINT8_C(0x94));
     bus_write_u32(UINT32_C(0x06200000), UINT32_C(0xCC77CC77));
     bus_write_u32(UINT32_C(0x06600000), UINT32_C(0xDD88DD88));
     if (bus_read_u32(UINT32_C(0x06200000)) != UINT32_C(0xCC77CC77) ||

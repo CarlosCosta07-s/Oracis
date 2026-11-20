@@ -118,7 +118,7 @@ int NdsVramControl::arm9_vram_bank_index_for_address(
         const uint8_t ofs = static_cast<uint8_t>((control >> 3u) & 0x03u);
         const bool active = (control & UINT8_C(0x87)) ==
                 static_cast<uint8_t>(UINT8_C(0x80) | view.mst) &&
-            ofs == view.ofs;
+            (view.mst == 4u || ofs == view.ofs);
         const uint64_t end =
             static_cast<uint64_t>(view.address) + view.size;
         if (active && address >= view.address &&
@@ -241,7 +241,7 @@ Status NdsVramControl::apply_controls(
         const uint8_t ofs = static_cast<uint8_t>((control >> 3u) & 0x03u);
         const bool enabled = (control & UINT8_C(0x87)) ==
                 static_cast<uint8_t>(UINT8_C(0x80) | view.mst) &&
-            ofs == view.ofs;
+            (view.mst == 4u || ofs == view.ofs);
         updates[9u + index] = {
             view.alias_name,
             lcdc_access_for(enabled)
