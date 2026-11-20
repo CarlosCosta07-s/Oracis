@@ -40,6 +40,7 @@ int main()
 {
     using oracis::memory::GuestMemory;
     using oracis::memory::NdsDmaControl;
+    using oracis::memory::NdsDisplayControl;
     using oracis::memory::NdsInterruptControl;
     using oracis::memory::Status;
 
