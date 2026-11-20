@@ -294,6 +294,13 @@ int main()
         return fail("4bpp text BG incorrectly used an extended 8bpp palette");
     }
 
+    /* Restore BG1 after the preceding BG0 4bpp regression case. */
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            (UINT32_C(1) << 9u) | (UINT32_C(1) << 30u)) != Status::Ok) {
+        return fail("BG1 restore before missing-palette test failed");
+    }
+
     /* Missing VRAM assignment is rejected without committing a partial line. */
     GuestMemory empty_vram_memory;
     NdsVramControl empty_vram(empty_vram_memory);
@@ -307,6 +314,40 @@ int main()
     if (result.status != Nds2dBgFetchStatus::UnsupportedMode ||
         scanline[0].rgb555 != UINT16_C(0x2345)) {
         return fail("unallocated text extended palette did not fail closed");
+    }
+
+    /*
+     * Engine B uses VRAM H MST=2 for its four extended BG palette slots.
+     * Initialize its slot while H is in LCDC mode, then hide it from the CPU.
+     */
+    if (text_palette_vram.write(
+            NDS_ARM9, NdsVramControl::VramCntHAddress, 1u,
+            UINT32_C(0x80)) != Status::Ok ||
+        memory.write(
+            NDS_ARM9,
+            UINT32_C(0x06898000) + UINT32_C(0x2000) +
+                UINT32_C(0x0200) + UINT32_C(2),
+            2u, UINT32_C(0x7788)) != Status::Ok ||
+        text_palette_vram.write(
+            NDS_ARM9, NdsVramControl::VramCntHAddress, 1u,
+            UINT32_C(0x82)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineBBase, 4u,
+            (UINT32_C(1) << 9u) | (UINT32_C(1) << 30u)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineBBase + 10u, 2u,
+            UINT16_C(0x0080)) != Status::Ok ||
+        !write16(memory, UINT32_C(0x06200000), UINT16_C(0x1001)) ||
+        !write32(memory, UINT32_C(0x06200040), UINT32_C(0x00000001))) {
+        return fail("Engine B extended text palette fixture setup failed");
+    }
+    result = extended_text_fetcher.render_scanline(
+        1u, 1u, display, 0u, scanline);
+    if (result.status != Nds2dBgFetchStatus::Ok ||
+        scanline[0].transparent || scanline[0].rgb555 != UINT16_C(0x7788) ||
+        memory.read(
+            NDS_ARM9, UINT32_C(0x06898000), 2u).status == Status::Ok) {
+        return fail("Engine B text BG did not use hidden VRAM H extended palette");
     }
 
     std::puts("NDS Engine A/B text BG tile, map, palette, mosaic and transparency fetch passed");
