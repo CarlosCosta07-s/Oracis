@@ -88,9 +88,11 @@ int main()
         !write8(memory, UINT32_C(0x06004041), 2u) ||
         !write8(memory, UINT32_C(0x06004042), 3u) ||
         !write8(memory, UINT32_C(0x06004043), 4u) ||
+        !write8(memory, UINT32_C(0x06004046), 2u) ||
         !write8(memory, UINT32_C(0x06004047), 5u) ||
         !write8(memory, UINT32_C(0x06004049), 2u) ||
         !write8(memory, UINT32_C(0x0600404A), 4u) ||
+        !write8(memory, UINT32_C(0x0600404F), 3u) ||
         !write16(memory, UINT32_C(0x05000002), UINT16_C(0x001F)) ||
         !write16(memory, UINT32_C(0x05000004), UINT16_C(0x03E0)) ||
         !write16(memory, UINT32_C(0x05000006), UINT16_C(0x7C00)) ||
@@ -114,6 +116,31 @@ int main()
         !line[8].transparent ||
         line[0].priority != 0u || line[0].bg_index != 2u) {
         return fail("affine 8bpp identity map/tile/palette fetch failed");
+    }
+
+    /*
+     * Signed PB=-1 and PC=+1 rotate the source lookup around reference (7,0):
+     * line 0 maps screen (0,0)->source (7,0), (1,0)->(7,1). The negative
+     * PB then moves line 1's origin left by one source pixel.
+     */
+    if (!set_affine(
+            display, NdsDisplayControl::EngineABase + 0x20u,
+            0u, UINT16_C(0xFF00), UINT16_C(0x0100), 0u,
+            UINT32_C(0x00000700), 0u)) {
+        return fail("signed affine rotation matrix setup failed");
+    }
+    display.reset_timing();
+    result = fetcher.render_scanline(0u, 2u, display, 0u, line);
+    if (result.status != Nds2dBgFetchStatus::Ok ||
+        line[0].rgb555 != UINT16_C(0x7C1F) ||
+        line[1].rgb555 != UINT16_C(0x7C00)) {
+        return fail("signed PB/PC affine rotation mapping failed");
+    }
+    display.advance_bus_cycles(NdsDisplayControl::CyclesPerScanline);
+    result = fetcher.render_scanline(0u, 2u, display, 1u, line);
+    if (result.status != Nds2dBgFetchStatus::Ok ||
+        line[0].rgb555 != UINT16_C(0x03E0)) {
+        return fail("negative PB affine line accumulator failed");
     }
 
     /* PA=0.5 samples pairs of adjacent screen pixels from each source pixel. */
@@ -278,6 +305,10 @@ int main()
             0u, 2u, UINT32_C(1)) ||
         !Nds2dAffineBgFetcher::is_affine_tile_bg(
             0u, 2u, UINT32_C(2)) ||
+        !Nds2dAffineBgFetcher::is_affine_tile_bg(
+            0u, 2u, UINT32_C(4)) ||
+        Nds2dAffineBgFetcher::is_affine_tile_bg(
+            0u, 3u, UINT32_C(4)) ||
         !Nds2dAffineBgFetcher::is_affine_tile_bg(
             1u, 3u, UINT32_C(1))) {
         return fail("classic affine BG mode/layer selection table was incorrect");
