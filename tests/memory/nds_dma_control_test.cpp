@@ -346,6 +346,9 @@ int main()
         return fail("HBlank DMA incorrectly fired during VBlank");
     }
 
+    /* Clear the paused HBlank channel before re-arming it for display-sync. */
+    bus_write_u16(control_reg(2u) + 2u, 0u);
+
     /* ARM9 display-sync mode transfers once at each visible line start. */
     display.reset_timing();
     constexpr uint32_t display_sync_source = UINT32_C(0x02000E00);

@@ -3,7 +3,7 @@
  *
  * Each CPU owns four channels. SAD/DAD/COUNT remain the guest-visible
  * programmed registers; transfer pointers are private channel state.
- * Immediate, VBlank and ARM9 HBlank transfers currently target mapped memory.
+ * Immediate, display-synchronized and event-triggered transfers currently target mapped memory.
  */
 #ifndef ORACIS_MEMORY_NDS_DMA_CONTROL_HPP
 #define ORACIS_MEMORY_NDS_DMA_CONTROL_HPP
