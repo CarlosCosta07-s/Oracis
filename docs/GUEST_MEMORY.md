@@ -88,6 +88,21 @@ No caminho de escrita dos bancos recompilados, `NdsVideoMemory` ignora stores de
 
 Este dispositivo ainda não implementa acesso do PPU, avaliação de sprites/OAM, arbitragem por scanline, janelas de acesso durante desenho ou composição 2D. Ter os bytes acessíveis pela CPU não significa que eles já sejam exibidos na tela.
 
+### Registradores dos motores 2D
+
+`NdsDisplayControl` mantém os registradores de configuração acessíveis ao ARM9 nos dois motores:
+
+| Endereço | Registrador | Acesso implementado |
+|---|---|---|
+| `0x04000000` | Engine A — DISPCNT | 32 bits, leitura/escrita |
+| `0x04000008–0x0400000E` | Engine A — BG0CNT–BG3CNT | 16 bits individuais; 32 bits para pares alinhados |
+| `0x04001000` | Engine B — DISPCNT | 32 bits, leitura/escrita |
+| `0x04001008–0x0400100E` | Engine B — BG0CNT–BG3CNT | 16 bits individuais; 32 bits para pares alinhados |
+
+Os valores são mantidos separadamente por engine. No DISPCNT da Engine B, os campos documentados como exclusivos da Engine A (bits 3, 18–19, 22 e 24–29) são lidos como zero e ignorados nas escritas. Os registradores de BG conservam seus 16 bits.
+
+O dispositivo devolve `Unmapped` para acessos ARM7, para `DISPSTAT/VCOUNT` e para os demais offsets ainda não implementados. Essa separação é intencional: o registrador de status e o contador vertical dependem de um relógio de scanlines; não há leitura fictícia de VCOUNT nem flags de VBlank/HBlank fabricadas. Os valores gravados ainda não são consumidos por um renderizador.
+
 ### Controlador de interrupções
 
 `NdsInterruptControl` mantém registradores separados para ARM9 e ARM7:
