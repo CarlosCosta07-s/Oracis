@@ -267,6 +267,43 @@ extern "C" int oracis_host_runtime_program_loaded(void)
         ? 1 : 0;
 }
 
+extern "C" int oracis_host_runtime_validate_entrypoints(
+    OracisHostRuntimeEntryPointReport *arm9_report,
+    OracisHostRuntimeEntryPointReport *arm7_report)
+{
+    auto &machine = host_machine();
+    if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+    if (arm9_report == nullptr || arm7_report == nullptr) {
+        return ORACIS_HOST_RUNTIME_INVALID_ARGUMENT;
+    }
+    if (!has_both_program_banks()) return ORACIS_HOST_RUNTIME_NO_PROGRAM_BANKS;
+    if (!machine.program_loaded()) return ORACIS_HOST_RUNTIME_NO_PROGRAM_LOADED;
+
+    const auto inspect = [&machine](
+        NdsCpu cpu, OracisHostRuntimeEntryPointReport &report) {
+        report = {};
+        const ArmCpuState *state = machine.cpu_state(cpu);
+        if (state == nullptr) return;
+
+        report.pc = state->R[15];
+        report.cpsr = state->cpsr;
+        uint32_t lookup_status = UINT32_MAX;
+        uint32_t candidate_count = 0u;
+        const NdsDispatchEntry *inactive = nullptr;
+        const NdsDispatchEntry *entry = oracis_static_dispatch_lookup(
+            cpu, report.pc, report.cpsr,
+            &lookup_status, &candidate_count, &inactive);
+        report.lookup_status = lookup_status;
+        report.candidate_count = candidate_count;
+        report.has_inactive_candidate = inactive != nullptr ? 1u : 0u;
+        report.resolved = entry != nullptr ? 1u : 0u;
+    };
+
+    inspect(NDS_ARM9, *arm9_report);
+    inspect(NDS_ARM7, *arm7_report);
+    return ORACIS_HOST_RUNTIME_OK;
+}
+
 extern "C" int oracis_host_runtime_register_compiled_banks(void)
 {
     auto &machine = host_machine();
