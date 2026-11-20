@@ -790,7 +790,7 @@ int main()
     constexpr uint32_t huffman4_source = UINT32_C(0x02001D80);
     constexpr uint32_t huffman4_destination = UINT32_C(0x02001DC0);
     const uint8_t huffman4_stream[] = {
-        0x04u, 4u, 0u, 0u,  /* Type 2, 4-bit symbols, four output bytes. */
+        0x24u, 4u, 0u, 0u,  /* Type 2, 4-bit symbols, four output bytes. */
         1u, 0xC0u, 0x03u, 0x0Au,
         0x55u, 0x55u, 0x55u, 0x55u
     };
