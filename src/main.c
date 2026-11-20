@@ -85,7 +85,88 @@ static void release_all_keys(void)
     }
 }
 
-static void draw_test_screens(SDL_Renderer *renderer)
+static bool g_video_error_reported = false;
+
+static uint8_t expand_rgb555_channel(uint16_t channel)
+{
+    return (uint8_t)((channel << 3u) | (channel >> 2u));
+}
+
+static bool update_composed_screen(
+    SDL_Texture *texture,
+    uint32_t engine_index,
+    uint32_t *pixels)
+{
+    uint16_t rgb555[ORACIS_SCREEN_WIDTH];
+
+    for (uint32_t scanline = 0u;
+         scanline < ORACIS_SCREEN_HEIGHT;
+         ++scanline) {
+        OracisHostVideoScanlineReport report = {0};
+        const int status = oracis_host_runtime_render_scanline(
+            engine_index,
+            scanline,
+            rgb555,
+            ORACIS_SCREEN_WIDTH,
+            &report);
+        if (status != ORACIS_HOST_RUNTIME_OK) {
+            if (!g_video_error_reported) {
+                SDL_LogWarn(
+                    SDL_LOG_CATEGORY_APPLICATION,
+                    "NDS 2D composition failed (engine=%u, line=%u, "
+                    "bridge=%d, compositor=%u, BG=%u, fetch=%u, memory=%u, "
+                    "OBJ=%u, OBJ index=%u). The frame was not presented.",
+                    engine_index,
+                    scanline,
+                    status,
+                    report.status,
+                    report.background_index,
+                    report.fetch_status,
+                    report.memory_status,
+                    report.object_fetch_status,
+                    report.object_index);
+                g_video_error_reported = true;
+            }
+            return false;
+        }
+
+        const size_t row_offset =
+            (size_t)scanline * (size_t)ORACIS_SCREEN_WIDTH;
+        for (uint32_t x = 0u; x < ORACIS_SCREEN_WIDTH; ++x) {
+            const uint16_t color = rgb555[x];
+            const uint32_t red = expand_rgb555_channel(color & 0x1Fu);
+            const uint32_t green =
+                expand_rgb555_channel((color >> 5u) & 0x1Fu);
+            const uint32_t blue =
+                expand_rgb555_channel((color >> 10u) & 0x1Fu);
+            pixels[row_offset + x] =
+                UINT32_C(0xFF000000) | (red << 16u) |
+                (green << 8u) | blue;
+        }
+    }
+
+    if (!SDL_UpdateTexture(
+            texture,
+            NULL,
+            pixels,
+            ORACIS_SCREEN_WIDTH * (int)sizeof(*pixels))) {
+        if (!g_video_error_reported) {
+            SDL_LogWarn(
+                SDL_LOG_CATEGORY_APPLICATION,
+                "Could not upload NDS screen texture: %s",
+                SDL_GetError());
+            g_video_error_reported = true;
+        }
+        return false;
+    }
+
+    return true;
+}
+
+static bool draw_composed_screens(
+    SDL_Renderer *renderer,
+    SDL_Texture *textures[2],
+    uint32_t *pixels[2])
 {
     const SDL_FRect top_screen = {
         0.0f,
@@ -100,21 +181,35 @@ static void draw_test_screens(SDL_Renderer *renderer)
         (float)ORACIS_SCREEN_HEIGHT
     };
 
+    if (!update_composed_screen(textures[0], 0u, pixels[0]) ||
+        !update_composed_screen(textures[1], 1u, pixels[1])) {
+        return false;
+    }
+
     SDL_SetRenderDrawColor(renderer, 18, 20, 28, 255);
-    SDL_RenderClear(renderer);
+    if (!SDL_RenderClear(renderer) ||
+        !SDL_RenderTexture(renderer, textures[0], NULL, &top_screen) ||
+        !SDL_RenderTexture(renderer, textures[1], NULL, &bottom_screen)) {
+        if (!g_video_error_reported) {
+            SDL_LogWarn(
+                SDL_LOG_CATEGORY_APPLICATION,
+                "Could not present NDS screen textures: %s",
+                SDL_GetError());
+            g_video_error_reported = true;
+        }
+        return false;
+    }
 
-    /* Temporary stand-in colors: the real game renderer is a later phase. */
-    SDL_SetRenderDrawColor(renderer, 42, 58, 78, 255);
-    SDL_RenderFillRect(renderer, &top_screen);
-
-    SDL_SetRenderDrawColor(renderer, 70, 76, 88, 255);
-    SDL_RenderFillRect(renderer, &bottom_screen);
+    g_video_error_reported = false;
+    return true;
 }
 
 int main(int argc, char *argv[])
 {
     SDL_Window *window = NULL;
     SDL_Renderer *renderer = NULL;
+    SDL_Texture *screen_textures[2] = {NULL, NULL};
+    uint32_t *screen_pixels[2] = {NULL, NULL};
     SDL_Event event;
     bool running = true;
     bool host_runtime_initialized = false;
@@ -173,6 +268,31 @@ int main(int argc, char *argv[])
         goto cleanup;
     }
     host_runtime_initialized = true;
+
+    for (uint32_t engine = 0u; engine < 2u; ++engine) {
+        screen_pixels[engine] = (uint32_t *)calloc(
+            (size_t)ORACIS_SCREEN_WIDTH * (size_t)ORACIS_SCREEN_HEIGHT,
+            sizeof(uint32_t));
+        screen_textures[engine] = SDL_CreateTexture(
+            renderer,
+            SDL_PIXELFORMAT_ARGB8888,
+            SDL_TEXTUREACCESS_STREAMING,
+            ORACIS_SCREEN_WIDTH,
+            ORACIS_SCREEN_HEIGHT);
+        if (screen_pixels[engine] == NULL ||
+            screen_textures[engine] == NULL ||
+            !SDL_SetTextureScaleMode(
+                screen_textures[engine], SDL_SCALEMODE_NEAREST) ||
+            !SDL_SetTextureBlendMode(
+                screen_textures[engine], SDL_BLENDMODE_NONE)) {
+            SDL_LogCritical(
+                SDL_LOG_CATEGORY_APPLICATION,
+                "NDS screen %u texture setup failed: %s",
+                engine,
+                SDL_GetError());
+            goto cleanup;
+        }
+    }
 
 #ifdef ORACIS_WITH_PLATINUM_STATIC_BANKS
     const int bank_status = oracis_host_runtime_register_compiled_banks();
@@ -268,12 +388,20 @@ int main(int argc, char *argv[])
             break;
         }
 
-        draw_test_screens(renderer);
-        SDL_RenderPresent(renderer);
+        if (draw_composed_screens(
+                renderer, screen_textures, screen_pixels)) {
+            SDL_RenderPresent(renderer);
+        }
     }
 
 cleanup:
     release_all_keys();
+    for (uint32_t engine = 0u; engine < 2u; ++engine) {
+        if (screen_textures[engine] != NULL) {
+            SDL_DestroyTexture(screen_textures[engine]);
+        }
+        free(screen_pixels[engine]);
+    }
     if (host_runtime_initialized) {
         const int shutdown_status = oracis_host_runtime_shutdown();
         if (shutdown_status != ORACIS_HOST_RUNTIME_OK) {
