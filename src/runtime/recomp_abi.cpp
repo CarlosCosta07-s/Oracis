@@ -331,6 +331,34 @@ uint32_t runtime_clz(uint32_t value)
     return static_cast<uint32_t>(std::countl_zero(value));
 }
 
+namespace {
+
+uint32_t nds_bios_integer_sqrt(uint32_t value) noexcept
+{
+    /*
+     * Restoring base-4 integer square root. The result is exact for the
+     * unsigned 32-bit SWI input and does not depend on host floating-point.
+     */
+    uint32_t result = 0u;
+    uint32_t bit = UINT32_C(1) << 30u;
+    while (bit > value) {
+        bit >>= 2u;
+    }
+
+    while (bit != 0u) {
+        if (value >= result + bit) {
+            value -= result + bit;
+            result = (result >> 1u) + bit;
+        } else {
+            result >>= 1u;
+        }
+        bit >>= 2u;
+    }
+    return result;
+}
+
+} // namespace
+
 void runtime_swi(uint32_t swi_imm)
 {
     if (oracis_active_cpu_state == nullptr) {
@@ -339,6 +367,34 @@ void runtime_swi(uint32_t swi_imm)
 
     /* ARM SWI immediates are 24 bits; NDS BIOS service numbers fit in 8. */
     switch (swi_imm & UINT32_C(0x00FFFFFF)) {
+    case 0x09u: { /* NDS7/NDS9 signed division: r0/r1 -> r0/r1/r3. */
+        const int64_t dividend = std::bit_cast<int32_t>(g_cpu.R[0]);
+        const int64_t divisor = std::bit_cast<int32_t>(g_cpu.R[1]);
+        if (divisor == 0) {
+            /* The retail BIOS does not return from a zero-divisor call. */
+            abi_failure("runtime_swi Div (zero divisor would not return)");
+        }
+
+        /*
+         * Widen before dividing to avoid signed overflow for INT_MIN/-1.
+         * The 32-bit quotient write wraps architecturally; r3 receives the
+         * unsigned magnitude of the quotient.
+         */
+        const int64_t quotient = dividend / divisor;
+        const int64_t remainder = dividend % divisor;
+        const uint64_t magnitude = quotient < 0
+            ? static_cast<uint64_t>(-quotient)
+            : static_cast<uint64_t>(quotient);
+        g_cpu.R[0] = static_cast<uint32_t>(quotient);
+        g_cpu.R[1] = static_cast<uint32_t>(remainder);
+        g_cpu.R[3] = static_cast<uint32_t>(magnitude);
+        return;
+    }
+
+    case 0x0Du: /* NDS7/NDS9 unsigned integer square root. */
+        g_cpu.R[0] = nds_bios_integer_sqrt(g_cpu.R[0]);
+        return;
+
     case 0x06u: /* NDS Halt: ARM7 HALTCNT or ARM9 CP15 WFI. */
         if (!oracis_arm_runtime_request_halt(g_nds_active)) {
             abi_failure("runtime_swi Halt (machine rejected power request)");

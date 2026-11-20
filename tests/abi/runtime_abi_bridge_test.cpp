@@ -83,6 +83,96 @@ int main(void)
         return fail("exception-return wrapper did not restore ARM7 context");
     }
 
+    /*
+     * NDS BIOS SWI 09h performs signed r0/r1 division and returns
+     * quotient, remainder and unsigned absolute quotient in r0/r1/r3.
+     */
+    const auto check_division = [](
+        NdsCpu cpu, uint32_t numerator, uint32_t denominator,
+        uint32_t quotient, uint32_t remainder, uint32_t magnitude) {
+        if (!oracis_arm_runtime_select_cpu(cpu)) return false;
+        ArmCpuState *state = oracis_arm_runtime_current_state();
+        if (state == nullptr) return false;
+
+        state->cpsr = ORACIS_ARM_MODE_SYSTEM | CPSR_Z_BIT | CPSR_C_BIT;
+        const uint32_t saved_cpsr = state->cpsr;
+        state->R[0] = numerator;
+        state->R[1] = denominator;
+        state->R[2] = UINT32_C(0xA5A5A5A5);
+        state->R[3] = UINT32_C(0x5A5A5A5A);
+        runtime_swi(0x09u);
+        return state->R[0] == quotient &&
+               state->R[1] == remainder &&
+               state->R[2] == UINT32_C(0xA5A5A5A5) &&
+               state->R[3] == magnitude &&
+               state->cpsr == saved_cpsr;
+    };
+
+    if (!check_division(
+            NDS_ARM9,
+            static_cast<uint32_t>(-1234),
+            10u,
+            static_cast<uint32_t>(-123),
+            static_cast<uint32_t>(-4),
+            123u) ||
+        !check_division(
+            NDS_ARM7, 1234u,
+            static_cast<uint32_t>(-10),
+            static_cast<uint32_t>(-123), 4u, 123u) ||
+        !check_division(
+            NDS_ARM9, UINT32_C(0x80000000), UINT32_MAX,
+            UINT32_C(0x80000000), 0u, UINT32_C(0x80000000)) ||
+        !check_division(NDS_ARM7, 0u, 7u, 0u, 0u, 0u)) {
+        return fail("NDS7/NDS9 BIOS signed division SWI semantics failed");
+    }
+
+    /*
+     * NDS BIOS SWI 0Dh is unsigned floor(sqrt(r0)); verify perfect squares,
+     * adjacent non-squares, high-bit inputs and the full uint32 range.
+     */
+    struct SqrtCase {
+        uint32_t input;
+        uint32_t expected;
+    };
+    const SqrtCase sqrt_cases[] = {
+        {0u, 0u},
+        {1u, 1u},
+        {2u, 1u},
+        {3u, 1u},
+        {4u, 2u},
+        {15u, 3u},
+        {16u, 4u},
+        {17u, 4u},
+        {UINT32_C(0x80000000), 46340u},
+        {UINT32_MAX, 65535u}
+    };
+    const NdsCpu sqrt_cpus[2] = {NDS_ARM9, NDS_ARM7};
+
+    for (unsigned cpu_index = 0u; cpu_index < 2u; ++cpu_index) {
+        const NdsCpu cpu = sqrt_cpus[cpu_index];
+        if (!oracis_arm_runtime_select_cpu(cpu)) {
+            return fail("CPU selection failed for BIOS square-root test");
+        }
+        ArmCpuState *state = oracis_arm_runtime_current_state();
+        if (state == nullptr) {
+            return fail("active CPU state was unavailable for BIOS square root");
+        }
+        for (const SqrtCase &test_case : sqrt_cases) {
+            state->cpsr = ORACIS_ARM_MODE_SYSTEM | CPSR_N_BIT | CPSR_C_BIT;
+            const uint32_t saved_cpsr = state->cpsr;
+            state->R[0] = test_case.input;
+            runtime_swi(0x0Du);
+            const uint32_t result = state->R[0];
+            if (result != test_case.expected ||
+                static_cast<uint64_t>(result) * result > test_case.input ||
+                static_cast<uint64_t>(result + 1u) * (result + 1u) <=
+                    test_case.input ||
+                state->cpsr != saved_cpsr) {
+                return fail("NDS7/NDS9 BIOS unsigned square-root SWI failed");
+            }
+        }
+    }
+
     if (oracis_arm_runtime_select_cpu(static_cast<NdsCpu>(77)))
         return fail("invalid CPU selector value must be rejected");
 
