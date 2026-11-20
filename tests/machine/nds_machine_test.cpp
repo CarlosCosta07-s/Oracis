@@ -163,14 +163,14 @@ int main()
         return fail("2D Engine A/B display register bus bridge failed");
     }
 
-    if (bus_read_u16(NdsDisplayControl::DispstatAddress) != 0u ||
+    if (bus_read_u16(NdsDisplayControl::DispstatAddress) != UINT16_C(0x0004) ||
         bus_read_u16(NdsDisplayControl::VcountAddress) != 0u) {
-        return fail("DISPSTAT/VCOUNT were not connected through the machine bus");
+        return fail("DISPSTAT/VCOUNT reset state or machine bus bridge was incorrect");
     }
     bus_write_u16(
-        NdsDisplayControl::DispstatAddress, UINT16_C(0x0038));
-    if (bus_read_u16(NdsDisplayControl::DispstatAddress) != UINT16_C(0x0038)) {
-        return fail("DISPSTAT writable IRQ-enable bits were not retained");
+        NdsDisplayControl::DispstatAddress, UINT16_C(0x0138));
+    if (bus_read_u16(NdsDisplayControl::DispstatAddress) != UINT16_C(0x0138)) {
+        return fail("DISPSTAT writable IRQ-enable and VCOUNT compare bits were not retained");
     }
     bus_write_u32(engine_a_bg_palette, palette_marker);
     bus_write_u16(engine_a_obj_palette, UINT32_C(0x5566));
