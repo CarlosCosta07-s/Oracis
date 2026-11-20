@@ -196,12 +196,14 @@ int main(int argc, char *argv[])
         if (preflight_status == ORACIS_HOST_RUNTIME_OK) {
             SDL_Log(
                 "Static entry preflight: ARM9 PC=0x%08X resolved=%s "
-                "(lookup=%u candidates=%u); ARM7 PC=0x%08X resolved=%s "
-                "(lookup=%u candidates=%u). Execution remains disabled.",
+                "(lookup=%u candidates=%u inactive=%u); ARM7 PC=0x%08X resolved=%s "
+                "(lookup=%u candidates=%u inactive=%u). Execution remains disabled.",
                 arm9_entry.pc, arm9_entry.resolved ? "yes" : "no",
                 arm9_entry.lookup_status, arm9_entry.candidate_count,
+                arm9_entry.has_inactive_candidate,
                 arm7_entry.pc, arm7_entry.resolved ? "yes" : "no",
-                arm7_entry.lookup_status, arm7_entry.candidate_count);
+                arm7_entry.lookup_status, arm7_entry.candidate_count,
+                arm7_entry.has_inactive_candidate);
         } else {
             SDL_LogWarn(
                 SDL_LOG_CATEGORY_APPLICATION,
