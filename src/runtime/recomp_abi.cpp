@@ -23,6 +23,8 @@ void *g_power_context = nullptr;
 OracisArmRuntimePowerHandler g_power_handler = nullptr;
 void *g_coprocessor_context = nullptr;
 OracisArmRuntimeCoprocessorHandler g_coprocessor_handler = nullptr;
+void *g_bios_memory_context = nullptr;
+OracisArmRuntimeBiosMemoryHandler g_bios_memory_handler = nullptr;
 
 } // namespace
 
@@ -110,6 +112,49 @@ int oracis_arm_runtime_unbind_coprocessor_handler(
     g_coprocessor_context = nullptr;
     g_coprocessor_handler = nullptr;
     return 1;
+}
+
+int oracis_arm_runtime_bind_bios_memory_handler(
+    void *context, OracisArmRuntimeBiosMemoryHandler handler)
+{
+    if (context == nullptr || handler == nullptr) return 0;
+    if (g_bios_memory_handler != nullptr || g_bios_memory_context != nullptr) {
+        return g_bios_memory_context == context &&
+            g_bios_memory_handler == handler ? 1 : 0;
+    }
+    g_bios_memory_context = context;
+    g_bios_memory_handler = handler;
+    return 1;
+}
+
+int oracis_arm_runtime_unbind_bios_memory_handler(
+    void *context, OracisArmRuntimeBiosMemoryHandler handler)
+{
+    if (context == nullptr || handler == nullptr ||
+        g_bios_memory_context != context ||
+        g_bios_memory_handler != handler) {
+        return 0;
+    }
+    g_bios_memory_context = nullptr;
+    g_bios_memory_handler = nullptr;
+    return 1;
+}
+
+int oracis_arm_runtime_bios_memory_transfer(
+    uint32_t source, uint32_t destination, uint32_t count,
+    uint32_t width, uint32_t fixed_source)
+{
+    if (count == 0u) return 1;
+    if ((width != 2u && width != 4u) || fixed_source > 1u ||
+        g_bios_memory_handler == nullptr ||
+        g_bios_memory_context == nullptr ||
+        oracis_active_cpu_state == nullptr ||
+        (g_nds_active != NDS_ARM9 && g_nds_active != NDS_ARM7)) {
+        return 0;
+    }
+    return g_bios_memory_handler(
+        g_bios_memory_context, g_nds_active,
+        source, destination, count, width, fixed_source);
 }
 
 int oracis_arm_runtime_coprocessor_transfer(
@@ -388,6 +433,32 @@ void runtime_swi(uint32_t swi_imm)
         g_cpu.R[0] = static_cast<uint32_t>(quotient);
         g_cpu.R[1] = static_cast<uint32_t>(remainder);
         g_cpu.R[3] = static_cast<uint32_t>(magnitude);
+        return;
+    }
+
+    case 0x0Bu: { /* NDS7/NDS9 CpuSet: halfword or word copy/fill. */
+        const uint32_t control = g_cpu.R[2];
+        const uint32_t width =
+            (control & (UINT32_C(1) << 26u)) != 0u ? 4u : 2u;
+        const uint32_t count = control & UINT32_C(0x001FFFFF);
+        const uint32_t fixed_source =
+            (control >> 24u) & UINT32_C(1);
+        if (!oracis_arm_runtime_bios_memory_transfer(
+                g_cpu.R[0], g_cpu.R[1], count, width, fixed_source)) {
+            abi_failure("runtime_swi CpuSet (invalid or unsupported memory span)");
+        }
+        return;
+    }
+
+    case 0x0Cu: { /* NDS7/NDS9 CpuFastSet: 32-bit word copy/fill. */
+        const uint32_t control = g_cpu.R[2];
+        const uint32_t count = control & UINT32_C(0x001FFFFF);
+        const uint32_t fixed_source =
+            (control >> 24u) & UINT32_C(1);
+        if (!oracis_arm_runtime_bios_memory_transfer(
+                g_cpu.R[0], g_cpu.R[1], count, 4u, fixed_source)) {
+            abi_failure("runtime_swi CpuFastSet (invalid or unsupported memory span)");
+        }
         return;
     }
 

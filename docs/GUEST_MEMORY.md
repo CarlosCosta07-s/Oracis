@@ -6,7 +6,7 @@
 
 `GuestMemory` é o backing store byte-addressed do barramento Oracis. Ele oferece:
 - regiões guest de 32 bits;
-- permissões Read/Write/Execute;
+- permissões Read/Write/Execute, com preflight independente de leitura, escrita e busca;
 - máscara de visibilidade ARM9/ARM7;
 - aliases lineares para o mesmo backing;
 - mirrors periódicos de uma região física menor;
@@ -296,3 +296,16 @@ O CMake registra testes separados para:
 - `IME`/`IE`/`IF` independentes por CPU, IME master gate, máscara IE, IF write-one-to-clear, requests latcheados e roteamento por `bus_read_u32`/`bus_write_u32`.
 
 **Na revisão `a435c0f`, a CI passou nos quatro jobs**, incluindo desktop Linux, Android ARM64, NDSRecomp e 22/22 testes de runtime. A revisão atual acrescenta WRAMSTAT ARM7 e regressões de acesso; a CI está em execução.
+
+
+## 8. BIOS CpuSet e CpuFastSet
+
+Os SWIs NDS7/NDS9 `0x0B` (`CpuSet`) e `0x0C` (`CpuFastSet`) usam um provider ligado à instância ativa de `NdsMachine`. O provider valida o intervalo completo de origem e destino contra as permissões e a visibilidade da CPU antes de executar os acessos little-endian.
+
+- `CpuSet`: transferências de 16 ou 32 bits, contagem em halfwords/words e bit 24 para fonte fixa/preenchimento.
+- `CpuFastSet`: transferências de 32 bits, contagem de words aceita sem arredondar para oito no NDS e bit 24 para fonte fixa.
+- O ARM7 ignora transferências cuja origem começa na janela protegida de BIOS de 16 KiB.
+- MMIO não é representado por GuestMemory; transferências que o alcancem falham antes de modificar o destino, em vez de contornar os handlers de dispositivos.
+- A implementação cobre o resultado de dados e as permissões, mas ainda não reproduz o microtiming ou os blocos LDM/STM internos do BIOS.
+
+Referência: [GBATEK — BIOS CpuFastSet/CpuSet](https://mgba-emu.github.io/gbatek/).

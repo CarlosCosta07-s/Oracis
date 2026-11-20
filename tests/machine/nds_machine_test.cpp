@@ -129,6 +129,133 @@ int main()
     }
 
     /*
+     * BIOS CpuSet copies halfwords or words; CpuFastSet accepts any NDS
+     * word-count without rounding to the GBA's eight-word boundary.
+     */
+    constexpr uint32_t cpu_set_source = UINT32_C(0x02001000);
+    constexpr uint32_t cpu_set_destination = UINT32_C(0x02001100);
+    const uint32_t cpu_set_words[3] = {
+        UINT32_C(0x11223344),
+        UINT32_C(0xAABBCCDD),
+        UINT32_C(0x0BADF00D)
+    };
+    for (uint32_t index = 0u; index < 3u; ++index) {
+        if (machine.guest_memory().write(
+                NDS_ARM9, cpu_set_source + index * 4u, 4u,
+                cpu_set_words[index]) != oracis::memory::Status::Ok) {
+            return fail("could not seed CpuSet word-copy source");
+        }
+    }
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 selection failed for CpuSet test");
+    }
+    ArmCpuState *arm9_state = machine.cpu_state(NDS_ARM9);
+    ArmCpuState *arm7_state = machine.cpu_state(NDS_ARM7);
+    arm9_state->R[0] = cpu_set_source;
+    arm9_state->R[1] = cpu_set_destination;
+    arm9_state->R[2] = (UINT32_C(1) << 26u) | 3u;
+    runtime_swi(0x0Bu);
+    for (uint32_t index = 0u; index < 3u; ++index) {
+        if (machine.guest_memory().read(
+                NDS_ARM9, cpu_set_destination + index * 4u, 4u).value !=
+            cpu_set_words[index]) {
+            return fail("CpuSet 32-bit word copy produced incorrect data");
+        }
+    }
+
+    constexpr uint32_t cpu_set_fill_source = UINT32_C(0x02001020);
+    constexpr uint32_t cpu_set_fill_destination = UINT32_C(0x02001120);
+    if (machine.guest_memory().write(
+            NDS_ARM9, cpu_set_fill_source, 2u, UINT16_C(0xA55A)) !=
+        oracis::memory::Status::Ok) {
+        return fail("could not seed CpuSet halfword-fill source");
+    }
+    arm9_state->R[0] = cpu_set_fill_source;
+    arm9_state->R[1] = cpu_set_fill_destination;
+    arm9_state->R[2] = (UINT32_C(1) << 24u) | 3u;
+    runtime_swi(0x0Bu);
+    for (uint32_t index = 0u; index < 3u; ++index) {
+        if (machine.guest_memory().read(
+                NDS_ARM9, cpu_set_fill_destination + index * 2u, 2u).value !=
+            UINT16_C(0xA55A)) {
+            return fail("CpuSet fixed-source halfword fill failed");
+        }
+    }
+
+    constexpr uint32_t cpu_fast_source = UINT32_C(0x02001200);
+    constexpr uint32_t cpu_fast_destination = UINT32_C(0x02001300);
+    for (uint32_t index = 0u; index < 9u; ++index) {
+        const uint32_t value = UINT32_C(0xC0010000) + index;
+        if (machine.guest_memory().write(
+                NDS_ARM9, cpu_fast_source + index * 4u, 4u, value) !=
+            oracis::memory::Status::Ok) {
+            return fail("could not seed CpuFastSet source");
+        }
+    }
+    arm9_state->R[0] = cpu_fast_source;
+    arm9_state->R[1] = cpu_fast_destination;
+    arm9_state->R[2] = 9u;
+    runtime_swi(0x0Cu);
+    for (uint32_t index = 0u; index < 9u; ++index) {
+        const uint32_t expected = UINT32_C(0xC0010000) + index;
+        if (machine.guest_memory().read(
+                NDS_ARM9, cpu_fast_destination + index * 4u, 4u).value !=
+            expected) {
+            return fail("CpuFastSet did not copy a non-eight-word NDS length");
+        }
+    }
+
+    constexpr uint32_t cpu_fast_fill_destination =
+        UINT32_C(0x02001400);
+    arm9_state->R[0] = cpu_set_source;
+    arm9_state->R[1] = cpu_fast_fill_destination;
+    arm9_state->R[2] = (UINT32_C(1) << 24u) | 2u;
+    runtime_swi(0x0Cu);
+    if (machine.guest_memory().read(
+            NDS_ARM9, cpu_fast_fill_destination, 4u).value !=
+            cpu_set_words[0] ||
+        machine.guest_memory().read(
+            NDS_ARM9, cpu_fast_fill_destination + 4u, 4u).value !=
+            cpu_set_words[0]) {
+        return fail("CpuFastSet fixed-source word fill failed");
+    }
+
+    /*
+     * ARM7 silently ignores a BIOS-sourced CpuSet. Invalid spans are rejected
+     * by preflight before the destination can be modified.
+     */
+    constexpr uint32_t arm7_bios_guard_destination =
+        UINT32_C(0x02001500);
+    if (machine.guest_memory().write(
+            NDS_ARM7, arm7_bios_guard_destination, 2u,
+            UINT16_C(0x5AA5)) != oracis::memory::Status::Ok ||
+        !oracis_arm_runtime_select_cpu(NDS_ARM7)) {
+        return fail("could not prepare ARM7 BIOS-source guard test");
+    }
+    arm7_state->R[0] = 0u;
+    arm7_state->R[1] = arm7_bios_guard_destination;
+    arm7_state->R[2] = 1u;
+    runtime_swi(0x0Bu);
+    if (machine.guest_memory().read(
+            NDS_ARM7, arm7_bios_guard_destination, 2u).value !=
+        UINT16_C(0x5AA5)) {
+        return fail("ARM7 CpuSet did not ignore BIOS-protected source");
+    }
+
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9) ||
+        oracis_arm_runtime_bios_memory_transfer(
+            cpu_set_source, UINT32_C(0xFFFFFFFC), 2u, 4u, 0u) != 0 ||
+        oracis_arm_runtime_bios_memory_transfer(
+            cpu_set_source + 1u, cpu_set_destination, 1u, 4u, 0u) != 0) {
+        return fail("BIOS memory transfer accepted overflow or misalignment");
+    }
+    if (machine.guest_memory().read(
+            NDS_ARM9, cpu_set_destination, 4u).value !=
+        cpu_set_words[0]) {
+        return fail("rejected BIOS memory transfer modified its destination");
+    }
+
+    /*
      * The native bus bridge must enforce NDS palette/OAM store widths;
      * direct GuestMemory writes do not model STRB suppression.
      */

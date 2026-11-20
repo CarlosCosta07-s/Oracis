@@ -42,6 +42,11 @@ typedef int (*OracisArmRuntimeCoprocessorHandler)(
     uint32_t cp_num, uint32_t op1, uint32_t crn,
     uint32_t crm, uint32_t op2, uint32_t *value);
 
+/* Checked backing-store service used by NDS CpuSet/CpuFastSet SWIs. */
+typedef int (*OracisArmRuntimeBiosMemoryHandler)(
+    void *context, NdsCpu cpu, uint32_t source, uint32_t destination,
+    uint32_t count, uint32_t width, uint32_t fixed_source);
+
 int oracis_arm_runtime_bind_cpus(ArmCpuState *arm9, ArmCpuState *arm7);
 int oracis_arm_runtime_unbind_cpus(ArmCpuState *arm9, ArmCpuState *arm7);
 int oracis_arm_runtime_bind_power_handler(
@@ -55,6 +60,13 @@ int oracis_arm_runtime_unbind_coprocessor_handler(
 int oracis_arm_runtime_coprocessor_transfer(
     uint32_t is_write, uint32_t cp_num, uint32_t op1,
     uint32_t crn, uint32_t crm, uint32_t op2, uint32_t *value);
+int oracis_arm_runtime_bind_bios_memory_handler(
+    void *context, OracisArmRuntimeBiosMemoryHandler handler);
+int oracis_arm_runtime_unbind_bios_memory_handler(
+    void *context, OracisArmRuntimeBiosMemoryHandler handler);
+int oracis_arm_runtime_bios_memory_transfer(
+    uint32_t source, uint32_t destination, uint32_t count,
+    uint32_t width, uint32_t fixed_source);
 int oracis_arm_runtime_request_halt(NdsCpu cpu);
 int oracis_arm_runtime_write_arm7_halt_control(uint8_t value);
 int oracis_arm_runtime_select_cpu(NdsCpu cpu);

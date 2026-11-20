@@ -122,6 +122,84 @@ int NdsMachine::runtime_coprocessor_handler(
     return 0;
 }
 
+int NdsMachine::runtime_bios_memory_transfer_handler(
+    void *context,
+    NdsCpu cpu,
+    uint32_t source,
+    uint32_t destination,
+    uint32_t count,
+    uint32_t width,
+    uint32_t fixed_source)
+{
+    auto *machine = static_cast<NdsMachine *>(context);
+    if (machine == nullptr || !machine->initialized_ ||
+        !valid_cpu(cpu) || g_nds_active != cpu ||
+        machine->cpu_state(cpu) != oracis_active_cpu_state ||
+        (width != 2u && width != 4u) || fixed_source > 1u) {
+        return 0;
+    }
+    if (count == 0u) return 1;
+
+    const uint64_t transfer_bytes =
+        static_cast<uint64_t>(count) * width;
+    const uint64_t source_bytes =
+        fixed_source != 0u ? width : transfer_bytes;
+    constexpr uint64_t GuestAddressEnd = UINT64_C(0x1'0000'0000);
+    const uint64_t source_end =
+        static_cast<uint64_t>(source) + source_bytes;
+    const uint64_t destination_end =
+        static_cast<uint64_t>(destination) + transfer_bytes;
+
+    if ((source % width) != 0u || (destination % width) != 0u ||
+        source_end > GuestAddressEnd ||
+        destination_end > GuestAddressEnd ||
+        source_bytes > UINT32_MAX || transfer_bytes > UINT32_MAX) {
+        return 0;
+    }
+
+    /*
+     * NDS ARM7 ignores CpuSet/CpuFastSet when the source starts inside its
+     * protected 16 KiB BIOS window. ARM9 has no matching restriction.
+     */
+    constexpr uint32_t Arm7BiosEnd = UINT32_C(0x00004000);
+    if (cpu == NDS_ARM7 && source < Arm7BiosEnd) {
+        return 1;
+    }
+
+    const uint32_t source_span = static_cast<uint32_t>(source_bytes);
+    const uint32_t destination_span =
+        static_cast<uint32_t>(transfer_bytes);
+    if (machine->memory_.validate_read(
+            cpu, source, source_span) != memory::Status::Ok ||
+        machine->memory_.validate_write(
+            cpu, destination, destination_span) != memory::Status::Ok) {
+        return 0;
+    }
+
+    /*
+     * MMIO is not represented by GuestMemory mappings. Such transfers fail
+     * during preflight instead of bypassing device-side read/write handlers.
+     */
+    for (uint32_t index = 0u; index < count; ++index) {
+        const uint64_t source_address = fixed_source != 0u
+            ? static_cast<uint64_t>(source)
+            : static_cast<uint64_t>(source) +
+                static_cast<uint64_t>(index) * width;
+        const uint64_t destination_address =
+            static_cast<uint64_t>(destination) +
+            static_cast<uint64_t>(index) * width;
+        const memory::ReadResult value = machine->memory_.read(
+            cpu, static_cast<uint32_t>(source_address), width);
+        if (!value ||
+            machine->memory_.write(
+                cpu, static_cast<uint32_t>(destination_address),
+                width, value.value) != memory::Status::Ok) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 int NdsMachine::runtime_validate_dispatch_bytes(
     NdsCpu cpu,
     const NdsStaticValidation *validation,
@@ -220,6 +298,12 @@ NdsMachineStatus NdsMachine::initialize() noexcept
         return rollback(NdsMachineStatus::RuntimeAlreadyBound);
     }
     coprocessor_handler_bound_ = true;
+
+    if (!oracis_arm_runtime_bind_bios_memory_handler(
+            this, &NdsMachine::runtime_bios_memory_transfer_handler)) {
+        return rollback(NdsMachineStatus::RuntimeAlreadyBound);
+    }
+    bios_memory_handler_bound_ = true;
 
     if (wram_control_.install() != memory::Status::Ok ||
         vram_control_.install() != memory::Status::Ok ||
@@ -388,7 +472,8 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
 {
     const bool owns_runtime =
         runtime_bound_ || power_handler_bound_ ||
-        coprocessor_handler_bound_ || memory_bound_ ||
+        coprocessor_handler_bound_ || bios_memory_handler_bound_ ||
+        memory_bound_ ||
         wram_bound_ || vram_bound_ || video_memory_bound_ ||
         display_control_bound_ || interrupt_bound_ || timer_bound_ ||
         keypad_bound_ || clock_bound_ || validation_bound_;
@@ -464,6 +549,13 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
             return NdsMachineStatus::ShutdownFailed;
         }
         memory_bound_ = false;
+    }
+    if (bios_memory_handler_bound_) {
+        if (!oracis_arm_runtime_unbind_bios_memory_handler(
+                this, &NdsMachine::runtime_bios_memory_transfer_handler)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        bios_memory_handler_bound_ = false;
     }
     if (coprocessor_handler_bound_) {
         if (!oracis_arm_runtime_unbind_coprocessor_handler(

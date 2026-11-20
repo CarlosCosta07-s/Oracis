@@ -234,6 +234,9 @@ private:
         void *context, NdsCpu cpu, uint32_t is_write,
         uint32_t cp_num, uint32_t op1, uint32_t crn,
         uint32_t crm, uint32_t op2, uint32_t *value);
+    static int runtime_bios_memory_transfer_handler(
+        void *context, NdsCpu cpu, uint32_t source, uint32_t destination,
+        uint32_t count, uint32_t width, uint32_t fixed_source);
     static int runtime_validate_dispatch_bytes(
         NdsCpu cpu, const NdsStaticValidation *validation,
         uint32_t pc, uint32_t thumb, void *context);
@@ -259,6 +262,7 @@ private:
     bool runtime_bound_ = false;
     bool power_handler_bound_ = false;
     bool coprocessor_handler_bound_ = false;
+    bool bios_memory_handler_bound_ = false;
     bool memory_bound_ = false;
     bool wram_bound_ = false;
     bool vram_bound_ = false;

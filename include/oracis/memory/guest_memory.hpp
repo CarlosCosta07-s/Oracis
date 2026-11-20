@@ -176,6 +176,8 @@ public:
     Status write_bytes(NdsCpu cpu, uint32_t address,
                        const uint8_t *contents, uint32_t size) noexcept;
 
+    Status validate_read(NdsCpu cpu, uint32_t address,
+                          uint32_t size) const noexcept;
     Status validate_execute(NdsCpu cpu, uint32_t address,
                             uint32_t size) const noexcept;
     Status validate_write(NdsCpu cpu, uint32_t address,

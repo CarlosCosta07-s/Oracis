@@ -58,6 +58,16 @@ int main()
         return fail("null memory binding must be rejected");
     }
 
+    if (memory.validate_read(
+            NDS_ARM9, 0x02000000u, 4u) != Status::Ok ||
+        memory.validate_read(
+            NDS_ARM9, 0x03000000u, 4u) != Status::Unmapped ||
+        memory.validate_read(
+            static_cast<NdsCpu>(77), 0x02000000u, 4u) !=
+            Status::InvalidCpu) {
+        return fail("GuestMemory read-range preflight did not enforce CPU/access visibility");
+    }
+
     bus_write_u32(0x02000000u, UINT32_C(0x78563412));
     bus_write_u16(0x02000004u, UINT16_C(0xBEEF));
     bus_write_u8(0x02000006u, UINT8_C(0xA5));
