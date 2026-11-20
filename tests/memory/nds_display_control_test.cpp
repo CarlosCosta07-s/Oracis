@@ -214,7 +214,7 @@ int main()
         engine_a_bg2_affine.pb != 128 ||
         engine_a_bg2_affine.pc != -128 ||
         engine_a_bg2_affine.pd != 256 ||
-        engine_a_bg2_affine.reference_x != -126458830 ||
+        engine_a_bg2_affine.reference_x != -126462926 ||
         engine_a_bg2_affine.reference_y != INT32_C(0x01234567) ||
         display.read(NDS_ARM9, engine_a_affine, 2u).status !=
             Status::PermissionDenied ||

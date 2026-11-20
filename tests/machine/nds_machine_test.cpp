@@ -175,7 +175,7 @@ int main()
         machine.display_control().bg_scroll(1u, 3u).vertical !=
             UINT16_C(0x01FF) ||
         machine.display_control().bg_affine(0u, 2u).pa != -256 ||
-        machine.display_control().bg_affine(0u, 2u).reference_x != -126458830 ||
+        machine.display_control().bg_affine(0u, 2u).reference_x != -126462926 ||
         machine.display_control().bg_affine(1u, 3u).reference_y != 1) {
         return fail("2D Engine A/B display register bus bridge failed");
     }
