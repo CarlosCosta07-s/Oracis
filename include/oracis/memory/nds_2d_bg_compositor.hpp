@@ -3,8 +3,8 @@
  *
  * Combines text and affine BG fetch results with OBJ pixels using DISPCNT
  * window masks, BG priority/tie ordering, the backdrop palette entry, and
- * the colour-effect evaluator. Unsupported BG palette modes and bitmap OBJ
- * inputs remain explicit diagnostics.
+ * the colour-effect evaluator. Bitmap OBJ alpha is blended with a selected
+ * BG target; a second OBJ is never used as an alpha target.
  */
 #ifndef ORACIS_MEMORY_NDS_2D_BG_COMPOSITOR_HPP
 #define ORACIS_MEMORY_NDS_2D_BG_COMPOSITOR_HPP
@@ -40,6 +40,8 @@ struct Nds2dCompositedPixel {
     uint8_t top_object_index = UINT8_C(0xFF);
     bool top_object_semi_transparent = false;
     uint8_t second_object_index = UINT8_C(0xFF);
+    bool top_object_bitmap = false;
+    uint8_t top_object_bitmap_alpha_eva = 0u;
 };
 
 struct Nds2dComposeResult {
@@ -64,7 +66,8 @@ public:
     /*
      * Compose one visible 256-pixel line. The caller's output is unchanged
      * unless all required BG, OBJ/OAM and backdrop reads succeed. Unsupported
-     * unavailable palette allocations or bitmap OBJ inputs return a diagnostic without partial output.
+     * unavailable palette allocations or invalid bitmap mappings return a
+     * diagnostic without partial output.
      */
     Nds2dComposeResult render_scanline(
         unsigned engine_index,

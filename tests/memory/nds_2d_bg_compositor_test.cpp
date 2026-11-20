@@ -188,10 +188,48 @@ int main()
         line[0].top_layer != Nds2dLayer::Object ||
         line[0].top_object_index != 0u ||
         !line[0].top_object_semi_transparent ||
-        line[0].second_layer != Nds2dLayer::Object ||
-        line[0].second_object_index != 1u ||
+        line[0].second_layer != Nds2dLayer::Backdrop ||
+        line[0].second_pixel_available ||
+        line[0].second_object_index != UINT8_C(0xFF) ||
+        line[0].rgb555 != UINT16_C(0x001F)) {
+        return fail("a second OBJ was incorrectly used as an alpha blend target");
+    }
+
+    /*
+     * Bitmap OBJ uses alphaOAM=7 (EVA=8) and ignores BLDALPHA. A normal OBJ
+     * lies between it and BG1, but the bitmap must blend with the selected
+     * BG1 second target rather than with the intervening OBJ.
+     */
+    if (!write16(memory, UINT32_C(0x06400000), UINT16_C(0x801F)) ||
+        !write16(memory, UINT32_C(0x07000000), UINT16_C(0x0C00)) ||
+        !write16(memory, UINT32_C(0x07000002), UINT16_C(0x0000)) ||
+        !write16(memory, UINT32_C(0x07000004), UINT16_C(0x7000)) ||
+        !write16(memory, UINT32_C(0x07000008), UINT16_C(0x0000)) ||
+        !write16(memory, UINT32_C(0x0700000A), UINT16_C(0x0000)) ||
+        !write16(memory, UINT32_C(0x0700000C), UINT16_C(0x0001)) ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            (UINT32_C(1) << 8u) | (UINT32_C(1) << 9u) |
+                (UINT32_C(1) << 12u)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 0x50u, 2u,
+            UINT16_C(0x0210)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 0x52u, 2u,
+            0u) != Status::Ok) {
+        return fail("bitmap OBJ blend fixture setup failed");
+    }
+    result = compositor.render_scanline(0u, display, 0u, line);
+    if (result.status != Nds2dComposeStatus::Ok ||
+        line[0].top_layer != Nds2dLayer::Object ||
+        !line[0].top_object_bitmap ||
+        line[0].top_object_bitmap_alpha_eva != 8u ||
+        line[0].top_object_semi_transparent ||
+        line[0].second_layer != Nds2dLayer::Bg1 ||
+        !line[0].second_pixel_available ||
+        line[0].second_object_index != UINT8_C(0xFF) ||
         line[0].rgb555 != UINT16_C(0x0210)) {
-        return fail("second OBJ was not selected as the alpha blend target");
+        return fail("bitmap OBJ alpha or BG second-target composition failed");
     }
 
     /* OBJ-window coverage changes the per-pixel window region and layer mask. */

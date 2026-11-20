@@ -21,6 +21,7 @@ struct Candidate {
     Nds2dLayer layer = Nds2dLayer::Backdrop;
     uint8_t object_index = UINT8_C(0xFF);
     bool force_alpha = false;
+    uint8_t bitmap_alpha_eva = 0u;
 };
 
 bool precedes(const Candidate &left, const Candidate &right) noexcept
@@ -176,13 +177,16 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
             const auto insert_object_pixel =
                 [&insert_candidate](const Nds2dObjPixel &object_pixel) noexcept {
                     if (object_pixel.transparent) return;
+                    const bool bitmap_alpha =
+                        object_pixel.bitmap_alpha_eva != 0u;
                     insert_candidate(Candidate{
                         object_pixel.rgb555,
                         object_pixel.priority,
                         object_pixel.object_index,
                         Nds2dLayer::Object,
                         object_pixel.object_index,
-                        object_pixel.semi_transparent
+                        object_pixel.semi_transparent || bitmap_alpha,
+                        object_pixel.bitmap_alpha_eva
                     });
                 };
             insert_object_pixel(object_line.pixels[x]);
@@ -205,27 +209,59 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
             ? candidates[1]
             : Candidate{};
 
+        /*
+         * A translucent or bitmap OBJ never blends against another OBJ.
+         * Select the nearest BG/backdrop behind it that is enabled as a
+         * second target. Keep the ordinary next-pixel metadata separately.
+         */
+        Candidate effect_second = second;
+        bool has_effect_second = has_second;
+        if (top.layer == Nds2dLayer::Object && top.force_alpha) {
+            const uint16_t second_target_mask =
+                static_cast<uint16_t>(
+                    (effects.bldcnt >> 8u) & UINT16_C(0x003F));
+            effect_second = Candidate{};
+            has_effect_second = false;
+
+            for (std::size_t index = 1u;
+                 index < candidate_count;
+                 ++index) {
+                const Candidate &candidate = candidates[index];
+                if (candidate.layer == Nds2dLayer::Object) continue;
+                const uint8_t target_bit = static_cast<uint8_t>(
+                    UINT8_C(1) << static_cast<unsigned>(candidate.layer));
+                if ((second_target_mask & target_bit) == 0u) continue;
+                effect_second = candidate;
+                has_effect_second = true;
+                break;
+            }
+        }
+
         next_line[x] = Nds2dCompositedPixel{
             Nds2dEffects::apply_color_effect(
                 top.rgb555,
                 top.layer,
-                second.rgb555,
-                second.layer,
-                has_second,
+                effect_second.rgb555,
+                effect_second.layer,
+                has_effect_second,
                 window.color_effects_enabled,
                 effects,
-                top.force_alpha),
+                top.force_alpha,
+                top.bitmap_alpha_eva),
             top.layer,
-            has_second ? second.layer : Nds2dLayer::Backdrop,
+            has_effect_second ? effect_second.layer : Nds2dLayer::Backdrop,
             window.region,
-            has_second,
+            has_effect_second,
             static_cast<uint8_t>(
                 top.layer == Nds2dLayer::Object
                     ? top.object_index : UINT8_C(0xFF)),
-            top.layer == Nds2dLayer::Object && top.force_alpha,
+            top.layer == Nds2dLayer::Object &&
+                top.force_alpha && top.bitmap_alpha_eva == 0u,
             static_cast<uint8_t>(
-                second.layer == Nds2dLayer::Object
-                    ? second.object_index : UINT8_C(0xFF))
+                !top.force_alpha && second.layer == Nds2dLayer::Object
+                    ? second.object_index : UINT8_C(0xFF)),
+            top.layer == Nds2dLayer::Object && top.bitmap_alpha_eva != 0u,
+            top.bitmap_alpha_eva
         };
     }
 
