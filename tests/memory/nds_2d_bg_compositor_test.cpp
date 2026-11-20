@@ -53,6 +53,19 @@ int main()
         return fail("synthetic compositor memory map setup failed");
     }
 
+    /*
+     * OAM resets are not assumed to disable entries. Mark every synthetic
+     * slot disabled, then enable only the sprites each fixture declares.
+     */
+    for (unsigned object = 0u; object < 128u; ++object) {
+        if (!write16(
+                memory,
+                UINT32_C(0x07000000) + object * UINT32_C(8),
+                UINT16_C(0x0200))) {
+            return fail("OAM disabled-entry fixture initialization failed");
+        }
+    }
+
     NdsInterruptControl interrupts(memory);
     NdsDisplayControl display(interrupts);
     if (display.install() != Status::Ok) {
