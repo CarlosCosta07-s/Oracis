@@ -289,6 +289,17 @@ extern "C" int oracis_host_runtime_render_scanline(
         return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
     }
 
+    if (engine_index == 0u &&
+        machine.display_control().main_memory_display_mode()) {
+        const auto status =
+            machine.display_control().copy_main_memory_display_scanline(
+                scanline, rgb555, pixel_capacity);
+        if (status != oracis::memory::Status::Ok) {
+            return ORACIS_HOST_RUNTIME_VIDEO_ERROR;
+        }
+        return ORACIS_HOST_RUNTIME_OK;
+    }
+
     std::array<oracis::memory::Nds2dCompositedPixel, 256> composed{};
     oracis::memory::Nds2dBgCompositor compositor(
         machine.guest_memory(), &machine.vram_control());

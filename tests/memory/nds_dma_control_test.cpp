@@ -468,26 +468,39 @@ int main()
         UINT16_C(0x0003), UINT16_C(0x7FFD),
         UINT16_C(0x0004), UINT16_C(0x7FFC)
     };
+    if (display.main_memory_display_fifo_words() != 0u) {
+        return fail("main-memory display DMA transferred before the next frame");
+    }
+    display.advance_bus_cycles(
+        static_cast<uint64_t>(NdsDisplayControl::ScanlinesPerFrame) *
+        NdsDisplayControl::CyclesPerScanline);
+    if (display.current_scanline() != 0u ||
+        display.main_memory_display_fifo_words() != 4u) {
+        return fail("main-memory display DMA did not start at the next frame");
+    }
+    display.advance_bus_cycles(51u);
+    uint16_t mmd_scanline[NdsDisplayControl::MainMemoryDisplayWidth]{};
+    if (display.copy_main_memory_display_scanline(
+            0u, mmd_scanline, NdsDisplayControl::MainMemoryDisplayWidth) !=
+        Status::Ok) {
+        return fail("main-memory display framebuffer scanline was unavailable");
+    }
     for (uint32_t pixel = 0u; pixel < 8u; ++pixel) {
-        const auto actual = display.consume_main_memory_display_pixel();
-        if (!actual || actual.value != expected_mmem_pixels[pixel]) {
-            return fail("main-memory display FIFO returned incorrect RGB555 pixel order");
+        if (mmd_scanline[pixel] != expected_mmem_pixels[pixel]) {
+            return fail("clocked main-memory display pixels were out of RGB555 order");
         }
     }
-    if (display.main_memory_display_fifo_words() != 0u) {
-        return fail("main-memory display FIFO did not drain after eight pixels");
-    }
-    const auto refilled_pixel = display.consume_main_memory_display_pixel();
-    if (!refilled_pixel || refilled_pixel.value != UINT32_C(5) ||
+    if (mmd_scanline[8] != UINT16_C(5) ||
         display.main_memory_display_fifo_words() != 4u ||
         bus_read_u32(source_reg(0u)) != mmem_source ||
         bus_read_u32(destination_reg(0u)) !=
             NdsDisplayControl::MainMemoryDisplayFifoAddress) {
-        return fail("main-memory display DMA did not refill the next four-word block");
+        return fail("main-memory display DMA did not refill the next burst on demand");
     }
     display.advance_bus_cycles(
         static_cast<uint64_t>(NdsDisplayControl::VisibleScanlines) *
-        NdsDisplayControl::CyclesPerScanline);
+            NdsDisplayControl::CyclesPerScanline -
+        51u);
     if ((bus_read_u32(control_reg(0u)) & NdsDmaControl::EnableMask) != 0u ||
         display.main_memory_display_fifo_words() != 0u ||
         (interrupts.read(NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value &

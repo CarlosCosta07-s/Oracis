@@ -38,6 +38,8 @@ public:
     static constexpr uint32_t MainMemoryDisplayFifoAddress =
         UINT32_C(0x04000068);
     static constexpr uint32_t MainMemoryDisplayFifoCapacityWords = 4u;
+    static constexpr uint32_t MainMemoryDisplayWidth = 256u;
+    static constexpr uint32_t MainMemoryDisplayHeight = 192u;
     static constexpr uint32_t BgCount = 4u;
     static constexpr uint16_t BgScrollValueMask = UINT16_C(0x01FF);
     static constexpr uint32_t BgAffineReferenceMask = UINT32_C(0x0FFFFFFF);
@@ -110,6 +112,12 @@ public:
     void advance_bus_cycles(uint64_t cycles) noexcept;
     void reset_timing() noexcept;
 
+    /* True when Engine A selects the main-memory display input mode. */
+    bool main_memory_display_mode() const noexcept;
+    /* Copy a clock-generated Engine A MMD framebuffer scanline for the host. */
+    Status copy_main_memory_display_scanline(
+        uint32_t scanline, uint16_t *pixels,
+        uint32_t pixel_capacity) const noexcept;
     /* Consume one RGB555 pixel from Engine A's main-memory display FIFO. */
     ReadResult consume_main_memory_display_pixel() noexcept;
     uint32_t main_memory_display_fifo_words() const noexcept {
@@ -167,6 +175,7 @@ private:
     bool vcount_matches(unsigned cpu_index) const noexcept;
     uint16_t read_dispstat(NdsCpu cpu) const noexcept;
     void advance_scanline() noexcept;
+    void advance_main_memory_display_pixel() noexcept;
     void request_irq_if_enabled(
         unsigned cpu_index, uint16_t enable_bit, uint32_t irq_mask) noexcept;
 
@@ -181,6 +190,10 @@ private:
     uint32_t main_memory_display_fifo_write_index_ = 0u;
     uint32_t main_memory_display_fifo_count_ = 0u;
     uint32_t main_memory_display_pixel_half_ = 0u;
+    std::array<uint16_t, MainMemoryDisplayWidth * MainMemoryDisplayHeight>
+        main_memory_display_frame_{};
+    uint32_t main_memory_display_pixel_index_ = 0u;
+    bool main_memory_display_active_ = false;
     uint16_t vcount_ = 0u;
     uint32_t line_cycle_ = 0u;
     bool pending_vcount_write_ = false;

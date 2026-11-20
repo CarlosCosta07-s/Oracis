@@ -61,8 +61,9 @@ Status NdsDisplayControl::enqueue_main_memory_display_block(
 ReadResult NdsDisplayControl::consume_main_memory_display_pixel() noexcept
 {
     if (!installed_) return {Status::Unmapped, 0u};
-    if ((engines_[0].dispcnt & UINT32_C(0x00030000)) !=
-            UINT32_C(0x00030000) || vcount_ >= VisibleScanlines) {
+    if (!main_memory_display_active_ || !main_memory_display_mode() ||
+        (engines_[0].dispcnt & UINT32_C(0x80000000)) != 0u ||
+        vcount_ >= VisibleScanlines) {
         return {Status::PermissionDenied, 0u};
     }
     if (main_memory_display_fifo_count_ == 0u) {
@@ -87,6 +88,53 @@ ReadResult NdsDisplayControl::consume_main_memory_display_pixel() noexcept
         --main_memory_display_fifo_count_;
     }
     return {Status::Ok, pixel};
+}
+
+bool NdsDisplayControl::main_memory_display_mode() const noexcept
+{
+    return (engines_[0].dispcnt & UINT32_C(0x00030000)) ==
+        UINT32_C(0x00030000);
+}
+
+Status NdsDisplayControl::copy_main_memory_display_scanline(
+    uint32_t scanline, uint16_t *pixels,
+    uint32_t pixel_capacity) const noexcept
+{
+    if (!installed_) return Status::Unmapped;
+    if (pixels == nullptr || pixel_capacity < MainMemoryDisplayWidth ||
+        scanline >= MainMemoryDisplayHeight) {
+        return Status::InvalidRegion;
+    }
+    if (!main_memory_display_mode()) return Status::PermissionDenied;
+    const uint32_t row_offset = scanline * MainMemoryDisplayWidth;
+    if ((engines_[0].dispcnt & UINT32_C(0x80000000)) != 0u) {
+        for (uint32_t x = 0u; x < MainMemoryDisplayWidth; ++x) {
+            pixels[x] = 0u;
+        }
+        return Status::Ok;
+    }
+    for (uint32_t x = 0u; x < MainMemoryDisplayWidth; ++x) {
+        pixels[x] = main_memory_display_frame_[row_offset + x];
+    }
+    return Status::Ok;
+}
+
+void NdsDisplayControl::advance_main_memory_display_pixel() noexcept
+{
+    if (!main_memory_display_active_ || !main_memory_display_mode() ||
+        (engines_[0].dispcnt & UINT32_C(0x80000000)) != 0u ||
+        vcount_ >= VisibleScanlines ||
+        main_memory_display_pixel_index_ >= MainMemoryDisplayWidth) {
+        return;
+    }
+
+    const ReadResult pixel = consume_main_memory_display_pixel();
+    const uint32_t offset =
+        static_cast<uint32_t>(vcount_) * MainMemoryDisplayWidth +
+        main_memory_display_pixel_index_;
+    main_memory_display_frame_[offset] = pixel ?
+        static_cast<uint16_t>(pixel.value & UINT32_C(0x7FFF)) : 0u;
+    ++main_memory_display_pixel_index_;
 }
 
 uint32_t NdsDisplayControl::dispcnt(unsigned engine_index) const noexcept
@@ -415,9 +463,26 @@ Status NdsDisplayControl::write(
     EngineState &engine = engines_[engine_index];
     if (offset == DispcntOffset) {
         if (width != 4u) return Status::InvalidWidth;
-        engine.dispcnt = engine_index == 0u
-            ? value
-            : (value & EngineBDispcntSupportedMask);
+        const uint32_t next_value = engine_index == 0u
+            ? value : (value & EngineBDispcntSupportedMask);
+        if (engine_index == 0u) {
+            const bool was_mmd_output =
+                (engine.dispcnt & UINT32_C(0x00030000)) ==
+                    UINT32_C(0x00030000) &&
+                (engine.dispcnt & UINT32_C(0x80000000)) == 0u;
+            const bool becomes_mmd_output =
+                (next_value & UINT32_C(0x00030000)) ==
+                    UINT32_C(0x00030000) &&
+                (next_value & UINT32_C(0x80000000)) == 0u;
+            if (was_mmd_output != becomes_mmd_output ||
+                ((engine.dispcnt ^ next_value) & UINT32_C(0x00030000)) != 0u) {
+                main_memory_display_active_ = false;
+                main_memory_display_pixel_index_ = 0u;
+                clear_main_memory_display_fifo();
+                main_memory_display_frame_.fill(0u);
+            }
+        }
+        engine.dispcnt = next_value;
         return Status::Ok;
     }
 
@@ -540,6 +605,8 @@ void NdsDisplayControl::advance_scanline() noexcept
         vcount_matches(0u), vcount_matches(1u)
     };
 
+    const bool natural_frame_wrap =
+        vcount_ == LastScanline && !pending_vcount_write_;
     uint16_t next_scanline = vcount_ == LastScanline
         ? 0u : static_cast<uint16_t>(vcount_ + 1u);
     if (pending_vcount_write_) {
@@ -571,6 +638,16 @@ void NdsDisplayControl::advance_scanline() noexcept
     }
 
     vcount_ = next_scanline;
+    main_memory_display_pixel_index_ = 0u;
+    if (natural_frame_wrap && vcount_ == 0u) {
+        main_memory_display_active_ = main_memory_display_mode() &&
+            (engines_[0].dispcnt & UINT32_C(0x80000000)) == 0u;
+        main_memory_display_frame_.fill(0u);
+        clear_main_memory_display_fifo();
+    }
+    if (vcount_ < VisibleScanlines) {
+        advance_main_memory_display_pixel();
+    }
 
     /*
      * NDS9 DMA timing 3 is synchronized to the start of each visible line.
@@ -589,6 +666,8 @@ void NdsDisplayControl::advance_scanline() noexcept
             static_cast<void>(dma_->trigger_vblank(NDS_ARM7));
         }
         clear_main_memory_display_fifo();
+        main_memory_display_active_ = false;
+        main_memory_display_pixel_index_ = 0u;
         request_irq_if_enabled(0u, VblankIrqEnable, kIrqVblank);
         request_irq_if_enabled(1u, VblankIrqEnable, kIrqVblank);
     }
@@ -610,6 +689,21 @@ void NdsDisplayControl::advance_bus_cycles(uint64_t cycles) noexcept
     while (cycles != 0u) {
         uint32_t next_event = CyclesPerScanline - line_cycle_;
 
+        if (main_memory_display_active_ && main_memory_display_mode() &&
+            vcount_ < VisibleScanlines &&
+            main_memory_display_pixel_index_ < MainMemoryDisplayWidth) {
+            const uint32_t next_pixel_cycle = static_cast<uint32_t>(
+                (static_cast<uint64_t>(main_memory_display_pixel_index_) *
+                    Arm9HblankStartCycle + 255u) / MainMemoryDisplayWidth);
+            if (next_pixel_cycle > line_cycle_) {
+                next_event = std::min(
+                    next_event, next_pixel_cycle - line_cycle_);
+            } else {
+                advance_main_memory_display_pixel();
+                continue;
+            }
+        }
+
         if (!hblank_irq_fired_[0] &&
             line_cycle_ < Arm9HblankStartCycle) {
             next_event = std::min(
@@ -625,6 +719,17 @@ void NdsDisplayControl::advance_bus_cycles(uint64_t cycles) noexcept
             std::min<uint64_t>(cycles, next_event));
         line_cycle_ += step;
         cycles -= step;
+
+        if (main_memory_display_active_ && main_memory_display_mode() &&
+            vcount_ < VisibleScanlines &&
+            main_memory_display_pixel_index_ < MainMemoryDisplayWidth) {
+            const uint32_t next_pixel_cycle = static_cast<uint32_t>(
+                (static_cast<uint64_t>(main_memory_display_pixel_index_) *
+                    Arm9HblankStartCycle + 255u) / MainMemoryDisplayWidth);
+            if (line_cycle_ == next_pixel_cycle) {
+                advance_main_memory_display_pixel();
+            }
+        }
 
         if (line_cycle_ == Arm9HblankStartCycle &&
             !hblank_irq_fired_[0]) {
@@ -650,6 +755,9 @@ void NdsDisplayControl::advance_bus_cycles(uint64_t cycles) noexcept
 void NdsDisplayControl::reset_timing() noexcept
 {
     clear_main_memory_display_fifo();
+    main_memory_display_frame_.fill(0u);
+    main_memory_display_pixel_index_ = 0u;
+    main_memory_display_active_ = false;
     vcount_ = 0u;
     line_cycle_ = 0u;
     pending_vcount_write_ = false;
