@@ -1,9 +1,9 @@
 /*
  * Nintendo DS general-purpose DMA controller.
  *
- * Four independent channels are provided to each CPU. This first runtime
- * slice executes immediate transfers between mapped guest-memory regions.
- * Event-triggered modes remain armed until their event sources are integrated.
+ * Each CPU owns four channels. SAD/DAD/COUNT remain the guest-visible
+ * programmed registers; transfer pointers are private channel state.
+ * Immediate, VBlank and ARM9 HBlank transfers currently target mapped memory.
  */
 #ifndef ORACIS_MEMORY_NDS_DMA_CONTROL_HPP
 #define ORACIS_MEMORY_NDS_DMA_CONTROL_HPP
@@ -51,9 +51,14 @@ public:
 
 private:
     struct Channel {
+        /* Guest-visible programmed SAD, DAD and CNT/CONTROL registers. */
         uint32_t source = 0u;
         uint32_t destination = 0u;
         uint32_t control = 0u;
+
+        /* Internal DMA pointers; never exposed through SAD/DAD reads. */
+        uint32_t current_source = 0u;
+        uint32_t current_destination = 0u;
     };
 
     static bool valid_cpu(NdsCpu cpu) noexcept;

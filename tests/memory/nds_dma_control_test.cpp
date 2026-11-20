@@ -102,8 +102,8 @@ int main()
             return fail("ARM9 immediate 32-bit transfer copied incorrect data");
         }
     }
-    if (bus_read_u32(source_reg(0u)) != arm9_source + 16u ||
-        bus_read_u32(destination_reg(0u)) != arm9_destination + 16u ||
+    if (bus_read_u32(source_reg(0u)) != arm9_source ||
+        bus_read_u32(destination_reg(0u)) != arm9_destination ||
         (bus_read_u32(control_reg(0u)) & NdsDmaControl::EnableMask) != 0u ||
         bus_read_u32(NdsInterruptControl::IfAddress) != Dma0Irq) {
         return fail("ARM9 DMA completion state, addresses, or IRQ was incorrect");
@@ -134,8 +134,8 @@ int main()
             return fail("ARM7 immediate 16-bit transfer copied incorrect data");
         }
     }
-    if (bus_read_u32(source_reg(1u)) != arm7_source + 6u ||
-        bus_read_u32(destination_reg(1u)) != arm7_destination + 6u ||
+    if (bus_read_u32(source_reg(1u)) != arm7_source ||
+        bus_read_u32(destination_reg(1u)) != arm7_destination ||
         (bus_read_u32(control_reg(1u)) & NdsDmaControl::EnableMask) != 0u ||
         bus_read_u32(NdsInterruptControl::IfAddress) != Dma1Irq) {
         return fail("ARM7 DMA split control write or IRQ completion failed");
@@ -185,8 +185,8 @@ int main()
             descending_words[3] ||
         memory.read(NDS_ARM9, descending_destination - 4u, 4u).value !=
             descending_words[2] ||
-        bus_read_u32(source_reg(2u)) != descending_source - 16u ||
-        bus_read_u32(destination_reg(2u)) != descending_destination - 16u) {
+        bus_read_u32(source_reg(2u)) != descending_source ||
+        bus_read_u32(destination_reg(2u)) != descending_destination) {
         return fail("decrementing source/destination transfer failed");
     }
 
@@ -214,6 +214,8 @@ int main()
     if (memory.read(NDS_ARM9, deferred_destination, 4u).value !=
             UINT32_C(0xCAFE1234) ||
         (bus_read_u32(control_reg(3u)) & NdsDmaControl::EnableMask) != 0u ||
+        bus_read_u32(source_reg(3u)) != deferred_source ||
+        bus_read_u32(destination_reg(3u)) != deferred_destination ||
         (bus_read_u32(NdsInterruptControl::IfAddress) &
             (UINT32_C(1) << 11u)) == 0u) {
         return fail("VBlank event did not execute one-shot DMA and request IRQ");
@@ -245,10 +247,26 @@ int main()
     display.advance_bus_cycles(NdsDisplayControl::CyclesPerScanline);
     if (memory.read(NDS_ARM9, hblank_destination, 4u).value !=
             UINT32_C(0x24681357) ||
-        bus_read_u32(source_reg(1u)) != hblank_source + 8u ||
+        bus_read_u32(source_reg(1u)) != hblank_source ||
         bus_read_u32(destination_reg(1u)) != hblank_destination ||
         (bus_read_u32(control_reg(1u)) & NdsDmaControl::EnableMask) == 0u) {
         return fail("repeating HBlank DMA did not advance source and reload destination");
+    }
+    bus_write_u16(control_reg(1u) + 2u, 0u);
+
+    /* A fresh enable edge reloads the internal source/destination from SAD/DAD. */
+    const uint32_t hblank_repeat_control =
+        UINT32_C(1) | (UINT32_C(2) << 27u) |
+        NdsDmaControl::RepeatMask | NdsDmaControl::WordTransferMask |
+        (UINT32_C(3) << NdsDmaControl::DestinationControlShift) |
+        NdsDmaControl::EnableMask;
+    bus_write_u32(control_reg(1u), hblank_repeat_control);
+    display.advance_bus_cycles(NdsDisplayControl::Arm9HblankStartCycle);
+    if (memory.read(NDS_ARM9, hblank_destination, 4u).value !=
+            UINT32_C(0x13572468) ||
+        bus_read_u32(source_reg(1u)) != hblank_source ||
+        bus_read_u32(destination_reg(1u)) != hblank_destination) {
+        return fail("re-enabling DMA did not reload the programmed SAD/DAD pointers");
     }
     bus_write_u16(control_reg(1u) + 2u, 0u);
 
@@ -298,6 +316,6 @@ int main()
         return fail("DMA bus teardown failed");
     }
 
-    std::puts("NDS DMA immediate mode, per-CPU channels, address modes and IRQ passed");
+    std::puts("NDS DMA programmed registers, internal pointers, event repeats and IRQ passed");
     return 0;
 }

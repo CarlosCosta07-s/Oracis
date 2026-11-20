@@ -154,8 +154,8 @@ Status NdsDmaControl::execute_transfer(
         memory_.validate_write(cpu, destination_base, destination_span);
     if (destination_status != Status::Ok) return destination_status;
 
-    uint32_t source = state.source;
-    uint32_t destination = state.destination;
+    uint32_t source = state.current_source;
+    uint32_t destination = state.current_destination;
     for (uint32_t index = 0u; index < count; ++index) {
         const ReadResult value = memory_.read(cpu, source, width);
         if (!value) return value.status;
@@ -173,12 +173,12 @@ Status NdsDmaControl::execute_transfer(
         }
     }
 
-    state.source = source;
-    /* Increment/reload restores the programmed destination after this run. */
-    state.destination = destination_mode == 3u
+    const bool repeat = !immediate && (control & RepeatMask) != 0u;
+    state.current_source = source;
+    /* Increment/reload reloads DAD for the next repeated transfer only. */
+    state.current_destination = repeat && destination_mode == 3u
         ? state.destination : destination;
 
-    const bool repeat = !immediate && (control & RepeatMask) != 0u;
     if (!repeat) state.control &= ~EnableMask;
     if ((control & IrqEnableMask) != 0u) {
         (void)interrupts_.request_irq(
@@ -257,16 +257,27 @@ Status NdsDmaControl::write(
         return Status::InvalidWidth;
     }
     candidate &= control_mask(cpu);
-    channel.control = candidate;
 
-    if ((candidate & EnableMask) == 0u || start_timing(cpu, candidate) != 0u) {
-        return Status::Ok;
-    }
+    const bool enable_rising =
+        (previous_control & EnableMask) == 0u &&
+        (candidate & EnableMask) != 0u;
+    channel.control = candidate;
+    if (!enable_rising) return Status::Ok;
+
+    const uint32_t previous_source = channel.current_source;
+    const uint32_t previous_destination = channel.current_destination;
+    /* Hardware snapshots SAD/DAD when software raises the enable bit. */
+    channel.current_source = channel.source;
+    channel.current_destination = channel.destination;
+
+    if (start_timing(cpu, candidate) != 0u) return Status::Ok;
 
     const Status result = execute_transfer(
         cpu, channel_index, channel, true);
     if (result != Status::Ok) {
         channel.control = previous_control;
+        channel.current_source = previous_source;
+        channel.current_destination = previous_destination;
         return result;
     }
     return Status::Ok;
