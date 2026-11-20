@@ -236,6 +236,24 @@ int main()
         return fail("Engine B OAM/OBJ VRAM/OBJ palette selection failed");
     }
 
-    std::puts("NDS Engine A/B OBJ OAM, 4bpp/8bpp, flips, priority and OBJ-window tests passed");
+    /* Engine B affine matrices occupy the corresponding second 1 KiB OAM half. */
+    if (!write_affine_matrix(
+            memory, 1u, 2u,
+            UINT16_C(0x0100), 0u, 0u, UINT16_C(0x0100)) ||
+        !write_oam(
+            memory, 1u, 0u,
+            UINT16_C(0x0100),
+            static_cast<uint16_t>(2u << 9u),
+            UINT16_C(0x0000))) {
+        return fail("Engine B affine matrix fixture setup failed");
+    }
+    result = fetcher.render_scanline(1u, display, 0u, line);
+    if (result.status != Nds2dObjFetchStatus::Ok ||
+        line.pixels[0].rgb555 != UINT16_C(0x4567) ||
+        line.pixels[7].rgb555 != UINT16_C(0x4567)) {
+        return fail("Engine B affine matrix lookup or identity sampling failed");
+    }
+
+    std::puts("NDS Engine A/B OBJ OAM, 4bpp/8bpp, affine transform, flips, priority and OBJ-window tests passed");
     return 0;
 }
