@@ -29,8 +29,7 @@ typedef enum OracisHostRuntimeStatus {
     ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR = 10,
     ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID = 11,
     ORACIS_HOST_RUNTIME_INVALID_ARGUMENT = 12,
-    ORACIS_HOST_RUNTIME_VIDEO_ERROR = 13,
-    ORACIS_HOST_RUNTIME_ENTRYPOINT_UNRESOLVED = 14
+    ORACIS_HOST_RUNTIME_VIDEO_ERROR = 13
 } OracisHostRuntimeStatus;
 
 /* Result of checking the current ARM9/ARM7 start PCs against registered banks. */
@@ -130,10 +129,7 @@ int oracis_host_runtime_register_compiled_banks(void);
 
 /*
  * Execute one synchronized ARM9/ARM7 round through the registered static
- * banks. Both loaded start PCs must resolve to live-byte-validated rows before
- * execution begins; otherwise ENTRYPOINT_UNRESOLVED is returned without
- * advancing either CPU or the shared bus clock. Later dynamic dispatch misses
- * remain fail-closed runtime errors.
+ * banks. Returns NO_PROGRAM_BANKS until both CPUs have at least one bank.
  */
 int oracis_host_runtime_run_round(
     uint64_t bus_cycle_budget,

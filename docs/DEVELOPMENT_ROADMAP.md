@@ -69,7 +69,3 @@ O NDSRecomp fixado gerou 78 funções ARM9 e 957 ARM7 (8 Thumb) em bancos C/disp
 
 
 Não anunciar compatibilidade, desempenho ou conclusão de subsistemas sem testes reproduzíveis.
-
-## Gate de entrada antes da execução
-
-A ponte host valida os PCs iniciais de ARM9 e ARM7 contra as linhas registradas e os bytes atualmente presentes na memória guest antes de abrir um round. Se qualquer uma das duas entradas estiver ausente ou tiver identidade divergente, `oracis_host_runtime_run_round()` retorna `ORACIS_HOST_RUNTIME_ENTRYPOINT_UNRESOLVED` sem executar blocos nem avançar o relógio compartilhado. Isso protege somente o início do programa; alvos indiretos e overlays encontrados durante a execução continuam sujeitos ao dispatch fail-closed e precisam de cobertura própria.

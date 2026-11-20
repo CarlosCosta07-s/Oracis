@@ -1,0 +1,118 @@
+#!/usr/bin/env python3
+"""Synthetic tests for the local generated-bank symbol auditor."""
+
+from __future__ import annotations
+
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+
+from audit_bank_symbols import (
+    AuditError,
+    audit_bank_symbols,
+    parse_nm_posix,
+)
+
+
+class AuditBankSymbolsTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory(prefix="oracis-symbol-audit-")
+        self.root = Path(self.temp.name)
+        self.arm9 = self.root / "arm9.o"
+        self.arm7 = self.root / "arm7.o"
+        self.runtime = self.root / "liboracis.a"
+        for path in (self.arm9, self.arm7, self.runtime):
+            path.write_bytes(b"synthetic input")
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def test_parses_posix_nm_undefined_and_defined_symbols(self) -> None:
+        self.assertEqual(
+            parse_nm_posix("callee U         \nweak_ref w         \nignored T 0 4\n",
+                           undefined=True),
+            {"callee", "weak_ref"},
+        )
+        self.assertEqual(
+            parse_nm_posix("callee T 00000000 4\nobject D 00000004 4\n",
+                           undefined=False),
+            {"callee", "object"},
+        )
+
+    def test_resolves_cross_bank_and_runtime_symbols_and_allowlists_platform(self) -> None:
+        outputs = {
+            ("-u", "arm9.o"): "arm7_service U\nmemcpy U\nshared_helper U\n",
+            ("-u", "arm7.o"): "arm9_service U\nshared_helper U\n",
+            ("--defined-only", "arm9.o"): "arm9_service T 0 4\n",
+            ("--defined-only", "arm7.o"): "arm7_service T 0 4\n",
+            ("--defined-only", "liboracis.a"):
+                "shared_helper T 0 4\n",
+        }
+
+        def runner(command, **kwargs):
+            mode = "-u" if "-u" in command else "--defined-only"
+            key = (mode, Path(command[-1]).name)
+            return subprocess.CompletedProcess(
+                command, 0, outputs[key], ""
+            )
+
+        allowlist = self.root / "symbols.allow"
+        allowlist.write_text(
+            "# platform C library\nmemcpy\n", encoding="utf-8"
+        )
+        report = audit_bank_symbols(
+            [self.arm9, self.arm7],
+            [self.runtime],
+            nm="llvm-nm",
+            allowlist=allowlist,
+            runner=runner,
+        )
+        self.assertEqual(report["undefined_symbols"], {
+            "arm7_service", "arm9_service", "memcpy", "shared_helper"
+        })
+        self.assertEqual(report["resolved_symbols"], {
+            "arm7_service", "arm9_service", "shared_helper"
+        })
+        self.assertEqual(report["allowed_symbols"], {"memcpy"})
+        self.assertEqual(report["unresolved_symbols"], set())
+
+    def test_reports_unresolved_symbol(self) -> None:
+        def runner(command, **kwargs):
+            if "-u" in command:
+                output = "missing_nitro_service U\n"
+            else:
+                output = "runtime_dispatch T 0 8\n"
+            return subprocess.CompletedProcess(command, 0, output, "")
+
+        report = audit_bank_symbols(
+            [self.arm9], [self.runtime], nm="nm", runner=runner
+        )
+        self.assertEqual(report["unresolved_symbols"], {"missing_nitro_service"})
+
+    def test_rejects_missing_inputs_before_invoking_nm(self) -> None:
+        called = False
+
+        def runner(command, **kwargs):
+            nonlocal called
+            called = True
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        with self.assertRaisesRegex(AuditError, "do not exist"):
+            audit_bank_symbols(
+                [self.arm9], [self.root / "missing.a"], nm="nm", runner=runner
+            )
+        self.assertFalse(called)
+
+    def test_reports_nm_failure_with_file_context(self) -> None:
+        def runner(command, **kwargs):
+            return subprocess.CompletedProcess(command, 1, "", "bad object")
+
+        with self.assertRaisesRegex(AuditError, "arm9.o.*bad object"):
+            audit_bank_symbols(
+                [self.arm9], [self.runtime], nm="nm", runner=runner
+            )
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

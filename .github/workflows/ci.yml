@@ -38,7 +38,8 @@ jobs:
           python3 -m py_compile \
             tools/ndsrecomp/build_recompiler.py \
             tools/ndsrecomp/extract_nds_programs.py \
-            tools/ndsrecomp/emit_platinum_banks.py
+            tools/ndsrecomp/emit_platinum_banks.py \
+            tools/ndsrecomp/audit_bank_symbols.py
           python3 -m unittest discover \
             --start-directory tests/tools \
             --pattern 'test_*.py' \
@@ -122,6 +123,7 @@ jobs:
           install -m 0755 "$compiler" "$output/nds_recompile"
           install -m 0644 tools/ndsrecomp/extract_nds_programs.py "$output/tools/ndsrecomp/"
           install -m 0644 tools/ndsrecomp/emit_platinum_banks.py "$output/tools/ndsrecomp/"
+          install -m 0644 tools/ndsrecomp/audit_bank_symbols.py "$output/tools/ndsrecomp/"
           for header in runtime_arm.h arm_cpu_state.h arm_cpu_state_ops.h arm_flags.h runtime_event_trace.h; do
             install -m 0644 "include/oracis/recomp/$header" "$output/include/oracis/recomp/$header"
           done
@@ -136,7 +138,8 @@ jobs:
           (
             cd "$output"
             sha256sum nds_recompile tools/ndsrecomp/extract_nds_programs.py \
-              tools/ndsrecomp/emit_platinum_banks.py include/oracis/recomp/*.h > SHA256SUMS
+              tools/ndsrecomp/emit_platinum_banks.py \
+              tools/ndsrecomp/audit_bank_symbols.py include/oracis/recomp/*.h > SHA256SUMS
           )
 
       - name: Upload pinned compiler for local bank generation

@@ -174,3 +174,8 @@ O CMake registra **34 testes C99/C++20**. A CI do commit `3c9ff13` passou nos qu
 8. Só então habilitar rounds reais e avançar para primeiro quadro, áudio e saves.
 
 Até a ligação dos bancos reais ao runtime e a execução verificável da sequência de inicialização, o Oracis ainda não inicializa Pokémon Platinum.
+
+
+## 12. Auditoria reproduzível dos símbolos externos
+
+`tools/ndsrecomp/audit_bank_symbols.py` compara as referências indefinidas dos objetos C dos bancos ARM9/ARM7 com as definições presentes nos próprios objetos e nas bibliotecas do runtime Oracis. O relatório agrupa símbolos compartilhados entre CPUs, identifica os objetos que os referenciam e falha para qualquer nome que não tenha provedor ou allowlist local explícito. A ferramenta possui testes sintéticos na suite Python. Isso torna reproduzível a conferência dos 48 nomes únicos registrados no primeiro inventário, mas não afirma que os símbolos reais já foram resolvidos: essa conclusão depende de rodar a auditoria contra os objetos locais de Pokémon Platinum e as bibliotecas efetivamente construídas.

@@ -175,3 +175,33 @@ Quando bancos estáticos estão ligados, o host SDL3 desktop chama essa API dura
 6. Iniciar rounds somente quando ambos os bancos e imagens estiverem validados e os caminhos de dispatch, serviços e IRQ exigidos estiverem prontos.
 
 O critério de primeiro boot nativo continua sendo a execução observável e reproduzível dos dois cores até a apresentação do primeiro quadro, sem interpretador ARM genérico e sem componentes de runtime derivados de melonDS.
+
+
+## 12. Auditoria local dos símbolos dos bancos
+
+Depois de emitir e compilar os quatro arquivos C dos bancos localmente, use o auditor para comparar os símbolos indefinidos dos objetos ARM9/ARM7 com os símbolos definidos pelos próprios bancos e pelas bibliotecas do runtime Oracis:
+
+\`\`\`sh
+python tools/ndsrecomp/audit_bank_symbols.py \\
+  --banks \\
+    .oracis/objects/pokemon_platinum_usa_rev1_arm9.o \\
+    .oracis/objects/pokemon_platinum_usa_rev1_arm7.o \\
+  --runtime \\
+    build/liboracis_machine.a \\
+    build/liboracis_memory.a \\
+    build/liboracis_arm_state.a
+\`\`\`
+
+Os caminhos dos objetos e bibliotecas devem corresponder aos artefatos realmente produzidos pelo build local. O auditor aceita GNU \`nm\` ou LLVM \`llvm-nm\`, lê um objeto por chamada e distingue símbolos definidos por objetos/bibliotecas de referências indefinidas. O resultado agrupa referências compartilhadas entre CPUs, informa quais bancos as solicitam e retorna código diferente de zero quando houver símbolos sem provedor.
+
+Símbolos fornecidos pelo compilador C ou pela plataforma só podem ser excluídos do resultado por meio de um arquivo local explícito, passado com \`--allowlist\`, contendo um símbolo por linha. Não coloque nesse arquivo helpers ARM, funções NitroSDK ou serviços que deveriam pertencer ao runtime Oracis. O allowlist é uma decisão local e revisável; não deve ser usado para mascarar lacunas de ABI.
+
+Exemplo de arquivo local (não versionado):
+
+\`\`\`text
+# Funções confirmadas como fornecidas pela libc do toolchain utilizado
+memcpy
+memset
+\`\`\`
+
+O auditor é exercitado por testes sintéticos da ferramenta. CI compila/testa o script, mas não recebe ROM, segmentos extraídos, bancos comerciais ou objetos derivados do jogo. A execução contra os bancos reais ainda precisa ser feita localmente e seu relatório deve ser revisado antes de habilitar execução.
