@@ -25,12 +25,23 @@ public:
     static constexpr uint32_t VcountAddress = UINT32_C(0x04000006);
     static constexpr uint32_t BgControlOffset = UINT32_C(0x0008);
     static constexpr uint32_t BgScrollOffset = UINT32_C(0x0010);
+    static constexpr uint32_t BgAffineOffset = UINT32_C(0x0020);
     static constexpr uint32_t BgCount = 4u;
     static constexpr uint16_t BgScrollValueMask = UINT16_C(0x01FF);
+    static constexpr uint32_t BgAffineReferenceMask = UINT32_C(0x0FFFFFFF);
 
     struct BgScrollState {
         uint16_t horizontal = 0u;
         uint16_t vertical = 0u;
+    };
+
+    struct BgAffineState {
+        int16_t pa = 0;
+        int16_t pb = 0;
+        int16_t pc = 0;
+        int16_t pd = 0;
+        int32_t reference_x = 0;
+        int32_t reference_y = 0;
     };
 
     static constexpr uint32_t EngineBDispcntSupportedMask =
@@ -75,6 +86,8 @@ public:
     uint32_t scanline_cycle() const noexcept { return line_cycle_; }
     BgScrollState bg_scroll(
         unsigned engine_index, unsigned bg_index) const noexcept;
+    BgAffineState bg_affine(
+        unsigned engine_index, unsigned bg_index) const noexcept;
 
 private:
     struct EngineState {
@@ -82,6 +95,7 @@ private:
         std::array<uint16_t, BgCount> bgcnt{};
         std::array<uint16_t, BgCount> bg_hofs{};
         std::array<uint16_t, BgCount> bg_vofs{};
+        std::array<BgAffineState, 2> bg_affine{};
     };
 
     struct CpuStatus {

@@ -186,6 +186,82 @@ int main()
         return fail("BG scroll 16-bit width, engine isolation or CPU permissions failed");
     }
 
+
+    /*
+     * BG2/BG3 affine registers are write-only. PA/PB/PC/PD use signed 8.8
+     * coefficients (16-bit); X/Y are signed 19.8 values in 28 valid bits.
+     */
+    constexpr uint32_t engine_a_affine = UINT32_C(0x04000020);
+    constexpr uint32_t engine_b_affine = UINT32_C(0x04001020);
+    if (display.write(
+            NDS_ARM9, engine_a_affine, 2u, UINT16_C(0xFF00)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, engine_a_affine + 2u, 2u, UINT16_C(0x0080)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, engine_a_affine + 4u, 2u, UINT16_C(0xFF80)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, engine_a_affine + 6u, 2u, UINT16_C(0x0100)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, engine_a_affine + 8u, 4u,
+            UINT32_C(0xF8765432)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, engine_a_affine + 12u, 4u,
+            UINT32_C(0x01234567)) != Status::Ok) {
+        return fail("Engine A BG2 affine register writes failed");
+    }
+    const auto engine_a_bg2_affine = display.bg_affine(0u, 2u);
+    if (engine_a_bg2_affine.pa != -256 ||
+        engine_a_bg2_affine.pb != 128 ||
+        engine_a_bg2_affine.pc != -128 ||
+        engine_a_bg2_affine.pd != 256 ||
+        engine_a_bg2_affine.reference_x != -126458830 ||
+        engine_a_bg2_affine.reference_y != INT32_C(0x01234567) ||
+        display.read(NDS_ARM9, engine_a_affine, 2u).status !=
+            Status::PermissionDenied ||
+        display.read(NDS_ARM9, engine_a_affine + 8u, 4u).status !=
+            Status::PermissionDenied) {
+        return fail("Engine A BG2 affine signed values or write-only semantics failed");
+    }
+
+    if (display.write(
+            NDS_ARM9, engine_b_affine + 16u, 2u,
+            UINT16_C(0x0200)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, engine_b_affine + 22u, 2u,
+            UINT16_C(0xFE00)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, engine_b_affine + 24u, 4u,
+            UINT32_C(0x08000000)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, engine_b_affine + 28u, 4u,
+            UINT32_C(0xF0000001)) != Status::Ok) {
+        return fail("Engine B BG3 affine register writes failed");
+    }
+    const auto engine_b_bg3_affine = display.bg_affine(1u, 3u);
+    if (engine_b_bg3_affine.pa != 512 ||
+        engine_b_bg3_affine.pd != -512 ||
+        engine_b_bg3_affine.reference_x != -INT32_C(0x08000000) ||
+        engine_b_bg3_affine.reference_y != 1 ||
+        display.bg_affine(0u, 3u).pa != 0 ||
+        display.bg_affine(1u, 2u).pa != 0 ||
+        display.write(
+            NDS_ARM9, engine_a_affine, 4u, UINT32_C(0x12345678)) !=
+            Status::InvalidWidth ||
+        display.write(
+            NDS_ARM9, engine_a_affine + 8u, 2u, UINT16_C(0x1234)) !=
+            Status::InvalidWidth ||
+        display.write(
+            NDS_ARM9, engine_a_affine + 10u, 4u,
+            UINT32_C(0x12345678)) != Status::InvalidWidth ||
+        display.read(
+            NDS_ARM9, engine_b_affine + 24u, 4u).status !=
+            Status::PermissionDenied ||
+        display.write(
+            NDS_ARM7, engine_a_affine, 2u, UINT16_C(0x1234)) !=
+            Status::Unmapped) {
+        return fail("Engine B BG3 affine masking, width, isolation or CPU permission failed");
+    }
+
     /* The NDS9 and NDS7 HBlank flags have distinct phase lengths. */
     display.advance_bus_cycles(NdsDisplayControl::Arm9HblankStartCycle - 1u);
     if ((display.read(

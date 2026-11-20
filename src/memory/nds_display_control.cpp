@@ -8,6 +8,7 @@ namespace {
 constexpr uint32_t kDispcntBytes = 4u;
 constexpr uint32_t kBgRegisterBytes = NdsDisplayControl::BgCount * 2u;
 constexpr uint32_t kBgScrollBytes = NdsDisplayControl::BgCount * 4u;
+constexpr uint32_t kBgAffineBytes = UINT32_C(0x0020);
 constexpr uint16_t kVblankFlag = UINT16_C(1u << 0u);
 constexpr uint16_t kHblankFlag = UINT16_C(1u << 1u);
 constexpr uint16_t kVcountMatchFlag = UINT16_C(1u << 2u);
@@ -36,6 +37,30 @@ NdsDisplayControl::BgScrollState NdsDisplayControl::bg_scroll(
     return {engine.bg_hofs[bg_index], engine.bg_vofs[bg_index]};
 }
 
+NdsDisplayControl::BgAffineState NdsDisplayControl::bg_affine(
+    unsigned engine_index, unsigned bg_index) const noexcept
+{
+    if (engine_index >= engines_.size() || bg_index < 2u || bg_index > 3u) {
+        return {};
+    }
+    return engines_[engine_index].bg_affine[bg_index - 2u];
+}
+
+namespace {
+
+int32_t sign_extend_affine_reference(uint32_t value) noexcept
+{
+    const uint32_t raw = value & NdsDisplayControl::BgAffineReferenceMask;
+    if ((raw & UINT32_C(0x08000000)) == 0u) {
+        return static_cast<int32_t>(raw);
+    }
+    const int64_t signed_value =
+        static_cast<int64_t>(raw) - INT64_C(0x10000000);
+    return static_cast<int32_t>(signed_value);
+}
+
+} // namespace
+
 bool NdsDisplayControl::locate_engine_register(
     uint32_t address,
     unsigned &engine_index,
@@ -60,8 +85,12 @@ bool NdsDisplayControl::locate_engine_register(
         register_offset < BgControlOffset + kBgRegisterBytes) {
         return true;
     }
-    return register_offset >= BgScrollOffset &&
-           register_offset < BgScrollOffset + kBgScrollBytes;
+    if (register_offset >= BgScrollOffset &&
+        register_offset < BgScrollOffset + kBgScrollBytes) {
+        return true;
+    }
+    return register_offset >= BgAffineOffset &&
+           register_offset < BgAffineOffset + kBgAffineBytes;
 }
 
 bool NdsDisplayControl::is_vblank_line(uint16_t scanline) noexcept
@@ -168,11 +197,25 @@ ReadResult NdsDisplayControl::read(
         return {Status::InvalidWidth, 0u};
     }
 
-    if (offset >= BgScrollOffset) {
+    if (offset >= BgScrollOffset &&
+        offset < BgScrollOffset + kBgScrollBytes) {
         const uint32_t scroll_offset = offset - BgScrollOffset;
         if ((scroll_offset & 1u) == 0u && width == 2u) {
             return {Status::PermissionDenied, 0u}; /* BGxHOFS/BGxVOFS are write-only. */
         }
+        return {Status::InvalidWidth, 0u};
+    }
+
+    if (offset >= BgAffineOffset &&
+        offset < BgAffineOffset + kBgAffineBytes) {
+        const uint32_t affine_offset = offset - BgAffineOffset;
+        const uint32_t bg_offset = affine_offset % UINT32_C(0x10);
+        if ((bg_offset < 8u && (bg_offset & 1u) == 0u && width == 2u) ||
+            ((bg_offset == 8u || bg_offset == 12u) &&
+             width == 4u)) {
+            return {Status::PermissionDenied, 0u}; /* Affine registers are write-only. */
+        }
+        return {Status::InvalidWidth, 0u};
     }
     return {Status::InvalidWidth, 0u};
 }
@@ -257,7 +300,8 @@ Status NdsDisplayControl::write(
         return Status::InvalidWidth;
     }
 
-    if (offset >= BgScrollOffset) {
+    if (offset >= BgScrollOffset &&
+        offset < BgScrollOffset + kBgScrollBytes) {
         const uint32_t scroll_offset = offset - BgScrollOffset;
         if ((scroll_offset & 1u) == 0u && width == 2u) {
             const unsigned bg_index = static_cast<unsigned>(scroll_offset / 4u);
@@ -273,6 +317,36 @@ Status NdsDisplayControl::write(
                 return Status::Ok;
             }
         }
+        return Status::InvalidWidth;
+    }
+
+    if (offset >= BgAffineOffset &&
+        offset < BgAffineOffset + kBgAffineBytes) {
+        const uint32_t affine_offset = offset - BgAffineOffset;
+        const unsigned bg_index =
+            affine_offset >= UINT32_C(0x10) ? 1u : 0u;
+        const uint32_t bg_offset = affine_offset % UINT32_C(0x10);
+        BgAffineState &affine = engine.bg_affine[bg_index];
+
+        if (bg_offset < 8u && (bg_offset & 1u) == 0u && width == 2u) {
+            const int16_t coefficient = static_cast<int16_t>(
+                static_cast<uint16_t>(value));
+            switch (bg_offset / 2u) {
+            case 0u: affine.pa = coefficient; return Status::Ok;
+            case 1u: affine.pb = coefficient; return Status::Ok;
+            case 2u: affine.pc = coefficient; return Status::Ok;
+            case 3u: affine.pd = coefficient; return Status::Ok;
+            default: break;
+            }
+        }
+
+        if ((bg_offset == 8u || bg_offset == 12u) && width == 4u) {
+            const int32_t coordinate = sign_extend_affine_reference(value);
+            if (bg_offset == 8u) affine.reference_x = coordinate;
+            else affine.reference_y = coordinate;
+            return Status::Ok;
+        }
+        return Status::InvalidWidth;
     }
     return Status::InvalidWidth;
 }
