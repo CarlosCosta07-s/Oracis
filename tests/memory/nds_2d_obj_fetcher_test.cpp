@@ -42,6 +42,23 @@ bool write_oam(
         write16(memory, base + 4u, attr2);
 }
 
+bool write_affine_matrix(
+    oracis::memory::GuestMemory &memory,
+    unsigned engine,
+    unsigned matrix,
+    uint16_t pa,
+    uint16_t pb,
+    uint16_t pc,
+    uint16_t pd)
+{
+    const uint32_t base = UINT32_C(0x07000000) +
+        (engine == 0u ? 0u : UINT32_C(0x400)) + matrix * 32u;
+    return write16(memory, base + 6u, pa) &&
+        write16(memory, base + 14u, pb) &&
+        write16(memory, base + 22u, pc) &&
+        write16(memory, base + 30u, pd);
+}
+
 } // namespace
 
 int main()
@@ -217,6 +234,103 @@ int main()
         return fail("affine OBJ did not fail explicitly");
     }
 
+    /*
+     * Affine matrix 3 lives in OAM's interleaved parameter slots. Identity
+     * mapping must preserve the original 8x8 source texel layout.
+     */
+    if (!write_oam(
+            memory, 0u, 0u,
+            UINT16_C(0x010A),
+            static_cast<uint16_t>((3u << 9u) | 5u),
+            UINT16_C(0x0000)) ||
+        !write_affine_matrix(
+            memory, 0u, 3u,
+            UINT16_C(0x0100), 0u, 0u, UINT16_C(0x0100)) ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            UINT32_C(1) << 12u) != Status::Ok) {
+        return fail("identity affine OBJ fixture setup failed");
+    }
+    result = fetcher.render_scanline(0u, display, 10u, line);
+    if (result.status != Nds2dObjFetchStatus::Ok ||
+        line.pixels[5].transparent ||
+        line.pixels[5].rgb555 != UINT16_C(0x001F) ||
+        line.pixels[6].rgb555 != UINT16_C(0x03E0) ||
+        line.pixels[12].rgb555 != UINT16_C(0x294A)) {
+        return fail("identity affine matrix or interleaved matrix index failed");
+    }
+
+    /* PA=0.5 samples two adjacent output pixels from the same source texel. */
+    if (!write_affine_matrix(
+            memory, 0u, 7u,
+            UINT16_C(0x0080), 0u, 0u, UINT16_C(0x0100)) ||
+        !write_oam(
+            memory, 0u, 0u,
+            UINT16_C(0x010A),
+            static_cast<uint16_t>((7u << 9u) | 5u),
+            UINT16_C(0x0000))) {
+        return fail("affine scaling fixture setup failed");
+    }
+    result = fetcher.render_scanline(0u, display, 10u, line);
+    if (result.status != Nds2dObjFetchStatus::Ok ||
+        line.pixels[5].rgb555 != UINT16_C(0x7C00) ||
+        line.pixels[6].rgb555 != UINT16_C(0x7C00) ||
+        line.pixels[7].rgb555 != UINT16_C(0x4210)) {
+        return fail("affine horizontal scaling produced incorrect source coordinates");
+    }
+
+    /* Negative PB and positive PC exercise signed matrix coefficients. */
+    for (uint32_t row = 0u; row < 8u; ++row) {
+        if (!write32(
+                memory,
+                UINT32_C(0x06400000) + row * 4u,
+                UINT32_C(0x87654321))) {
+            return fail("affine rotation source tile setup failed");
+        }
+    }
+    if (!write_affine_matrix(
+            memory, 0u, 8u,
+            0u, UINT16_C(0xFF00), UINT16_C(0x0100), 0u) ||
+        !write_oam(
+            memory, 0u, 0u,
+            UINT16_C(0x010A),
+            static_cast<uint16_t>((8u << 9u) | 5u),
+            UINT16_C(0x0000))) {
+        return fail("affine rotation fixture setup failed");
+    }
+    result = fetcher.render_scanline(0u, display, 13u, line);
+    if (result.status != Nds2dObjFetchStatus::Ok ||
+        line.pixels[5].rgb555 != UINT16_C(0x6318)) {
+        return fail("signed PB/PC affine rotation mapping failed");
+    }
+
+    /*
+     * Double-size expands the destination area to 16x16 while keeping the
+     * source image 8x8 and centered; its first texel appears at local (4,4).
+     */
+    if (!write_affine_matrix(
+            memory, 0u, 9u,
+            UINT16_C(0x0100), 0u, 0u, UINT16_C(0x0100)) ||
+        !write_oam(
+            memory, 0u, 0u,
+            UINT16_C(0x0300) | UINT16_C(30),
+            static_cast<uint16_t>((9u << 9u) | 20u),
+            UINT16_C(0x0000))) {
+        return fail("double-size affine fixture setup failed");
+    }
+    result = fetcher.render_scanline(0u, display, 34u, line);
+    if (result.status != Nds2dObjFetchStatus::Ok ||
+        line.pixels[24].transparent ||
+        line.pixels[24].rgb555 != UINT16_C(0x001F) ||
+        !line.pixels[20].transparent) {
+        return fail("double-size affine bounding-box center was incorrect");
+    }
+    result = fetcher.render_scanline(0u, display, 30u, line);
+    if (result.status != Nds2dObjFetchStatus::Ok ||
+        !line.pixels[24].transparent) {
+        return fail("double-size affine transparent border was not clipped");
+    }
+
     /* Engine B uses its own OAM half and separate OBJ tile/palette windows. */
     if (!write_oam(
             memory, 1u, 0u,
@@ -254,6 +368,6 @@ int main()
         return fail("Engine B affine matrix lookup or identity sampling failed");
     }
 
-    std::puts("NDS Engine A/B OBJ OAM, 4bpp/8bpp, affine transform, flips, priority and OBJ-window tests passed");
+    std::puts("NDS Engine A/B OBJ OAM, affine identity/scale/rotation/double-size, 4bpp/8bpp, flips, priority and OBJ-window tests passed");
     return 0;
 }
