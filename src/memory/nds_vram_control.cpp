@@ -22,6 +22,45 @@ struct VramBank {
     const char *alias_name;
 };
 
+constexpr std::array<VramBank, 9> kVramBanks{{
+    {UINT32_C(0x06800000), UINT32_C(0x00000000), kBank128K,
+     NdsVramControl::VramCntAAddress, "NDS VRAM A ARM9 LCDC"},
+    {UINT32_C(0x06820000), UINT32_C(0x00020000), kBank128K,
+     NdsVramControl::VramCntBAddress, "NDS VRAM B ARM9 LCDC"},
+    {UINT32_C(0x06840000), UINT32_C(0x00040000), kBank128K,
+     NdsVramControl::VramCntCAddress, "NDS VRAM C ARM9 LCDC"},
+    {UINT32_C(0x06860000), UINT32_C(0x00060000), kBank128K,
+     NdsVramControl::VramCntDAddress, "NDS VRAM D ARM9 LCDC"},
+    {UINT32_C(0x06880000), UINT32_C(0x00080000), kBank64K,
+     NdsVramControl::VramCntEAddress, "NDS VRAM E ARM9 LCDC"},
+    {UINT32_C(0x06890000), UINT32_C(0x00090000), kBank16K,
+     NdsVramControl::VramCntFAddress, "NDS VRAM F ARM9 LCDC"},
+    {UINT32_C(0x06894000), UINT32_C(0x00094000), kBank16K,
+     NdsVramControl::VramCntGAddress, "NDS VRAM G ARM9 LCDC"},
+    {UINT32_C(0x06898000), UINT32_C(0x00098000), kBank32K,
+     NdsVramControl::VramCntHAddress, "NDS VRAM H ARM9 LCDC"},
+    {UINT32_C(0x068A0000), UINT32_C(0x000A0000), kBank16K,
+     NdsVramControl::VramCntIAddress, "NDS VRAM I ARM9 LCDC"}
+}};
+
+/* MST bit 2 is unused by banks A, B, H and I. */
+constexpr uint8_t bank_mst_mask(uint8_t bank_index) noexcept
+{
+    return (bank_index <= 1u || bank_index >= 7u)
+        ? UINT8_C(0x03)
+        : UINT8_C(0x07);
+}
+
+constexpr bool bank_mst_enabled(
+    uint8_t control, uint8_t bank_index, uint8_t mst) noexcept
+{
+    const uint8_t mask = bank_mst_mask(bank_index);
+    const uint8_t compare_mask = static_cast<uint8_t>(UINT8_C(0x80) | mask);
+    const uint8_t expected = static_cast<uint8_t>(
+        UINT8_C(0x80) | (mst & mask));
+    return (control & compare_mask) == expected;
+}
+
 struct Arm9VideoView {
     uint8_t bank_index;
     uint8_t mst;
@@ -109,7 +148,8 @@ int NdsVramControl::arm9_vram_bank_index_for_address(
         const VramBank &bank = kVramBanks[index];
         const uint64_t end =
             static_cast<uint64_t>(bank.lcdc_address) + bank.size;
-        if (lcdc_enabled(controls_[index]) && address >= bank.lcdc_address &&
+        if (lcdc_enabled(controls_[index], static_cast<uint8_t>(index)) &&
+            address >= bank.lcdc_address &&
             static_cast<uint64_t>(address) < end) {
             return static_cast<int>(index);
         }
@@ -118,8 +158,8 @@ int NdsVramControl::arm9_vram_bank_index_for_address(
     for (const Arm9VideoView &view : kArm9VideoViews) {
         const uint8_t control = controls_[view.bank_index];
         const uint8_t ofs = static_cast<uint8_t>((control >> 3u) & 0x03u);
-        const bool active = (control & UINT8_C(0x87)) ==
-                static_cast<uint8_t>(UINT8_C(0x80) | view.mst) &&
+        const bool active = bank_mst_enabled(
+                control, view.bank_index, view.mst) &&
             ((ofs & view.ofs_mask) == view.ofs_value);
         const uint64_t end =
             static_cast<uint64_t>(view.address) + view.size;
@@ -147,10 +187,11 @@ bool NdsVramControl::allocated_to_arm7(uint8_t control) noexcept
     return (control & UINT8_C(0x87)) == UINT8_C(0x82);
 }
 
-bool NdsVramControl::lcdc_enabled(uint8_t control) noexcept
+bool NdsVramControl::lcdc_enabled(
+    uint8_t control, uint8_t bank_index) noexcept
 {
-    /* LCDC is a fixed physical slot for each bank; OFS is ignored. */
-    return (control & UINT8_C(0x87)) == UINT8_C(0x80);
+    /* LCDC is a fixed physical slot; OFS and unused MST bits are ignored. */
+    return bank_mst_enabled(control, bank_index, 0u);
 }
 
 uint8_t NdsVramControl::status() const noexcept
@@ -234,15 +275,16 @@ Status NdsVramControl::apply_controls(
     for (std::size_t index = 0u; index < kVramBanks.size(); ++index) {
         updates[index] = {
             kVramBanks[index].alias_name,
-            lcdc_access_for(lcdc_enabled(controls[index]))
+            lcdc_access_for(lcdc_enabled(
+                controls[index], static_cast<uint8_t>(index)))
         };
     }
     for (std::size_t index = 0u; index < kArm9VideoViews.size(); ++index) {
         const Arm9VideoView &view = kArm9VideoViews[index];
         const uint8_t control = controls[view.bank_index];
         const uint8_t ofs = static_cast<uint8_t>((control >> 3u) & 0x03u);
-        const bool enabled = (control & UINT8_C(0x87)) ==
-                static_cast<uint8_t>(UINT8_C(0x80) | view.mst) &&
+        const bool enabled = bank_mst_enabled(
+                control, view.bank_index, view.mst) &&
             ((ofs & view.ofs_mask) == view.ofs_value);
         updates[9u + index] = {
             view.alias_name,

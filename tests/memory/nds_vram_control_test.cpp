@@ -184,9 +184,9 @@ int main()
     };
     constexpr LcdcBankCase lcdc_banks[] = {
         {NdsVramControl::VramCntAAddress, UINT32_C(0x06800000),
-         UINT32_C(0x00020000), UINT32_C(0x98), UINT32_C(0xA0A0A0A0)},
+         UINT32_C(0x00020000), UINT32_C(0x9C), UINT32_C(0xA0A0A0A0)},
         {NdsVramControl::VramCntBAddress, UINT32_C(0x06820000),
-         UINT32_C(0x00020000), UINT32_C(0x90), UINT32_C(0xB1B1B1B1)},
+         UINT32_C(0x00020000), UINT32_C(0x94), UINT32_C(0xB1B1B1B1)},
         {NdsVramControl::VramCntCAddress, UINT32_C(0x06840000),
          UINT32_C(0x00020000), UINT32_C(0x98), UINT32_C(0xC2C2C2C2)},
         {NdsVramControl::VramCntDAddress, UINT32_C(0x06860000),
@@ -198,9 +198,9 @@ int main()
         {NdsVramControl::VramCntGAddress, UINT32_C(0x06894000),
          UINT32_C(0x00004000), UINT32_C(0x90), UINT32_C(0x16161616)},
         {NdsVramControl::VramCntHAddress, UINT32_C(0x06898000),
-         UINT32_C(0x00008000), UINT32_C(0x98), UINT32_C(0x27272727)},
+         UINT32_C(0x00008000), UINT32_C(0x9C), UINT32_C(0x27272727)},
         {NdsVramControl::VramCntIAddress, UINT32_C(0x068A0000),
-         UINT32_C(0x00004000), UINT32_C(0x90), UINT32_C(0x38383838)}
+         UINT32_C(0x00004000), UINT32_C(0x94), UINT32_C(0x38383838)}
     };
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
         return fail("ARM9 selection before all-bank LCDC test failed");
@@ -249,8 +249,11 @@ int main()
         UINT32_C(0xA1A1A1A1), UINT32_C(0xB2B2B2B2),
         UINT32_C(0xC3C3C3C3), UINT32_C(0xD4D4D4D4)
     };
+    constexpr uint8_t bg_controls[] = {
+        UINT8_C(0x85), UINT8_C(0x8D), UINT8_C(0x91), UINT8_C(0x99)
+    };
     for (uint32_t i = 0u; i < 4u; ++i) {
-        bus_write_u8(bg_registers[i], static_cast<uint8_t>(0x81u + i * 8u));
+        bus_write_u8(bg_registers[i], bg_controls[i]);
     }
     for (uint32_t i = 0u; i < 4u; ++i) {
         bus_write_u32(bg_addresses[i], bg_markers[i]);
@@ -276,8 +279,8 @@ int main()
     }
 
     /* Main Engine A OBJ supports A/B only, with OFS selecting one of two slots. */
-    bus_write_u8(NdsVramControl::VramCntAAddress, UINT8_C(0x82));
-    bus_write_u8(NdsVramControl::VramCntBAddress, UINT8_C(0x8A));
+    bus_write_u8(NdsVramControl::VramCntAAddress, UINT8_C(0x86));
+    bus_write_u8(NdsVramControl::VramCntBAddress, UINT8_C(0x8E));
     bus_write_u32(UINT32_C(0x06400000), UINT32_C(0xAA55AA55));
     bus_write_u32(UINT32_C(0x06420000), UINT32_C(0xBB66BB66));
     bus_write_u8(UINT32_C(0x06400000), UINT8_C(0x00));
@@ -385,8 +388,8 @@ int main()
      * for OBJ. OFS is ignored for H and I.
      */
     bus_write_u8(NdsVramControl::VramCntEAddress, 0u);
-    bus_write_u8(NdsVramControl::VramCntHAddress, UINT8_C(0x99));
-    bus_write_u8(NdsVramControl::VramCntIAddress, UINT8_C(0x91));
+    bus_write_u8(NdsVramControl::VramCntHAddress, UINT8_C(0x9D));
+    bus_write_u8(NdsVramControl::VramCntIAddress, UINT8_C(0x95));
     bus_write_u32(UINT32_C(0x06200000), UINT32_C(0x48484848));
     bus_write_u32(UINT32_C(0x06207FFC), UINT32_C(0x48494949));
     bus_write_u32(UINT32_C(0x06208000), UINT32_C(0x49494949));
@@ -398,7 +401,7 @@ int main()
         return fail("VRAM H/I Sub BG sizes, adjacency or ignored OFS failed");
     }
     bus_write_u8(NdsVramControl::VramCntHAddress, 0u);
-    bus_write_u8(NdsVramControl::VramCntIAddress, UINT8_C(0x9A));
+    bus_write_u8(NdsVramControl::VramCntIAddress, UINT8_C(0x9E));
     bus_write_u32(UINT32_C(0x06600000), UINT32_C(0x494B4B4B));
     bus_write_u32(UINT32_C(0x06603FFC), UINT32_C(0x494C4C4C));
     if (bus_read_u32(UINT32_C(0x06600000)) != UINT32_C(0x494B4B4B) ||

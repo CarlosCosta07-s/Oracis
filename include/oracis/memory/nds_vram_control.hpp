@@ -58,7 +58,7 @@ private:
     int arm9_vram_bank_index_for_address(uint32_t address) const noexcept;
     static int arm7_window_index(uint8_t control) noexcept;
     static bool allocated_to_arm7(uint8_t control) noexcept;
-    static bool lcdc_enabled(uint8_t control) noexcept;
+    static bool lcdc_enabled(uint8_t control, uint8_t bank_index) noexcept;
 
     Status apply_controls(
         const std::array<uint8_t, 9> &controls) noexcept;
