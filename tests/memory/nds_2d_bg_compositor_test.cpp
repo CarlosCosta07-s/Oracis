@@ -280,12 +280,15 @@ int main()
         return fail("BG0/BG1 first/second-target alpha blend failed");
     }
 
-    /* Mode 3 BG3 is an extended BG; it must fail closed transactionally. */
+    /* Mode 3 BG3's bitmap variant remains unsupported and must fail closed. */
     std::array<Nds2dCompositedPixel, 256> preserved = line;
     if (display.write(
             NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
-            (UINT32_C(3) << 0u) | (UINT32_C(1) << 11u)) != Status::Ok) {
-        return fail("unsupported extended BG mode fixture setup failed");
+            (UINT32_C(3) << 0u) | (UINT32_C(1) << 11u)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 14u, 2u,
+            UINT16_C(0x0080)) != Status::Ok) {
+        return fail("unsupported extended bitmap BG fixture setup failed");
     }
     result = compositor.render_scanline(0u, display, 0u, line);
     if (result.status != Nds2dComposeStatus::UnsupportedBackgroundMode ||
