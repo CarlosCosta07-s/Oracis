@@ -28,7 +28,8 @@ typedef enum OracisHostRuntimeStatus {
     ORACIS_HOST_RUNTIME_LOCAL_IMAGE_MISSING = 9,
     ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR = 10,
     ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID = 11,
-    ORACIS_HOST_RUNTIME_INVALID_ARGUMENT = 12
+    ORACIS_HOST_RUNTIME_INVALID_ARGUMENT = 12,
+    ORACIS_HOST_RUNTIME_VIDEO_ERROR = 13
 } OracisHostRuntimeStatus;
 
 /* Result of checking the current ARM9/ARM7 start PCs against registered banks. */
@@ -40,6 +41,19 @@ typedef struct OracisHostRuntimeEntryPointReport {
     uint32_t has_inactive_candidate;
     uint32_t resolved;
 } OracisHostRuntimeEntryPointReport;
+
+/*
+ * Scanline composition diagnostics. status is an Nds2dComposeStatus value;
+ * subordinate fields preserve the first failing BG/OBJ/memory operation.
+ */
+typedef struct OracisHostVideoScanlineReport {
+    uint32_t status;
+    uint32_t background_index;
+    uint32_t fetch_status;
+    uint32_t memory_status;
+    uint32_t object_fetch_status;
+    uint32_t object_index;
+} OracisHostVideoScanlineReport;
 
 /* Initializes the process-wide NDS machine and binds its base devices. */
 int oracis_host_runtime_initialize(void);
@@ -76,6 +90,19 @@ int oracis_host_runtime_load_program_segments(
     const OracisHostProgramSegment *arm9,
     const OracisHostProgramSegment *arm7);
 int oracis_host_runtime_program_loaded(void);
+
+/*
+ * Compose one visible scanline from the live NDS display/VRAM state.
+ * engine_index 0 is Main Engine A (upper LCD), 1 is Engine B (lower LCD).
+ * rgb555 receives exactly 256 pixels. Composition is fail-closed: on error
+ * the output buffer remains unchanged and report contains device diagnostics.
+ */
+int oracis_host_runtime_render_scanline(
+    uint32_t engine_index,
+    uint32_t scanline,
+    uint16_t *rgb555,
+    uint32_t pixel_capacity,
+    OracisHostVideoScanlineReport *report);
 
 /*
  * Preflight both loaded start PCs using the live-byte validation callback.

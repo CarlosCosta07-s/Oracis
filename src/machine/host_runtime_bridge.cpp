@@ -2,6 +2,7 @@
 #include "oracis/host/detail/sha1.hpp"
 
 #include "oracis/machine/nds_machine.hpp"
+#include "oracis/memory/nds_2d_bg_compositor.hpp"
 #include "oracis/recomp/static_dispatch.hpp"
 #include "oracis/recomp/static_dispatch_abi.h"
 
@@ -265,6 +266,56 @@ extern "C" int oracis_host_runtime_program_loaded(void)
 {
     return host_machine().initialized() && host_machine().program_loaded()
         ? 1 : 0;
+}
+
+extern "C" int oracis_host_runtime_render_scanline(
+    uint32_t engine_index,
+    uint32_t scanline,
+    uint16_t *rgb555,
+    uint32_t pixel_capacity,
+    OracisHostVideoScanlineReport *report)
+{
+    if (report != nullptr) {
+        *report = {};
+    }
+    if (rgb555 == nullptr || pixel_capacity < 256u ||
+        engine_index > 1u || scanline >=
+            oracis::memory::NdsDisplayControl::VisibleScanlines) {
+        return ORACIS_HOST_RUNTIME_INVALID_ARGUMENT;
+    }
+
+    auto &machine = host_machine();
+    if (!machine.initialized()) {
+        return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+    }
+
+    std::array<oracis::memory::Nds2dCompositedPixel, 256> composed{};
+    oracis::memory::Nds2dBgCompositor compositor(
+        machine.guest_memory(), &machine.vram_control());
+    const oracis::memory::Nds2dComposeResult result =
+        compositor.render_scanline(
+            static_cast<unsigned>(engine_index),
+            machine.display_control(),
+            static_cast<uint16_t>(scanline),
+            composed);
+
+    if (report != nullptr) {
+        report->status = static_cast<uint32_t>(result.status);
+        report->background_index = result.background_index;
+        report->fetch_status = static_cast<uint32_t>(result.fetch_status);
+        report->memory_status = static_cast<uint32_t>(result.memory_status);
+        report->object_fetch_status =
+            static_cast<uint32_t>(result.object_fetch_status);
+        report->object_index = result.object_index;
+    }
+    if (result.status != oracis::memory::Nds2dComposeStatus::Ok) {
+        return ORACIS_HOST_RUNTIME_VIDEO_ERROR;
+    }
+
+    for (std::size_t x = 0u; x < composed.size(); ++x) {
+        rgb555[x] = composed[x].rgb555;
+    }
+    return ORACIS_HOST_RUNTIME_OK;
 }
 
 extern "C" int oracis_host_runtime_validate_entrypoints(

@@ -42,6 +42,46 @@ int main(void)
         return 1;
     }
 
+    uint16_t main_scanline[256] = {0};
+    uint16_t sub_scanline[256] = {0};
+    OracisHostVideoScanlineReport video_report = {0};
+    if (oracis_host_runtime_render_scanline(
+            0u, 0u, main_scanline, 256u, &video_report) !=
+            ORACIS_HOST_RUNTIME_OK ||
+        video_report.status != 0u ||
+        main_scanline[0] != UINT16_C(0)) {
+        fprintf(stderr, "C host bridge failed to compose Main Engine A backdrop\n");
+        return 1;
+    }
+    if (oracis_host_runtime_render_scanline(
+            1u, 191u, sub_scanline, 256u, &video_report) !=
+            ORACIS_HOST_RUNTIME_OK ||
+        video_report.status != 0u ||
+        sub_scanline[255] != UINT16_C(0)) {
+        fprintf(stderr, "C host bridge failed to compose Sub Engine B scanline\n");
+        return 1;
+    }
+
+    const uint16_t preserved_scanline[256] = {UINT16_C(0x4321)};
+    uint16_t error_scanline[256];
+    for (unsigned x = 0u; x < 256u; ++x) {
+        error_scanline[x] = preserved_scanline[x];
+    }
+    if (oracis_host_runtime_render_scanline(
+            0u, 192u, error_scanline, 256u, &video_report) !=
+            ORACIS_HOST_RUNTIME_INVALID_ARGUMENT ||
+        error_scanline[0] != UINT16_C(0x4321)) {
+        fprintf(stderr, "C host bridge did not validate scanline bounds transactionally\n");
+        return 1;
+    }
+    if (oracis_host_runtime_render_scanline(
+            0u, 0u, error_scanline, 255u, &video_report) !=
+            ORACIS_HOST_RUNTIME_INVALID_ARGUMENT ||
+        error_scanline[0] != UINT16_C(0x4321)) {
+        fprintf(stderr, "C host bridge did not validate scanline buffer capacity\n");
+        return 1;
+    }
+
     if (oracis_host_runtime_initialize() !=
         ORACIS_HOST_RUNTIME_ALREADY_INITIALIZED) {
         fprintf(stderr, "C host bridge accepted a duplicate initialization\n");
@@ -253,6 +293,6 @@ int main(void)
     }
 
     oracis_host_set_keypad_state(0u);
-    puts("C host runtime bridge lifecycle/keypad tests passed");
+    puts("C host runtime bridge lifecycle/keypad/2D scanline tests passed");
     return 0;
 }
