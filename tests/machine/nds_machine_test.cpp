@@ -650,6 +650,101 @@ int main()
     }
 
     /*
+     * NDS BIOS RLUnCompWram/Vram (0x14/0x15) supports literal and repeated
+     * runs. This fixture expands 3 repeated bytes, 4 literals, then 3 more.
+     */
+    constexpr uint32_t rle_source = UINT32_C(0x02001C00);
+    constexpr uint32_t rle_wram_destination = UINT32_C(0x02001C21);
+    constexpr uint32_t rle_vram_destination = UINT32_C(0x02001C42);
+    const uint8_t rle_stream[] = {
+        0x30u, 10u, 0u, 0u,
+        0x80u, 'A',
+        0x03u, 'B', 'C', 'D', 'E',
+        0x80u, 'Z',
+        0u, 0u, 0u
+    };
+    const uint8_t rle_expected[] = {
+        'A', 'A', 'A', 'B', 'C', 'D', 'E', 'Z', 'Z', 'Z'
+    };
+    if (machine.guest_memory().write_bytes(
+            NDS_ARM9, rle_source, rle_stream,
+            static_cast<uint32_t>(sizeof(rle_stream))) !=
+        oracis::memory::Status::Ok) {
+        return fail("could not seed BIOS RLE stream");
+    }
+
+    for (unsigned index = 0u; index < 2u; ++index) {
+        const NdsCpu cpu = lz77_cpus[index];
+        if (!oracis_arm_runtime_select_cpu(cpu)) {
+            return fail("CPU selection failed for RLUnCompWram");
+        }
+        ArmCpuState *state = machine.cpu_state(cpu);
+        state->R[0] = rle_source;
+        state->R[1] = rle_wram_destination + index * 0x20u;
+        const uint32_t saved_r2 = state->R[2];
+        runtime_swi(0x14u);
+        if (state->R[0] != rle_source ||
+            state->R[1] != rle_wram_destination + index * 0x20u ||
+            state->R[2] != saved_r2) {
+            return fail("RLUnCompWram changed input registers");
+        }
+        for (uint32_t byte = 0u; byte < sizeof(rle_expected); ++byte) {
+            if (machine.guest_memory().read(
+                    cpu, rle_wram_destination + index * 0x20u + byte,
+                    1u).value != rle_expected[byte]) {
+                return fail("RLUnCompWram literal/repeat decoding failed");
+            }
+        }
+
+        if (!oracis_arm_runtime_select_cpu(cpu)) {
+            return fail("CPU selection failed for RLUnCompVram");
+        }
+        state->R[0] = rle_source;
+        state->R[1] = rle_vram_destination + index * 0x20u;
+        runtime_swi(0x15u);
+        for (uint32_t byte = 0u; byte < sizeof(rle_expected); ++byte) {
+            if (machine.guest_memory().read(
+                    cpu, rle_vram_destination + index * 0x20u + byte,
+                    1u).value != rle_expected[byte]) {
+                return fail("RLUnCompVram halfword output differed from expected bytes");
+            }
+        }
+    }
+
+    /* Reject wrong type, odd VRAM output length and alignment before writes. */
+    constexpr uint32_t rle_guard_source = UINT32_C(0x02001CC0);
+    constexpr uint32_t rle_guard_destination = UINT32_C(0x02001CE0);
+    const uint8_t rle_bad_type[] = {0x31u, 4u, 0u, 0u, 0u, 0u, 0u, 0u};
+    const uint8_t rle_odd_size[] = {
+        0x30u, 3u, 0u, 0u, 0x00u, 'X', 'Y', 'Z'
+    };
+    const uint32_t rle_guard_value = UINT32_C(0x6C3CA55A);
+    if (machine.guest_memory().write(
+            NDS_ARM9, rle_guard_destination, 4u,
+            rle_guard_value) != oracis::memory::Status::Ok ||
+        machine.guest_memory().write_bytes(
+            NDS_ARM9, rle_guard_source, rle_bad_type,
+            static_cast<uint32_t>(sizeof(rle_bad_type))) !=
+            oracis::memory::Status::Ok ||
+        !oracis_arm_runtime_select_cpu(NDS_ARM9) ||
+        oracis_arm_runtime_bios_rle(
+            rle_guard_source, rle_guard_destination, 0u) != 0 ||
+        machine.guest_memory().write_bytes(
+            NDS_ARM9, rle_guard_source, rle_odd_size,
+            static_cast<uint32_t>(sizeof(rle_odd_size))) !=
+            oracis::memory::Status::Ok ||
+        oracis_arm_runtime_bios_rle(
+            rle_guard_source, rle_guard_destination, 1u) != 0 ||
+        oracis_arm_runtime_bios_rle(
+            rle_guard_source + 1u, rle_guard_destination, 0u) != 0 ||
+        oracis_arm_runtime_bios_rle(
+            rle_guard_source, rle_guard_destination + 1u, 1u) != 0 ||
+        machine.guest_memory().read(
+            NDS_ARM9, rle_guard_destination, 4u).value != rle_guard_value) {
+        return fail("RLE accepted invalid type/alignment/VRAM size or modified destination");
+    }
+
+    /*
      * The native bus bridge must enforce NDS palette/OAM store widths;
      * direct GuestMemory writes do not model STRB suppression.
      */

@@ -548,6 +548,124 @@ int NdsMachine::runtime_bios_lz77_handler(
 }
 
 
+int NdsMachine::runtime_bios_rle_handler(
+    void *context,
+    NdsCpu cpu,
+    uint32_t source,
+    uint32_t destination,
+    uint32_t write_halfwords)
+{
+    auto *machine = static_cast<NdsMachine *>(context);
+    if (machine == nullptr || !machine->initialized_ ||
+        !valid_cpu(cpu) || g_nds_active != cpu ||
+        machine->cpu_state(cpu) != oracis_active_cpu_state ||
+        write_halfwords > 1u || (source & 3u) != 0u ||
+        (write_halfwords != 0u && (destination & 1u) != 0u)) {
+        return 0;
+    }
+
+    constexpr uint64_t GuestAddressEnd = UINT64_C(0x1'0000'0000);
+    const uint64_t header_end =
+        static_cast<uint64_t>(source) + UINT64_C(4);
+    if (header_end > GuestAddressEnd) return 0;
+
+    const memory::ReadResult header_read =
+        machine->memory_.read(cpu, source, 4u);
+    if (!header_read) return 0;
+
+    const uint32_t header = header_read.value;
+    const uint32_t compressed_type = (header >> 4u) & UINT32_C(0x0F);
+    const uint32_t output_size = header >> 8u;
+    if (compressed_type != 3u ||
+        (header & UINT32_C(0xFF)) != UINT32_C(0x30)) {
+        return 0;
+    }
+
+    /* RLUnCompVram emits whole halfwords only. */
+    if (write_halfwords != 0u && (output_size & 1u) != 0u) return 0;
+    if (output_size == 0u) return 1;
+
+    const uint64_t destination_end =
+        static_cast<uint64_t>(destination) + output_size;
+    if (destination_end > GuestAddressEnd ||
+        machine->memory_.validate_write(
+            cpu, destination, output_size) != memory::Status::Ok) {
+        return 0;
+    }
+
+    /*
+     * Stage the complete result. A malformed or truncated run must not leave
+     * a partially updated guest destination, and in-place decompression must
+     * not overwrite unread source bytes.
+     */
+    try {
+        std::vector<uint8_t> output(output_size, 0u);
+        uint64_t cursor = header_end;
+        uint32_t produced = 0u;
+
+        const auto read_compressed_byte = [&]() noexcept -> int {
+            if (cursor >= GuestAddressEnd) return -1;
+            const memory::ReadResult byte = machine->memory_.read(
+                cpu, static_cast<uint32_t>(cursor), 1u);
+            if (!byte) return -1;
+            ++cursor;
+            return static_cast<int>(byte.value & UINT32_C(0xFF));
+        };
+
+        while (produced < output_size) {
+            const int flag_read = read_compressed_byte();
+            if (flag_read < 0) return 0;
+
+            const uint32_t flag = static_cast<uint32_t>(flag_read);
+            const bool compressed = (flag & UINT32_C(0x80)) != 0u;
+            const uint32_t run_length =
+                (flag & UINT32_C(0x7F)) + (compressed ? 3u : 1u);
+            const uint32_t remaining = output_size - produced;
+            const uint32_t write_count =
+                run_length < remaining ? run_length : remaining;
+
+            if (compressed) {
+                const int value_read = read_compressed_byte();
+                if (value_read < 0) return 0;
+                const uint8_t value = static_cast<uint8_t>(value_read);
+                for (uint32_t index = 0u; index < write_count; ++index) {
+                    output[produced++] = value;
+                }
+            } else {
+                for (uint32_t index = 0u; index < write_count; ++index) {
+                    const int value_read = read_compressed_byte();
+                    if (value_read < 0) return 0;
+                    output[produced++] = static_cast<uint8_t>(value_read);
+                }
+            }
+        }
+
+        if (write_halfwords == 0u) {
+            return machine->memory_.write_bytes(
+                cpu, destination, output.data(), output_size) ==
+                memory::Status::Ok ? 1 : 0;
+        }
+
+        for (uint32_t offset = 0u; offset < output_size; offset += 2u) {
+            const uint32_t value =
+                static_cast<uint32_t>(output[offset]) |
+                (static_cast<uint32_t>(output[offset + 1u]) << 8u);
+            const uint64_t address =
+                static_cast<uint64_t>(destination) + offset;
+            if (machine->memory_.write(
+                    cpu, static_cast<uint32_t>(address), 2u,
+                    value) != memory::Status::Ok) {
+                return 0;
+            }
+        }
+    } catch (const std::bad_alloc &) {
+        return 0;
+    }
+
+    return 1;
+}
+
+
 int NdsMachine::runtime_validate_dispatch_bytes(
     NdsCpu cpu,
     const NdsStaticValidation *validation,
@@ -670,6 +788,12 @@ NdsMachineStatus NdsMachine::initialize() noexcept
         return rollback(NdsMachineStatus::RuntimeAlreadyBound);
     }
     bios_lz77_handler_bound_ = true;
+
+    if (!oracis_arm_runtime_bind_bios_rle_handler(
+            this, &NdsMachine::runtime_bios_rle_handler)) {
+        return rollback(NdsMachineStatus::RuntimeAlreadyBound);
+    }
+    bios_rle_handler_bound_ = true;
 
     if (wram_control_.install() != memory::Status::Ok ||
         vram_control_.install() != memory::Status::Ok ||
@@ -840,7 +964,8 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
         runtime_bound_ || power_handler_bound_ ||
         coprocessor_handler_bound_ || bios_memory_handler_bound_ ||
         bios_crc16_handler_bound_ || bios_bit_unpack_handler_bound_ ||
-        bios_lz77_handler_bound_ || memory_bound_ ||
+        bios_lz77_handler_bound_ || bios_rle_handler_bound_ ||
+        memory_bound_ ||
         wram_bound_ || vram_bound_ || video_memory_bound_ ||
         display_control_bound_ || interrupt_bound_ || timer_bound_ ||
         keypad_bound_ || clock_bound_ || validation_bound_;
@@ -916,6 +1041,13 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
             return NdsMachineStatus::ShutdownFailed;
         }
         memory_bound_ = false;
+    }
+    if (bios_rle_handler_bound_) {
+        if (!oracis_arm_runtime_unbind_bios_rle_handler(
+                this, &NdsMachine::runtime_bios_rle_handler)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        bios_rle_handler_bound_ = false;
     }
     if (bios_lz77_handler_bound_) {
         if (!oracis_arm_runtime_unbind_bios_lz77_handler(
