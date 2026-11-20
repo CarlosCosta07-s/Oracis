@@ -314,6 +314,119 @@ int main()
         return fail("classic affine BG mode/layer selection table was incorrect");
     }
 
-    std::puts("NDS BG2/BG3 affine tile maps, 8bpp fetch, matrix, accumulators, overflow, mosaic and compositor passed");
+    if (!Nds2dAffineBgFetcher::is_extended_affine_tile_bg(
+            0u, 3u, UINT32_C(3)) ||
+        !Nds2dAffineBgFetcher::is_extended_affine_tile_bg(
+            0u, 3u, UINT32_C(4)) ||
+        !Nds2dAffineBgFetcher::is_extended_affine_tile_bg(
+            0u, 2u, UINT32_C(5)) ||
+        !Nds2dAffineBgFetcher::is_extended_affine_tile_bg(
+            0u, 3u, UINT32_C(5)) ||
+        Nds2dAffineBgFetcher::is_extended_affine_tile_bg(
+            0u, 2u, UINT32_C(3)) ||
+        Nds2dAffineBgFetcher::is_extended_affine_tile_bg(
+            0u, 2u, UINT32_C(4)) ||
+        Nds2dAffineBgFetcher::is_extended_affine_tile_bg(
+            1u, 2u, UINT32_C(2))) {
+        return fail("extended affine BG mode/layer selection table was incorrect");
+    }
+
+    /*
+     * Mode 3 BG3 uses the extended 16-bit affine map. Tile 257 proves that
+     * the ten-bit tile number is used; horizontal and vertical map flips
+     * must mirror the tile-local source coordinates.
+     */
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            UINT32_C(3) | (UINT32_C(1) << 11u)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 14u, 2u, 0u) !=
+            Status::Ok ||
+        !write16(memory, UINT32_C(0x06000000), UINT16_C(0x0101)) ||
+        !write8(memory, UINT32_C(0x06004078), 3u) ||
+        !write8(memory, UINT32_C(0x06004079), 4u) ||
+        !set_affine(
+            display, NdsDisplayControl::EngineABase + 0x30u,
+            UINT16_C(0x0100), 0u, 0u, UINT16_C(0x0100), 0u, 0u)) {
+        return fail("extended affine BG3 fixture setup failed");
+    }
+    display.reset_timing();
+    result = fetcher.render_scanline(0u, 3u, display, 0u, line);
+    if (result.status != Nds2dBgFetchStatus::Ok ||
+        line[0].rgb555 != UINT16_C(0x001F) ||
+        line[1].rgb555 != UINT16_C(0x03E0)) {
+        return fail("extended affine 16-bit map or ten-bit tile index failed");
+    }
+
+    if (!write16(
+            memory, UINT32_C(0x06000000), UINT16_C(0x0501))) {
+        return fail("extended affine horizontal flip map write failed");
+    }
+    result = fetcher.render_scanline(0u, 3u, display, 0u, line);
+    if (result.status != Nds2dBgFetchStatus::Ok ||
+        line[0].rgb555 != UINT16_C(0x7C1F) ||
+        line[1].rgb555 != UINT16_C(0x03E0)) {
+        return fail("extended affine horizontal tile flip failed");
+    }
+
+    if (!write16(
+            memory, UINT32_C(0x06000000), UINT16_C(0x0901))) {
+        return fail("extended affine vertical flip map write failed");
+    }
+    result = fetcher.render_scanline(0u, 3u, display, 0u, line);
+    if (result.status != Nds2dBgFetchStatus::Ok ||
+        line[0].rgb555 != UINT16_C(0x7C00) ||
+        line[1].rgb555 != UINT16_C(0x7FFF)) {
+        return fail("extended affine vertical tile flip failed");
+    }
+
+    /* Bitmap and extended-palette variants fail closed without partial output. */
+    line[0].rgb555 = UINT16_C(0x2345);
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 14u, 2u,
+            UINT16_C(0x0080)) != Status::Ok) {
+        return fail("extended BG bitmap mode setup failed");
+    }
+    result = fetcher.render_scanline(0u, 3u, display, 0u, line);
+    if (result.status != Nds2dBgFetchStatus::UnsupportedMode ||
+        line[0].rgb555 != UINT16_C(0x2345)) {
+        return fail("extended BG bitmap mode did not fail transactionally");
+    }
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 14u, 2u, 0u) !=
+            Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            UINT32_C(3) | (UINT32_C(1) << 11u) |
+                (UINT32_C(1) << 30u)) != Status::Ok) {
+        return fail("extended BG palette mode setup failed");
+    }
+    result = fetcher.render_scanline(0u, 3u, display, 0u, line);
+    if (result.status != Nds2dBgFetchStatus::UnsupportedMode ||
+        line[0].rgb555 != UINT16_C(0x2345)) {
+        return fail("extended BG palette mode did not fail transactionally");
+    }
+
+    /* The compositor must route Mode 3 BG3 into the extended tile fetcher. */
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            UINT32_C(3) | (UINT32_C(1) << 11u)) != Status::Ok ||
+        !write16(
+            memory, UINT32_C(0x06000000), UINT16_C(0x0101)) ||
+        !set_affine(
+            display, NdsDisplayControl::EngineABase + 0x30u,
+            UINT16_C(0x0100), 0u, 0u, UINT16_C(0x0100), 0u, 0u)) {
+        return fail("extended affine compositor fixture setup failed");
+    }
+    display.reset_timing();
+    const Nds2dComposeResult extended_compose =
+        compositor.render_scanline(0u, display, 0u, composed);
+    if (extended_compose.status != Nds2dComposeStatus::Ok ||
+        composed[0].top_layer != Nds2dLayer::Bg3 ||
+        composed[0].rgb555 != UINT16_C(0x001F)) {
+        return fail("extended affine BG3 did not reach the compositor");
+    }
+
+    std::puts("NDS classic and extended affine BG tile maps, flip attributes, matrix, accumulators, overflow, mosaic and compositor passed");
     return 0;
 }

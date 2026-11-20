@@ -61,6 +61,21 @@ bool Nds2dAffineBgFetcher::is_affine_tile_bg(
     return false;
 }
 
+bool Nds2dAffineBgFetcher::is_extended_affine_tile_bg(
+    unsigned engine_index,
+    unsigned bg_index,
+    uint32_t dispcnt) noexcept
+{
+    if (engine_index > 1u || bg_index < 2u || bg_index > 3u) {
+        return false;
+    }
+
+    const unsigned mode = static_cast<unsigned>(dispcnt & UINT32_C(7));
+    if (mode == 3u || mode == 4u) return bg_index == 3u;
+    if (mode == 5u) return true;
+    return false;
+}
+
 Nds2dBgFetchResult Nds2dAffineBgFetcher::render_scanline(
     unsigned engine_index,
     unsigned bg_index,
@@ -96,8 +111,13 @@ Nds2dBgFetchResult Nds2dAffineBgFetcher::render_scanline(
         output = next_line;
         return {Nds2dBgFetchStatus::Disabled, Status::Ok};
     }
-    if (!is_affine_tile_bg(engine_index, bg_index, dispcnt) ||
-        (dispcnt & kExtendedBgPaletteEnable) != 0u) {
+    const bool classic_affine =
+        is_affine_tile_bg(engine_index, bg_index, dispcnt);
+    const bool extended_affine =
+        is_extended_affine_tile_bg(engine_index, bg_index, dispcnt);
+    if ((!classic_affine && !extended_affine) ||
+        (dispcnt & kExtendedBgPaletteEnable) != 0u ||
+        (extended_affine && (bgcnt & UINT16_C(0x0080)) != 0u)) {
         return {Nds2dBgFetchStatus::UnsupportedMode, Status::Ok};
     }
 
@@ -167,20 +187,38 @@ Nds2dBgFetchResult Nds2dAffineBgFetcher::render_scanline(
         const uint32_t tile_y = pixel_y / kAffineTilePixels;
         const uint32_t map_index = tile_y * tiles_wide + tile_x;
 
+        const uint32_t map_entry_bytes = extended_affine ? 2u : 1u;
         uint32_t map_address = 0u;
         if (!add_guest_offset(
-                bg_vram_base, screen_base + map_index, map_address)) {
+                bg_vram_base,
+                screen_base + static_cast<uint64_t>(map_index) *
+                    map_entry_bytes,
+                map_address)) {
             return memory_error(Status::AddressOverflow);
         }
         const ReadResult map_entry =
-            memory_.read(NDS_ARM9, map_address, 1u);
+            memory_.read(NDS_ARM9, map_address, map_entry_bytes);
         if (!map_entry) return memory_error(map_entry.status);
 
-        const uint32_t tile_index =
-            static_cast<uint32_t>(map_entry.value & UINT32_C(0xFF));
+        const uint32_t map_attributes =
+            static_cast<uint32_t>(map_entry.value);
+        const uint32_t tile_index = extended_affine
+            ? map_attributes & UINT32_C(0x03FF)
+            : map_attributes & UINT32_C(0x00FF);
+        const uint32_t local_x = pixel_x & UINT32_C(7);
+        const uint32_t local_y = pixel_y & UINT32_C(7);
+        const uint32_t tile_pixel_x =
+            extended_affine &&
+                (map_attributes & (UINT32_C(1) << 10u)) != 0u
+            ? UINT32_C(7) - local_x
+            : local_x;
+        const uint32_t tile_pixel_y =
+            extended_affine &&
+                (map_attributes & (UINT32_C(1) << 11u)) != 0u
+            ? UINT32_C(7) - local_y
+            : local_y;
         const uint32_t tile_pixel =
-            (pixel_y & UINT32_C(7)) * kAffineTilePixels +
-            (pixel_x & UINT32_C(7));
+            tile_pixel_y * kAffineTilePixels + tile_pixel_x;
         const uint64_t pixel_offset =
             character_base +
             static_cast<uint64_t>(tile_index) * kAffineTileBytes +

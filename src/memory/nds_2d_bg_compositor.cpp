@@ -99,9 +99,12 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
         background_lines{};
 
     for (unsigned bg = 0u; bg < NdsDisplayControl::BgCount; ++bg) {
-        const Nds2dBgFetchResult result =
+        const bool affine_bg =
             Nds2dAffineBgFetcher::is_affine_tile_bg(
-                engine_index, bg, dispcnt)
+                engine_index, bg, dispcnt) ||
+            Nds2dAffineBgFetcher::is_extended_affine_tile_bg(
+                engine_index, bg, dispcnt);
+        const Nds2dBgFetchResult result = affine_bg
             ? affine_fetcher.render_scanline(
                 engine_index, bg, display, scanline, background_lines[bg])
             : text_fetcher.render_scanline(

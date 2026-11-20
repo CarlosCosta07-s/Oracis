@@ -1,8 +1,9 @@
 /*
- * Nintendo DS classic affine tiled-background fetcher (BG2/BG3).
+ * Nintendo DS affine tiled-background fetcher (BG2/BG3).
  *
- * Supports BG Modes 1/2/4 affine tile layers only. Bitmap and extended
- * backgrounds remain explicit unsupported inputs.
+ * Supports classic affine tile layers in Modes 1/2/4 and extended affine
+ * tile-map layers in Modes 3/4/5. Bitmap BGs and extended palettes remain
+ * explicit unsupported inputs.
  */
 #ifndef ORACIS_MEMORY_NDS_2D_AFFINE_BG_FETCHER_HPP
 #define ORACIS_MEMORY_NDS_2D_AFFINE_BG_FETCHER_HPP
@@ -27,10 +28,16 @@ public:
         unsigned bg_index,
         uint32_t dispcnt) noexcept;
 
+    static bool is_extended_affine_tile_bg(
+        unsigned engine_index,
+        unsigned bg_index,
+        uint32_t dispcnt) noexcept;
+
     /*
-     * Fetches one affine 8bpp tile-map scanline. BGxX/BGxY are signed 19.8
-     * reference points, with PB/PD scanline accumulation from the display
-     * device. Output commits only on success.
+     * Fetches one affine 8bpp tile-map scanline. Classic maps use one-byte
+     * entries; extended maps use 16-bit tile/flip entries. BGxX/BGxY are
+     * signed 19.8 reference points, with PB/PD scanline accumulation from
+     * the display device. Output commits only on success.
      */
     Nds2dBgFetchResult render_scanline(
         unsigned engine_index,
