@@ -442,6 +442,34 @@ int main()
         return fail("VRAM E Engine A BG palette slot/color lookup failed");
     }
 
+    /*
+     * VRAM F/G OFS=0 maps the lower pair of extended BG palette slots,
+     * which text BG0/BG1 may select through BGxCNT bit 13.
+     */
+    bus_write_u8(NdsVramControl::VramCntEAddress, 0u);
+    bus_write_u8(NdsVramControl::VramCntFAddress, UINT8_C(0x80));
+    const uint32_t engine_a_f_slot0 =
+        UINT32_C(0x06890000) + UINT32_C(0x0400) + UINT32_C(0x0006);
+    const uint32_t engine_a_f_slot1 =
+        UINT32_C(0x06890000) + UINT32_C(0x2000) +
+        UINT32_C(0x0200) + UINT32_C(0x0008);
+    if (memory.write(
+            NDS_ARM9, engine_a_f_slot0, 2u,
+            UINT32_C(0x1357)) != Status::Ok ||
+        memory.write(
+            NDS_ARM9, engine_a_f_slot1, 2u,
+            UINT32_C(0x2468)) != Status::Ok) {
+        return fail("Main Engine A F lower extended-palette pair setup failed");
+    }
+    bus_write_u8(NdsVramControl::VramCntFAddress, UINT8_C(0x84));
+    if (control.read_extended_bg_palette_slot(0u, 0u, 2u, 3u).value !=
+            UINT32_C(0x1357) ||
+        control.read_extended_bg_palette_slot(0u, 1u, 1u, 4u).value !=
+            UINT32_C(0x2468)) {
+        return fail("VRAM F OFS=0 did not map extended BG palette slots 0/1");
+    }
+    bus_write_u8(NdsVramControl::VramCntFAddress, 0u);
+
     /* VRAM F/G OFS=1 maps the upper two Main Engine A palette slots. */
     bus_write_u8(NdsVramControl::VramCntEAddress, 0u);
     bus_write_u8(NdsVramControl::VramCntGAddress, UINT8_C(0x80));
@@ -459,16 +487,16 @@ int main()
         return fail("Main Engine A F/G extended-palette initialization failed");
     }
     bus_write_u8(NdsVramControl::VramCntGAddress, UINT8_C(0x8C));
-    if (control.read_extended_bg_palette(0u, 2u, 2u, 3u).value !=
+    if (control.read_extended_bg_palette_slot(0u, 2u, 2u, 3u).value !=
             UINT32_C(0x9ABC) ||
-        control.read_extended_bg_palette(0u, 3u, 1u, 4u).value !=
+        control.read_extended_bg_palette_slot(0u, 3u, 1u, 4u).value !=
             UINT32_C(0xDEF0)) {
         return fail("VRAM G OFS=1 did not map extended BG palette slots 2/3");
     }
 
     /* E and G both claiming the same palette slot are reported as ambiguous. */
     bus_write_u8(NdsVramControl::VramCntEAddress, UINT8_C(0x84));
-    if (control.read_extended_bg_palette(
+    if (control.read_extended_bg_palette_slot(
             0u, 2u, 2u, 3u).status != Status::Overlap) {
         return fail("overlapping extended BG palette banks were not diagnosed");
     }
@@ -488,12 +516,12 @@ int main()
     bus_write_u8(NdsVramControl::VramCntHAddress, UINT8_C(0x82));
     if (memory.read(
             NDS_ARM9, UINT32_C(0x06898000), 2u).status == Status::Ok ||
-        control.read_extended_bg_palette(1u, 3u, 4u, 5u).value !=
+        control.read_extended_bg_palette_slot(1u, 3u, 4u, 5u).value !=
             UINT32_C(0x2468)) {
         return fail("VRAM H Engine B extended BG palette lookup failed");
     }
     bus_write_u8(NdsVramControl::VramCntHAddress, 0u);
-    if (control.read_extended_bg_palette(1u, 3u, 4u, 5u).status !=
+    if (control.read_extended_bg_palette_slot(1u, 3u, 4u, 5u).status !=
             Status::Unmapped) {
         return fail("unallocated Engine B extended BG palette was not rejected");
     }

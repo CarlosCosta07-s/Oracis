@@ -201,21 +201,18 @@ uint8_t NdsVramControl::status() const noexcept
         (allocated_to_arm7(controls_[3]) ? 0x02u : 0u));
 }
 
-ReadResult NdsVramControl::read_extended_bg_palette(
+ReadResult NdsVramControl::read_extended_bg_palette_slot(
     unsigned engine_index,
-    unsigned bg_index,
+    uint8_t palette_slot,
     uint8_t bg_palette,
     uint8_t color_index) const noexcept
 {
-    if (engine_index > 1u || bg_index < 2u || bg_index > 3u ||
-        bg_palette >= 16u) {
+    if (engine_index > 1u || palette_slot >= 4u || bg_palette >= 16u) {
         return {Status::InvalidRegion, 0u};
     }
 
-    /* Affine BG2/BG3 are hard-wired to BG extended palette slots 2 and 3. */
-    const uint32_t palette_slot = bg_index;
     const uint32_t slot_offset =
-        palette_slot * UINT32_C(0x2000) +
+        static_cast<uint32_t>(palette_slot) * UINT32_C(0x2000) +
         static_cast<uint32_t>(bg_palette) * UINT32_C(0x0200) +
         static_cast<uint32_t>(color_index) * UINT32_C(2);
 
@@ -230,14 +227,14 @@ ReadResult NdsVramControl::read_extended_bg_palette(
     };
 
     if (engine_index == 0u) {
-        /* VRAM E contains all four Main Engine A BG extended-palette slots. */
+        /* VRAM E holds all four Main Engine A BG extended-palette slots. */
         if (bank_mst_enabled(controls_[4], 4u, 4u)) {
             select_bank(4u, slot_offset);
         }
 
         /*
-         * F/G each provide two adjacent 8 KiB slots. OFS=1 selects slots
-         * 2/3, the pair consumed by affine BG2/BG3.
+         * F/G map a 16 KiB pair: OFS=0 selects slots 0/1, OFS=1 slots 2/3.
+         * If both banks claim the selected pair, the backing is ambiguous.
          */
         for (unsigned bank_index = 5u; bank_index <= 6u; ++bank_index) {
             const uint8_t control = controls_[bank_index];
@@ -245,9 +242,10 @@ ReadResult NdsVramControl::read_extended_bg_palette(
                 (control >> 3u) & UINT8_C(3));
             if (bank_mst_enabled(
                     control, static_cast<uint8_t>(bank_index), 4u) &&
-                offset == 1u) {
+                offset == static_cast<uint8_t>(palette_slot >> 1u)) {
                 const uint32_t bank_relative_offset =
-                    (palette_slot & UINT32_C(1)) * UINT32_C(0x2000) +
+                    (static_cast<uint32_t>(palette_slot) & UINT32_C(1)) *
+                        UINT32_C(0x2000) +
                     static_cast<uint32_t>(bg_palette) * UINT32_C(0x0200) +
                     static_cast<uint32_t>(color_index) * UINT32_C(2);
                 select_bank(bank_index, bank_relative_offset);
@@ -267,6 +265,20 @@ ReadResult NdsVramControl::read_extended_bg_palette(
         static_cast<uint64_t>(kVramBackingBase) + backing_offset;
     if (address > UINT32_MAX) return {Status::AddressOverflow, 0u};
     return memory_.read_device(static_cast<uint32_t>(address), 2u);
+}
+
+ReadResult NdsVramControl::read_extended_bg_palette(
+    unsigned engine_index,
+    unsigned bg_index,
+    uint8_t bg_palette,
+    uint8_t color_index) const noexcept
+{
+    if (bg_index < 2u || bg_index > 3u) {
+        return {Status::InvalidRegion, 0u};
+    }
+    return read_extended_bg_palette_slot(
+        engine_index, static_cast<uint8_t>(bg_index),
+        bg_palette, color_index);
 }
 
 Status NdsVramControl::install()

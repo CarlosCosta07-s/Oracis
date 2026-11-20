@@ -55,6 +55,11 @@ public:
      * Read one 16-bit color from an extended BG2/BG3 palette. The palette
      * number selects one of 16 256-color palettes within the BG's 8 KiB slot.
      */
+    ReadResult read_extended_bg_palette_slot(
+        unsigned engine_index,
+        uint8_t palette_slot,
+        uint8_t bg_palette,
+        uint8_t color_index) const noexcept;
     ReadResult read_extended_bg_palette(
         unsigned engine_index,
         unsigned bg_index,
