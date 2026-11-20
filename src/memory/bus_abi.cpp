@@ -304,7 +304,11 @@ extern "C" int oracis_bus_bind_display_control(void *display_control)
     if (display_control == nullptr || g_guest_memory == nullptr) return 0;
     auto *device =
         static_cast<oracis::memory::NdsDisplayControl *>(display_control);
-    if (!device->installed() || g_display_control != nullptr) return 0;
+    if (!device->installed() ||
+        &device->interrupt_control() != g_interrupt_control ||
+        g_display_control != nullptr) {
+        return 0;
+    }
     g_display_control = device;
     return 1;
 }
@@ -337,7 +341,9 @@ extern "C" int oracis_bus_unbind_interrupt_control(void *control)
         (g_timer_control != nullptr &&
          &g_timer_control->interrupt_control() == g_interrupt_control) ||
         (g_keypad_control != nullptr &&
-         &g_keypad_control->interrupt_control() == g_interrupt_control)) {
+         &g_keypad_control->interrupt_control() == g_interrupt_control) ||
+        (g_display_control != nullptr &&
+         &g_display_control->interrupt_control() == g_interrupt_control)) {
         return 0;
     }
     g_interrupt_control = nullptr;
