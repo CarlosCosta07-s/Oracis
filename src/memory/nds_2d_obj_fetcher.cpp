@@ -82,6 +82,60 @@ bool add_address(
     return true;
 }
 
+struct AffineMatrix {
+    int32_t pa = 0;
+    int32_t pb = 0;
+    int32_t pc = 0;
+    int32_t pd = 0;
+};
+
+int32_t signed_halfword(uint16_t value) noexcept
+{
+    return value < UINT16_C(0x8000)
+        ? static_cast<int32_t>(value)
+        : static_cast<int32_t>(value) - INT32_C(0x10000);
+}
+
+/* Signed 8.8 fixed-point conversion, rounded toward negative infinity. */
+int32_t floor_fixed_8_8(int64_t value) noexcept
+{
+    if (value >= 0) {
+        return static_cast<int32_t>(value / INT64_C(256));
+    }
+    return static_cast<int32_t>(
+        -(((-value) + INT64_C(255)) / INT64_C(256)));
+}
+
+bool read_affine_matrix(
+    const GuestMemory &memory,
+    uint32_t oam_base,
+    uint32_t matrix_index,
+    AffineMatrix &matrix,
+    Status &status) noexcept
+{
+    const uint32_t matrix_base =
+        oam_base + matrix_index * UINT32_C(32);
+    uint16_t raw_pa = 0u;
+    uint16_t raw_pb = 0u;
+    uint16_t raw_pc = 0u;
+    uint16_t raw_pd = 0u;
+
+    if (!read_halfword(memory, matrix_base + 6u, raw_pa, status) ||
+        !read_halfword(memory, matrix_base + 14u, raw_pb, status) ||
+        !read_halfword(memory, matrix_base + 22u, raw_pc, status) ||
+        !read_halfword(memory, matrix_base + 30u, raw_pd, status)) {
+        return false;
+    }
+
+    matrix = {
+        signed_halfword(raw_pa),
+        signed_halfword(raw_pb),
+        signed_halfword(raw_pc),
+        signed_halfword(raw_pd)
+    };
+    return true;
+}
+
 bool outranks(
     uint8_t priority,
     uint8_t object_index,
@@ -181,23 +235,29 @@ Nds2dObjFetchResult Nds2dObjFetcher::render_scanline(
         const uint32_t bounds_width = double_size ? width * 2u : width;
         const uint32_t bounds_height = double_size ? height * 2u : height;
         const uint32_t y = attr0 & UINT16_C(0x00FF);
-        const uint32_t source_y =
+        const uint32_t destination_y =
             (static_cast<uint32_t>(scanline) + UINT32_C(256) - y) &
             UINT32_C(0xFF);
-        if (source_y >= bounds_height) continue;
+        if (destination_y >= bounds_height) continue;
 
         const int raw_x = static_cast<int>(attr1 & UINT16_C(0x01FF));
         const int sprite_x = raw_x >= 256 ? raw_x - 512 : raw_x;
         const int right = sprite_x + static_cast<int>(bounds_width);
         if (right <= 0 || sprite_x >= 256) continue;
 
-        if (affine) {
-            return unsupported(
-                Nds2dObjFetchStatus::UnsupportedAffine, object_index);
-        }
         if (obj_mode == 3u) {
             return unsupported(
                 Nds2dObjFetchStatus::UnsupportedBitmap, object_index);
+        }
+
+        AffineMatrix matrix{};
+        if (affine) {
+            const uint32_t matrix_index =
+                static_cast<uint32_t>((attr1 >> 9u) & UINT16_C(0x001F));
+            if (!read_affine_matrix(
+                    memory_, oam_base, matrix_index, matrix, memory_status)) {
+                return memory_error(object_index, memory_status);
+            }
         }
 
         const bool color_256 =
@@ -232,22 +292,50 @@ Nds2dObjFetchResult Nds2dObjFetcher::render_scanline(
                 static_cast<int>(screen_x) - sprite_x);
             const Nds2dMosaicSample mosaic = Nds2dEffects::mosaic_sample(
                 static_cast<uint16_t>(local_x),
-                static_cast<uint16_t>(source_y),
+                static_cast<uint16_t>(destination_y),
                 effects.mosaic,
                 true,
                 mosaic_enabled);
             const uint32_t sampled_x = mosaic.x;
             const uint32_t sampled_y = mosaic.y;
-            const uint32_t source_x = horizontal_flip
-                ? width - 1u - sampled_x
-                : sampled_x;
-            const uint32_t source_row = vertical_flip
-                ? height - 1u - sampled_y
-                : sampled_y;
-            const uint32_t tile_x = source_x / 8u;
-            const uint32_t tile_y = source_row / 8u;
-            const uint32_t pixel_x = source_x & 7u;
-            const uint32_t pixel_y = source_row & 7u;
+
+            int32_t source_x = 0;
+            int32_t source_row = 0;
+            if (affine) {
+                const int32_t destination_dx =
+                    static_cast<int32_t>(sampled_x) -
+                    static_cast<int32_t>(bounds_width / 2u);
+                const int32_t destination_dy =
+                    static_cast<int32_t>(sampled_y) -
+                    static_cast<int32_t>(bounds_height / 2u);
+                source_x = floor_fixed_8_8(
+                    static_cast<int64_t>(matrix.pa) * destination_dx +
+                    static_cast<int64_t>(matrix.pb) * destination_dy) +
+                    static_cast<int32_t>(width / 2u);
+                source_row = floor_fixed_8_8(
+                    static_cast<int64_t>(matrix.pc) * destination_dx +
+                    static_cast<int64_t>(matrix.pd) * destination_dy) +
+                    static_cast<int32_t>(height / 2u);
+            } else {
+                source_x = static_cast<int32_t>(
+                    horizontal_flip ? width - 1u - sampled_x : sampled_x);
+                source_row = static_cast<int32_t>(
+                    vertical_flip ? height - 1u - sampled_y : sampled_y);
+            }
+
+            /* Transformed texels outside the source OBJ are transparent. */
+            if (source_x < 0 || source_row < 0 ||
+                source_x >= static_cast<int32_t>(width) ||
+                source_row >= static_cast<int32_t>(height)) {
+                continue;
+            }
+
+            const uint32_t tile_x =
+                static_cast<uint32_t>(source_x) / 8u;
+            const uint32_t tile_y =
+                static_cast<uint32_t>(source_row) / 8u;
+            const uint32_t pixel_x = static_cast<uint32_t>(source_x) & 7u;
+            const uint32_t pixel_y = static_cast<uint32_t>(source_row) & 7u;
             const uint32_t pixel_in_tile = pixel_y * 8u + pixel_x;
 
             uint64_t tile_offset = 0u;
