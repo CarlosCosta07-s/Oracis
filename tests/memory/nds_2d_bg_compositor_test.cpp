@@ -232,6 +232,34 @@ int main()
         return fail("bitmap OBJ alpha or BG second-target composition failed");
     }
 
+    /*
+     * The same no-OBJ-to-OBJ rule applies to ordinary OBJ selected by
+     * BLDCNT, not only to bitmap or semi-transparent OBJ special modes.
+     */
+    if (!write16(memory, UINT32_C(0x06400000), UINT16_C(0x1111)) ||
+        !write16(memory, UINT32_C(0x07000000), UINT16_C(0x0000)) ||
+        !write16(memory, UINT32_C(0x07000002), UINT16_C(0x0000)) ||
+        !write16(memory, UINT32_C(0x07000004), UINT16_C(0x0000)) ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 0x50u, 2u,
+            UINT16_C(0x1050)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 0x52u, 2u,
+            UINT16_C(0x0808)) != Status::Ok) {
+        return fail("normal OBJ/OBJ alpha regression fixture setup failed");
+    }
+    result = compositor.render_scanline(0u, display, 0u, line);
+    if (result.status != Nds2dComposeStatus::Ok ||
+        line[0].top_layer != Nds2dLayer::Object ||
+        line[0].top_object_index != 0u ||
+        line[0].top_object_semi_transparent ||
+        line[0].rgb555 != UINT16_C(0x001F) ||
+        line[0].second_layer != Nds2dLayer::Backdrop ||
+        line[0].second_pixel_available ||
+        line[0].second_object_index != UINT8_C(0xFF)) {
+        return fail("normal OBJ was incorrectly alpha-blended against another OBJ");
+    }
+
     /* OBJ-window coverage changes the per-pixel window region and layer mask. */
     if (!write16(memory, UINT32_C(0x07000000), UINT16_C(0x0800)) ||
         display.write(

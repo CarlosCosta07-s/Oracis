@@ -216,7 +216,13 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
          */
         Candidate effect_second = second;
         bool has_effect_second = has_second;
-        if (top.layer == Nds2dLayer::Object && top.force_alpha) {
+        const uint16_t effect_mode =
+            static_cast<uint16_t>((effects.bldcnt >> 6u) & UINT16_C(3));
+        const bool obj_alpha_blending = top.layer == Nds2dLayer::Object &&
+            (top.force_alpha ||
+             (effect_mode == 1u &&
+              (effects.bldcnt & UINT16_C(0x0010)) != 0u));
+        if (obj_alpha_blending) {
             const uint16_t second_target_mask =
                 static_cast<uint16_t>(
                     (effects.bldcnt >> 8u) & UINT16_C(0x003F));
@@ -258,7 +264,8 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
             top.layer == Nds2dLayer::Object &&
                 top.force_alpha && top.bitmap_alpha_eva == 0u,
             static_cast<uint8_t>(
-                !top.force_alpha && second.layer == Nds2dLayer::Object
+                !obj_alpha_blending &&
+                    second.layer == Nds2dLayer::Object
                     ? second.object_index : UINT8_C(0xFF)),
             top.layer == Nds2dLayer::Object && top.bitmap_alpha_eva != 0u,
             top.bitmap_alpha_eva

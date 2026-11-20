@@ -237,6 +237,23 @@ int main()
         return fail("bitmap OBJ used another OBJ as its alpha target");
     }
 
+    /*
+     * Even a normal OBJ selected as first target cannot alpha-blend against
+     * another OBJ selected as second target; the BG beneath it is required.
+     */
+    registers.bldcnt = static_cast<uint16_t>(
+        (UINT16_C(1) << 6u) |
+        (UINT16_C(1) << 4u) |
+        (UINT16_C(1) << 12u));
+    const uint16_t normal_obj_no_obj_target =
+        Nds2dEffects::apply_color_effect(
+            first_rgb, Nds2dLayer::Object,
+            second_rgb, Nds2dLayer::Object,
+            true, true, registers);
+    if (normal_obj_no_obj_target != first_rgb) {
+        return fail("normal OBJ alpha-blended against a second OBJ");
+    }
+
     /* Coefficients greater than 16 are interpreted as 16/16. */
     registers.bldcnt = static_cast<uint16_t>((1u << 6u) | (1u << 5u) | (1u << 8u));
     registers.bldalpha = UINT16_C(0x001F);

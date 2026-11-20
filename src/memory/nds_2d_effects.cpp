@@ -228,6 +228,8 @@ uint16_t Nds2dEffects::apply_color_effect(
         first_target != 0u && (bldcnt & first_target) != 0u;
     const bool is_second_target =
         second_target != 0u &&
+        !(first_layer == Nds2dLayer::Object &&
+          second_layer == Nds2dLayer::Object) &&
         (bldcnt & static_cast<uint16_t>(second_target << 8u)) != 0u &&
         second_pixel_available;
 
