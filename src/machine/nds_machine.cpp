@@ -16,9 +16,10 @@ NdsMachine::NdsMachine(memory::SharedWramMode initial_wram_mode) noexcept
       vram_control_(memory_),
       video_memory_(memory_),
       interrupt_control_(memory_),
+      display_control_(interrupt_control_),
       timer_control_(memory_, interrupt_control_),
       keypad_control_(memory_, interrupt_control_),
-      system_clock_(timer_control_)
+      system_clock_(timer_control_, display_control_)
 {
 }
 
@@ -249,15 +250,15 @@ NdsMachineStatus NdsMachine::initialize() noexcept
     }
     video_memory_bound_ = true;
 
-    if (!oracis_bus_bind_display_control(&display_control_)) {
-        return rollback(NdsMachineStatus::BusBindingFailed);
-    }
-    display_control_bound_ = true;
 
     if (!oracis_bus_bind_interrupt_control(&interrupt_control_)) {
         return rollback(NdsMachineStatus::BusBindingFailed);
     }
     interrupt_bound_ = true;
+    if (!oracis_bus_bind_display_control(&display_control_)) {
+        return rollback(NdsMachineStatus::BusBindingFailed);
+    }
+    display_control_bound_ = true;
 
     if (!oracis_bus_bind_timer_control(&timer_control_)) {
         return rollback(NdsMachineStatus::BusBindingFailed);
@@ -428,17 +429,23 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
         }
         timer_bound_ = false;
     }
-    if (interrupt_bound_) {
-        if (!oracis_bus_unbind_interrupt_control(&interrupt_control_)) {
-            return NdsMachineStatus::ShutdownFailed;
-        }
-        interrupt_bound_ = false;
-    }
     if (vram_bound_) {
         if (!oracis_bus_unbind_vram_control(&vram_control_)) {
             return NdsMachineStatus::ShutdownFailed;
         }
         vram_bound_ = false;
+    }
+    if (display_control_bound_) {
+        if (!oracis_bus_unbind_display_control(&display_control_)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        display_control_bound_ = false;
+    }
+    if (interrupt_bound_) {
+        if (!oracis_bus_unbind_interrupt_control(&interrupt_control_)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        interrupt_bound_ = false;
     }
     if (display_control_bound_) {
         if (!oracis_bus_unbind_display_control(&display_control_)) {

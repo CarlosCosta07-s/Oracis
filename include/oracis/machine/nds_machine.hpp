@@ -245,8 +245,8 @@ private:
     memory::NdsWramControl wram_control_;
     memory::NdsVramControl vram_control_;
     memory::NdsVideoMemory video_memory_;
-    memory::NdsDisplayControl display_control_;
     memory::NdsInterruptControl interrupt_control_;
+    memory::NdsDisplayControl display_control_;
     memory::NdsTimerControl timer_control_;
     memory::NdsKeypadControl keypad_control_;
     memory::NdsSystemClock system_clock_;
