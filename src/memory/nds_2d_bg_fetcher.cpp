@@ -81,7 +81,7 @@ Nds2dBgFetchResult Nds2dTextBgFetcher::render_scanline(
     std::array<Nds2dBgPixel, 256> &output) const noexcept
 {
     if (engine_index > 1u) {
-        return {Nds2dBgFetchStatus::InvalidEngine, Status::InvalidCpu};
+        return {Nds2dBgFetchStatus::InvalidEngine, Status::InvalidRegion};
     }
     if (bg_index >= NdsDisplayControl::BgCount) {
         return {Nds2dBgFetchStatus::InvalidBackground, Status::InvalidRegion};
@@ -147,8 +147,6 @@ Nds2dBgFetchResult Nds2dTextBgFetcher::render_scanline(
         (screen_size & 2u) != 0u ? 512u : 256u;
     const uint16_t width_tiles =
         static_cast<uint16_t>(screen_width / kPixelsPerTile);
-    const uint16_t height_tiles =
-        static_cast<uint16_t>(screen_height / kPixelsPerTile);
     const bool color_256 = (bgcnt & UINT16_C(0x0080)) != 0u;
     const uint32_t tile_bytes = color_256 ? 64u : 32u;
     const NdsDisplayControl::BgScrollState scroll =
