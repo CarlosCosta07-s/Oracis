@@ -157,7 +157,7 @@ int main()
         !write16(memory, UINT32_C(0x07000004), UINT16_C(0x0000)) ||
         !write16(memory, UINT32_C(0x07000008), UINT16_C(0x0000)) ||
         !write16(memory, UINT32_C(0x0700000A), UINT16_C(0x0000)) ||
-        !write16(memory, UINT32_C(0x0700000C), UINT16_C(0x0000)) ||
+        !write16(memory, UINT32_C(0x0700000C), UINT16_C(0x0001)) ||
         display.write(
             NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
             (UINT32_C(1) << 8u) | (UINT32_C(1) << 9u) |
