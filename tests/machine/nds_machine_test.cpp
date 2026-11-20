@@ -127,6 +127,44 @@ int main()
     }
 
     /*
+     * The native bus bridge must enforce NDS palette/OAM store widths;
+     * direct GuestMemory writes do not model STRB suppression.
+     */
+    constexpr uint32_t engine_a_bg_palette = UINT32_C(0x05000000);
+    constexpr uint32_t engine_a_obj_palette = UINT32_C(0x05000200);
+    constexpr uint32_t engine_b_bg_palette = UINT32_C(0x05000400);
+    constexpr uint32_t engine_b_obj_palette = UINT32_C(0x05000600);
+    constexpr uint32_t engine_a_oam = UINT32_C(0x07000000);
+    constexpr uint32_t engine_b_oam = UINT32_C(0x07000400);
+    constexpr uint32_t palette_marker = UINT32_C(0xA1B2C3D4);
+    constexpr uint32_t oam_marker = UINT32_C(0x10293847);
+    if (!machine.video_memory().installed()) {
+        return fail("fixed video memory device was not installed");
+    }
+    bus_write_u32(engine_a_bg_palette, palette_marker);
+    bus_write_u16(engine_a_obj_palette, UINT32_C(0x5566));
+    bus_write_u32(engine_b_bg_palette, UINT32_C(0xB1B2B3B4));
+    bus_write_u16(engine_b_obj_palette, UINT32_C(0x7788));
+    bus_write_u32(engine_a_oam, oam_marker);
+    bus_write_u32(engine_b_oam, UINT32_C(0x89ABCDEF));
+    bus_write_u8(engine_a_bg_palette, UINT8_C(0x00));
+    bus_write_u8(engine_a_oam, UINT8_C(0x00));
+    if (bus_read_u32(engine_a_bg_palette) != palette_marker ||
+        bus_read_u16(engine_a_obj_palette) != UINT16_C(0x5566) ||
+        bus_read_u32(engine_b_bg_palette) != UINT32_C(0xB1B2B3B4) ||
+        bus_read_u16(engine_b_obj_palette) != UINT16_C(0x7788) ||
+        bus_read_u32(engine_a_oam) != oam_marker ||
+        bus_read_u32(engine_b_oam) != UINT32_C(0x89ABCDEF) ||
+        machine.guest_memory().read(
+            NDS_ARM7, engine_a_bg_palette, 2u).status !=
+            oracis::memory::Status::CpuAccessDenied ||
+        machine.guest_memory().read(
+            NDS_ARM7, engine_a_oam, 2u).status !=
+            oracis::memory::Status::CpuAccessDenied) {
+        return fail("palette/OAM mappings, CPU permissions or ignored STRB failed");
+    }
+
+    /*
      * Configure ARM9 TCM through CP15. The 32KB ITCM is mirrored through a
      * 32MB low-address aperture; the 16KB DTCM overlays main-RAM mirror 1.
      */

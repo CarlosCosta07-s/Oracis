@@ -3,6 +3,7 @@
 #include "oracis/memory/guest_memory.hpp"
 #include "oracis/memory/nds_wram_control.hpp"
 #include "oracis/memory/nds_vram_control.hpp"
+#include "oracis/memory/nds_video_memory.hpp"
 #include "oracis/memory/nds_interrupt_control.hpp"
 #include "oracis/memory/nds_timer_control.hpp"
 #include "oracis/memory/nds_keypad_control.hpp"
@@ -18,6 +19,7 @@ namespace {
 oracis::memory::GuestMemory *g_guest_memory = nullptr;
 oracis::memory::NdsWramControl *g_wram_control = nullptr;
 oracis::memory::NdsVramControl *g_vram_control = nullptr;
+oracis::memory::NdsVideoMemory *g_video_memory = nullptr;
 oracis::memory::NdsInterruptControl *g_interrupt_control = nullptr;
 oracis::memory::NdsTimerControl *g_timer_control = nullptr;
 oracis::memory::NdsKeypadControl *g_keypad_control = nullptr;
@@ -156,6 +158,16 @@ void write_bus(uint32_t address,
             return;
         }
     }
+    if (g_video_memory != nullptr) {
+        const auto video_status = g_video_memory->write(
+            g_nds_active, address, width, value);
+        if (video_status != oracis::memory::Status::Unmapped) {
+            if (video_status != oracis::memory::Status::Ok) {
+                bus_failure(operation, address, width, video_status);
+            }
+            return;
+        }
+    }
     const auto status = memory.write(g_nds_active, address, width, value);
     if (status != oracis::memory::Status::Ok) {
         bus_failure(operation, address, width, status);
@@ -184,6 +196,8 @@ extern "C" int oracis_bus_unbind_memory(void *memory)
          &g_wram_control->backing_memory() == g_guest_memory) ||
         (g_vram_control != nullptr &&
          &g_vram_control->backing_memory() == g_guest_memory) ||
+        (g_video_memory != nullptr &&
+         &g_video_memory->backing_memory() == g_guest_memory) ||
         (g_interrupt_control != nullptr &&
          &g_interrupt_control->backing_memory() == g_guest_memory) ||
         (g_timer_control != nullptr &&
@@ -238,6 +252,29 @@ extern "C" int oracis_bus_unbind_vram_control(void *control)
         return 0;
     }
     g_vram_control = nullptr;
+    return 1;
+}
+
+extern "C" int oracis_bus_bind_video_memory(void *video_memory)
+{
+    if (video_memory == nullptr || g_guest_memory == nullptr) return 0;
+    auto *device =
+        static_cast<oracis::memory::NdsVideoMemory *>(video_memory);
+    if (!device->installed() || &device->backing_memory() != g_guest_memory) {
+        return 0;
+    }
+    if (g_video_memory != nullptr) return 0;
+    g_video_memory = device;
+    return 1;
+}
+
+extern "C" int oracis_bus_unbind_video_memory(void *video_memory)
+{
+    if (video_memory == nullptr || g_video_memory !=
+            static_cast<oracis::memory::NdsVideoMemory *>(video_memory)) {
+        return 0;
+    }
+    g_video_memory = nullptr;
     return 1;
 }
 
