@@ -10,6 +10,7 @@
 #include "oracis/memory/nds_timer_control.hpp"
 #include "oracis/memory/nds_keypad_control.hpp"
 #include "oracis/memory/nds_ipc_control.hpp"
+#include "oracis/memory/nds_dma_control.hpp"
 #include "oracis/memory/nds_system_clock.hpp"
 #include "oracis/recomp/runtime_arm.h"
 #include "oracis/recomp/static_dispatch_abi.h"
@@ -27,6 +28,7 @@ oracis::memory::NdsPostFlag *g_post_flag = nullptr;
 oracis::memory::NdsDisplayControl *g_display_control = nullptr;
 oracis::memory::NdsInterruptControl *g_interrupt_control = nullptr;
 oracis::memory::NdsIpcControl *g_ipc_control = nullptr;
+oracis::memory::NdsDmaControl *g_dma_control = nullptr;
 oracis::memory::NdsTimerControl *g_timer_control = nullptr;
 oracis::memory::NdsKeypadControl *g_keypad_control = nullptr;
 oracis::memory::NdsSystemClock *g_system_clock = nullptr;
@@ -88,6 +90,14 @@ uint32_t read_bus(uint32_t address, uint32_t width, const char *operation)
     }
     if (g_ipc_control != nullptr) {
         const auto mmio = g_ipc_control->read(
+            g_nds_active, address, width);
+        if (mmio.status != oracis::memory::Status::Unmapped) {
+            if (!mmio) bus_failure(operation, address, width, mmio.status);
+            return mmio.value;
+        }
+    }
+    if (g_dma_control != nullptr) {
+        const auto mmio = g_dma_control->read(
             g_nds_active, address, width);
         if (mmio.status != oracis::memory::Status::Unmapped) {
             if (!mmio) bus_failure(operation, address, width, mmio.status);
@@ -169,6 +179,16 @@ void write_bus(uint32_t address,
     }
     if (g_ipc_control != nullptr) {
         const auto mmio = g_ipc_control->write(
+            g_nds_active, address, width, value);
+        if (mmio != oracis::memory::Status::Unmapped) {
+            if (mmio != oracis::memory::Status::Ok) {
+                bus_failure(operation, address, width, mmio);
+            }
+            return;
+        }
+    }
+    if (g_dma_control != nullptr) {
+        const auto mmio = g_dma_control->write(
             g_nds_active, address, width, value);
         if (mmio != oracis::memory::Status::Unmapped) {
             if (mmio != oracis::memory::Status::Ok) {
@@ -403,6 +423,8 @@ extern "C" int oracis_bus_unbind_interrupt_control(void *control)
          &g_keypad_control->interrupt_control() == g_interrupt_control) ||
         (g_ipc_control != nullptr &&
          &g_ipc_control->interrupt_control() == g_interrupt_control) ||
+        (g_dma_control != nullptr &&
+         &g_dma_control->interrupt_control() == g_interrupt_control) ||
         (g_display_control != nullptr &&
          &g_display_control->interrupt_control() == g_interrupt_control)) {
         return 0;
@@ -430,6 +452,30 @@ extern "C" int oracis_bus_unbind_ipc_control(void *control)
         return 0;
     }
     g_ipc_control = nullptr;
+    return 1;
+}
+
+extern "C" int oracis_bus_bind_dma_control(void *control)
+{
+    if (control == nullptr || g_guest_memory == nullptr ||
+        g_interrupt_control == nullptr) return 0;
+    auto *device = static_cast<oracis::memory::NdsDmaControl *>(control);
+    if (&device->backing_memory() != g_guest_memory ||
+        &device->interrupt_control() != g_interrupt_control ||
+        g_dma_control != nullptr) {
+        return 0;
+    }
+    g_dma_control = device;
+    return 1;
+}
+
+extern "C" int oracis_bus_unbind_dma_control(void *control)
+{
+    if (control == nullptr || g_dma_control !=
+            static_cast<oracis::memory::NdsDmaControl *>(control)) {
+        return 0;
+    }
+    g_dma_control = nullptr;
     return 1;
 }
 

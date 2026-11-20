@@ -46,6 +46,10 @@ int oracis_bus_unbind_interrupt_control(void *control);
 int oracis_bus_bind_ipc_control(void *control);
 int oracis_bus_unbind_ipc_control(void *control);
 
+/* Bind the four-channel-per-CPU DMA controller. */
+int oracis_bus_bind_dma_control(void *control);
+int oracis_bus_unbind_dma_control(void *control);
+
 /* Bind a live NdsTimerControl after its matching interrupt controller. */
 int oracis_bus_bind_timer_control(void *control);
 int oracis_bus_unbind_timer_control(void *control);
