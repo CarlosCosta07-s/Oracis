@@ -11,9 +11,9 @@ constexpr uint16_t kVblankFlag = UINT16_C(1u << 0u);
 constexpr uint16_t kHblankFlag = UINT16_C(1u << 1u);
 constexpr uint16_t kVcountMatchFlag = UINT16_C(1u << 2u);
 
-constexpr uint32_t kIrqVblank = UINT32_C(1u << 0u);
-constexpr uint32_t kIrqHblank = UINT32_C(1u << 1u);
-constexpr uint32_t kIrqVcount = UINT32_C(1u << 2u);
+constexpr uint32_t kIrqVblank = (UINT32_C(1) << 0u);
+constexpr uint32_t kIrqHblank = (UINT32_C(1) << 1u);
+constexpr uint32_t kIrqVcount = (UINT32_C(1) << 2u);
 
 } // namespace
 
