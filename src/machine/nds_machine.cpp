@@ -200,6 +200,70 @@ int NdsMachine::runtime_bios_memory_transfer_handler(
     return 1;
 }
 
+int NdsMachine::runtime_bios_crc16_handler(
+    void *context,
+    NdsCpu cpu,
+    uint32_t initial_crc,
+    uint32_t source,
+    uint32_t length,
+    uint32_t *result,
+    uint32_t *last_halfword)
+{
+    auto *machine = static_cast<NdsMachine *>(context);
+    if (machine == nullptr || !machine->initialized_ ||
+        !valid_cpu(cpu) || g_nds_active != cpu ||
+        machine->cpu_state(cpu) != oracis_active_cpu_state ||
+        result == nullptr || last_halfword == nullptr ||
+        (source & 1u) != 0u || (length & 1u) != 0u) {
+        return 0;
+    }
+
+    *result = initial_crc & UINT32_C(0xFFFF);
+    *last_halfword = 0u;
+    if (length == 0u) return 1;
+
+    constexpr uint64_t GuestAddressEnd = UINT64_C(0x1'0000'0000);
+    const uint64_t source_end =
+        static_cast<uint64_t>(source) + static_cast<uint64_t>(length);
+    if (source_end > GuestAddressEnd) return 0;
+
+    /*
+     * GetCRC16 is the NDS BIOS exception to the normal ARM7 BIOS-source
+     * rejection used by CpuSet. However, BIOSPROT is not modelled yet, so
+     * do not expose any ARM7 BIOS bytes through this provider.
+     */
+    constexpr uint32_t Arm7BiosEnd = UINT32_C(0x00004000);
+    if (cpu == NDS_ARM7 && source < Arm7BiosEnd) return 0;
+
+    if (machine->memory_.validate_read(cpu, source, length) !=
+        memory::Status::Ok) {
+        return 0;
+    }
+
+    uint32_t crc = initial_crc & UINT32_C(0xFFFF);
+    for (uint32_t offset = 0u; offset < length; ++offset) {
+        const uint64_t address =
+            static_cast<uint64_t>(source) + offset;
+        const memory::ReadResult byte = machine->memory_.read(
+            cpu, static_cast<uint32_t>(address), 1u);
+        if (!byte) return 0;
+
+        crc ^= byte.value & UINT32_C(0xFF);
+        for (unsigned bit = 0u; bit < 8u; ++bit) {
+            crc = (crc >> 1u) ^
+                ((crc & 1u) != 0u ? UINT32_C(0xA001) : 0u);
+        }
+    }
+
+    const memory::ReadResult final_halfword = machine->memory_.read(
+        cpu, static_cast<uint32_t>(source_end - 2u), 2u);
+    if (!final_halfword) return 0;
+
+    *result = crc & UINT32_C(0xFFFF);
+    *last_halfword = final_halfword.value & UINT32_C(0xFFFF);
+    return 1;
+}
+
 int NdsMachine::runtime_validate_dispatch_bytes(
     NdsCpu cpu,
     const NdsStaticValidation *validation,
@@ -304,6 +368,12 @@ NdsMachineStatus NdsMachine::initialize() noexcept
         return rollback(NdsMachineStatus::RuntimeAlreadyBound);
     }
     bios_memory_handler_bound_ = true;
+
+    if (!oracis_arm_runtime_bind_bios_crc16_handler(
+            this, &NdsMachine::runtime_bios_crc16_handler)) {
+        return rollback(NdsMachineStatus::RuntimeAlreadyBound);
+    }
+    bios_crc16_handler_bound_ = true;
 
     if (wram_control_.install() != memory::Status::Ok ||
         vram_control_.install() != memory::Status::Ok ||
@@ -473,7 +543,7 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
     const bool owns_runtime =
         runtime_bound_ || power_handler_bound_ ||
         coprocessor_handler_bound_ || bios_memory_handler_bound_ ||
-        memory_bound_ ||
+        bios_crc16_handler_bound_ || memory_bound_ ||
         wram_bound_ || vram_bound_ || video_memory_bound_ ||
         display_control_bound_ || interrupt_bound_ || timer_bound_ ||
         keypad_bound_ || clock_bound_ || validation_bound_;
@@ -549,6 +619,13 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
             return NdsMachineStatus::ShutdownFailed;
         }
         memory_bound_ = false;
+    }
+    if (bios_crc16_handler_bound_) {
+        if (!oracis_arm_runtime_unbind_bios_crc16_handler(
+                this, &NdsMachine::runtime_bios_crc16_handler)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        bios_crc16_handler_bound_ = false;
     }
     if (bios_memory_handler_bound_) {
         if (!oracis_arm_runtime_unbind_bios_memory_handler(

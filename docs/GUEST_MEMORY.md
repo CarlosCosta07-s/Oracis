@@ -309,3 +309,11 @@ Os SWIs NDS7/NDS9 `0x0B` (`CpuSet`) e `0x0C` (`CpuFastSet`) usam um provider lig
 - A implementação cobre o resultado de dados e as permissões, mas ainda não reproduz o microtiming ou os blocos LDM/STM internos do BIOS.
 
 Referência: [GBATEK — BIOS CpuFastSet/CpuSet](https://mgba-emu.github.io/gbatek/).
+
+## 9. BIOS GetCRC16
+
+The NDS7/NDS9 SWI `0x0E` accepts the initial 16-bit CRC in R0, an even-aligned source address in R1, and an even byte length in R2. It returns the calculated CRC in R0. For nonzero lengths, R3 receives the final little-endian halfword at `source + length - 2`.
+
+The provider implements the reflected CRC-16 loop (right shift, polynomial `0xA001`) over a prevalidated GuestMemory span. It rejects odd addresses, odd lengths, address overflow, inaccessible memory and unmodelled MMIO. A zero-length request returns the low 16 bits of the supplied seed and leaves R3 unchanged.
+
+The NDS7 BIOS has a special GetCRC16 read path, but BIOSPROT is not modelled and the BIOS ROM itself is not mapped in GuestMemory. To avoid exposing protected contents, ARM7 BIOS-source reads remain rejected until the BIOS image and protection boundary are represented explicitly. ARM9 BIOS-source reads likewise cannot succeed while that ROM is unmapped. This does not affect CRC operations over mapped RAM.

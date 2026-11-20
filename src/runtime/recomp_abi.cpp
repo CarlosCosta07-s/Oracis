@@ -25,6 +25,8 @@ void *g_coprocessor_context = nullptr;
 OracisArmRuntimeCoprocessorHandler g_coprocessor_handler = nullptr;
 void *g_bios_memory_context = nullptr;
 OracisArmRuntimeBiosMemoryHandler g_bios_memory_handler = nullptr;
+void *g_bios_crc16_context = nullptr;
+OracisArmRuntimeBiosCrc16Handler g_bios_crc16_handler = nullptr;
 
 } // namespace
 
@@ -155,6 +157,56 @@ int oracis_arm_runtime_bios_memory_transfer(
     return g_bios_memory_handler(
         g_bios_memory_context, g_nds_active,
         source, destination, count, width, fixed_source);
+}
+
+int oracis_arm_runtime_bind_bios_crc16_handler(
+    void *context, OracisArmRuntimeBiosCrc16Handler handler)
+{
+    if (context == nullptr || handler == nullptr) return 0;
+    if (g_bios_crc16_handler != nullptr || g_bios_crc16_context != nullptr) {
+        return g_bios_crc16_context == context &&
+            g_bios_crc16_handler == handler ? 1 : 0;
+    }
+    g_bios_crc16_context = context;
+    g_bios_crc16_handler = handler;
+    return 1;
+}
+
+int oracis_arm_runtime_unbind_bios_crc16_handler(
+    void *context, OracisArmRuntimeBiosCrc16Handler handler)
+{
+    if (context == nullptr || handler == nullptr ||
+        g_bios_crc16_context != context ||
+        g_bios_crc16_handler != handler) {
+        return 0;
+    }
+    g_bios_crc16_context = nullptr;
+    g_bios_crc16_handler = nullptr;
+    return 1;
+}
+
+int oracis_arm_runtime_bios_crc16(
+    uint32_t initial_crc, uint32_t source, uint32_t length,
+    uint32_t *result, uint32_t *last_halfword)
+{
+    if (result == nullptr || last_halfword == nullptr ||
+        (source & 1u) != 0u || (length & 1u) != 0u) {
+        return 0;
+    }
+    *result = initial_crc & UINT32_C(0xFFFF);
+    *last_halfword = 0u;
+    if (length == 0u) return 1;
+
+    if (g_bios_crc16_handler == nullptr ||
+        g_bios_crc16_context == nullptr ||
+        oracis_active_cpu_state == nullptr ||
+        (g_nds_active != NDS_ARM9 && g_nds_active != NDS_ARM7)) {
+        return 0;
+    }
+    return g_bios_crc16_handler(
+        g_bios_crc16_context, g_nds_active,
+        initial_crc & UINT32_C(0xFFFF), source, length,
+        result, last_halfword);
 }
 
 int oracis_arm_runtime_coprocessor_transfer(
@@ -465,6 +517,22 @@ void runtime_swi(uint32_t swi_imm)
     case 0x0Du: /* NDS7/NDS9 unsigned integer square root. */
         g_cpu.R[0] = nds_bios_integer_sqrt(g_cpu.R[0]);
         return;
+
+    case 0x0Eu: { /* NDS7/NDS9 GetCRC16: R0=seed, R1=address, R2=length. */
+        uint32_t result = 0u;
+        uint32_t last_halfword = g_cpu.R[3];
+        const uint32_t length = g_cpu.R[2];
+        if (!oracis_arm_runtime_bios_crc16(
+                g_cpu.R[0], g_cpu.R[1], length,
+                &result, &last_halfword)) {
+            abi_failure("runtime_swi GetCRC16 (invalid or unsupported memory span)");
+        }
+        g_cpu.R[0] = result & UINT32_C(0xFFFF);
+        if (length != 0u) {
+            g_cpu.R[3] = last_halfword & UINT32_C(0xFFFF);
+        }
+        return;
+    }
 
     case 0x06u: /* NDS Halt: ARM7 HALTCNT or ARM9 CP15 WFI. */
         if (!oracis_arm_runtime_request_halt(g_nds_active)) {

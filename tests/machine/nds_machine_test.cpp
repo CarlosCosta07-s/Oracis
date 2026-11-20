@@ -256,6 +256,84 @@ int main()
     }
 
     /*
+     * GetCRC16 uses R0=initial CRC, R1=even-aligned source,
+     * R2=even byte length, returns CRC in R0 and final halfword in R3.
+     */
+    constexpr uint32_t crc_source = UINT32_C(0x02001600);
+    const uint8_t crc_data[] = {1u, 2u, 3u, 4u, 5u, 6u};
+    if (machine.guest_memory().write_bytes(
+            NDS_ARM9, crc_source, crc_data,
+            static_cast<uint32_t>(sizeof(crc_data))) !=
+        oracis::memory::Status::Ok) {
+        return fail("could not seed GetCRC16 source data");
+    }
+
+    const NdsCpu crc_cpus[2] = {NDS_ARM9, NDS_ARM7};
+    for (unsigned cpu_index = 0u; cpu_index < 2u; ++cpu_index) {
+        const NdsCpu cpu = crc_cpus[cpu_index];
+        if (!oracis_arm_runtime_select_cpu(cpu)) {
+            return fail("CPU selection failed for GetCRC16");
+        }
+        ArmCpuState *state = machine.cpu_state(cpu);
+        state->cpsr = ORACIS_ARM_MODE_SYSTEM | CPSR_N_BIT | CPSR_C_BIT;
+        const uint32_t saved_cpsr = state->cpsr;
+        state->R[0] = UINT32_C(0xFFFF);
+        state->R[1] = crc_source;
+        state->R[2] = static_cast<uint32_t>(sizeof(crc_data));
+        state->R[3] = UINT32_C(0xDEADBEEF);
+        runtime_swi(0x0Eu);
+        if (state->R[0] != UINT32_C(0xDDBA) ||
+            state->R[1] != crc_source ||
+            state->R[2] != sizeof(crc_data) ||
+            state->R[3] != UINT32_C(0x0605) ||
+            state->cpsr != saved_cpsr) {
+            return fail("GetCRC16 CRC result or final-halfword register was incorrect");
+        }
+
+        /* A caller-supplied seed must be honored, not replaced with FFFFh. */
+        state->R[0] = UINT32_C(0x1234);
+        state->R[1] = crc_source;
+        state->R[2] = 4u;
+        state->R[3] = UINT32_C(0xA5A5A5A5);
+        runtime_swi(0x0Eu);
+        if (state->R[0] != UINT32_C(0x3A0F) ||
+            state->R[3] != UINT32_C(0x0403)) {
+            return fail("GetCRC16 did not honor the initial CRC seed");
+        }
+
+        /* Zero bytes return the seed and leave R3 untouched. */
+        state->R[0] = UINT32_C(0xABCD1234);
+        state->R[1] = crc_source;
+        state->R[2] = 0u;
+        state->R[3] = UINT32_C(0x76543210);
+        runtime_swi(0x0Eu);
+        if (state->R[0] != UINT32_C(0x1234) ||
+            state->R[3] != UINT32_C(0x76543210)) {
+            return fail("zero-length GetCRC16 changed the wrong registers");
+        }
+    }
+
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 selection failed for GetCRC16 span validation");
+    }
+    uint32_t crc_result = 0u;
+    uint32_t crc_last_halfword = 0u;
+    if (oracis_arm_runtime_bios_crc16(
+            UINT32_C(0xFFFF), crc_source + 1u, 2u,
+            &crc_result, &crc_last_halfword) != 0 ||
+        oracis_arm_runtime_bios_crc16(
+            UINT32_C(0xFFFF), crc_source, 3u,
+            &crc_result, &crc_last_halfword) != 0 ||
+        oracis_arm_runtime_bios_crc16(
+            UINT32_C(0xFFFF), UINT32_C(0xFFFFFFFE), 4u,
+            &crc_result, &crc_last_halfword) != 0 ||
+        oracis_arm_runtime_bios_crc16(
+            UINT32_C(0xFFFF), 0u, 2u,
+            &crc_result, &crc_last_halfword) != 0) {
+        return fail("GetCRC16 accepted misaligned, odd, overflowing or unmapped reads");
+    }
+
+    /*
      * The native bus bridge must enforce NDS palette/OAM store widths;
      * direct GuestMemory writes do not model STRB suppression.
      */
