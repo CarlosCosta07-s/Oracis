@@ -16,6 +16,7 @@
 #include "oracis/memory/nds_arm9_tcm.hpp"
 #include "oracis/memory/nds_interrupt_control.hpp"
 #include "oracis/memory/nds_ipc_control.hpp"
+#include "oracis/memory/nds_game_card_control.hpp"
 #include "oracis/memory/nds_dma_control.hpp"
 #include "oracis/memory/nds_keypad_control.hpp"
 #include "oracis/memory/nds_retail_map.hpp"
@@ -218,6 +219,7 @@ public:
         return interrupt_control_;
     }
     memory::NdsIpcControl &ipc_control() noexcept { return ipc_control_; }
+    memory::NdsGameCardControl &game_card_control() noexcept { return game_card_control_; }
     memory::NdsDmaControl &dma_control() noexcept { return dma_control_; }
     memory::NdsTimerControl &timer_control() noexcept { return timer_control_; }
     memory::NdsKeypadControl &keypad_control() noexcept {
@@ -274,6 +276,7 @@ private:
     memory::NdsVideoMemory video_memory_;
     memory::NdsPostFlag post_flag_;
     memory::NdsInterruptControl interrupt_control_;
+    memory::NdsGameCardControl game_card_control_;
     memory::NdsIpcControl ipc_control_;
     memory::NdsDmaControl dma_control_;
     memory::NdsDisplayControl display_control_;
@@ -303,6 +306,7 @@ private:
     bool post_flag_bound_ = false;
     bool display_control_bound_ = false;
     bool interrupt_bound_ = false;
+    bool game_card_bound_ = false;
     bool ipc_bound_ = false;
     bool dma_bound_ = false;
     bool timer_bound_ = false;

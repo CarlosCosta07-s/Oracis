@@ -12,6 +12,7 @@
 
 #include "oracis/memory/nds_timer_control.hpp"
 #include "oracis/memory/nds_display_control.hpp"
+#include "oracis/memory/nds_game_card_control.hpp"
 
 namespace oracis::memory {
 
@@ -24,10 +25,9 @@ enum class NdsClockStatus : uint8_t {
 
 class NdsSystemClock final {
 public:
-    NdsSystemClock(
-        NdsTimerControl &timers,
-        NdsDisplayControl &display) noexcept
-        : timers_(timers), display_(display) {}
+    NdsSystemClock(NdsTimerControl &timers,NdsDisplayControl &display,
+                   NdsGameCardControl *game_card=nullptr) noexcept
+        :timers_(timers),display_(display),game_card_(game_card) {}
 
     NdsSystemClock(const NdsSystemClock &) = delete;
     NdsSystemClock &operator=(const NdsSystemClock &) = delete;
@@ -61,6 +61,7 @@ private:
 
     NdsTimerControl &timers_;
     NdsDisplayControl &display_;
+    NdsGameCardControl *game_card_=nullptr;
     std::array<uint64_t, 2> cpu_cycles_{};
     uint64_t global_bus_cycles_ = 0u;
 };

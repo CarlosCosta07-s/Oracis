@@ -42,6 +42,10 @@ int oracis_bus_unbind_display_control(void *display_control);
 int oracis_bus_bind_interrupt_control(void *control);
 int oracis_bus_unbind_interrupt_control(void *control);
 
+/* Bind the shared ARM9/ARM7 Game Card device after its interrupt controller. */
+int oracis_bus_bind_game_card_control(void *control);
+int oracis_bus_unbind_game_card_control(void *control);
+
 /* Bind the shared ARM9/ARM7 IPC device after its interrupt controller. */
 int oracis_bus_bind_ipc_control(void *control);
 int oracis_bus_unbind_ipc_control(void *control);

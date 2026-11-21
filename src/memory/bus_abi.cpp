@@ -10,6 +10,7 @@
 #include "oracis/memory/nds_timer_control.hpp"
 #include "oracis/memory/nds_keypad_control.hpp"
 #include "oracis/memory/nds_ipc_control.hpp"
+#include "oracis/memory/nds_game_card_control.hpp"
 #include "oracis/memory/nds_dma_control.hpp"
 #include "oracis/memory/nds_system_clock.hpp"
 #include "oracis/recomp/runtime_arm.h"
@@ -28,6 +29,7 @@ oracis::memory::NdsPostFlag *g_post_flag = nullptr;
 oracis::memory::NdsDisplayControl *g_display_control = nullptr;
 oracis::memory::NdsInterruptControl *g_interrupt_control = nullptr;
 oracis::memory::NdsIpcControl *g_ipc_control = nullptr;
+oracis::memory::NdsGameCardControl *g_game_card_control = nullptr;
 oracis::memory::NdsDmaControl *g_dma_control = nullptr;
 oracis::memory::NdsTimerControl *g_timer_control = nullptr;
 oracis::memory::NdsKeypadControl *g_keypad_control = nullptr;
@@ -95,6 +97,10 @@ uint32_t read_bus(uint32_t address, uint32_t width, const char *operation)
             if (!mmio) bus_failure(operation, address, width, mmio.status);
             return mmio.value;
         }
+    }
+    if (g_game_card_control != nullptr) {
+        const auto mmio=g_game_card_control->read(g_nds_active,address,width);
+        if(mmio.status!=oracis::memory::Status::Unmapped){if(!mmio)bus_failure(operation,address,width,mmio.status);return mmio.value;}
     }
     if (g_dma_control != nullptr) {
         const auto mmio = g_dma_control->read(
@@ -186,6 +192,10 @@ void write_bus(uint32_t address,
             }
             return;
         }
+    }
+    if (g_game_card_control != nullptr) {
+        const auto mmio=g_game_card_control->write(g_nds_active,address,width,value);
+        if(mmio!=oracis::memory::Status::Unmapped){if(mmio!=oracis::memory::Status::Ok)bus_failure(operation,address,width,mmio);return;}
     }
     if (g_dma_control != nullptr) {
         const auto mmio = g_dma_control->write(
@@ -279,6 +289,7 @@ extern "C" int oracis_bus_unbind_memory(void *memory)
          &g_video_memory->backing_memory() == g_guest_memory) ||
         g_post_flag != nullptr ||
         g_display_control != nullptr ||
+        g_game_card_control != nullptr ||
         (g_interrupt_control != nullptr &&
          &g_interrupt_control->backing_memory() == g_guest_memory) ||
         (g_timer_control != nullptr &&
@@ -426,11 +437,26 @@ extern "C" int oracis_bus_unbind_interrupt_control(void *control)
         (g_dma_control != nullptr &&
          &g_dma_control->interrupt_control() == g_interrupt_control) ||
         (g_display_control != nullptr &&
-         &g_display_control->interrupt_control() == g_interrupt_control)) {
+         &g_display_control->interrupt_control() == g_interrupt_control) ||
+        (g_game_card_control != nullptr &&
+         &g_game_card_control->interrupt_control() == g_interrupt_control)) {
         return 0;
     }
     g_interrupt_control = nullptr;
     return 1;
+}
+
+extern "C" int oracis_bus_bind_game_card_control(void *control)
+{
+    if(control==nullptr||g_interrupt_control==nullptr)return 0;
+    auto *d=static_cast<oracis::memory::NdsGameCardControl*>(control);
+    if(!d->installed()||&d->interrupt_control()!=g_interrupt_control||g_game_card_control!=nullptr)return 0;
+    g_game_card_control=d;return 1;
+}
+extern "C" int oracis_bus_unbind_game_card_control(void *control)
+{
+    if(control==nullptr||g_game_card_control!=static_cast<oracis::memory::NdsGameCardControl*>(control))return 0;
+    g_game_card_control=nullptr;return 1;
 }
 
 extern "C" int oracis_bus_bind_ipc_control(void *control)

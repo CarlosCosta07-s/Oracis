@@ -18,12 +18,13 @@ NdsMachine::NdsMachine(memory::SharedWramMode initial_wram_mode) noexcept
       vram_control_(memory_),
       video_memory_(memory_),
       interrupt_control_(memory_),
+      game_card_control_(interrupt_control_),
       ipc_control_(interrupt_control_),
       dma_control_(memory_, interrupt_control_),
       display_control_(interrupt_control_, &dma_control_),
       timer_control_(memory_, interrupt_control_),
       keypad_control_(memory_, interrupt_control_),
-      system_clock_(timer_control_, display_control_)
+      system_clock_(timer_control_, display_control_, &game_card_control_)
 {
     dma_control_.attach_display_control(display_control_);
 }
@@ -1024,7 +1025,7 @@ NdsMachineStatus NdsMachine::initialize() noexcept
 {
     if (initialized_ || wram_control_.installed() ||
         vram_control_.installed() || video_memory_.installed() ||
-        post_flag_.installed() || display_control_.installed()) {
+        post_flag_.installed() || display_control_.installed() || game_card_control_.installed()) {
         return NdsMachineStatus::AlreadyInitialized;
     }
 
@@ -1111,6 +1112,7 @@ NdsMachineStatus NdsMachine::initialize() noexcept
         video_memory_.install() != memory::Status::Ok ||
         post_flag_.install() != memory::Status::Ok ||
         display_control_.install() != memory::Status::Ok ||
+        game_card_control_.install() != memory::Status::Ok ||
         arm9_tcm_.install() != memory::Status::Ok) {
         return rollback(NdsMachineStatus::MemoryMapFailed);
     }
@@ -1147,6 +1149,10 @@ NdsMachineStatus NdsMachine::initialize() noexcept
     }
     interrupt_bound_ = true;
 
+    if (!oracis_bus_bind_game_card_control(&game_card_control_)) {
+        return rollback(NdsMachineStatus::BusBindingFailed);
+    }
+    game_card_bound_ = true;
     if (!oracis_bus_bind_ipc_control(&ipc_control_)) {
         return rollback(NdsMachineStatus::BusBindingFailed);
     }
@@ -1296,7 +1302,8 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
         bios_huffman_handler_bound_ || bios_diff_handler_bound_ ||
         memory_bound_ ||
         wram_bound_ || vram_bound_ || video_memory_bound_ ||
-        post_flag_bound_ || display_control_bound_ || interrupt_bound_ || ipc_bound_ || dma_bound_ || timer_bound_ ||
+        post_flag_bound_ || display_control_bound_ || interrupt_bound_ ||
+        game_card_bound_ || ipc_bound_ || dma_bound_ || timer_bound_ ||
         keypad_bound_ || clock_bound_ || validation_bound_;
     if (!owns_runtime && !initialized_) {
         return NdsMachineStatus::Ok;
@@ -1352,6 +1359,10 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
             return NdsMachineStatus::ShutdownFailed;
         }
         dma_bound_ = false;
+    }
+    if (game_card_bound_) {
+        if (!oracis_bus_unbind_game_card_control(&game_card_control_)) return NdsMachineStatus::ShutdownFailed;
+        game_card_bound_ = false;
     }
     if (ipc_bound_) {
         if (!oracis_bus_unbind_ipc_control(&ipc_control_)) {

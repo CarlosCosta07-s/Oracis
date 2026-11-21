@@ -60,6 +60,7 @@ NdsClockStatus NdsSystemClock::report_cpu_cycles(
     if (elapsed_bus_cycles != 0u) {
         timers_.advance_bus_cycles(elapsed_bus_cycles);
         display_.advance_bus_cycles(elapsed_bus_cycles);
+        if(game_card_!=nullptr)game_card_->advance_bus_cycles(elapsed_bus_cycles);
         global_bus_cycles_ = synchronized_bus_cycles;
     }
 
@@ -107,6 +108,7 @@ void NdsSystemClock::reset() noexcept
     cpu_cycles_ = {};
     global_bus_cycles_ = 0u;
     display_.reset_timing();
+    if(game_card_!=nullptr)game_card_->reset_transfer();
 }
 
 } // namespace oracis::memory
