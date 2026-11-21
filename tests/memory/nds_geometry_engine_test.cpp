@@ -602,7 +602,7 @@ int main()
     }
     transform_geometry.advance_bus_cycles(20u);
     constexpr std::array<uint32_t, 3> world_translation = {
-        UINT32_C(0x4000), UINT32_C(0xE000), UINT32_C(0x1000)
+        UINT32_C(0x00004000), UINT32_C(0xFFFFE000), UINT32_C(0x00001000)
     };
     if (!write_parameters(
             transform_geometry, 0x1Cu, world_translation.data(), 3u)) {
