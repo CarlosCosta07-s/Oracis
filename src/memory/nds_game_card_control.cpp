@@ -117,10 +117,10 @@ Status NdsGameCardControl::start_transfer(NdsCpu cpu) noexcept{
       (static_cast<uint16_t>(command_[2])>>4u));
   key1_random_j_=static_cast<uint16_t>(
       (static_cast<uint16_t>(command_[2]&UINT8_C(0x0F))<<8u)|command_[3]);
+  /* xkkkkkxx: low nibble of byte 4, then bytes 5 and 6. */
   key1_command_counter_=
       (static_cast<uint32_t>(command_[4]&UINT8_C(0x0F))<<16u)|
-      (static_cast<uint32_t>(command_[5])<<8u)|
-      (static_cast<uint32_t>(command_[6])>>4u);
+      (static_cast<uint32_t>(command_[5])<<8u)|command_[6];
  }
  key1_activation_pending_=activate_key1;
  dummy_data_=dummy;
