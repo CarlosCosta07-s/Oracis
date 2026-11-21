@@ -5,6 +5,7 @@
 #include <cstdint>
 #include "oracis/memory/guest_memory.hpp"
 #include "oracis/memory/nds_interrupt_control.hpp"
+#include "oracis/memory/nds_game_card_key1.hpp"
 #include "oracis/memory/nds_game_card_key2.hpp"
 namespace oracis::memory {
 class NdsDmaControl;
@@ -41,6 +42,8 @@ public:
  Status install() noexcept;
  /* Image bytes remain caller-owned and must outlive the mount. */
  Status mount_image(const uint8_t *bytes,uint32_t size) noexcept;
+ /* Copy the 0x1048-byte KEY1 table extracted from the user-owned ARM7 BIOS. */
+ Status load_key1_key_table(const uint8_t *bytes,uint32_t size) noexcept;
  /* Chip ID is cartridge metadata not present in every .nds dump; caller must supply it. */
  Status set_chip_id(uint32_t chip_id) noexcept;
  void unmount_image() noexcept;
@@ -52,6 +55,8 @@ public:
  void reset_transfer() noexcept;
  bool installed() const noexcept{return installed_;}
  bool key2_initialized() const noexcept{return key2_.initialized();}
+ bool key1_initialized() const noexcept{return key1_.initialized();}
+ uint32_t key1_id_code() const noexcept{return key1_.id_code();}
  bool chip_id_configured() const noexcept{return chip_id_configured_;}
  uint32_t chip_id() const noexcept{return chip_id_;}
  uint64_t key2_state1() const noexcept{return key2_.state1();}
@@ -70,6 +75,7 @@ private:
  uint32_t read_rom_control() const noexcept;
  Status write_rom_control(NdsCpu cpu,uint32_t value) noexcept;
  Status start_transfer(NdsCpu cpu) noexcept;
+ Status initialize_key1_from_image() noexcept;
  void finish_transfer() noexcept;
  NdsInterruptControl &interrupts_;
  NdsDmaControl *dma_control_=nullptr;
@@ -78,6 +84,7 @@ private:
  std::array<uint8_t,CommandBytes> command_{};
  std::array<std::array<uint8_t,SeedBytes>,2> seed_registers_{};
  NdsGameCardKey2 key2_{};
+ NdsGameCardKey1 key1_{};
  uint16_t aux_spi_control_=0u;
  uint32_t rom_control_=0u;
  uint32_t current_offset_=0u;
