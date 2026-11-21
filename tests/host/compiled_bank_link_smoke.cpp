@@ -1,8 +1,18 @@
 #include "oracis/host/runtime_bridge.h"
+#include "oracis/memory/guest_memory_abi.h"
+#include "oracis/recomp/static_dispatch_abi.h"
 
 #include <cstdio>
+#include <cstdint>
 
 namespace {
+
+constexpr uint32_t kArm9Entry = UINT32_C(0x02001000);
+constexpr uint32_t kArm7Entry = UINT32_C(0x02381000);
+constexpr uint32_t kArm9MarkerAddress = UINT32_C(0x02002000);
+constexpr uint32_t kArm7MarkerAddress = UINT32_C(0x02002004);
+constexpr uint32_t kArm9Marker = UINT32_C(0xA9A90001);
+constexpr uint32_t kArm7Marker = UINT32_C(0xA7A70001);
 
 int fail(const char *message)
 {
@@ -33,11 +43,70 @@ int main()
         return fail("host executed compiled banks before loading program images");
     }
 
+    /* Load tiny synthetic images at the exact PCs exported by the linked banks. */
+    const uint8_t arm9_bytes[] = {
+        UINT8_C(0x00), UINT8_C(0x00), UINT8_C(0xA0), UINT8_C(0xE1)
+    };
+    const uint8_t arm7_bytes[] = {
+        UINT8_C(0xC0), UINT8_C(0x46)
+    };
+    const OracisHostProgramSegment arm9_image = {
+        kArm9Entry,
+        static_cast<uint32_t>(sizeof(arm9_bytes)),
+        kArm9Entry,
+        0u,
+        arm9_bytes
+    };
+    const OracisHostProgramSegment arm7_image = {
+        kArm7Entry,
+        static_cast<uint32_t>(sizeof(arm7_bytes)),
+        kArm7Entry,
+        1u,
+        arm7_bytes
+    };
+
+    if (oracis_host_runtime_load_program_segments(
+            &arm9_image, &arm7_image) != ORACIS_HOST_RUNTIME_OK ||
+        oracis_host_runtime_program_loaded() != 1) {
+        (void)oracis_host_runtime_shutdown();
+        return fail("synthetic ARM9/ARM7 program images did not load");
+    }
+
+    OracisHostRuntimeEntryPointReport arm9_report{};
+    OracisHostRuntimeEntryPointReport arm7_report{};
+    if (oracis_host_runtime_validate_entrypoints(
+            &arm9_report, &arm7_report) != ORACIS_HOST_RUNTIME_OK ||
+        arm9_report.pc != kArm9Entry ||
+        arm9_report.resolved != 1u ||
+        arm9_report.lookup_status != ORACIS_DISPATCH_LOOKUP_FOUND ||
+        arm9_report.candidate_count != 1u ||
+        arm7_report.pc != kArm7Entry ||
+        arm7_report.resolved != 1u ||
+        arm7_report.lookup_status != ORACIS_DISPATCH_LOOKUP_FOUND ||
+        arm7_report.candidate_count != 1u ||
+        (arm7_report.cpsr & CPSR_T_BIT) == 0u) {
+        (void)oracis_host_runtime_shutdown();
+        return fail("compiled ARM9/ARM7 entry points did not resolve in their execution modes");
+    }
+
+    if (oracis_host_runtime_run_round(1u, nullptr, nullptr) !=
+            ORACIS_HOST_RUNTIME_OK ||
+        oracis_host_runtime_global_bus_cycles() != 1u) {
+        (void)oracis_host_runtime_shutdown();
+        return fail("registered static banks did not complete a synchronized dual-core round");
+    }
+
+    if (bus_read_u32(kArm9MarkerAddress) != kArm9Marker ||
+        bus_read_u32(kArm7MarkerAddress) != kArm7Marker) {
+        (void)oracis_host_runtime_shutdown();
+        return fail("static bank functions were not executed by the dual-core dispatcher");
+    }
+
     if (oracis_host_runtime_shutdown() != ORACIS_HOST_RUNTIME_OK ||
         oracis_host_runtime_has_program_banks() != 0) {
         return fail("compiled bank tables were not unregistered at shutdown");
     }
 
-    std::puts("optional compiled bank link/registration smoke test passed");
+    std::puts("optional compiled bank link/load/preflight/dual-core execution smoke test passed");
     return 0;
 }
