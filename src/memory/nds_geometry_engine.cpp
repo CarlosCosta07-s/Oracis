@@ -1074,23 +1074,24 @@ void NdsGeometryEngine::submit_vertex() noexcept
     };
 
     /*
-     * The Geometry Engine exposes the clip matrix as Position * Projection.
-     * Inputs and matrix elements are signed 20.12 fixed-point; accumulate in
-     * 64 bits, shift once, then retain the hardware-sized 32-bit result.
+     * DS vertices are row-vectors: (x,y,z,1) * ClipMatrix, where
+     * ClipMatrix is Position * Projection. Inputs and matrix elements are
+     * signed 20.12 fixed-point; accumulate in 64 bits, shift once, then
+     * retain the hardware-sized 32-bit result.
      */
-    for (unsigned row = 0u; row < 4u; ++row) {
+    for (unsigned column = 0u; column < 4u; ++column) {
         uint64_t accumulator = 0u;
-        for (unsigned column = 0u; column < 4u; ++column) {
+        for (unsigned row = 0u; row < 4u; ++row) {
             const int64_t product =
-                static_cast<int64_t>(clip_matrix_[row * 4u + column]) *
-                static_cast<int64_t>(input[column]);
+                static_cast<int64_t>(input[row]) *
+                static_cast<int64_t>(clip_matrix_[row * 4u + column]);
             accumulator += static_cast<uint64_t>(product);
         }
         const int64_t signed_accumulator =
             std::bit_cast<int64_t>(accumulator);
         const uint32_t shifted = static_cast<uint32_t>(
             static_cast<uint64_t>(signed_accumulator >> 12u));
-        vertex.clip_position[row] = std::bit_cast<int32_t>(shifted);
+        vertex.clip_position[column] = std::bit_cast<int32_t>(shifted);
     }
 
     const uint32_t stored_index = buffer.vertex_count;

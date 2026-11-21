@@ -590,6 +590,59 @@ int main()
     }
 
     /*
+     * The clip-space transform is a row-vector multiplication:
+     * (x,y,z,1) * (Position * Projection). Translation is deliberately
+     * nonzero so a transposed matrix/vector implementation cannot pass.
+     */
+    NdsGeometryEngine transform_geometry(interrupts);
+    if (transform_geometry.install() != Status::Ok ||
+        !write_command(transform_geometry, 0x10u, 1u) ||
+        !write_command(transform_geometry, 0x15u)) {
+        return fail("row-vector transform Geometry Engine setup failed");
+    }
+    transform_geometry.advance_bus_cycles(20u);
+    constexpr std::array<uint32_t, 3> world_translation = {
+        UINT32_C(0x4000), UINT32_C(0xE000), UINT32_C(0x1000)
+    };
+    if (!write_parameters(
+            transform_geometry, 0x1Cu, world_translation.data(), 3u)) {
+        return fail("world translation command enqueue failed");
+    }
+    transform_geometry.advance_bus_cycles(22u);
+    if (transform_geometry.position_matrix()[12] != INT32_C(16384) ||
+        transform_geometry.position_matrix()[13] != -INT32_C(8192) ||
+        transform_geometry.position_matrix()[14] != INT32_C(4096)) {
+        return fail("MTX_TRANS did not place translation in the final matrix row");
+    }
+    if (!write_command(transform_geometry, 0x40u, UINT32_C(0))) {
+        return fail("row-vector triangle BEGIN_VTXS enqueue failed");
+    }
+    transform_geometry.advance_bus_cycles(1u);
+    const std::array<std::array<uint32_t, 3>, 3> triangle_positions = {{
+        {{UINT32_C(0x1000), UINT32_C(0x2000), UINT32_C(0x3000)}},
+        {{UINT32_C(0x0000), UINT32_C(0x0000), UINT32_C(0x0000)}},
+        {{UINT32_C(0x1000), UINT32_C(0x0000), UINT32_C(0x1000)}}
+    }};
+    for (const auto &position : triangle_positions) {
+        const uint32_t xy = (position[1] << 16u) | position[0];
+        if (!write_command(transform_geometry, 0x23u, xy) ||
+            !write_command(transform_geometry, 0x23u, position[2])) {
+            return fail("translated VTX_16 parameter enqueue failed");
+        }
+    }
+    transform_geometry.advance_bus_cycles(27u);
+    const NdsGeometryEngine::Vertex *translated_vertex =
+        transform_geometry.vertex_at(0u);
+    if (transform_geometry.vertex_count() != 3u ||
+        transform_geometry.polygon_count() != 1u ||
+        translated_vertex == nullptr ||
+        translated_vertex->clip_position !=
+            std::array<int32_t, 4>{
+                INT32_C(20480), 0, INT32_C(16384), INT32_C(4096)}) {
+        return fail("row-vector ClipMatrix transform did not apply translation to XYZ");
+    }
+
+    /*
      * The machine clock advances GX commands only at the shared ARM9/ARM7
      * watermark. ARM9 running ahead alone must not consume a FIFO command.
      */
