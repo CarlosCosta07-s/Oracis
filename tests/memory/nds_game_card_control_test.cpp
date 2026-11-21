@@ -50,8 +50,10 @@ int main(){
     card.header_key1_rom_control()!=header_key1_romctrl||
     card.header_key1_gap1_length()!=UINT32_C(0x8F8)||
     card.header_key1_gap2_length()!=UINT32_C(0x18)||
-    card.header_key1_gap_clocks_enabled()||
+    card.header_key1_initial_gap_bytes()!=UINT32_C(0x910)||
+    card.header_key1_gap_clocks_enabled()||card.header_key1_slow_clock()||
     card.header_secure_area_delay()!=UINT16_C(0x051E)||
+    card.header_secure_area_delay_core_cycles()!=UINT32_C(0x051E)*UINT32_C(256)||
     card.header_key2_seed_index()!=3u)
      return fail("cartridge header KEY1 timing or KEY2 seed metadata was decoded incorrectly");
  std::array<uint8_t,NdsGameCardKey1::KeyTableBytes> bios_key_table{};
