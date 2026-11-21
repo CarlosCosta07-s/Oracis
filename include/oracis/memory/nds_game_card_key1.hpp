@@ -14,6 +14,25 @@
 
 namespace oracis::memory {
 
+enum class NdsGameCardKey1CommandKind : uint8_t {
+    ActivateKey2 = 0x04u,
+    ReadChipId = 0x01u,
+    ReadSecureAreaBlock = 0x02u,
+    DisableKey2 = 0x06u,
+    EnterMainDataMode = 0x0Au
+};
+
+struct NdsGameCardKey1Command {
+    NdsGameCardKey1CommandKind kind = NdsGameCardKey1CommandKind::ActivateKey2;
+    uint8_t opcode = 0u;
+    uint16_t parameter16 = 0u;
+    uint16_t random_i = 0u;
+    uint16_t random_j = 0u;
+    uint16_t secure_area_block = 0u;
+    uint32_t key2_seed24 = 0u;
+    uint32_t counter20 = 0u;
+};
+
 class NdsGameCardKey1 final {
 public:
     static constexpr uint32_t KeyTableBytes = UINT32_C(0x1048);
@@ -51,6 +70,15 @@ public:
      * reverse them around the little-endian 64-bit block primitive. */
     Status encrypt_command(uint8_t *wire_bytes, uint32_t size) const noexcept;
     Status decrypt_command(uint8_t *wire_bytes, uint32_t size) const noexcept;
+
+    /* Decrypt and validate an NDS KEY1 command. The expected counter is
+     * supplied by the protocol owner so repeated slow-cart commands can
+     * retain the same counter while normal commands advance it. */
+    Status decode_command(
+        const uint8_t *wire_bytes, uint32_t size,
+        uint32_t expected_counter20, uint16_t expected_random_i,
+        uint16_t expected_random_j,
+        NdsGameCardKey1Command &decoded) const noexcept;
 
     bool table_loaded() const noexcept { return table_loaded_; }
     bool initialized() const noexcept { return initialized_; }
