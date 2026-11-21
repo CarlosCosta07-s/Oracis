@@ -1081,6 +1081,84 @@ int main(){
   if(card.busy()||card.key1_command_mode()||!card.key2_command_mode()||
      card.key2_bytes_processed()!=UINT32_C(0x3444))
    return fail("older-cart 0xA0 did not enter KEY2 mode after consuming its dummy interval");
+   std::array<uint8_t,UINT32_C(0x910)> expected_old_a0_gap{};
+   if(expected_automatic_old_key2.apply_keystream(expected_old_a0_gap.data(),
+       static_cast<uint32_t>(expected_old_a0_gap.size()))!=Status::Ok||
+      expected_automatic_old_key2.bytes_processed()!=UINT32_C(0x3444))
+    return fail("could not align old-cart KEY2 reference stream after 0xA0");
+
+   /* Old-cart KEY2 B7/B8 use the persistent stream after A0. */
+   std::array<uint8_t,8> old_key2_b7_plain{{
+       UINT8_C(0xB7),UINT8_C(0x00),UINT8_C(0x00),UINT8_C(0x80),
+       UINT8_C(0x00),UINT8_C(0x00),UINT8_C(0x00),UINT8_C(0x00)}};
+   auto old_key2_b7_wire=old_key2_b7_plain;
+   if(expected_automatic_old_key2.apply_keystream(old_key2_b7_wire.data(),8u)!=Status::Ok)
+    return fail("could not encrypt older-cart KEY2 B7 command");
+   write_key1_command(old_key2_b7_wire);
+   const uint32_t old_key2_b7_control=no_reply_control|
+       (UINT32_C(1)<<NdsGameCardControl::RomCtrlBlockSizeShift)|
+       (UINT32_C(0x18)<<NdsGameCardControl::RomCtrlKey1Gap2Shift)|
+       NdsGameCardControl::RomCtrlKey2DataMask|
+       NdsGameCardControl::RomCtrlKey2CommandMask;
+   if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+       old_key2_b7_control|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok||
+      !card.busy()||card.remaining_words()!=128u)
+    return fail("older-cart KEY2 B7 command did not start a 200h-byte read");
+   std::array<uint8_t,UINT32_C(0x200)> expected_old_key2_b7_data{};
+   for(uint32_t byte=0u;byte<expected_old_key2_b7_data.size();++byte)
+    expected_old_key2_b7_data[byte]=image[UINT32_C(0x8000)+byte];
+   if(expected_automatic_old_key2.apply_keystream(expected_old_key2_b7_data.data(),
+       static_cast<uint32_t>(expected_old_key2_b7_data.size()))!=Status::Ok)
+    return fail("could not derive older-cart KEY2 B7 data stream");
+   for(uint32_t word_index=0u;word_index<128u;++word_index){
+    card.advance_bus_cycles(word_index==0u
+        ? (UINT32_C(8)+UINT32_C(0x18)+UINT32_C(4))*UINT32_C(5)
+        : UINT32_C(4)*UINT32_C(5));
+    const ReadResult actual=card.read_data(NDS_ARM9);
+    const uint32_t expected=
+        static_cast<uint32_t>(expected_old_key2_b7_data[word_index*4u])|
+        (static_cast<uint32_t>(expected_old_key2_b7_data[word_index*4u+1u])<<8u)|
+        (static_cast<uint32_t>(expected_old_key2_b7_data[word_index*4u+2u])<<16u)|
+        (static_cast<uint32_t>(expected_old_key2_b7_data[word_index*4u+3u])<<24u);
+    if(actual.status!=Status::Ok||actual.value!=expected)
+     return fail("older-cart KEY2 B7 DATA did not match the continuous stream");
+   }
+   if(card.busy()||!card.key2_command_mode()||
+      card.key2_bytes_processed()!=expected_automatic_old_key2.bytes_processed())
+    return fail("older-cart KEY2 B7 did not preserve the persistent stream");
+
+   std::array<uint8_t,8> old_key2_b8_plain{{
+       UINT8_C(0xB8),0u,0u,0u,0u,0u,0u,0u}};
+   auto old_key2_b8_wire=old_key2_b8_plain;
+   if(expected_automatic_old_key2.apply_keystream(old_key2_b8_wire.data(),8u)!=Status::Ok)
+    return fail("could not encrypt older-cart KEY2 B8 command");
+   write_key1_command(old_key2_b8_wire);
+   const uint32_t old_key2_b8_control=no_reply_control|
+       (UINT32_C(7)<<NdsGameCardControl::RomCtrlBlockSizeShift)|
+       (UINT32_C(0x18)<<NdsGameCardControl::RomCtrlKey1Gap2Shift)|
+       NdsGameCardControl::RomCtrlKey2DataMask|
+       NdsGameCardControl::RomCtrlKey2CommandMask;
+   if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+       old_key2_b8_control|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok||
+      !card.busy()||card.remaining_words()!=1u)
+    return fail("older-cart KEY2 B8 command did not start");
+   std::array<uint8_t,4> expected_old_key2_chip_id{{
+       UINT8_C(0xC2),UINT8_C(0x00),UINT8_C(0x00),UINT8_C(0x00)}};
+   if(expected_automatic_old_key2.apply_keystream(expected_old_key2_chip_id.data(),4u)!=Status::Ok)
+    return fail("could not derive older-cart KEY2 B8 Chip ID stream");
+   const uint32_t expected_old_key2_chip_id=
+       static_cast<uint32_t>(expected_old_key2_chip_id[0])|
+       (static_cast<uint32_t>(expected_old_key2_chip_id[1])<<8u)|
+       (static_cast<uint32_t>(expected_old_key2_chip_id[2])<<16u)|
+       (static_cast<uint32_t>(expected_old_key2_chip_id[3])<<24u);
+   card.advance_bus_cycles((UINT32_C(8)+UINT32_C(0x18)+UINT32_C(4))*UINT32_C(5));
+   const ReadResult actual_old_key2_b8=card.read_data(NDS_ARM9);
+   if(actual_old_key2_b8.status!=Status::Ok||
+      actual_old_key2_b8.value!=expected_old_key2_chip_id||
+      card.busy()||!card.key2_command_mode()||
+      card.key2_bytes_processed()!=expected_automatic_old_key2.bytes_processed())
+    return fail("older-cart KEY2 B8 did not return encrypted Chip ID or preserve stream");
+
 
 if(!oracis_bus_unbind_game_card_control(&card)||!oracis_bus_unbind_dma_control(&dma)||
     !oracis_bus_unbind_interrupt_control(&irq)||!oracis_bus_unbind_memory(&memory)||
