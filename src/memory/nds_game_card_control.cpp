@@ -448,7 +448,7 @@ Status NdsGameCardControl::start_key2_command_transfer(NdsCpu cpu) noexcept
  key2_command_transfer_active_=true;
  key2_transfer_data_bytes_=0u;
  key2_transfer_gap2_bytes_=gap2;
- cycles_until_data_=static_cast<uint64_t>(CommandBytes+gap1+gap2)*
+ cycles_until_data_=static_cast<uint64_t>(CommandBytes+gap1+gap2+kWordBytes)*
      cycles_per_byte_;
  owner_cpu_=cpu;
  busy_=true;
