@@ -754,6 +754,53 @@ int main(){
     card.key2_bytes_processed()!=0u)
   return fail("newer-cart 0x40 did not activate KEY2 after its second scheduled transmission");
 
+  /* New-cart 0x10 waits for its second KEY1 transmission, then
+   * delivers the Chip ID through DATA after the silent gap. */
+  constexpr uint32_t new_chip_id_counter=key1_counter+2u;
+  const uint32_t packed_randoms=(uint32_t(key1_random_i)<<12u)|key1_random_j;
+  auto automatic_new_chip_id=make_key1_command(
+      0x01u,UINT16_C(0x1234),packed_randoms,new_chip_id_counter);
+  if(command_codec.encrypt_command(automatic_new_chip_id.data(),8u)!=Status::Ok)
+   return fail("could not encrypt bus-driven newer-cart 0x10 command");
+  write_key1_command(automatic_new_chip_id);
+  if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+      no_reply_control|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok||
+     !card.busy())
+   return fail("newer-cart 0x10 first transmission did not start");
+  card.advance_bus_cycles(key1_command_gap_cycles);
+  if(card.busy()||
+     card.key1_repeat_delay_cycles_remaining()!=
+         card.header_secure_area_delay_core_cycles()||
+     card.key2_bytes_processed()!=0u)
+   return fail("newer-cart 0x10 first transmission did not complete silently");
+  card.advance_bus_cycles(card.header_secure_area_delay_core_cycles());
+  write_key1_command(automatic_new_chip_id);
+  if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+      no_reply_control|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok||
+     !card.busy())
+   return fail("newer-cart 0x10 second transmission did not start after its delay");
+  card.advance_bus_cycles(key1_command_gap_cycles);
+  if(!card.busy()||card.data_ready()||card.remaining_words()!=1u||
+     card.key2_bytes_processed()!=0u)
+   return fail("newer-cart 0x10 did not stage its four-byte payload after the gap");
+  std::array<uint8_t,4> expected_new_chip_id_bytes{{
+      UINT8_C(0xC2),UINT8_C(0x00),UINT8_C(0x00),UINT8_C(0x80)}};
+  if(expected_automatic_new_key2.apply_keystream(
+         expected_new_chip_id_bytes.data(),
+         static_cast<uint32_t>(expected_new_chip_id_bytes.size()))!=Status::Ok)
+   return fail("could not derive newer-cart KEY2 Chip ID response");
+  const uint32_t expected_new_chip_id_word=
+      static_cast<uint32_t>(expected_new_chip_id_bytes[0])|
+      (static_cast<uint32_t>(expected_new_chip_id_bytes[1])<<8u)|
+      (static_cast<uint32_t>(expected_new_chip_id_bytes[2])<<16u)|
+      (static_cast<uint32_t>(expected_new_chip_id_bytes[3])<<24u);
+  card.advance_bus_cycles(20u);
+  const ReadResult automatic_new_chip_id_word=card.read_data(NDS_ARM9);
+  if(automatic_new_chip_id_word.status!=Status::Ok||
+     automatic_new_chip_id_word.value!=expected_new_chip_id_word||
+     card.busy()||card.key2_bytes_processed()!=4u)
+   return fail("newer-cart 0x10 did not return its KEY2-encrypted Chip ID through DATA");
+
  /* Older carts clock the 0x910-byte gap and advance KEY2 during it. */
  card.reset_transfer();
  if(card.set_chip_id(UINT32_C(0x000000C2))!=Status::Ok||
@@ -792,6 +839,42 @@ int main(){
     card.key2_state2()!=expected_automatic_old_key2.state2()||
     card.key2_bytes_processed()!=UINT32_C(0x910))
   return fail("older-cart 0x40 did not clock the KEY2 stream through the automatic gap");
+
+  /* Old-cart 0x10 returns one encrypted Chip ID word after its clocked gap. */
+  auto automatic_old_chip_id=make_key1_command(
+      0x01u,0u,packed_randoms,key1_counter+2u);
+  if(command_codec.encrypt_command(automatic_old_chip_id.data(),8u)!=Status::Ok)
+   return fail("could not encrypt bus-driven older-cart 0x10 command");
+  write_key1_command(automatic_old_chip_id);
+  if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+      old_gap_control|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok||
+     !card.busy())
+   return fail("older-cart 0x10 did not start its scheduled gap");
+  card.advance_bus_cycles(key1_command_gap_cycles);
+  if(!card.busy()||card.data_ready()||card.remaining_words()!=1u||
+     card.key2_bytes_processed()!=UINT32_C(0x1220))
+   return fail("older-cart 0x10 did not finish its gap before starting payload");
+  std::array<uint8_t,UINT32_C(0x910)> expected_old_chip_id_gap{};
+  std::array<uint8_t,4> expected_old_chip_id_bytes{{
+      UINT8_C(0xC2),UINT8_C(0x00),UINT8_C(0x00),UINT8_C(0x00)}};
+  if(expected_automatic_old_key2.apply_keystream(
+         expected_old_chip_id_gap.data(),
+         static_cast<uint32_t>(expected_old_chip_id_gap.size()))!=Status::Ok||
+     expected_automatic_old_key2.apply_keystream(
+         expected_old_chip_id_bytes.data(),
+         static_cast<uint32_t>(expected_old_chip_id_bytes.size()))!=Status::Ok)
+   return fail("could not derive older-cart KEY2 Chip ID response");
+  const uint32_t expected_old_chip_id_word=
+      static_cast<uint32_t>(expected_old_chip_id_bytes[0])|
+      (static_cast<uint32_t>(expected_old_chip_id_bytes[1])<<8u)|
+      (static_cast<uint32_t>(expected_old_chip_id_bytes[2])<<16u)|
+      (static_cast<uint32_t>(expected_old_chip_id_bytes[3])<<24u);
+  card.advance_bus_cycles(20u);
+  const ReadResult automatic_old_chip_id_word=card.read_data(NDS_ARM9);
+  if(automatic_old_chip_id_word.status!=Status::Ok||
+     automatic_old_chip_id_word.value!=expected_old_chip_id_word||
+     card.busy()||card.key2_bytes_processed()!=UINT32_C(0x1224))
+   return fail("older-cart 0x10 did not return the KEY2-encrypted Chip ID through DATA");
 
 if(!oracis_bus_unbind_game_card_control(&card)||!oracis_bus_unbind_dma_control(&dma)||
     !oracis_bus_unbind_interrupt_control(&irq)||!oracis_bus_unbind_memory(&memory)||
