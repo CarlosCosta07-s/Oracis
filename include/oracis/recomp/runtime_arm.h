@@ -314,8 +314,18 @@ bool runtime_should_yield(void);
 bool runtime_unwinding(void);
 bool runtime_slice_yield(void);
 uint32_t runtime_code_cycles(uint32_t pc);
+
+/* Direction is required for ARM946E-S ITCM/DTCM load-mode data accesses. */
+typedef enum OracisMemoryAccessDirection {
+    ORACIS_MEMORY_ACCESS_READ = 0,
+    ORACIS_MEMORY_ACCESS_WRITE = 1
+} OracisMemoryAccessDirection;
+
 /* NDS/DATA bus timing; width=1/2/4, sequential=0/1. */
 uint32_t runtime_mem_cycles(uint32_t addr, uint32_t width, uint32_t sequential);
+/* Direction-aware form used by the Oracis adapter on generated C banks. */
+uint32_t runtime_mem_cycles_ex(
+    uint32_t addr, uint32_t width, uint32_t sequential, uint32_t direction);
 /*
  * ARM7TDMI operand-dependent multiply wait. signed_variant=1 permits signed
  * sign-extension termination; extra is the generated 0/1/2 internal-cycle
@@ -394,9 +404,11 @@ static inline uint32_t arm9_cycle_combine(
 
 /*
  * ARM7 retirement timing. flat_cycles contains the generated 1S base and
- * num_data is the sum of runtime_mem_cycles calls for this instruction.
+ * num_data is the sum of memory timing calls for this instruction.
  * runtime_code_cycles publishes the instruction PC/Thumb state and each
- * runtime_mem_cycles call publishes the last data address before this call.
+ * memory timing call publishes the last data address before this call.
+ * Generated banks use runtime_mem_cycles_ex so load/store direction survives
+ * the static compiler boundary; the legacy helper remains for old ABI clients.
  */
 uint32_t arm7_cycle_combine(
     uint32_t flat_cycles, uint32_t num_data,
