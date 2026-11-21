@@ -452,8 +452,8 @@ int main(){
      return fail("Chip ID protocol variant changed after KEY1 activation");
  if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)
      return fail("could not clear four-byte KEY1 activation IRQ");
- /* The stateful KEY1 path accepts a new command at k+1 and bounded repeats
-  * only for the newer Chip ID variant. The caller owns the secure-delay timing. */
+ /* The stateful KEY1 path validates k, bounded repeats and the header delay.
+  * Data transfer dispatch remains outside this command-sequence helper. */
  NdsGameCardKey1 command_codec;
  if(command_codec.load_key_table(bios_key_table.data(),
         static_cast<uint32_t>(bios_key_table.size()))!=Status::Ok||
