@@ -262,6 +262,8 @@ Nds2dObjFetchResult Nds2dObjFetcher::render_scanline(
         const uint32_t bounds_width = double_size ? width * 2u : width;
         const uint32_t bounds_height = double_size ? height * 2u : height;
         const uint32_t y = attr0 & UINT16_C(0x00FF);
+        const int sprite_y = y >= NdsDisplayControl::VisibleScanlines
+            ? static_cast<int>(y) - 256 : static_cast<int>(y);
         const uint32_t destination_y =
             (static_cast<uint32_t>(scanline) + UINT32_C(256) - y) &
             UINT32_C(0xFF);
@@ -293,7 +295,11 @@ Nds2dObjFetchResult Nds2dObjFetcher::render_scanline(
         uint32_t object_cycles = affine
             ? UINT32_C(10) + object_width * UINT32_C(2)
             : object_width;
-        if (sprite_x < 0 || right > 256) object_cycles += 2u;
+        const int bottom = sprite_y + static_cast<int>(bounds_height);
+        if (sprite_x < 0 || right > 256 || sprite_y < 0 ||
+            bottom > static_cast<int>(NdsDisplayControl::VisibleScanlines)) {
+            object_cycles += 2u;
+        }
         if (cycles_used + object_cycles > cycle_budget) {
             first_unrendered_object = object_index;
             break;

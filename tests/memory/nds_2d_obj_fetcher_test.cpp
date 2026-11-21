@@ -655,6 +655,19 @@ int main()
         return fail("Partially off-screen OBJ did not consume its two-cycle clipping overhead");
     }
 
+    if (!write_oam(
+            memory, 0u, 0u,
+            UINT16_C(190),
+            0u,
+            0u)) {
+        return fail("Engine A vertically clipped OBJ fixture setup failed");
+    }
+    result = fetcher.render_scanline(0u, display, 191u, line);
+    if (result.status != Nds2dObjFetchStatus::Ok ||
+        result.cycles_used != UINT16_C(10)) {
+        return fail("Vertically clipped OBJ did not consume its two-cycle clipping overhead");
+    }
+
     std::puts("NDS Engine A/B tiled/bitmap OBJ, affine transforms, alpha, mapping, priority and OBJ-window tests passed");
     return 0;
 }
