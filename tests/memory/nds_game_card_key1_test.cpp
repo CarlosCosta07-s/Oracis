@@ -43,10 +43,11 @@ int main()
         Status::Ok) {
         return fail("synthetic external key table was rejected");
     }
+    uint8_t invalid_block[NdsGameCardKey1::BlockBytes]{};
     if (key1.encrypt_block(nullptr, NdsGameCardKey1::BlockBytes) !=
             Status::InvalidRegion ||
-        key1.encrypt_block(table.data(), 7u) != Status::InvalidWidth ||
-        key1.encrypt_block(table.data(), NdsGameCardKey1::BlockBytes) !=
+        key1.encrypt_block(invalid_block, 7u) != Status::InvalidWidth ||
+        key1.encrypt_block(invalid_block, NdsGameCardKey1::BlockBytes) !=
             Status::PermissionDenied ||
         key1.initialize(UINT32_C(0x45555043), 0u, 8u) != Status::InvalidRegion ||
         key1.initialize(UINT32_C(0x45555043), 2u, 4u) != Status::InvalidRegion) {
