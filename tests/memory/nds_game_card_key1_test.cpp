@@ -45,6 +45,8 @@ std::array<uint8_t, 8> make_key1_command(
 int main()
 {
     using oracis::memory::NdsGameCardKey1;
+    using oracis::memory::NdsGameCardKey1Command;
+    using oracis::memory::NdsGameCardKey1CommandKind;
     using oracis::memory::Status;
 
     NdsGameCardKey1 key1;
@@ -161,6 +163,7 @@ int main()
         }
     }
 
+    NdsGameCardKey1Command decoded{};
     if (key1.decode_command(nullptr, NdsGameCardKey1::BlockBytes,
             UINT32_C(0x00054322), UINT16_C(0x0ABC), UINT16_C(0x0123),
             decoded) != Status::InvalidRegion) {
@@ -179,7 +182,6 @@ int main()
         return fail("could not encrypt synthetic KEY1 command 0x40");
     }
 
-    NdsGameCardKey1Command decoded{};
     if (key1.decode_command(activate_key2.data(),
             static_cast<uint32_t>(activate_key2.size()),
             first_command_counter, protocol_i, protocol_j, decoded) != Status::Ok ||
@@ -229,14 +231,14 @@ int main()
         return fail("KEY1 accepted a command with an unexpected rolling counter");
     }
 
-    auto invalid_block = make_key1_command(
+    auto invalid_block_command = make_key1_command(
         0x02u, UINT16_C(0x0003),
         (static_cast<uint32_t>(protocol_i) << 12u) | protocol_j,
         first_command_counter + 5u);
-    if (key1.encrypt_command(invalid_block.data(),
-            static_cast<uint32_t>(invalid_block.size())) != Status::Ok ||
-        key1.decode_command(invalid_block.data(),
-            static_cast<uint32_t>(invalid_block.size()),
+    if (key1.encrypt_command(invalid_block_command.data(),
+            static_cast<uint32_t>(invalid_block_command.size())) != Status::Ok ||
+        key1.decode_command(invalid_block_command.data(),
+            static_cast<uint32_t>(invalid_block_command.size()),
             first_command_counter + 5u, protocol_i, protocol_j, decoded) !=
             Status::PermissionDenied) {
         return fail("KEY1 accepted a secure-area block outside 0004h..0007h");
