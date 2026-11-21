@@ -18,6 +18,11 @@ import tempfile
 from pathlib import Path
 from typing import Callable
 
+from patch_memory_access_direction import (
+    ADAPTER_IDENTITY,
+    patch_generated_source,
+)
+
 ROOT = Path(__file__).resolve().parents[2]
 EXPECTED_ROM_SHA1 = "0862ec35b24de5c7e2dcb88c9eea0873110d755c"
 EXPECTED_CODEGEN_IDENTITY = "nds-codegen-v3"
@@ -306,6 +311,23 @@ def emit_banks(
                         f"NDSRecomp did not emit a non-empty {cpu.upper()} file: "
                         f"{generated}"
                     )
+
+            # The pinned codegen emits a three-argument timing helper for both
+            # loads and stores. Adapt its C output, not the external compiler,
+            # so ARM946E-S TCM load mode gets the actual operation direction.
+            bank_source = staging_dir / f"{bank_name}.c"
+            source_text = bank_source.read_text(encoding="utf-8")
+            adapted_source, read_calls, write_calls = patch_generated_source(
+                source_text
+            )
+            bank_source.write_text(adapted_source, encoding="utf-8")
+            emitted_direction_counts = {
+                "reads": read_calls,
+                "writes": write_calls,
+            }
+
+            for filename in expected_files:
+                generated = staging_dir / filename
                 file_hashes[filename] = sha1_file(generated)
 
             dispatch_text = (staging_dir / f"{bank_name}_dispatch.c").read_text(
@@ -328,6 +350,8 @@ def emit_banks(
                 "entry_mode": segment["entry_mode"],
                 "size": segment["size"],
                 "binary_sha1": segment["sha1"],
+                "memory_direction_adapter": ADAPTER_IDENTITY,
+                "memory_direction_calls": emitted_direction_counts,
                 "files": file_hashes,
             }
 
