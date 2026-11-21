@@ -17,8 +17,8 @@ import re
 
 ADAPTER_IDENTITY = "oracis-memory-direction-v1"
 
-_TIMING_CALL = re.compile(r"\\bruntime_mem_cycles\\s*\\(")
-_BUS_CALL = re.compile(r"\\bbus_(read|write)_u(?:8|16|32)\\s*\\(")
+_TIMING_CALL = re.compile(r"\bruntime_mem_cycles\s*\(")
+_BUS_CALL = re.compile(r"\bbus_(read|write)_u(?:8|16|32)\s*\(")
 
 
 def _mask_non_code(source: str) -> str:
@@ -31,7 +31,7 @@ def _mask_non_code(source: str) -> str:
         next_char = source[index + 1] if index + 1 < len(source) else ""
 
         if state == "line_comment":
-            if char == "\\n":
+            if char == "\n":
                 state = "code"
             else:
                 masked[index] = " "
@@ -40,13 +40,13 @@ def _mask_non_code(source: str) -> str:
                 masked[index] = masked[index + 1] = " "
                 index += 1
                 state = "code"
-            elif char != "\\n":
+            elif char != "\n":
                 masked[index] = " "
         elif state in ("string", "character"):
-            if char == "\\\\":
+            if char == "\\":
                 masked[index] = " "
                 if index + 1 < len(source):
-                    if source[index + 1] != "\\n":
+                    if source[index + 1] != "\n":
                         masked[index + 1] = " "
                     index += 1
             elif (state == "string" and char == '"') or (
@@ -54,7 +54,7 @@ def _mask_non_code(source: str) -> str:
             ):
                 masked[index] = " "
                 state = "code"
-            elif char != "\\n":
+            elif char != "\n":
                 masked[index] = " "
         else:
             if char == "/" and next_char == "/":
@@ -118,7 +118,7 @@ def patch_generated_source(source: str) -> tuple[str, int, int]:
         while bus_index < len(bus_calls) and bus_calls[bus_index].start() <= closing:
             bus_index += 1
         if bus_index >= len(bus_calls):
-            line = source.count("\\n", 0, timing.start()) + 1
+            line = source.count("\n", 0, timing.start()) + 1
             raise ValueError(
                 "cannot determine memory direction for runtime_mem_cycles() "
                 f"at generated C line {line}: no subsequent bus_read/write"
@@ -154,3 +154,23 @@ def patch_generated_source(source: str) -> tuple[str, int, int]:
         )
 
     return result, read_count, write_count
+
+
+if __name__ == "__main__":
+    import argparse
+    import sys
+    from pathlib import Path
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("source", type=Path, nargs="?")
+    parser.add_argument("--identity", action="store_true")
+    args = parser.parse_args()
+    if args.identity:
+        print(ADAPTER_IDENTITY)
+        raise SystemExit(0)
+    if args.source is None:
+        parser.error("provide a generated C source path or --identity")
+    original = args.source.read_text(encoding="utf-8")
+    adapted, reads, writes = patch_generated_source(original)
+    args.source.write_text(adapted, encoding="utf-8")
+    print(f"{args.source}: read calls={reads}, write calls={writes}")
