@@ -39,6 +39,8 @@ Status NdsGameCardControl::mount_image(const uint8_t*b,uint32_t n) noexcept{
  last_key1_command_opcode_=0u;key1_repeat_delay_cycles_remaining_=0u;
  key1_key2_pending_seed24_=0u;key1_key2_activation_pending_=false;
  key1_command_gap_pending_=false;
+ key1_gap_transfer_active_=false;key1_command_bytes_pending_=false;
+ key1_gap_clock_bytes_=0u;key1_gap_cycles_=0u;
  if(key1_.table_loaded()){
   const Status key_status=initialize_key1_from_image();
   if(key_status!=Status::Ok){image_=nullptr;image_size_=0u;key1_.reset();return key_status;}
@@ -64,7 +66,7 @@ Status NdsGameCardControl::initialize_key1_from_image() noexcept{
 }
 Status NdsGameCardControl::set_chip_id(uint32_t id) noexcept{if(!installed_)return Status::Unmapped;if(!image_)return Status::PermissionDenied;if(busy_||key1_command_mode_)return Status::PermissionDenied;chip_id_=id;chip_id_configured_=true;return Status::Ok;}
 void NdsGameCardControl::unmount_image() noexcept{reset_transfer();image_=nullptr;image_size_=0u;chip_id_=0u;chip_id_configured_=false;header_protocol_available_=false;header_normal_rom_control_=0u;header_key1_rom_control_=0u;header_secure_area_delay_=0u;key2_seed_index_=0u;}
-void NdsGameCardControl::reset_transfer() noexcept{command_={};seed_registers_={};key1_.reset();key2_.clear();aux_spi_control_=0u;rom_control_=0u;current_offset_=0u;current_window_base_=0u;remaining_words_=0u;cycles_until_data_=0u;cycles_per_byte_=5u;owner_cpu_=NDS_ARM9;reset_released_=false;busy_=false;data_ready_=false;dummy_data_=false;chip_id_data_=false;wrap_read_window_=false;key2_data_active_=false;key1_command_mode_=false;key1_activation_pending_=false;key1_random_i_=0u;key1_random_j_=0u;key1_random_l_=0u;key1_random_l_initialized_=false;key1_command_counter_=0u;last_key1_command_={};last_key1_command_valid_=false;last_key1_command_transmissions_=0u;last_key1_command_opcode_=0u;key1_repeat_delay_cycles_remaining_=0u;key1_key2_pending_seed24_=0u;key1_key2_activation_pending_=false;key1_command_gap_pending_=false;}
+void NdsGameCardControl::reset_transfer() noexcept{command_={};seed_registers_={};key1_.reset();key2_.clear();aux_spi_control_=0u;rom_control_=0u;current_offset_=0u;current_window_base_=0u;remaining_words_=0u;cycles_until_data_=0u;cycles_per_byte_=5u;owner_cpu_=NDS_ARM9;reset_released_=false;busy_=false;data_ready_=false;dummy_data_=false;chip_id_data_=false;wrap_read_window_=false;key2_data_active_=false;key1_command_mode_=false;key1_activation_pending_=false;key1_random_i_=0u;key1_random_j_=0u;key1_random_l_=0u;key1_random_l_initialized_=false;key1_command_counter_=0u;last_key1_command_={};last_key1_command_valid_=false;last_key1_command_transmissions_=0u;last_key1_command_opcode_=0u;key1_repeat_delay_cycles_remaining_=0u;key1_key2_pending_seed24_=0u;key1_key2_activation_pending_=false;key1_command_gap_pending_=false;key1_gap_transfer_active_=false;key1_command_bytes_pending_=false;key1_gap_clock_bytes_=0u;key1_gap_cycles_=0u;}
 Status NdsGameCardControl::decode_next_key1_command(
     NdsGameCardKey1Command &decoded) noexcept
 {
@@ -264,13 +266,66 @@ Status NdsGameCardControl::complete_key1_command_gap(
  return Status::Ok;
 }
 uint32_t NdsGameCardControl::read_rom_control() const noexcept{uint32_t v=rom_control_;if(data_ready_)v|=RomCtrlDrqMask;if(busy_)v|=RomCtrlStartBusyMask;return v;}
+Status NdsGameCardControl::start_key1_activation_transfer(NdsCpu cpu) noexcept
+{
+ if(!header_protocol_available_||!chip_id_configured_||!key1_.initialized())
+  return Status::PermissionDenied;
+ if((rom_control_&RomCtrlKey2DataMask)!=0u||
+    block_bytes((rom_control_>>RomCtrlBlockSizeShift)&kBlockMask)!=0u)
+  return Status::PermissionDenied;
+
+ /* This first bus-integrated KEY1 step deliberately handles only 0x40.
+  * Preview on a local copy so unsupported commands are not consumed. */
+ std::array<uint8_t,CommandBytes> preview=command_;
+ const Status preview_status=key1_.decrypt_command(preview.data(),CommandBytes);
+ if(preview_status!=Status::Ok||
+    static_cast<uint8_t>(preview[0]>>4u)!=UINT8_C(0x04))
+  return Status::PermissionDenied;
+
+ const bool gap_clocked=(rom_control_&RomCtrlGapClockMask)!=0u;
+ const uint32_t active_gap_bytes=
+     (rom_control_&RomCtrlKey1Gap1Mask)+
+     ((rom_control_>>RomCtrlKey1Gap2Shift)&RomCtrlKey1Gap2Mask);
+ if(gap_clocked&&active_gap_bytes!=header_key1_initial_gap_bytes())
+  return Status::PermissionDenied;
+
+ NdsGameCardKey1Command decoded{};
+ const Status decode_status=decode_next_key1_command(decoded);
+ if(decode_status!=Status::Ok)return decode_status;
+ NdsGameCardKey1ReplyPlan plan{};
+ const Status plan_status=describe_key1_reply(decoded,plan);
+ if(plan_status!=Status::Ok||
+    decoded.kind!=NdsGameCardKey1CommandKind::ActivateKey2||
+    plan.payload_bytes!=0u||!plan.payload_length_known)
+  return Status::PermissionDenied;
+
+ cycles_per_byte_=(rom_control_&RomCtrlClockSlowMask)!=0u?8u:5u;
+ key1_gap_cycles_=static_cast<uint64_t>(plan.preamble_gap_bytes)*
+     cycles_per_byte_;
+ key1_gap_clock_bytes_=plan.preamble_clocked
+     ? plan.preamble_gap_bytes : 0u;
+ key1_command_bytes_pending_=true;
+ key1_gap_transfer_active_=true;
+ remaining_words_=0u;
+ current_offset_=0u;
+ current_window_base_=0u;
+ dummy_data_=false;
+ chip_id_data_=false;
+ wrap_read_window_=false;
+ key2_data_active_=false;
+ cycles_until_data_=static_cast<uint64_t>(CommandBytes)*cycles_per_byte_;
+ owner_cpu_=cpu;
+ busy_=true;
+ data_ready_=false;
+ return Status::Ok;
+}
 Status NdsGameCardControl::start_transfer(NdsCpu cpu) noexcept{
  if(!installed_)return Status::Unmapped;if(!valid_cpu(cpu))return Status::InvalidCpu;
  if(busy_||!reset_released_||!image_)return Status::PermissionDenied;
  if((aux_spi_control_&AuxSpiSlotEnableMask)==0u ||
     (aux_spi_control_&AuxSpiSlotModeMask)!=0u)return Status::PermissionDenied;
  if((rom_control_&(RomCtrlKey2CommandMask|RomCtrlWriteMask))!=0u)return Status::PermissionDenied;
- if(key1_command_mode_)return Status::PermissionDenied;
+ if(key1_command_mode_)return start_key1_activation_transfer(cpu);
  if((rom_control_&RomCtrlKey2DataMask)!=0u&&!key2_.initialized())return Status::PermissionDenied;
 
  const uint32_t block_code=(rom_control_>>RomCtrlBlockSizeShift)&kBlockMask;
@@ -421,7 +476,7 @@ ReadResult NdsGameCardControl::read_data(NdsCpu cpu) noexcept{
  else cycles_until_data_=static_cast<uint64_t>(kWordBytes)*cycles_per_byte_;
  return{Status::Ok,value};
 }
-void NdsGameCardControl::finish_transfer() noexcept{busy_=false;data_ready_=false;dummy_data_=false;chip_id_data_=false;wrap_read_window_=false;key2_data_active_=false;current_window_base_=0u;cycles_until_data_=0u;if(key1_activation_pending_){key1_command_mode_=true;key1_activation_pending_=false;}if(aux_spi_control_&AuxSpiIrqEnableMask)(void)interrupts_.request_irq(owner_cpu_,GameCardTransferIrqMask);}
+void NdsGameCardControl::finish_transfer() noexcept{busy_=false;data_ready_=false;dummy_data_=false;chip_id_data_=false;wrap_read_window_=false;key2_data_active_=false;current_window_base_=0u;cycles_until_data_=0u;key1_gap_transfer_active_=false;key1_command_bytes_pending_=false;key1_gap_clock_bytes_=0u;key1_gap_cycles_=0u;if(key1_activation_pending_){key1_command_mode_=true;key1_activation_pending_=false;}if(aux_spi_control_&AuxSpiIrqEnableMask)(void)interrupts_.request_irq(owner_cpu_,GameCardTransferIrqMask);}
 void NdsGameCardControl::advance_bus_cycles(uint64_t cycles) noexcept{
  if(!installed_||cycles==0u)return;
  if(key1_repeat_delay_cycles_remaining_!=0u){
@@ -429,6 +484,37 @@ void NdsGameCardControl::advance_bus_cycles(uint64_t cycles) noexcept{
    key1_repeat_delay_cycles_remaining_=0u;
   else
    key1_repeat_delay_cycles_remaining_-=static_cast<uint32_t>(cycles);
+ }
+ if(key1_gap_transfer_active_&&busy_){
+  while(busy_){
+   if(cycles<cycles_until_data_){cycles_until_data_-=cycles;return;}
+   cycles-=cycles_until_data_;cycles_until_data_=0u;
+   if(key1_command_bytes_pending_){
+    key1_command_bytes_pending_=false;
+    cycles_until_data_=key1_gap_cycles_;
+    key1_gap_cycles_=0u;
+    continue;
+   }
+   /* complete_key1_command_gap() runs at the gap boundary, after BUSY drops. */
+   busy_=false;
+   const Status gap_status=complete_key1_command_gap(key1_gap_clock_bytes_);
+   if(gap_status!=Status::Ok){
+    key1_gap_transfer_active_=false;
+    key1_command_bytes_pending_=false;
+    key1_gap_clock_bytes_=0u;
+    key1_gap_cycles_=0u;
+    return;
+   }
+   finish_transfer();
+   if(key1_repeat_delay_cycles_remaining_!=0u&&cycles!=0u){
+    if(cycles>=key1_repeat_delay_cycles_remaining_)
+     key1_repeat_delay_cycles_remaining_=0u;
+    else
+     key1_repeat_delay_cycles_remaining_-=static_cast<uint32_t>(cycles);
+   }
+   return;
+  }
+  return;
  }
  while(busy_&&!data_ready_){
   if(cycles<cycles_until_data_){cycles_until_data_-=cycles;return;}
