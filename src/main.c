@@ -106,6 +106,60 @@ static bool parse_game_card_chip_id(const char *text, uint32_t *chip_id)
 }
 
 static bool mount_game_card_file(const char *path)
+static bool load_arm7_bios_file(const char *path)
+{
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not open NDS ARM7 BIOS '%s'.", path);
+        return false;
+    }
+    if (fseek(file, 0L, SEEK_END) != 0) {
+        (void)fclose(file);
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not determine NDS ARM7 BIOS size for '%s'.", path);
+        return false;
+    }
+    const long file_size = ftell(file);
+    if (file_size != 0x4000L || fseek(file, 0L, SEEK_SET) != 0) {
+        (void)fclose(file);
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "NDS ARM7 BIOS '%s' must be exactly 16384 bytes.", path);
+        return false;
+    }
+
+    uint8_t *bytes = (uint8_t *)malloc(0x4000u);
+    if (bytes == NULL) {
+        (void)fclose(file);
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not allocate memory for NDS ARM7 BIOS '%s'.", path);
+        return false;
+    }
+    const size_t read_count = fread(bytes, 1u, 0x4000u, file);
+    const bool read_ok = read_count == 0x4000u && ferror(file) == 0;
+    const int close_status = fclose(file);
+    if (!read_ok || close_status != 0) {
+        free(bytes);
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not read the complete NDS ARM7 BIOS '%s'.", path);
+        return false;
+    }
+
+    const int status = oracis_host_runtime_load_game_card_arm7_bios(
+        bytes, 0x4000u);
+    free(bytes);
+    if (status != ORACIS_HOST_RUNTIME_OK) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not initialize the Game Card KEY1 table (bridge=%d).",
+            status);
+        return false;
+    }
+    SDL_Log("Copied the KEY1 table from user-supplied ARM7 BIOS '%s' and "
+            "initialized it using the mounted Game Code. The KEY1 command "
+            "handshake is not enabled yet.", path);
+    return true;
+}
+
 {
     FILE *file = fopen(path, "rb");
     if (file == NULL) {
@@ -302,6 +356,7 @@ int main(int argc, char *argv[])
     bool host_runtime_initialized = false;
     int exit_code = EXIT_FAILURE;
     const char *game_card_path = NULL;
+    const char *arm7_bios_path = NULL;
     uint32_t game_card_chip_id = 0u;
     bool game_card_chip_id_set = false;
 
@@ -325,6 +380,13 @@ int main(int argc, char *argv[])
                 goto cleanup;
             }
             game_card_path = argv[++argument];
+        } else if (strcmp(argv[argument], "--arm7-bios") == 0) {
+            if (argument + 1 >= argc || arm7_bios_path != NULL) {
+                SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+                    "--arm7-bios requires one path to a 16 KiB NDS ARM7 BIOS.");
+                goto cleanup;
+            }
+            arm7_bios_path = argv[++argument];
         } else if (strcmp(argv[argument], "--game-card-id") == 0) {
             if (argument + 1 >= argc || game_card_chip_id_set ||
                 !parse_game_card_chip_id(argv[argument + 1], &game_card_chip_id)) {
@@ -336,7 +398,7 @@ int main(int argc, char *argv[])
             ++argument;
         } else if (strcmp(argv[argument], "--help") == 0 ||
                    strcmp(argv[argument], "-h") == 0) {
-            SDL_Log("Usage: %s [--game-card path/to/game.nds] [--game-card-id 0xID]", argv[0]);
+            SDL_Log("Usage: %s [--game-card path/to/game.nds] [--arm7-bios path/to/bios7.bin] [--game-card-id 0xID]", argv[0]);
             exit_code = EXIT_SUCCESS;
             goto cleanup;
         } else {
@@ -349,6 +411,12 @@ int main(int argc, char *argv[])
     if (game_card_chip_id_set && game_card_path == NULL) {
         SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
             "--game-card-id requires --game-card path/to/game.nds.");
+        goto cleanup;
+    }
+
+    if (arm7_bios_path != NULL && game_card_path == NULL) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "--arm7-bios requires --game-card path/to/game.nds.");
         goto cleanup;
     }
 
@@ -393,6 +461,9 @@ int main(int argc, char *argv[])
     host_runtime_initialized = true;
 
     if (game_card_path != NULL && !mount_game_card_file(game_card_path)) {
+        goto cleanup;
+    }
+    if (arm7_bios_path != NULL && !load_arm7_bios_file(arm7_bios_path)) {
         goto cleanup;
     }
     if (game_card_chip_id_set) {
