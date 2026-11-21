@@ -11,15 +11,20 @@ namespace oracis::memory {
 class NdsDmaControl;
 
 struct NdsGameCardKey1ReplyPlan {
+ uint8_t transmission_index=0u;
  uint32_t preamble_gap_bytes=0u;
  bool preamble_clocked=false;
  uint32_t leading_high_z_bytes=0u;
  uint32_t preamble_key2_zero_bytes=0u;
+ /* Payload for this command transmission versus the full command sequence. */
  uint32_t payload_bytes=0u;
+ uint32_t aggregate_payload_bytes=0u;
+ uint8_t aggregate_data_transmissions=0u;
  bool payload_key2_encrypted=true;
  uint32_t secure_block_bytes=0u;
  uint8_t secure_block_count=0u;
  uint32_t secure_inter_block_zero_bytes=0u;
+ uint32_t post_payload_zero_bytes=0u;
  bool payload_length_known=true;
 };
 
