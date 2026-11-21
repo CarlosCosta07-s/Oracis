@@ -59,6 +59,27 @@ Status NdsGameCardControl::load_key1_key_table(const uint8_t*b,uint32_t n) noexc
  if(status!=Status::Ok)return status;
  return image_==nullptr?Status::Ok:initialize_key1_from_image();
 }
+Status NdsGameCardControl::decrypt_secure_area_prefix(
+    uint8_t *bytes,uint32_t size,bool &identifier_valid) noexcept
+{
+ if(!installed_)return Status::Unmapped;
+ identifier_valid=false;
+ if(bytes==nullptr)return Status::InvalidRegion;
+ if(size!=NdsGameCardKey1::SecureAreaEncryptedBytes)
+  return Status::InvalidWidth;
+ if(image_==nullptr)return Status::PermissionDenied;
+ if(busy_||key1_command_mode_||key2_command_mode_)
+  return Status::PermissionDenied;
+ const uint64_t secure_area_end=
+     static_cast<uint64_t>(SecureAreaDataOffset)+size;
+ if(secure_area_end>image_size_)return Status::AddressOverflow;
+ if(!key1_.initialized())return Status::PermissionDenied;
+
+ /* Work on a caller-owned copy: the mounted ROM image stays byte-identical. */
+ for(uint32_t index=0u;index<size;++index)
+  bytes[index]=image_[SecureAreaDataOffset+index];
+ return key1_.decrypt_secure_area(bytes,size,identifier_valid);
+}
 Status NdsGameCardControl::initialize_key1_from_image() noexcept{
  if(image_==nullptr)return Status::Unmapped;
  if(image_size_<UINT32_C(0x10))return Status::InvalidRegion;
