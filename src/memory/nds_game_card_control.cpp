@@ -266,7 +266,7 @@ Status NdsGameCardControl::complete_key1_command_gap(
  return Status::Ok;
 }
 uint32_t NdsGameCardControl::read_rom_control() const noexcept{uint32_t v=rom_control_;if(data_ready_)v|=RomCtrlDrqMask;if(busy_)v|=RomCtrlStartBusyMask;return v;}
-Status NdsGameCardControl::start_key1_activation_transfer(NdsCpu cpu) noexcept
+Status NdsGameCardControl::start_key1_command_transfer(NdsCpu cpu) noexcept
 {
  if(!header_protocol_available_||!chip_id_configured_||!key1_.initialized())
   return Status::PermissionDenied;
@@ -274,12 +274,13 @@ Status NdsGameCardControl::start_key1_activation_transfer(NdsCpu cpu) noexcept
     block_bytes((rom_control_>>RomCtrlBlockSizeShift)&kBlockMask)!=0u)
   return Status::PermissionDenied;
 
- /* This first bus-integrated KEY1 step deliberately handles only 0x40.
-  * Preview on a local copy so unsupported commands are not consumed. */
+ /* Preview first so commands outside the currently wired 0x40/0x10 paths
+  * are rejected without consuming the KEY1 counter or repeat allowance. */
  std::array<uint8_t,CommandBytes> preview=command_;
  const Status preview_status=key1_.decrypt_command(preview.data(),CommandBytes);
- if(preview_status!=Status::Ok||
-    static_cast<uint8_t>(preview[0]>>4u)!=UINT8_C(0x04))
+ if(preview_status!=Status::Ok)return preview_status;
+ const uint8_t preview_opcode=static_cast<uint8_t>(preview[0]>>4u);
+ if(preview_opcode!=UINT8_C(0x04)&&preview_opcode!=UINT8_C(0x01))
   return Status::PermissionDenied;
 
  const bool gap_clocked=(rom_control_&RomCtrlGapClockMask)!=0u;
@@ -294,16 +295,26 @@ Status NdsGameCardControl::start_key1_activation_transfer(NdsCpu cpu) noexcept
  if(decode_status!=Status::Ok)return decode_status;
  NdsGameCardKey1ReplyPlan plan{};
  const Status plan_status=describe_key1_reply(decoded,plan);
- if(plan_status!=Status::Ok||
-    decoded.kind!=NdsGameCardKey1CommandKind::ActivateKey2||
-    plan.payload_bytes!=0u||!plan.payload_length_known)
+ if(plan_status!=Status::Ok||!plan.payload_length_known)
   return Status::PermissionDenied;
+ if(decoded.kind==NdsGameCardKey1CommandKind::ActivateKey2){
+  if(plan.payload_bytes!=0u)return Status::PermissionDenied;
+ }else if(decoded.kind==NdsGameCardKey1CommandKind::ReadChipId){
+  if(!key2_.initialized()||
+     (plan.payload_bytes!=0u&&plan.payload_bytes!=kWordBytes)||
+     !plan.payload_key2_encrypted)
+   return Status::PermissionDenied;
+ }else{
+  return Status::PermissionDenied;
+ }
 
  cycles_per_byte_=(rom_control_&RomCtrlClockSlowMask)!=0u?8u:5u;
  key1_gap_cycles_=static_cast<uint64_t>(plan.preamble_gap_bytes)*
      cycles_per_byte_;
  key1_gap_clock_bytes_=plan.preamble_clocked
      ? plan.preamble_gap_bytes : 0u;
+ key1_reply_payload_bytes_=plan.payload_bytes;
+ key1_reply_payload_encrypted_=plan.payload_key2_encrypted;
  key1_command_bytes_pending_=true;
  key1_gap_transfer_active_=true;
  remaining_words_=0u;
@@ -313,6 +324,8 @@ Status NdsGameCardControl::start_key1_activation_transfer(NdsCpu cpu) noexcept
  chip_id_data_=false;
  wrap_read_window_=false;
  key2_data_active_=false;
+ key1_reply_payload_bytes_=0u;
+ key1_reply_payload_encrypted_=false;
  cycles_until_data_=static_cast<uint64_t>(CommandBytes)*cycles_per_byte_;
  owner_cpu_=cpu;
  busy_=true;
@@ -325,7 +338,7 @@ Status NdsGameCardControl::start_transfer(NdsCpu cpu) noexcept{
  if((aux_spi_control_&AuxSpiSlotEnableMask)==0u ||
     (aux_spi_control_&AuxSpiSlotModeMask)!=0u)return Status::PermissionDenied;
  if((rom_control_&(RomCtrlKey2CommandMask|RomCtrlWriteMask))!=0u)return Status::PermissionDenied;
- if(key1_command_mode_)return start_key1_activation_transfer(cpu);
+ if(key1_command_mode_)return start_key1_command_transfer(cpu);
  if((rom_control_&RomCtrlKey2DataMask)!=0u&&!key2_.initialized())return Status::PermissionDenied;
 
  const uint32_t block_code=(rom_control_>>RomCtrlBlockSizeShift)&kBlockMask;
@@ -476,7 +489,7 @@ ReadResult NdsGameCardControl::read_data(NdsCpu cpu) noexcept{
  else cycles_until_data_=static_cast<uint64_t>(kWordBytes)*cycles_per_byte_;
  return{Status::Ok,value};
 }
-void NdsGameCardControl::finish_transfer() noexcept{busy_=false;data_ready_=false;dummy_data_=false;chip_id_data_=false;wrap_read_window_=false;key2_data_active_=false;current_window_base_=0u;cycles_until_data_=0u;key1_gap_transfer_active_=false;key1_command_bytes_pending_=false;key1_gap_clock_bytes_=0u;key1_gap_cycles_=0u;if(key1_activation_pending_){key1_command_mode_=true;key1_activation_pending_=false;}if(aux_spi_control_&AuxSpiIrqEnableMask)(void)interrupts_.request_irq(owner_cpu_,GameCardTransferIrqMask);}
+void NdsGameCardControl::finish_transfer() noexcept{busy_=false;data_ready_=false;dummy_data_=false;chip_id_data_=false;wrap_read_window_=false;key2_data_active_=false;current_window_base_=0u;cycles_until_data_=0u;key1_gap_transfer_active_=false;key1_command_bytes_pending_=false;key1_gap_clock_bytes_=0u;key1_gap_cycles_=0u;key1_reply_payload_bytes_=0u;key1_reply_payload_encrypted_=false;if(key1_activation_pending_){key1_command_mode_=true;key1_activation_pending_=false;}if(aux_spi_control_&AuxSpiIrqEnableMask)(void)interrupts_.request_irq(owner_cpu_,GameCardTransferIrqMask);}
 void NdsGameCardControl::advance_bus_cycles(uint64_t cycles) noexcept{
  if(!installed_||cycles==0u)return;
  if(key1_repeat_delay_cycles_remaining_!=0u){
@@ -504,6 +517,40 @@ void NdsGameCardControl::advance_bus_cycles(uint64_t cycles) noexcept{
     key1_gap_clock_bytes_=0u;
     key1_gap_cycles_=0u;
     return;
+   }
+   if(key1_reply_payload_bytes_!=0u){
+    const uint32_t payload_bytes=key1_reply_payload_bytes_;
+    const bool payload_encrypted=key1_reply_payload_encrypted_;
+    if((payload_bytes%kWordBytes)!=0u||
+       last_key1_command_opcode_!=UINT8_C(0x01)){
+     key1_gap_transfer_active_=false;
+     key1_command_bytes_pending_=false;
+     key1_gap_clock_bytes_=0u;
+     key1_gap_cycles_=0u;
+     key1_reply_payload_bytes_=0u;
+     key1_reply_payload_encrypted_=false;
+     finish_transfer();
+     return;
+    }
+    remaining_words_=payload_bytes/kWordBytes;
+    chip_id_data_=true;
+    dummy_data_=false;
+    wrap_read_window_=false;
+    key2_data_active_=payload_encrypted;
+    key1_gap_transfer_active_=false;
+    key1_command_bytes_pending_=false;
+    key1_gap_clock_bytes_=0u;
+    key1_gap_cycles_=0u;
+    key1_reply_payload_bytes_=0u;
+    key1_reply_payload_encrypted_=false;
+    cycles_until_data_=static_cast<uint64_t>(kWordBytes)*cycles_per_byte_;
+    if(key1_repeat_delay_cycles_remaining_!=0u&&cycles!=0u){
+     if(cycles>=key1_repeat_delay_cycles_remaining_)
+      key1_repeat_delay_cycles_remaining_=0u;
+     else
+      key1_repeat_delay_cycles_remaining_-=static_cast<uint32_t>(cycles);
+    }
+    break;
    }
    finish_transfer();
    if(key1_repeat_delay_cycles_remaining_!=0u&&cycles!=0u){
