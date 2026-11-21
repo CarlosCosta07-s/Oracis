@@ -78,6 +78,12 @@ static void arm9_test_bank(void)
     runtime_tick(1u);
 }
 
+static void arm9_resume_bank(void)
+{
+    ++g_arm9_bank_calls;
+    runtime_tick(1u);
+}
+
 static void arm7_test_bank(void)
 {
     ++g_arm7_bank_calls;
@@ -245,7 +251,10 @@ int main(void)
         return 1;
     }
 
-    const uint8_t arm9_program[] = {0x00u, 0x00u, 0xA0u, 0xE1u};
+    const uint8_t arm9_program[] = {
+        0x00u, 0x00u, 0xA0u, 0xE1u,
+        0x00u, 0x00u, 0xA0u, 0xE1u
+    };
     const uint8_t arm7_program[] = {0x70u, 0x47u};
     const OracisHostProgramSegment arm9_image = {
         UINT32_C(0x02001000),
@@ -281,12 +290,16 @@ int main(void)
         UINT32_C(0x02001000), (uint32_t)sizeof(arm9_program),
         arm9_program, NULL, 0u
     };
+    const NdsStaticValidation arm9_resume_validation = {
+        UINT32_C(0x02001004), 4u, arm9_program + 4u, NULL, 0u
+    };
     const NdsStaticValidation arm7_validation = {
         UINT32_C(0x02381000), (uint32_t)sizeof(arm7_program),
         arm7_program, NULL, 0u
     };
     const NdsDispatchEntry arm9_table[] = {
         {UINT32_C(0x02001000), 0u, &arm9_test_bank, &arm9_validation},
+        {UINT32_C(0x02001004), 0u, &arm9_resume_bank, &arm9_resume_validation},
         {UINT32_C(0xFFFF0018), 0u, &arm9_irq_vector, NULL}
     };
     const NdsDispatchEntry arm7_table[] = {
@@ -294,7 +307,7 @@ int main(void)
         {UINT32_C(0x02381000), 1u, &arm7_test_bank, &arm7_validation}
     };
     if (oracis_static_dispatch_register_bank(
-            NDS_ARM9, arm9_table, 2u, "host-c-test-arm9") !=
+            NDS_ARM9, arm9_table, 3u, "host-c-test-arm9") !=
             ORACIS_DISPATCH_REGISTER_OK ||
         oracis_static_dispatch_register_bank(
             NDS_ARM7, arm7_table, 2u, "host-c-test-arm7") !=
@@ -480,7 +493,7 @@ int main(void)
     }
 
     if (oracis_static_dispatch_unregister_bank(
-            NDS_ARM9, arm9_table, 2u) == 0 ||
+            NDS_ARM9, arm9_table, 3u) == 0 ||
         oracis_static_dispatch_unregister_bank(
             NDS_ARM7, arm7_table, 2u) == 0 ||
         oracis_host_runtime_has_program_banks() != 0) {
