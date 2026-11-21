@@ -29,6 +29,7 @@ public:
     static constexpr uint32_t VectorMatrixBase = UINT32_C(0x04000680);
     static constexpr uint32_t CommandFifoCapacity = 256u;
     static constexpr uint32_t VertexRamCapacity = 6144u;
+    static constexpr uint32_t PolygonRamCapacity = 2048u;
     static constexpr uint32_t GxFifoIrqMask = UINT32_C(1) << 21u;
 
     using Matrix = std::array<int32_t, 16>;
@@ -40,6 +41,12 @@ public:
         uint16_t color_rgb555 = UINT16_C(0x7FFF);
         int16_t texture_s = 0;
         int16_t texture_t = 0;
+    };
+
+    struct Polygon {
+        std::array<uint32_t, 4> vertex_indices{};
+        uint32_t attributes = 0u;
+        uint8_t vertex_count = 0u;
     };
 
     explicit NdsGeometryEngine(NdsInterruptControl &interrupts) noexcept
@@ -66,6 +73,13 @@ public:
     uint32_t fifo_entries() const noexcept { return fifo_count_; }
     uint32_t vertex_count() const noexcept { return vertex_count_; }
     bool vertex_ram_overflow() const noexcept { return vertex_ram_overflow_; }
+    uint32_t polygon_count() const noexcept { return polygon_count_; }
+    bool polygon_ram_overflow() const noexcept { return polygon_ram_overflow_; }
+    bool vertex_list_open() const noexcept { return vertex_list_open_; }
+    uint8_t primitive_mode() const noexcept { return primitive_mode_; }
+    const Polygon *polygon_at(uint32_t index) const noexcept {
+        return index < polygon_count_ ? &polygon_ram_[index] : nullptr;
+    }
     const Vertex *vertex_at(uint32_t index) const noexcept {
         return index < vertex_count_ ? &vertex_ram_[index] : nullptr;
     }
@@ -129,6 +143,10 @@ private:
     void execute_matrix_command() noexcept;
     void execute_vertex_command() noexcept;
     void submit_vertex() noexcept;
+    void begin_vertex_list(uint32_t parameter) noexcept;
+    void end_vertex_list() noexcept;
+    void append_vertex_to_list(uint32_t vertex_index) noexcept;
+    void emit_polygon(const uint32_t *indices, uint8_t count) noexcept;
     void set_current_matrix(const Matrix &matrix) noexcept;
     void multiply_current_matrix(const Matrix &matrix,
                                  bool position_only = false) noexcept;
@@ -180,6 +198,19 @@ private:
     std::array<Vertex, VertexRamCapacity> vertex_ram_{};
     uint32_t vertex_count_ = 0u;
     bool vertex_ram_overflow_ = false;
+    std::array<Polygon, PolygonRamCapacity> polygon_ram_{};
+    uint32_t polygon_count_ = 0u;
+    bool polygon_ram_overflow_ = false;
+    uint32_t pending_polygon_attributes_ = 0u;
+    uint32_t active_polygon_attributes_ = 0u;
+    uint8_t primitive_mode_ = 0u;
+    bool vertex_list_open_ = false;
+    uint32_t vertex_list_vertex_count_ = 0u;
+    std::array<uint32_t, 4> primitive_vertices_{};
+    uint8_t primitive_vertex_count_ = 0u;
+    uint32_t quad_strip_pending_top_ = 0u;
+    uint32_t quad_strip_previous_top_ = 0u;
+    uint32_t quad_strip_previous_bottom_ = 0u;
 
     uint64_t completed_commands_ = 0u;
     bool installed_ = false;

@@ -248,6 +248,19 @@ Status NdsGeometryEngine::install() noexcept
     vertex_ram_ = {};
     vertex_count_ = 0u;
     vertex_ram_overflow_ = false;
+    polygon_ram_ = {};
+    polygon_count_ = 0u;
+    polygon_ram_overflow_ = false;
+    pending_polygon_attributes_ = 0u;
+    active_polygon_attributes_ = 0u;
+    primitive_mode_ = 0u;
+    vertex_list_open_ = false;
+    vertex_list_vertex_count_ = 0u;
+    primitive_vertices_ = {};
+    primitive_vertex_count_ = 0u;
+    quad_strip_pending_top_ = 0u;
+    quad_strip_previous_top_ = 0u;
+    quad_strip_previous_bottom_ = 0u;
     completed_commands_ = 0u;
     installed_ = true;
     update_fifo_irq();
@@ -427,8 +440,9 @@ ReadResult NdsGeometryEngine::read(
     }
     if (address == RamCountAddress) {
         if (width != 4u) return {Status::InvalidWidth, 0u};
-        const uint32_t count = vertex_count_ & UINT32_C(0x1FFF);
-        return {Status::Ok, count << 16u};
+        const uint32_t vertices = vertex_count_ & UINT32_C(0x1FFF);
+        const uint32_t polygons = polygon_count_ & UINT32_C(0x0FFF);
+        return {Status::Ok, (vertices << 16u) | polygons};
     }
     if (address >= ClipMatrixBase &&
         address < ClipMatrixBase + UINT32_C(0x40)) {
@@ -892,7 +906,9 @@ void NdsGeometryEngine::execute_vertex_command() noexcept
         return;
     }
 
-    submit_vertex();
+    if (vertex_list_open_) {
+        submit_vertex();
+    }
 }
 
 void NdsGeometryEngine::submit_vertex() noexcept
@@ -936,7 +952,115 @@ void NdsGeometryEngine::submit_vertex() noexcept
         vertex.clip_position[row] = std::bit_cast<int32_t>(shifted);
     }
 
+    const uint32_t stored_index = vertex_count_;
     vertex_ram_[vertex_count_++] = vertex;
+    append_vertex_to_list(stored_index);
+}
+
+void NdsGeometryEngine::begin_vertex_list(uint32_t parameter) noexcept
+{
+    vertex_list_open_ = true;
+    primitive_mode_ = static_cast<uint8_t>(parameter & 3u);
+    active_polygon_attributes_ = pending_polygon_attributes_;
+    vertex_list_vertex_count_ = 0u;
+    primitive_vertex_count_ = 0u;
+    primitive_vertices_ = {};
+    quad_strip_pending_top_ = 0u;
+    quad_strip_previous_top_ = 0u;
+    quad_strip_previous_bottom_ = 0u;
+}
+
+void NdsGeometryEngine::end_vertex_list() noexcept
+{
+    vertex_list_open_ = false;
+    vertex_list_vertex_count_ = 0u;
+    primitive_vertex_count_ = 0u;
+    primitive_vertices_ = {};
+}
+
+void NdsGeometryEngine::emit_polygon(
+    const uint32_t *indices, uint8_t count) noexcept
+{
+    if (indices == nullptr || (count != 3u && count != 4u)) return;
+    if (polygon_count_ >= PolygonRamCapacity) {
+        polygon_ram_overflow_ = true;
+        return;
+    }
+
+    Polygon polygon{};
+    for (uint8_t index = 0u; index < count; ++index) {
+        polygon.vertex_indices[index] = indices[index];
+    }
+    polygon.attributes = active_polygon_attributes_;
+    polygon.vertex_count = count;
+    polygon_ram_[polygon_count_++] = polygon;
+}
+
+void NdsGeometryEngine::append_vertex_to_list(
+    uint32_t vertex_index) noexcept
+{
+    if (!vertex_list_open_) return;
+
+    const uint32_t ordinal = vertex_list_vertex_count_++;
+    if (primitive_mode_ == 0u || primitive_mode_ == 1u) {
+        primitive_vertices_[primitive_vertex_count_++] = vertex_index;
+        const uint8_t required = primitive_mode_ == 0u ? 3u : 4u;
+        if (primitive_vertex_count_ == required) {
+            emit_polygon(primitive_vertices_.data(), required);
+            primitive_vertex_count_ = 0u;
+        }
+        return;
+    }
+
+    if (primitive_mode_ == 2u) {
+        if (ordinal < 2u) {
+            primitive_vertices_[ordinal] = vertex_index;
+            return;
+        }
+        if (ordinal == 2u) {
+            const uint32_t triangle[3] = {
+                primitive_vertices_[0], primitive_vertices_[1], vertex_index
+            };
+            emit_polygon(triangle, 3u);
+        } else if ((ordinal & 1u) != 0u) {
+            const uint32_t triangle[3] = {
+                primitive_vertices_[1], primitive_vertices_[0], vertex_index
+            };
+            emit_polygon(triangle, 3u);
+        } else {
+            const uint32_t triangle[3] = {
+                primitive_vertices_[0], primitive_vertices_[1], vertex_index
+            };
+            emit_polygon(triangle, 3u);
+        }
+        primitive_vertices_[0] = primitive_vertices_[1];
+        primitive_vertices_[1] = vertex_index;
+        return;
+    }
+
+    /* Quad strip sequence: top0,bottom0,top1,bottom1,top2,bottom2... */
+    if (ordinal == 0u) {
+        quad_strip_previous_top_ = vertex_index;
+        return;
+    }
+    if (ordinal == 1u) {
+        quad_strip_previous_bottom_ = vertex_index;
+        return;
+    }
+    if ((ordinal & 1u) == 0u) {
+        quad_strip_pending_top_ = vertex_index;
+        return;
+    }
+
+    const uint32_t quad[4] = {
+        quad_strip_previous_top_,
+        quad_strip_previous_bottom_,
+        vertex_index,
+        quad_strip_pending_top_
+    };
+    emit_polygon(quad, 4u);
+    quad_strip_previous_top_ = quad_strip_pending_top_;
+    quad_strip_previous_bottom_ = vertex_index;
 }
 
 void NdsGeometryEngine::execute_active_command() noexcept
@@ -945,8 +1069,15 @@ void NdsGeometryEngine::execute_active_command() noexcept
         execute_matrix_command();
     } else if (active_command_ >= 0x20u && active_command_ <= 0x28u) {
         execute_vertex_command();
+    } else if (active_command_ == 0x29u) {
+        /* POLYGON_ATTR is latched only by the next BEGIN_VTXS. */
+        pending_polygon_attributes_ = active_parameters_[0];
+    } else if (active_command_ == 0x40u) {
+        begin_vertex_list(active_parameters_[0]);
+    } else if (active_command_ == 0x41u) {
+        end_vertex_list();
     }
-    /* Polygon assembly, lighting and rasterization are separate stages. */
+    /* Clipping, lighting and rasterization remain separate stages. */
 }
 
 } // namespace oracis::memory

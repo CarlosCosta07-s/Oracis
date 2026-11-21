@@ -343,6 +343,22 @@ int main()
         return fail("vertex-test position identity setup enqueue failed");
     }
     geometry.advance_bus_cycles(20u);
+    /* VTX commands outside a BEGIN/END list must not append Vertex RAM. */
+    const uint32_t outside_count = geometry.vertex_count();
+    if (!write_command(
+            geometry, 0x23u, (UINT32_C(0x2000) << 16u) | UINT32_C(0x1000)) ||
+        !write_command(geometry, 0x23u, UINT32_C(0x3000))) {
+        return fail("out-of-list vertex fixture enqueue failed");
+    }
+    geometry.advance_bus_cycles(9u);
+    if (geometry.vertex_count() != outside_count) {
+        return fail("VTX command outside BEGIN_VTXS appended Vertex RAM");
+    }
+    if (!write_command(geometry, 0x29u, UINT32_C(0x2A7F1234)) ||
+        !write_command(geometry, 0x40u, UINT32_C(2))) {
+        return fail("BEGIN_VTXS triangle-strip setup enqueue failed");
+    }
+    geometry.advance_bus_cycles(2u);
     const uint32_t packed_normal =
         UINT32_C(1) | (UINT32_C(0x3FF) << 10u) |
         (UINT32_C(0x100) << 20u);
@@ -456,6 +472,95 @@ int main()
     if (!ram_count || ((ram_count.value >> 16u) & UINT32_C(0x1FFF)) != 6u ||
         (ram_count.value & UINT32_C(0x0FFF)) != 0u) {
         return fail("RAM_COUNT did not report stored vertex count");
+    }
+
+    if (!write_command(geometry, 0x41u)) {
+        return fail("END_VTXS command enqueue failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    if (geometry.vertex_list_open() || geometry.polygon_count() != 4u ||
+        geometry.primitive_mode() != 2u) {
+        return fail("triangle-strip assembly or END_VTXS handling failed");
+    }
+    const NdsGeometryEngine::Polygon *strip_first = geometry.polygon_at(0u);
+    const NdsGeometryEngine::Polygon *strip_second = geometry.polygon_at(1u);
+    if (strip_first == nullptr || strip_second == nullptr ||
+        strip_first->vertex_count != 3u ||
+        strip_first->vertex_indices !=
+            std::array<uint32_t, 4>{0u, 1u, 2u, 0u} ||
+        strip_first->attributes != UINT32_C(0x2A7F1234) ||
+        strip_second->vertex_indices !=
+            std::array<uint32_t, 4>{2u, 1u, 3u, 0u}) {
+        return fail("triangle-strip alternating winding or polygon attributes failed");
+    }
+    const ReadResult ram_counts_after_strip = geometry.read(
+        NDS_ARM9, NdsGeometryEngine::RamCountAddress, 4u);
+    if (!ram_counts_after_strip ||
+        (ram_counts_after_strip.value & UINT32_C(0x0FFF)) != 4u) {
+        return fail("RAM_COUNT polygon count did not follow triangle-strip assembly");
+    }
+
+    /* POLYGON_ATTR takes effect on the next list, not during the active one. */
+    if (!write_command(geometry, 0x29u, UINT32_C(0x12345678)) ||
+        !write_command(geometry, 0x40u, UINT32_C(1))) {
+        return fail("separate-quad list setup enqueue failed");
+    }
+    geometry.advance_bus_cycles(2u);
+    const uint32_t quad_vertices[4][2] = {
+        {UINT32_C(0), UINT32_C(0x1000)},
+        {UINT32_C(0x1000), UINT32_C(0x1000)},
+        {UINT32_C(0x2000), UINT32_C(0x1000)},
+        {UINT32_C(0x3000), UINT32_C(0x1000)}
+    };
+    for (unsigned index = 0u; index < 4u; ++index) {
+        if (!write_command(
+                geometry, 0x23u,
+                (quad_vertices[index][1] << 16u) | quad_vertices[index][0]) ||
+            !write_command(geometry, 0x23u, UINT32_C(0))) {
+            return fail("separate-quad vertex parameter enqueue failed");
+        }
+    }
+    geometry.advance_bus_cycles(36u);
+    if (!write_command(geometry, 0x41u)) {
+        return fail("separate-quad END_VTXS enqueue failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    const NdsGeometryEngine::Polygon *quad = geometry.polygon_at(4u);
+    if (geometry.polygon_count() != 5u || quad == nullptr ||
+        quad->vertex_count != 4u ||
+        quad->vertex_indices != std::array<uint32_t, 4>{6u, 7u, 8u, 9u} ||
+        quad->attributes != UINT32_C(0x12345678)) {
+        return fail("separate quadrilateral or deferred polygon attributes failed");
+    }
+
+    /* Quad strips add one polygon for every pair after their first quad. */
+    if (!write_command(geometry, 0x40u, UINT32_C(3))) {
+        return fail("quad-strip BEGIN_VTXS enqueue failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    for (unsigned index = 0u; index < 6u; ++index) {
+        const uint32_t x = static_cast<uint32_t>(index) * UINT32_C(0x1000);
+        if (!write_command(
+                geometry, 0x23u,
+                (UINT32_C(0x2000) << 16u) | x) ||
+            !write_command(geometry, 0x23u, UINT32_C(0))) {
+            return fail("quad-strip VTX_16 enqueue failed");
+        }
+    }
+    geometry.advance_bus_cycles(54u);
+    if (!write_command(geometry, 0x41u)) {
+        return fail("quad-strip END_VTXS enqueue failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    const NdsGeometryEngine::Polygon *quad_strip_first = geometry.polygon_at(5u);
+    const NdsGeometryEngine::Polygon *quad_strip_second = geometry.polygon_at(6u);
+    if (geometry.polygon_count() != 7u ||
+        quad_strip_first == nullptr || quad_strip_second == nullptr ||
+        quad_strip_first->vertex_indices !=
+            std::array<uint32_t, 4>{10u, 11u, 13u, 12u} ||
+        quad_strip_second->vertex_indices !=
+            std::array<uint32_t, 4>{12u, 13u, 15u, 14u}) {
+        return fail("quad-strip shared-edge assembly failed");
     }
 
     /*
