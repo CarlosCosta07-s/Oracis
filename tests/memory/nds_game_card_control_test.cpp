@@ -906,7 +906,7 @@ int main(){
    return fail("could not derive newer-cart KEY2 B7 data stream");
   for(uint32_t word_index=0u;word_index<key2_b7_size/4u;++word_index){
    const uint32_t delay_cycles=word_index==0u
-       ? (UINT32_C(8)+UINT32_C(0x18))*UINT32_C(5)
+       ? (UINT32_C(8)+UINT32_C(0x18)+UINT32_C(4))*UINT32_C(5)
        : (word_index==UINT32_C(128)
            ? (UINT32_C(4)+UINT32_C(0x18))*UINT32_C(5)
            : UINT32_C(4)*UINT32_C(5));
@@ -948,7 +948,7 @@ int main(){
       (static_cast<uint32_t>(expected_new_key2_chip_id[1])<<8u)|
       (static_cast<uint32_t>(expected_new_key2_chip_id[2])<<16u)|
       (static_cast<uint32_t>(expected_new_key2_chip_id[3])<<24u);
-  card.advance_bus_cycles((UINT32_C(8)+UINT32_C(0x18))*UINT32_C(5));
+  card.advance_bus_cycles((UINT32_C(8)+UINT32_C(0x18)+UINT32_C(4))*UINT32_C(5));
   const ReadResult actual_new_key2_b8=card.read_data(NDS_ARM9);
   if(actual_new_key2_b8.status!=Status::Ok||
      actual_new_key2_b8.value!=expected_new_key2_chip_id||
