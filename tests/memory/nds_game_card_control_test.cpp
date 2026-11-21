@@ -470,6 +470,8 @@ int main(){
     decoded_key1.key2_seed24!=UINT32_C(0xABCDEF)||
     card.key1_command_counter()!=key1_counter+1u)
      return fail("new KEY1 command was not decoded and counted at k+1");
+ if(card.complete_key1_command_gap(0u)!=Status::Ok||card.key2_initialized())
+     return fail("first 0x40 gap did not complete before KEY2 activation");
  if(card.key1_repeat_delay_cycles_remaining()!=card.header_secure_area_delay_core_cycles()||
     card.decode_next_key1_command(decoded_key1)!=Status::PermissionDenied)
      return fail("newer cart allowed KEY1 retransmission before its header secure delay");
@@ -483,6 +485,13 @@ int main(){
     card.decode_next_key1_command(decoded_key1)!=Status::Ok||
     card.key1_command_counter()!=key1_counter+1u)
      return fail("newer cart did not accept KEY1 retransmission after exact header delay");
+ NdsGameCardKey2 expected_key2_from_40;
+ if(expected_key2_from_40.initialize_from_random_seed(UINT32_C(0xABCDEF),3u)!=Status::Ok||
+    card.complete_key1_command_gap(0u)!=Status::Ok||!card.key2_initialized()||
+    card.key2_state1()!=expected_key2_from_40.state1()||
+    card.key2_state2()!=expected_key2_from_40.state2()||
+    card.key2_bytes_processed()!=0u||card.key1_key2_activation_pending())
+     return fail("0x40 gap did not activate KEY2 from its random seed and header index");
  if(card.decode_next_key1_command(decoded_key1)!=Status::PermissionDenied)
      return fail("newer cart accepted more than two transmissions of a normal KEY1 command");
 
@@ -499,7 +508,8 @@ int main(){
     decoded_key1.random_i!=key1_random_i||decoded_key1.random_j!=key1_random_j||
     card.key1_command_counter()!=secure_counter)
      return fail("KEY1 secure-area command did not validate its block, i/j and k");
- if(card.key1_repeat_delay_cycles_remaining()!=card.header_secure_area_delay_core_cycles()||
+ if(card.complete_key1_command_gap(0u)!=Status::Ok||
+    card.key1_repeat_delay_cycles_remaining()!=card.header_secure_area_delay_core_cycles()||
     card.decode_next_key1_command(decoded_key1)!=Status::PermissionDenied)
      return fail("newer cart allowed secure-area repeat before its delay");
  card.advance_bus_cycles(key1_secure_delay);
@@ -507,8 +517,9 @@ int main(){
      return fail("Secure Area delay countdown did not expire at the header limit");
  for(uint32_t repeat=0u;repeat<8u;++repeat){
   if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
-     card.key1_command_counter()!=secure_counter)
-      return fail("newer cart did not accept all eight secure-area data repetitions");
+     card.key1_command_counter()!=secure_counter||
+     card.complete_key1_command_gap(0u)!=Status::Ok)
+      return fail("newer cart did not accept all eight secure-area data repetitions and gaps");
  }
  if(card.decode_next_key1_command(decoded_key1)!=Status::PermissionDenied)
      return fail("newer cart accepted more than nine secure-area command transmissions");
@@ -523,11 +534,13 @@ int main(){
  if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
     decoded_key1.kind!=NdsGameCardKey1CommandKind::ReadChipId||
     card.key1_random_l()!=UINT16_C(0x1234)||
-    !card.key1_random_l_initialized())
-     return fail("KEY1 0x10 did not reuse and validate llll from 0x40");
+    !card.key1_random_l_initialized()||
+    card.complete_key1_command_gap(0u)!=Status::Ok)
+     return fail("KEY1 0x10 did not validate llll or complete its first gap");
  card.advance_bus_cycles(key1_secure_delay);
- if(card.decode_next_key1_command(decoded_key1)!=Status::Ok)
-     return fail("KEY1 0x10 second transmission failed after secure delay");
+ if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
+    card.complete_key1_command_gap(0u)!=Status::Ok)
+     return fail("KEY1 0x10 second transmission/gap failed after secure delay");
 
  const uint32_t disable_counter=chip_id_counter+1u;
  auto wrong_l_disable=make_key1_command(
@@ -543,11 +556,13 @@ int main(){
      return fail("could not encrypt valid KEY1 0x60 command");
  write_key1_command(encrypted_disable_key2);
  if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
-    decoded_key1.kind!=NdsGameCardKey1CommandKind::DisableKey2)
-     return fail("KEY1 0x60 rejected the original llll value");
+    decoded_key1.kind!=NdsGameCardKey1CommandKind::DisableKey2||
+    card.complete_key1_command_gap(0u)!=Status::Ok)
+     return fail("KEY1 0x60 rejected the original llll value or first gap");
  card.advance_bus_cycles(key1_secure_delay);
- if(card.decode_next_key1_command(decoded_key1)!=Status::Ok)
-     return fail("KEY1 0x60 second transmission failed after secure delay");
+ if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
+    card.complete_key1_command_gap(0u)!=Status::Ok)
+     return fail("KEY1 0x60 second transmission/gap failed after secure delay");
 
  const uint32_t main_mode_counter=disable_counter+1u;
  auto encrypted_main_mode=make_key1_command(
@@ -556,11 +571,13 @@ int main(){
      return fail("could not encrypt KEY1 0xA0 command");
  write_key1_command(encrypted_main_mode);
  if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
-    decoded_key1.kind!=NdsGameCardKey1CommandKind::EnterMainDataMode)
-     return fail("KEY1 0xA0 did not validate the shared llll parameter");
+    decoded_key1.kind!=NdsGameCardKey1CommandKind::EnterMainDataMode||
+    card.complete_key1_command_gap(0u)!=Status::Ok)
+     return fail("KEY1 0xA0 did not validate llll or complete its first gap");
  card.advance_bus_cycles(key1_secure_delay);
- if(card.decode_next_key1_command(decoded_key1)!=Status::Ok)
-     return fail("KEY1 0xA0 second transmission failed after secure delay");
+ if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
+    card.complete_key1_command_gap(0u)!=Status::Ok)
+     return fail("KEY1 0xA0 second transmission/gap failed after secure delay");
 
  /* The old/smaller variant increments k on every command and rejects replay. */
  card.reset_transfer();
@@ -584,8 +601,9 @@ int main(){
      return fail("could not encrypt old-variant KEY1 command");
  write_key1_command(old_variant_command);
  if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
+    card.complete_key1_command_gap(0u)!=Status::Ok||!card.key2_initialized()||
     card.decode_next_key1_command(decoded_key1)!=Status::PermissionDenied)
-     return fail("old cart variant accepted a repeated KEY1 command without incrementing k");
+     return fail("old cart 0x40 did not activate KEY2 after its single gap-complete transmission or accepted a replay");
  if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)
      return fail("could not clear old variant KEY1 activation IRQ");
  if(!oracis_bus_unbind_game_card_control(&card)||!oracis_bus_unbind_dma_control(&dma)||
