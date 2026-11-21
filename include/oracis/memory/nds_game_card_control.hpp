@@ -173,8 +173,12 @@ private:
  bool key1_command_bytes_pending_=false;
  uint32_t key1_gap_clock_bytes_=0u;
  uint64_t key1_gap_cycles_=0u;
+ uint64_t key1_post_payload_zero_cycles_=0u;
  uint32_t key1_reply_payload_bytes_=0u;
  bool key1_reply_payload_encrypted_=false;
+ uint32_t key1_reply_data_offset_=0u;
+ uint32_t key1_reply_post_payload_zero_bytes_=0u;
+ bool key1_post_payload_zero_pending_=false;
 };
 }
 #endif
