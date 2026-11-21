@@ -37,6 +37,12 @@ int main(void)
         return 1;
     }
 
+    if (oracis_host_runtime_set_game_card_chip_id(UINT32_C(0x800000C2)) !=
+        ORACIS_HOST_RUNTIME_GAME_CARD_ERROR) {
+        fprintf(stderr, "host bridge accepted a chip ID before mounting an image\\n");
+        return 1;
+    }
+
     uint8_t synthetic_game_card[0x8200] = {0};
     synthetic_game_card[0x8000] = UINT8_C(0xA5);
     synthetic_game_card[0x8001] = UINT8_C(0x5A);
@@ -54,7 +60,11 @@ int main(void)
     }
     /* The bridge owns a copy: mutate the caller buffer before issuing a read. */
     synthetic_game_card[0x8000] = 0u;
-
+    if (oracis_host_runtime_set_game_card_chip_id(UINT32_C(0x800000C2)) !=
+        ORACIS_HOST_RUNTIME_OK) {
+        fprintf(stderr, "host bridge could not configure explicit synthetic chip ID\\n");
+        return 1;
+    }
 
     if (bus_read_u16(UINT32_C(0x04000130)) != UINT16_C(0x03FE)) {
         fprintf(stderr, "pre-bind host key state did not reach KEYINPUT\n");
@@ -316,6 +326,26 @@ int main(void)
         fprintf(stderr, "host bridge did not preserve its copied Game Card image through a timed B7 read\n");
         return 1;
     }
+    /* The 0x90 response uses the explicitly configured physical chip ID. */
+    const uint8_t game_card_id_command[8] = {
+        UINT8_C(0x90), 0u, 0u, 0u, 0u, 0u, 0u, 0u
+    };
+    for (uint32_t index = 0u; index < 8u; ++index) {
+        bus_write_u8(UINT32_C(0x040001A8) + index, game_card_id_command[index]);
+    }
+    bus_write_u32(UINT32_C(0x040001A4),
+        (UINT32_C(7) << 24u) | (UINT32_C(1) << 29u) | (UINT32_C(1) << 31u));
+    if (oracis_host_runtime_run_round(40u, NULL, NULL) != ORACIS_HOST_RUNTIME_OK ||
+        oracis_host_runtime_global_bus_cycles() != UINT64_C(81) ||
+        !oracis_arm_runtime_select_cpu(NDS_ARM9) ||
+        bus_read_u32(UINT32_C(0x04100010)) != UINT32_C(0x800000C2) ||
+        (bus_read_u32(UINT32_C(0x040001A4)) &
+            ((UINT32_C(1) << 31u) | (UINT32_C(1) << 23u))) != 0u) {
+        oracis_static_dispatch_clear();
+        fprintf(stderr, "host bridge did not return the explicit Game Card chip ID through command 0x90\\n");
+        return 1;
+    }
+
     if (oracis_host_runtime_unmount_game_card_image() != ORACIS_HOST_RUNTIME_OK ||
         oracis_host_runtime_unmount_game_card_image() != ORACIS_HOST_RUNTIME_OK) {
         oracis_static_dispatch_clear();

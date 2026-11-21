@@ -220,6 +220,19 @@ extern "C" int oracis_host_runtime_mount_game_card_image(
     }
 }
 
+extern "C" int oracis_host_runtime_set_game_card_chip_id(uint32_t chip_id)
+{
+    auto &machine = host_machine();
+    if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+    if (!machine.game_card_control().mounted()) {
+        return ORACIS_HOST_RUNTIME_GAME_CARD_ERROR;
+    }
+    const auto status = machine.game_card_control().set_chip_id(chip_id);
+    return status == oracis::memory::Status::Ok
+        ? ORACIS_HOST_RUNTIME_OK
+        : ORACIS_HOST_RUNTIME_GAME_CARD_ERROR;
+}
+
 extern "C" int oracis_host_runtime_unmount_game_card_image(void)
 {
     auto &machine = host_machine();

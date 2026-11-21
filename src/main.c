@@ -6,6 +6,8 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -88,6 +90,20 @@ static void release_all_keys(void)
 }
 
 static bool g_video_error_reported = false;
+
+static bool parse_game_card_chip_id(const char *text, uint32_t *chip_id)
+{
+    if (text == NULL || text[0] == '\0' || text[0] == '-') return false;
+    errno = 0;
+    char *end = NULL;
+    const unsigned long parsed = strtoul(text, &end, 0);
+    if (errno == ERANGE || end == text || end == NULL || *end != '\0' ||
+        parsed > UINT32_MAX || chip_id == NULL) {
+        return false;
+    }
+    *chip_id = (uint32_t)parsed;
+    return true;
+}
 
 static bool mount_game_card_file(const char *path)
 {
@@ -286,6 +302,8 @@ int main(int argc, char *argv[])
     bool host_runtime_initialized = false;
     int exit_code = EXIT_FAILURE;
     const char *game_card_path = NULL;
+    uint32_t game_card_chip_id = 0u;
+    bool game_card_chip_id_set = false;
 
 
     oracis_host_set_keypad_state(0u);
@@ -303,13 +321,22 @@ int main(int argc, char *argv[])
         if (strcmp(argv[argument], "--game-card") == 0) {
             if (argument + 1 >= argc || game_card_path != NULL) {
                 SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
-                    "Usage: %s [--game-card path/to/game.nds]", argv[0]);
+                    "Usage: %s [--game-card path/to/game.nds] [--game-card-id 0xID]", argv[0]);
                 goto cleanup;
             }
             game_card_path = argv[++argument];
+        } else if (strcmp(argv[argument], "--game-card-id") == 0) {
+            if (argument + 1 >= argc || game_card_chip_id_set ||
+                !parse_game_card_chip_id(argv[argument + 1], &game_card_chip_id)) {
+                SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+                    "--game-card-id requires one uint32 value (decimal or 0x-prefixed hex).");
+                goto cleanup;
+            }
+            game_card_chip_id_set = true;
+            ++argument;
         } else if (strcmp(argv[argument], "--help") == 0 ||
                    strcmp(argv[argument], "-h") == 0) {
-            SDL_Log("Usage: %s [--game-card path/to/game.nds]", argv[0]);
+            SDL_Log("Usage: %s [--game-card path/to/game.nds] [--game-card-id 0xID]", argv[0]);
             exit_code = EXIT_SUCCESS;
             goto cleanup;
         } else {
@@ -317,6 +344,12 @@ int main(int argc, char *argv[])
                 "Unknown argument '%s'. Use --help for usage.", argv[argument]);
             goto cleanup;
         }
+    }
+
+    if (game_card_chip_id_set && game_card_path == NULL) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "--game-card-id requires --game-card path/to/game.nds.");
+        goto cleanup;
     }
 
     if (!SDL_CreateWindowAndRenderer(
@@ -361,6 +394,18 @@ int main(int argc, char *argv[])
 
     if (game_card_path != NULL && !mount_game_card_file(game_card_path)) {
         goto cleanup;
+    }
+    if (game_card_chip_id_set) {
+        const int chip_status = oracis_host_runtime_set_game_card_chip_id(
+            game_card_chip_id);
+        if (chip_status != ORACIS_HOST_RUNTIME_OK) {
+            SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+                "Could not configure the physical Game Card chip ID (bridge=%d).",
+                chip_status);
+            goto cleanup;
+        }
+        SDL_Log("Configured physical Game Card chip ID: 0x%08X. This value is supplied by the user, not inferred from the .nds image.",
+            game_card_chip_id);
     }
 
     for (uint32_t engine = 0u; engine < 2u; ++engine) {
