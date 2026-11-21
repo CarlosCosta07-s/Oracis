@@ -22,15 +22,6 @@ constexpr uint32_t kFifoEmptyBit = UINT32_C(1) << 26u;
 constexpr uint32_t kGeometryBusyBit = UINT32_C(1) << 27u;
 constexpr uint32_t kFifoIrqShift = 30u;
 
-uint8_t signed_six_bit(uint32_t value) noexcept
-{
-    const uint32_t raw = value & kStackOffsetMask;
-    const int32_t signed_value = (raw & UINT32_C(0x20)) != 0u
-        ? static_cast<int32_t>(raw) - 64
-        : static_cast<int32_t>(raw);
-    return static_cast<uint8_t>(signed_value);
-}
-
 int32_t low_signed_word(uint64_t value) noexcept
 {
     return std::bit_cast<int32_t>(static_cast<uint32_t>(value));

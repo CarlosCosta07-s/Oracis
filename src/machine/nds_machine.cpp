@@ -22,9 +22,12 @@ NdsMachine::NdsMachine(memory::SharedWramMode initial_wram_mode) noexcept
       ipc_control_(interrupt_control_),
       dma_control_(memory_, interrupt_control_),
       display_control_(interrupt_control_, &dma_control_),
+      geometry_engine_(interrupt_control_),
       timer_control_(memory_, interrupt_control_),
       keypad_control_(memory_, interrupt_control_),
-      system_clock_(timer_control_, display_control_, &game_card_control_)
+      system_clock_(
+          timer_control_, display_control_, &game_card_control_,
+          &geometry_engine_)
 {
     dma_control_.attach_display_control(display_control_);
     dma_control_.attach_game_card_control(game_card_control_);
@@ -1044,7 +1047,8 @@ NdsMachineStatus NdsMachine::initialize() noexcept
 {
     if (initialized_ || wram_control_.installed() ||
         vram_control_.installed() || video_memory_.installed() ||
-        post_flag_.installed() || display_control_.installed() || game_card_control_.installed()) {
+        post_flag_.installed() || display_control_.installed() ||
+        geometry_engine_.installed() || game_card_control_.installed()) {
         return NdsMachineStatus::AlreadyInitialized;
     }
 
@@ -1146,6 +1150,7 @@ NdsMachineStatus NdsMachine::initialize() noexcept
         video_memory_.install() != memory::Status::Ok ||
         post_flag_.install() != memory::Status::Ok ||
         display_control_.install() != memory::Status::Ok ||
+        geometry_engine_.install() != memory::Status::Ok ||
         game_card_control_.install() != memory::Status::Ok ||
         arm9_tcm_.install() != memory::Status::Ok) {
         return rollback(NdsMachineStatus::MemoryMapFailed);
@@ -1201,6 +1206,11 @@ NdsMachineStatus NdsMachine::initialize() noexcept
         return rollback(NdsMachineStatus::BusBindingFailed);
     }
     display_control_bound_ = true;
+
+    if (!oracis_bus_bind_geometry_engine(&geometry_engine_)) {
+        return rollback(NdsMachineStatus::BusBindingFailed);
+    }
+    geometry_engine_bound_ = true;
 
     if (!oracis_bus_bind_timer_control(&timer_control_)) {
         return rollback(NdsMachineStatus::BusBindingFailed);
@@ -1340,7 +1350,8 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
         bios_huffman_handler_bound_ || bios_diff_handler_bound_ ||
         memory_bound_ ||
         wram_bound_ || vram_bound_ || video_memory_bound_ ||
-        post_flag_bound_ || display_control_bound_ || interrupt_bound_ ||
+        post_flag_bound_ || display_control_bound_ ||
+        geometry_engine_bound_ || interrupt_bound_ ||
         game_card_bound_ || ipc_bound_ || dma_bound_ || timer_bound_ ||
         keypad_bound_ || clock_bound_ || validation_bound_;
     if (!owns_runtime && !initialized_) {
@@ -1391,6 +1402,12 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
             return NdsMachineStatus::ShutdownFailed;
         }
         display_control_bound_ = false;
+    }
+    if (geometry_engine_bound_) {
+        if (!oracis_bus_unbind_geometry_engine(&geometry_engine_)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        geometry_engine_bound_ = false;
     }
     if (dma_bound_) {
         if (!oracis_bus_unbind_dma_control(&dma_control_)) {

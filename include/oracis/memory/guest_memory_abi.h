@@ -38,6 +38,10 @@ int oracis_bus_unbind_post_flag(void *post_flag);
 int oracis_bus_bind_display_control(void *display_control);
 int oracis_bus_unbind_display_control(void *display_control);
 
+/* Bind the ARM9 Geometry Engine FIFO/register block after the IRQ controller. */
+int oracis_bus_bind_geometry_engine(void *geometry_engine);
+int oracis_bus_unbind_geometry_engine(void *geometry_engine);
+
 /* Bind a live NdsInterruptControl device after binding its GuestMemory object. */
 int oracis_bus_bind_interrupt_control(void *control);
 int oracis_bus_unbind_interrupt_control(void *control);

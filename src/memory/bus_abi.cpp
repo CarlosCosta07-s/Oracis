@@ -6,6 +6,7 @@
 #include "oracis/memory/nds_video_memory.hpp"
 #include "oracis/memory/nds_post_flag.hpp"
 #include "oracis/memory/nds_display_control.hpp"
+#include "oracis/memory/nds_geometry_engine.hpp"
 #include "oracis/memory/nds_interrupt_control.hpp"
 #include "oracis/memory/nds_timer_control.hpp"
 #include "oracis/memory/nds_keypad_control.hpp"
@@ -27,6 +28,7 @@ oracis::memory::NdsVramControl *g_vram_control = nullptr;
 oracis::memory::NdsVideoMemory *g_video_memory = nullptr;
 oracis::memory::NdsPostFlag *g_post_flag = nullptr;
 oracis::memory::NdsDisplayControl *g_display_control = nullptr;
+oracis::memory::NdsGeometryEngine *g_geometry_engine = nullptr;
 oracis::memory::NdsInterruptControl *g_interrupt_control = nullptr;
 oracis::memory::NdsIpcControl *g_ipc_control = nullptr;
 oracis::memory::NdsGameCardControl *g_game_card_control = nullptr;
@@ -69,6 +71,14 @@ uint32_t read_bus(uint32_t address, uint32_t width, const char *operation)
     auto &memory = bound_memory(operation, address, width);
     if (g_post_flag != nullptr) {
         const auto mmio = g_post_flag->read(g_nds_active, address, width);
+        if (mmio.status != oracis::memory::Status::Unmapped) {
+            if (!mmio) bus_failure(operation, address, width, mmio.status);
+            return mmio.value;
+        }
+    }
+    if (g_geometry_engine != nullptr) {
+        const auto mmio = g_geometry_engine->read(
+            g_nds_active, address, width);
         if (mmio.status != oracis::memory::Status::Unmapped) {
             if (!mmio) bus_failure(operation, address, width, mmio.status);
             return mmio.value;
@@ -163,6 +173,16 @@ void write_bus(uint32_t address,
             return;
         }
     }
+    if (g_geometry_engine != nullptr) {
+        const auto mmio = g_geometry_engine->write(
+            g_nds_active, address, width, value);
+        if (mmio != oracis::memory::Status::Unmapped) {
+            if (mmio != oracis::memory::Status::Ok) {
+                bus_failure(operation, address, width, mmio);
+            }
+            return;
+        }
+    }
     if (g_display_control != nullptr) {
         const auto mmio = g_display_control->write(
             g_nds_active, address, width, value);
@@ -223,6 +243,9 @@ void write_bus(uint32_t address,
         if (mmio != oracis::memory::Status::Unmapped) {
             if (mmio != oracis::memory::Status::Ok) {
                 bus_failure(operation, address, width, mmio);
+            }
+            if (g_geometry_engine != nullptr) {
+                g_geometry_engine->refresh_fifo_irq();
             }
             return;
         }
@@ -289,6 +312,7 @@ extern "C" int oracis_bus_unbind_memory(void *memory)
          &g_video_memory->backing_memory() == g_guest_memory) ||
         g_post_flag != nullptr ||
         g_display_control != nullptr ||
+        g_geometry_engine != nullptr ||
         g_game_card_control != nullptr ||
         (g_interrupt_control != nullptr &&
          &g_interrupt_control->backing_memory() == g_guest_memory) ||
@@ -413,6 +437,34 @@ extern "C" int oracis_bus_unbind_display_control(void *display_control)
     return 1;
 }
 
+extern "C" int oracis_bus_bind_geometry_engine(void *geometry_engine)
+{
+    if (geometry_engine == nullptr || g_guest_memory == nullptr ||
+        g_interrupt_control == nullptr) {
+        return 0;
+    }
+    auto *device =
+        static_cast<oracis::memory::NdsGeometryEngine *>(geometry_engine);
+    if (!device->installed() ||
+        &device->interrupt_control() != g_interrupt_control ||
+        g_geometry_engine != nullptr) {
+        return 0;
+    }
+    g_geometry_engine = device;
+    return 1;
+}
+
+extern "C" int oracis_bus_unbind_geometry_engine(void *geometry_engine)
+{
+    if (geometry_engine == nullptr || g_geometry_engine !=
+            static_cast<oracis::memory::NdsGeometryEngine *>(geometry_engine) ||
+        g_system_clock != nullptr) {
+        return 0;
+    }
+    g_geometry_engine = nullptr;
+    return 1;
+}
+
 extern "C" int oracis_bus_bind_interrupt_control(void *control)
 {
     if (control == nullptr || g_guest_memory == nullptr) return 0;
@@ -438,6 +490,8 @@ extern "C" int oracis_bus_unbind_interrupt_control(void *control)
          &g_dma_control->interrupt_control() == g_interrupt_control) ||
         (g_display_control != nullptr &&
          &g_display_control->interrupt_control() == g_interrupt_control) ||
+        (g_geometry_engine != nullptr &&
+         &g_geometry_engine->interrupt_control() == g_interrupt_control) ||
         (g_game_card_control != nullptr &&
          &g_game_card_control->interrupt_control() == g_interrupt_control)) {
         return 0;

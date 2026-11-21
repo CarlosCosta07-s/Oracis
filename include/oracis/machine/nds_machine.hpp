@@ -27,6 +27,7 @@
 #include "oracis/memory/nds_video_memory.hpp"
 #include "oracis/memory/nds_post_flag.hpp"
 #include "oracis/memory/nds_display_control.hpp"
+#include "oracis/memory/nds_geometry_engine.hpp"
 
 /* Forward-declared here to keep the machine header independent of runtime_arm.h. */
 struct NdsStaticValidation;
@@ -224,6 +225,9 @@ public:
     memory::NdsDisplayControl &display_control() noexcept {
         return display_control_;
     }
+    memory::NdsGeometryEngine &geometry_engine() noexcept {
+        return geometry_engine_;
+    }
     memory::NdsInterruptControl &interrupt_control() noexcept {
         return interrupt_control_;
     }
@@ -303,6 +307,7 @@ private:
     memory::NdsIpcControl ipc_control_;
     memory::NdsDmaControl dma_control_;
     memory::NdsDisplayControl display_control_;
+    memory::NdsGeometryEngine geometry_engine_;
     memory::NdsTimerControl timer_control_;
     memory::NdsKeypadControl keypad_control_;
     memory::NdsSystemClock system_clock_;
@@ -333,6 +338,7 @@ private:
     bool video_memory_bound_ = false;
     bool post_flag_bound_ = false;
     bool display_control_bound_ = false;
+    bool geometry_engine_bound_ = false;
     bool interrupt_bound_ = false;
     bool game_card_bound_ = false;
     bool ipc_bound_ = false;
