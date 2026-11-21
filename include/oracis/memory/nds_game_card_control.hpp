@@ -63,9 +63,7 @@ public:
  void reset_transfer() noexcept;
  /* Validate and consume a KEY1 command without starting its data/gap transfer.
   * The caller must honor the header secure delay between newer-cart repeats. */
- Status decode_next_key1_command(
-     const uint8_t *wire_bytes,uint32_t size,
-     NdsGameCardKey1Command &decoded) noexcept;
+ Status decode_next_key1_command(NdsGameCardKey1Command &decoded) noexcept;
  bool installed() const noexcept{return installed_;}
  bool key2_initialized() const noexcept{return key2_.initialized();}
  bool key1_initialized() const noexcept{return key1_.initialized();}
