@@ -519,7 +519,7 @@ int main(){
      return fail("KEY1 secure-area command did not validate its block, i/j and k");
  if(card.describe_key1_reply(decoded_key1,key1_reply_plan)!=Status::Ok||
     key1_reply_plan.payload_bytes!=0u||
-    key1_reply_plan.aggregate_payload_bytes!=UINT32_C(0x10A8)||
+    key1_reply_plan.aggregate_payload_bytes!=UINT32_C(0x10C0)||
     key1_reply_plan.aggregate_data_transmissions!=8u||
     key1_reply_plan.transmission_index!=1u||
     key1_reply_plan.secure_block_bytes!=UINT32_C(0x200)||
@@ -540,8 +540,7 @@ int main(){
      card.describe_key1_reply(decoded_key1,key1_reply_plan)!=Status::Ok||
      key1_reply_plan.payload_bytes!=UINT32_C(0x200)||
      key1_reply_plan.transmission_index!=static_cast<uint8_t>(repeat+2u)||
-     key1_reply_plan.post_payload_zero_bytes!=
-         (repeat<7u?UINT32_C(0x18):0u)||
+     key1_reply_plan.post_payload_zero_bytes!=UINT32_C(0x18)||
      card.complete_key1_command_gap(0u)!=Status::Ok)
       return fail("newer cart did not describe and accept all eight secure-area data repetitions and gaps");
  }
@@ -800,6 +799,57 @@ int main(){
      card.busy()||card.key2_bytes_processed()!=4u)
    return fail("newer-cart 0x10 did not return its KEY2-encrypted Chip ID through DATA");
 
+  /* New-cart 0x20 streams a 4K block as eight 0x200-byte replies,
+   * followed by eight 0x18-byte KEY2-encrypted zero intervals. */
+  const uint32_t new_secure_counter=key1_counter+3u;
+  auto automatic_new_secure=make_key1_command(0x02u,UINT16_C(0x0006),
+      packed_randoms,new_secure_counter);
+  if(command_codec.encrypt_command(automatic_new_secure.data(),8u)!=Status::Ok)
+   return fail("could not encrypt newer-cart 0x20 command");
+  write_key1_command(automatic_new_secure);
+  if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+      no_reply_control|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok||!card.busy())
+   return fail("newer-cart 0x20 initial empty transmission did not start");
+  card.advance_bus_cycles(key1_command_gap_cycles);
+  if(card.busy()||card.key1_repeat_delay_cycles_remaining()!=
+      card.header_secure_area_delay_core_cycles()||card.key2_bytes_processed()!=4u)
+   return fail("newer-cart 0x20 initial transmission did not complete silently");
+  card.advance_bus_cycles(card.header_secure_area_delay_core_cycles());
+  for(uint32_t chunk=0u;chunk<8u;++chunk){
+   write_key1_command(automatic_new_secure);
+   if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+       no_reply_control|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok||!card.busy())
+    return fail("newer-cart 0x20 data transmission did not start");
+   card.advance_bus_cycles(key1_command_gap_cycles);
+   if(!card.busy()||card.data_ready()||card.remaining_words()!=128u)
+    return fail("newer-cart 0x20 did not stage a 200h-byte block");
+   std::array<uint8_t,UINT32_C(0x200)> expected_secure_chunk{};
+   const uint32_t source_offset=UINT32_C(0x6000)+chunk*UINT32_C(0x200);
+   for(uint32_t byte=0u;byte<expected_secure_chunk.size();++byte)
+    expected_secure_chunk[byte]=image[source_offset+byte];
+   if(expected_automatic_new_key2.apply_keystream(expected_secure_chunk.data(),
+       static_cast<uint32_t>(expected_secure_chunk.size()))!=Status::Ok)
+    return fail("could not derive newer-cart KEY2 Secure Area chunk");
+   for(uint32_t word_index=0u;word_index<128u;++word_index){
+    card.advance_bus_cycles(20u);
+    const ReadResult actual=card.read_data(NDS_ARM9);
+    const uint32_t expected=static_cast<uint32_t>(expected_secure_chunk[word_index*4u])|
+      (static_cast<uint32_t>(expected_secure_chunk[word_index*4u+1u])<<8u)|
+      (static_cast<uint32_t>(expected_secure_chunk[word_index*4u+2u])<<16u)|
+      (static_cast<uint32_t>(expected_secure_chunk[word_index*4u+3u])<<24u);
+    if(actual.status!=Status::Ok||actual.value!=expected)
+     return fail("newer-cart 0x20 DATA did not match encrypted Secure Area bytes");
+   }
+   if(!card.busy()||card.remaining_words()!=0u)
+    return fail("newer-cart 0x20 did not hold BUSY for the padding interval");
+   card.advance_bus_cycles(UINT64_C(0x18)*UINT64_C(5));
+   if(card.busy()||card.key2_bytes_processed()!=UINT64_C(4)+
+       (static_cast<uint64_t>(chunk)+1u)*UINT64_C(0x218))
+    return fail("newer-cart 0x20 did not consume its 18h KEY2 zero interval");
+  }
+  if(card.key2_bytes_processed()!=UINT32_C(0x10C4))
+   return fail("newer-cart 0x20 stream did not advance by the full 10C0h period");
+
  /* Older carts clock the 0x910-byte gap and advance KEY2 during it. */
  card.reset_transfer();
  if(card.set_chip_id(UINT32_C(0x000000C2))!=Status::Ok||
@@ -874,6 +924,39 @@ int main(){
      automatic_old_chip_id_word.value!=expected_old_chip_id_word||
      card.busy()||card.key2_bytes_processed()!=UINT32_C(0x1224))
    return fail("older-cart 0x10 did not return the KEY2-encrypted Chip ID through DATA");
+
+  /* Old-cart 0x20 returns one encrypted 0x1000-byte Secure Area block. */
+  const uint32_t old_secure_counter=key1_counter+3u;
+  auto automatic_old_secure=make_key1_command(0x02u,UINT16_C(0x0006),
+      packed_randoms,old_secure_counter);
+  if(command_codec.encrypt_command(automatic_old_secure.data(),8u)!=Status::Ok)
+   return fail("could not encrypt older-cart 0x20 command");
+  write_key1_command(automatic_old_secure);
+  if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+      old_gap_control|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok||!card.busy())
+   return fail("older-cart 0x20 did not start its clocked gap");
+  card.advance_bus_cycles(key1_command_gap_cycles);
+  if(!card.busy()||card.data_ready()||card.remaining_words()!=1024u||
+     card.key2_bytes_processed()!=UINT32_C(0x1B34))
+   return fail("older-cart 0x20 did not stage its 1000h-byte Secure Area payload");
+  std::array<uint8_t,UINT32_C(0x1000)> expected_old_secure{};
+  for(uint32_t byte=0u;byte<expected_old_secure.size();++byte)
+   expected_old_secure[byte]=image[UINT32_C(0x6000)+byte];
+  if(expected_automatic_old_key2.apply_keystream(expected_old_secure.data(),
+      static_cast<uint32_t>(expected_old_secure.size()))!=Status::Ok)
+   return fail("could not derive older-cart KEY2 Secure Area block");
+  for(uint32_t word_index=0u;word_index<1024u;++word_index){
+   card.advance_bus_cycles(20u);
+   const ReadResult actual=card.read_data(NDS_ARM9);
+   const uint32_t expected=static_cast<uint32_t>(expected_old_secure[word_index*4u])|
+     (static_cast<uint32_t>(expected_old_secure[word_index*4u+1u])<<8u)|
+     (static_cast<uint32_t>(expected_old_secure[word_index*4u+2u])<<16u)|
+     (static_cast<uint32_t>(expected_old_secure[word_index*4u+3u])<<24u);
+   if(actual.status!=Status::Ok||actual.value!=expected)
+    return fail("older-cart 0x20 DATA did not match encrypted Secure Area bytes");
+  }
+  if(card.busy()||card.key2_bytes_processed()!=UINT32_C(0x2B34))
+   return fail("older-cart 0x20 did not finish its full KEY2 stream");
 
 if(!oracis_bus_unbind_game_card_control(&card)||!oracis_bus_unbind_dma_control(&dma)||
     !oracis_bus_unbind_interrupt_control(&irq)||!oracis_bus_unbind_memory(&memory)||
