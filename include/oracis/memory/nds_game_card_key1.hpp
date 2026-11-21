@@ -47,6 +47,11 @@ public:
     Status encrypt_block(uint8_t *bytes, uint32_t size) const noexcept;
     Status decrypt_block(uint8_t *bytes, uint32_t size) const noexcept;
 
+    /* Game Card command bytes are wire-order (MSB first); these helpers
+     * reverse them around the little-endian 64-bit block primitive. */
+    Status encrypt_command(uint8_t *wire_bytes, uint32_t size) const noexcept;
+    Status decrypt_command(uint8_t *wire_bytes, uint32_t size) const noexcept;
+
     bool table_loaded() const noexcept { return table_loaded_; }
     bool initialized() const noexcept { return initialized_; }
     uint32_t id_code() const noexcept { return id_code_; }
