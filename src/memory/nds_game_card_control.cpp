@@ -157,7 +157,7 @@ Status NdsGameCardControl::describe_key1_reply(
  NdsGameCardKey1ReplyPlan candidate{};
  candidate.transmission_index=last_key1_command_transmissions_;
  candidate.preamble_gap_bytes=header_key1_initial_gap_bytes();
- candidate.preamble_clocked=header_key1_gap_clocks_enabled();
+ candidate.preamble_clocked=(rom_control_&RomCtrlGapClockMask)!=0u;
  if(candidate.preamble_clocked&&candidate.preamble_gap_bytes!=0u){
   candidate.leading_high_z_bytes=1u;
   candidate.preamble_key2_zero_bytes=candidate.preamble_gap_bytes-1u;
