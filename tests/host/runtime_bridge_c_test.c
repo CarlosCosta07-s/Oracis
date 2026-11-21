@@ -174,7 +174,7 @@ int main(void)
             ORACIS_HOST_RUNTIME_INVALID_ARGUMENT ||
         oracis_host_runtime_load_game_card_arm7_bios(
             synthetic_arm7_bios, UINT32_C(0x4000)) != ORACIS_HOST_RUNTIME_OK) {
-        fprintf(stderr, "host bridge failed to extract and initialize the synthetic ARM7 BIOS KEY1 table\\n");
+        fprintf(stderr, "host bridge failed to extract and initialize the synthetic ARM7 BIOS KEY1 table\n");
         return 1;
     }
 
