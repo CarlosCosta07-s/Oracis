@@ -113,6 +113,7 @@ int main()
 
     Nds2dBgCompositor compositor(memory);
     std::array<Nds2dCompositedPixel, 256> line{};
+    std::array<Nds2dCompositedPixel, 256> preserved{};
     auto result = compositor.render_scanline(0u, display, 0u, line);
     if (result.status != Nds2dComposeStatus::Ok ||
         line[0].rgb555 != UINT16_C(0x03E0) ||
@@ -485,7 +486,7 @@ int main()
     }
 
     /* Extended tile-map palette slots remain unsupported and fail closed. */
-    std::array<Nds2dCompositedPixel, 256> preserved = line;
+    preserved = line;
     if (display.write(
             NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
             (UINT32_C(3) << 0u) | (UINT32_C(1) << 11u) |
