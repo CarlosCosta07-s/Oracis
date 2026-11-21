@@ -2425,9 +2425,9 @@ int main()
      * IntrWait with r0=0 returns immediately for an already recorded BIOS
      * flag and consumes that selected bit without requiring an IF request.
      */
-    if (!machine.guest_memory().write(
+    if (machine.guest_memory().write(
             NDS_ARM9, arm9_irq_check_flags_address, 4u,
-            intrwait_timer_irq) == oracis::memory::Status::Ok) {
+            intrwait_timer_irq) != oracis::memory::Status::Ok) {
         return fail("IntrWait KEEP test could not seed BIOS shadow flags");
     }
     arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
