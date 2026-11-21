@@ -37,6 +37,14 @@ enum {
 typedef int (*OracisArmRuntimePowerHandler)(
     void *context, NdsCpu cpu, uint32_t operation, uint32_t value);
 
+/*
+ * Runtime IRQ service. return_pc is the next guest PC at an instruction
+ * boundary; the NDS IRQ link register is derived as return_pc + 4.
+ * Handler result: 1 entered, 0 no eligible IRQ, -1 integration failure.
+ */
+typedef int (*OracisArmRuntimeIrqHandler)(
+    void *context, NdsCpu cpu, uint32_t return_pc);
+
 /* Dispatches implemented ARM9 CP15 transfers to the owning NdsMachine. */
 typedef int (*OracisArmRuntimeCoprocessorHandler)(
     void *context, NdsCpu cpu, uint32_t is_write,
@@ -85,6 +93,11 @@ int oracis_arm_runtime_bind_power_handler(
     void *context, OracisArmRuntimePowerHandler handler);
 int oracis_arm_runtime_unbind_power_handler(
     void *context, OracisArmRuntimePowerHandler handler);
+int oracis_arm_runtime_bind_irq_handler(
+    void *context, OracisArmRuntimeIrqHandler handler);
+int oracis_arm_runtime_unbind_irq_handler(
+    void *context, OracisArmRuntimeIrqHandler handler);
+int oracis_arm_runtime_request_irq(uint32_t return_pc);
 int oracis_arm_runtime_bind_coprocessor_handler(
     void *context, OracisArmRuntimeCoprocessorHandler handler);
 int oracis_arm_runtime_unbind_coprocessor_handler(
