@@ -403,6 +403,55 @@ int main()
         return fail("BG0 3D 512-pixel horizontal wrap failed");
     }
 
+    /*
+     * A window that disables color effects must suppress the pending 3D
+     * alpha diagnostic even when both BG0 and BG1 are visible.
+     */
+    three_d_line[255].alpha5 = UINT8_C(15);
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            (UINT32_C(1) << 3u) | (UINT32_C(1) << 8u) |
+                (UINT32_C(1) << 9u) | (UINT32_C(1) << 13u)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 0x10u, 2u,
+            UINT16_C(255)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 0x40u, 2u,
+            UINT16_C(0x0002)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 0x44u, 2u,
+            UINT16_C(0x00C0)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 0x48u, 2u,
+            UINT16_C(0x0003)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 0x50u, 2u,
+            UINT16_C(0x0241)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 0x52u, 2u,
+            UINT16_C(0x0808)) != Status::Ok) {
+        return fail("BG0 3D window-effect suppression fixture setup failed");
+    }
+    result = compositor.render_scanline(
+        0u, display, 0u, line, &three_d_line);
+    if (result.status != Nds2dComposeStatus::Ok ||
+        line[0].top_layer != Nds2dLayer::Bg0 ||
+        !line[0].top_layer_is_3d ||
+        line[0].rgb555 != UINT16_C(0x03E0)) {
+        return fail("BG0 3D ignored a window that disables color effects");
+    }
+
+    /* Re-enable effects outside the window and verify fail-closed handling. */
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            (UINT32_C(1) << 3u) | (UINT32_C(1) << 8u) |
+                (UINT32_C(1) << 9u)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 0x10u, 2u,
+            UINT16_C(255)) != Status::Ok) {
+        return fail("BG0 3D alpha diagnostic mode restore failed");
+    }
+
     /* Partial 3D alpha is not allowed to use the ordinary BLDALPHA factors. */
     three_d_line[255].alpha5 = UINT8_C(15);
     if (display.write(

@@ -306,9 +306,9 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
                 const uint8_t second_target_bit = static_cast<uint8_t>(
                     UINT8_C(1) << static_cast<unsigned>(effect_second.layer));
                 const bool eligible_second = has_effect_second &&
-                    effect_second.layer != Nds2dLayer::Object &&
                     (second_target_mask & second_target_bit) != 0u;
-                if (eligible_second &&
+                if (window.color_effects_enabled &&
+                    eligible_second &&
                     top.three_d_alpha5 != 0u &&
                     top.three_d_alpha5 < 31u) {
                     return {Nds2dComposeStatus::UnsupportedThreeDAlphaBlend};
@@ -351,7 +351,8 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
             top.layer == Nds2dLayer::Object && top.bitmap_alpha_eva != 0u,
             top.bitmap_alpha_eva,
             top.is_three_d,
-            top.is_three_d ? top.three_d_alpha5 : UINT8_C(0)
+            static_cast<uint8_t>(
+                top.is_three_d ? top.three_d_alpha5 : 0u)
         };
     }
 
