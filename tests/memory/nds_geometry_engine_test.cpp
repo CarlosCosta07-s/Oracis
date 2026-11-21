@@ -470,7 +470,7 @@ int main()
     const ReadResult ram_count = geometry.read(
         NDS_ARM9, NdsGeometryEngine::RamCountAddress, 4u);
     if (!ram_count || ((ram_count.value >> 16u) & UINT32_C(0x1FFF)) != 6u ||
-        (ram_count.value & UINT32_C(0x0FFF)) != 0u) {
+        (ram_count.value & UINT32_C(0x0FFF)) != 4u) {
         return fail("RAM_COUNT did not report stored vertex count");
     }
 
