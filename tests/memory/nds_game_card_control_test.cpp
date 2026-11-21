@@ -470,9 +470,19 @@ int main(){
     decoded_key1.key2_seed24!=UINT32_C(0xABCDEF)||
     card.key1_command_counter()!=key1_counter+1u)
      return fail("new KEY1 command was not decoded and counted at k+1");
- if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
+ if(card.key1_repeat_delay_cycles_remaining()!=card.header_secure_area_delay_core_cycles()||
+    card.decode_next_key1_command(decoded_key1)!=Status::PermissionDenied)
+     return fail("newer cart allowed KEY1 retransmission before its header secure delay");
+ const uint32_t key1_secure_delay=card.header_secure_area_delay_core_cycles();
+ card.advance_bus_cycles(key1_secure_delay-1u);
+ if(card.key1_repeat_delay_cycles_remaining()!=1u||
+    card.decode_next_key1_command(decoded_key1)!=Status::PermissionDenied)
+     return fail("KEY1 secure delay expired one bus cycle too early");
+ card.advance_bus_cycles(1u);
+ if(card.key1_repeat_delay_cycles_remaining()!=0u||
+    card.decode_next_key1_command(decoded_key1)!=Status::Ok||
     card.key1_command_counter()!=key1_counter+1u)
-     return fail("newer cart did not accept the one required repeated command");
+     return fail("newer cart did not accept KEY1 retransmission after exact header delay");
  if(card.decode_next_key1_command(decoded_key1)!=Status::PermissionDenied)
      return fail("newer cart accepted more than two transmissions of a normal KEY1 command");
 
@@ -489,6 +499,12 @@ int main(){
     decoded_key1.random_i!=key1_random_i||decoded_key1.random_j!=key1_random_j||
     card.key1_command_counter()!=secure_counter)
      return fail("KEY1 secure-area command did not validate its block, i/j and k");
+ if(card.key1_repeat_delay_cycles_remaining()!=card.header_secure_area_delay_core_cycles()||
+    card.decode_next_key1_command(decoded_key1)!=Status::PermissionDenied)
+     return fail("newer cart allowed secure-area repeat before its delay");
+ card.advance_bus_cycles(key1_secure_delay);
+ if(card.key1_repeat_delay_cycles_remaining()!=0u)
+     return fail("Secure Area delay countdown did not expire at the header limit");
  for(uint32_t repeat=0u;repeat<8u;++repeat){
   if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
      card.key1_command_counter()!=secure_counter)
