@@ -47,6 +47,7 @@ public:
  static constexpr uint32_t HeaderNormalRomControlOffset=UINT32_C(0x60);
  static constexpr uint32_t HeaderKey1RomControlOffset=UINT32_C(0x64);
  static constexpr uint32_t HeaderSecureAreaDelayOffset=UINT32_C(0x6E);
+ static constexpr uint32_t SecureAreaDataOffset=UINT32_C(0x4000);
  static constexpr uint32_t RomCtrlKey1Gap1Mask=UINT32_C(0x1FFF);
  static constexpr uint32_t RomCtrlKey1Gap2Shift=16u;
  static constexpr uint32_t RomCtrlKey1Gap2Mask=UINT32_C(0x3F);
@@ -71,6 +72,9 @@ public:
  Status mount_image(const uint8_t *bytes,uint32_t size) noexcept;
  /* Copy the 0x1048-byte KEY1 table extracted from the user-owned ARM7 BIOS. */
  Status load_key1_key_table(const uint8_t *bytes,uint32_t size) noexcept;
+ /* Copy and decrypt the first 0x800 Secure Area bytes without modifying the mounted image. */
+ Status decrypt_secure_area_prefix(uint8_t *bytes,uint32_t size,
+     bool &identifier_valid) noexcept;
  /* Chip ID is cartridge metadata not present in every .nds dump; caller must supply it. */
  Status set_chip_id(uint32_t chip_id) noexcept;
  void unmount_image() noexcept;
