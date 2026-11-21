@@ -102,8 +102,10 @@ def patch_generated_source(source: str) -> tuple[str, int, int]:
 
     bus_calls = list(_BUS_CALL.finditer(masked))
     if not bus_calls:
+        line = source.count("\n", 0, timing_calls[0].start()) + 1
         raise ValueError(
-            "generated C contains runtime_mem_cycles() but no guest bus read/write"
+            "cannot determine memory direction for runtime_mem_cycles() "
+            f"at generated C line {line}: no subsequent bus_read/write"
         )
 
     replacements: list[tuple[int, int, str]] = []
