@@ -303,8 +303,8 @@ int main(void)
     bus_write_u32(UINT32_C(0x040001A4),
         (UINT32_C(7) << 24u) | (UINT32_C(1) << 29u) | (UINT32_C(1) << 31u));
     if ((bus_read_u32(UINT32_C(0x040001A4)) & (UINT32_C(1) << 31u)) == 0u ||
-        oracis_host_runtime_run_round(39u, NULL, NULL) != ORACIS_HOST_RUNTIME_OK ||
-        oracis_host_runtime_global_bus_cycles() != UINT64_C(40) ||
+        oracis_host_runtime_run_round(40u, NULL, NULL) != ORACIS_HOST_RUNTIME_OK ||
+        oracis_host_runtime_global_bus_cycles() != UINT64_C(41) ||
         !oracis_arm_runtime_select_cpu(NDS_ARM9) ||
         bus_read_u32(UINT32_C(0x04100010)) != UINT32_C(0x00005AA5) ||
         (bus_read_u32(UINT32_C(0x040001A4)) &
