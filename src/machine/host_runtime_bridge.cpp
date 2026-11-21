@@ -602,12 +602,59 @@ extern "C" int oracis_host_runtime_render_scanline(
         return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
     }
 
-    if (engine_index == 0u &&
-        machine.display_control().main_memory_display_mode()) {
+    const uint32_t dispcnt =
+        machine.display_control().dispcnt(engine_index);
+    const uint32_t display_mode = (dispcnt >> 16u) & UINT32_C(3);
+
+    /* DISPCNT display mode 0 blanks either LCD to white. */
+    if (display_mode == 0u) {
+        std::fill_n(rgb555, 256u, UINT16_C(0x7FFF));
+        return ORACIS_HOST_RUNTIME_OK;
+    }
+
+    /* Engine A mode 2 bypasses BG/OBJ composition and reads one LCDC bank. */
+    if (display_mode == 2u && engine_index == 0u) {
+        const uint8_t bank_index = static_cast<uint8_t>(
+            (dispcnt >> 18u) & UINT32_C(3));
+        std::array<uint16_t, 256> next_line{};
+        const uint32_t line_byte_offset = scanline * 256u * 2u;
+        for (uint32_t x = 0u; x < 256u; ++x) {
+            const auto pixel = machine.vram_control().read_lcdc_bank_halfword(
+                bank_index, line_byte_offset + x * 2u);
+            if (!pixel) {
+                if (report != nullptr) {
+                    report->status = static_cast<uint32_t>(
+                        oracis::memory::Nds2dComposeStatus::GuestMemoryError);
+                    report->memory_status = static_cast<uint32_t>(pixel.status);
+                }
+                return ORACIS_HOST_RUNTIME_VIDEO_ERROR;
+            }
+            next_line[x] = static_cast<uint16_t>(
+                pixel.value & UINT32_C(0x7FFF));
+        }
+        std::copy(next_line.begin(), next_line.end(), rgb555);
+        return ORACIS_HOST_RUNTIME_OK;
+    }
+
+    /* Engine B supports only display modes 0 and 1. Mode 2/3 are reserved. */
+    if (engine_index == 1u && display_mode > 1u) {
+        if (report != nullptr) {
+            report->status = static_cast<uint32_t>(
+                oracis::memory::Nds2dComposeStatus::UnsupportedBackgroundMode);
+        }
+        return ORACIS_HOST_RUNTIME_VIDEO_ERROR;
+    }
+
+    if (engine_index == 0u && display_mode == 3u) {
         const auto status =
             machine.display_control().copy_main_memory_display_scanline(
                 scanline, rgb555, pixel_capacity);
         if (status != oracis::memory::Status::Ok) {
+            if (report != nullptr) {
+                report->status = static_cast<uint32_t>(
+                    oracis::memory::Nds2dComposeStatus::GuestMemoryError);
+                report->memory_status = static_cast<uint32_t>(status);
+            }
             return ORACIS_HOST_RUNTIME_VIDEO_ERROR;
         }
         return ORACIS_HOST_RUNTIME_OK;

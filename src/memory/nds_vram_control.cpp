@@ -201,6 +201,25 @@ uint8_t NdsVramControl::status() const noexcept
         (allocated_to_arm7(controls_[3]) ? 0x02u : 0u));
 }
 
+ReadResult NdsVramControl::read_lcdc_bank_halfword(
+    uint8_t bank_index, uint32_t byte_offset) const noexcept
+{
+    /* VRAM display selects only the four 128 KiB banks A-D. */
+    if (bank_index >= 4u || (byte_offset & UINT32_C(1)) != 0u ||
+        byte_offset > BankSize - UINT32_C(2)) {
+        return {Status::InvalidRegion, 0u};
+    }
+    if (!lcdc_enabled(controls_[bank_index], bank_index)) {
+        return {Status::Unmapped, 0u};
+    }
+
+    const uint64_t address =
+        static_cast<uint64_t>(kVramBackingBase) +
+        kVramBanks[bank_index].backing_offset + byte_offset;
+    if (address > UINT32_MAX) return {Status::AddressOverflow, 0u};
+    return memory_.read_device(static_cast<uint32_t>(address), 2u);
+}
+
 ReadResult NdsVramControl::read_extended_bg_palette_slot(
     unsigned engine_index,
     uint8_t palette_slot,

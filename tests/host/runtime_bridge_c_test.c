@@ -241,6 +241,10 @@ int main(void)
     uint16_t main_scanline[256] = {0};
     uint16_t sub_scanline[256] = {0};
     OracisHostVideoScanlineReport video_report = {0};
+
+    /* Normal graphics mode remains the compositor path for both engines. */
+    bus_write_u32(UINT32_C(0x04000000), UINT32_C(1) << 16u);
+    bus_write_u32(UINT32_C(0x04001000), UINT32_C(1) << 16u);
     if (oracis_host_runtime_render_scanline(
             0u, 0u, main_scanline, 256u, &video_report) !=
             ORACIS_HOST_RUNTIME_OK ||
@@ -257,6 +261,79 @@ int main(void)
         fprintf(stderr, "C host bridge failed to compose Sub Engine B scanline\n");
         return 1;
     }
+
+    /* DISPCNT mode 2 selects a raw RGB555 image from VRAM A-D. */
+    bus_write_u8(UINT32_C(0x04000240), UINT8_C(0x80)); /* VRAM A: LCDC */
+    bus_write_u8(UINT32_C(0x04000241), UINT8_C(0x80)); /* VRAM B: LCDC */
+    bus_write_u16(UINT32_C(0x06800000), UINT16_C(0x9234));
+    bus_write_u16(UINT32_C(0x06800002), UINT16_C(0x4567));
+    bus_write_u16(UINT32_C(0x06800000) + UINT32_C(256) * 2u,
+        UINT16_C(0x2ABC));
+    bus_write_u16(UINT32_C(0x06820000), UINT16_C(0x1357));
+
+    bus_write_u32(UINT32_C(0x04000000), UINT32_C(2) << 16u);
+    if (oracis_host_runtime_render_scanline(
+            0u, 0u, main_scanline, 256u, &video_report) !=
+            ORACIS_HOST_RUNTIME_OK ||
+        main_scanline[0] != UINT16_C(0x1234) ||
+        main_scanline[1] != UINT16_C(0x4567)) {
+        fprintf(stderr, "C host bridge failed to display VRAM A RGB555 data\n");
+        return 1;
+    }
+    if (oracis_host_runtime_render_scanline(
+            0u, 1u, main_scanline, 256u, &video_report) !=
+            ORACIS_HOST_RUNTIME_OK ||
+        main_scanline[0] != UINT16_C(0x2ABC)) {
+        fprintf(stderr, "C host bridge used the wrong VRAM display scanline offset\n");
+        return 1;
+    }
+
+    /* DISPCNT.18-19 switches the source bank from A to B. */
+    bus_write_u32(UINT32_C(0x04000000),
+        (UINT32_C(2) << 16u) | (UINT32_C(1) << 18u));
+    if (oracis_host_runtime_render_scanline(
+            0u, 0u, main_scanline, 256u, &video_report) !=
+            ORACIS_HOST_RUNTIME_OK ||
+        main_scanline[0] != UINT16_C(0x1357)) {
+        fprintf(stderr, "C host bridge ignored the selected VRAM display bank\n");
+        return 1;
+    }
+
+    /* An unallocated source bank fails closed and leaves caller pixels intact. */
+    bus_write_u8(UINT32_C(0x04000241), 0u);
+    for (unsigned x = 0u; x < 256u; ++x) main_scanline[x] = UINT16_C(0x4321);
+    if (oracis_host_runtime_render_scanline(
+            0u, 0u, main_scanline, 256u, &video_report) !=
+            ORACIS_HOST_RUNTIME_VIDEO_ERROR ||
+        video_report.status == 0u ||
+        video_report.memory_status == 0u ||
+        main_scanline[0] != UINT16_C(0x4321) ||
+        main_scanline[255] != UINT16_C(0x4321)) {
+        fprintf(stderr, "C host bridge accepted an unallocated VRAM display bank or partially wrote output\n");
+        return 1;
+    }
+
+    /* Display mode 0 is a white screen on both LCDs. */
+    bus_write_u32(UINT32_C(0x04000000), 0u);
+    bus_write_u32(UINT32_C(0x04001000), 0u);
+    if (oracis_host_runtime_render_scanline(
+            0u, 0u, main_scanline, 256u, &video_report) !=
+            ORACIS_HOST_RUNTIME_OK ||
+        main_scanline[0] != UINT16_C(0x7FFF) ||
+        main_scanline[255] != UINT16_C(0x7FFF) ||
+        oracis_host_runtime_render_scanline(
+            1u, 191u, sub_scanline, 256u, &video_report) !=
+            ORACIS_HOST_RUNTIME_OK ||
+        sub_scanline[0] != UINT16_C(0x7FFF) ||
+        sub_scanline[255] != UINT16_C(0x7FFF)) {
+        fprintf(stderr, "C host bridge did not produce white output in display-off mode\n");
+        return 1;
+    }
+
+    /* Release the test banks and restore ordinary graphics mode. */
+    bus_write_u8(UINT32_C(0x04000240), 0u);
+    bus_write_u32(UINT32_C(0x04000000), UINT32_C(1) << 16u);
+    bus_write_u32(UINT32_C(0x04001000), UINT32_C(1) << 16u);
 
     const uint16_t preserved_scanline[256] = {UINT16_C(0x4321)};
     uint16_t error_scanline[256];

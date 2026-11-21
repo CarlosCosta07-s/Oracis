@@ -47,6 +47,14 @@ public:
                  uint32_t width,
                  uint32_t value) noexcept;
 
+    /*
+     * Display-engine read of a 16-bit pixel from VRAM A-D while the bank is
+     * assigned to LCDC (MST=0). This bypasses CPU alias permissions but not
+     * the VRAM bank allocation state.
+     */
+    ReadResult read_lcdc_bank_halfword(
+        uint8_t bank_index, uint32_t byte_offset) const noexcept;
+
     uint8_t control_c() const noexcept { return controls_[2]; }
     uint8_t control_d() const noexcept { return controls_[3]; }
     uint8_t status() const noexcept;
