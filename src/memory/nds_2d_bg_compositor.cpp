@@ -22,6 +22,8 @@ struct Candidate {
     uint8_t object_index = UINT8_C(0xFF);
     bool force_alpha = false;
     uint8_t bitmap_alpha_eva = 0u;
+    bool is_three_d = false;
+    uint8_t three_d_alpha5 = UINT8_C(31);
 };
 
 bool precedes(const Candidate &left, const Candidate &right) noexcept
@@ -68,7 +70,8 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
     unsigned engine_index,
     const NdsDisplayControl &display,
     uint16_t scanline,
-    std::array<Nds2dCompositedPixel, 256> &output) const noexcept
+    std::array<Nds2dCompositedPixel, 256> &output,
+    const Nds3dBg0Scanline *three_d_bg0) const noexcept
 {
     if (engine_index > 1u) {
         return {Nds2dComposeStatus::InvalidEngine};
@@ -81,6 +84,19 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
     }
 
     const uint32_t dispcnt = display.dispcnt(engine_index);
+    const bool bg0_uses_three_d = engine_index == 0u &&
+        (dispcnt & (UINT32_C(1) << 3u)) != 0u &&
+        (dispcnt & (UINT32_C(1) << 8u)) != 0u;
+    if (bg0_uses_three_d && three_d_bg0 == nullptr) {
+        return {Nds2dComposeStatus::ThreeDSourceUnavailable};
+    }
+    if (bg0_uses_three_d) {
+        for (const Nds3dBg0Pixel &pixel : *three_d_bg0) {
+            if (pixel.alpha5 > 31u) {
+                return {Nds2dComposeStatus::InvalidThreeDAlpha};
+            }
+        }
+    }
     const NdsDisplayControl::WindowBlendState effects =
         display.window_blend(engine_index);
 
@@ -100,6 +116,9 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
         background_lines{};
 
     for (unsigned bg = 0u; bg < NdsDisplayControl::BgCount; ++bg) {
+        if (bg == 0u && bg0_uses_three_d) {
+            continue;
+        }
         const bool affine_bg =
             Nds2dAffineBgFetcher::is_affine_tile_bg(
                 engine_index, bg, dispcnt) ||
@@ -157,6 +176,38 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
         };
 
         for (unsigned bg = 0u; bg < NdsDisplayControl::BgCount; ++bg) {
+            if (bg == 0u && bg0_uses_three_d) {
+                if (!Nds2dEffects::layer_visible(window, Nds2dLayer::Bg0)) {
+                    continue;
+                }
+                const uint16_t horizontal_scroll =
+                    display.bg_scroll(engine_index, 0u).horizontal;
+                const unsigned source_x =
+                    (static_cast<unsigned>(x) + horizontal_scroll) & 0x01FFu;
+                if (source_x >= kVisibleWidth) {
+                    continue;
+                }
+                const Nds3dBg0Pixel &three_d_pixel =
+                    (*three_d_bg0)[source_x];
+                if (three_d_pixel.alpha5 == 0u) {
+                    continue;
+                }
+                insert_candidate(Candidate{
+                    static_cast<uint16_t>(
+                        three_d_pixel.rgb555 & UINT16_C(0x7FFF)),
+                    static_cast<uint8_t>(
+                        display.bg_control(engine_index, 0u) & UINT16_C(3)),
+                    kBackgroundOrderBase,
+                    Nds2dLayer::Bg0,
+                    UINT8_C(0xFF),
+                    false,
+                    0u,
+                    true,
+                    three_d_pixel.alpha5
+                });
+                continue;
+            }
+
             const Nds2dBgPixel &pixel = background_lines[bg][x];
             if (pixel.transparent) continue;
 
@@ -243,6 +294,36 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
             }
         }
 
+        NdsDisplayControl::WindowBlendState pixel_effects = effects;
+        if (top.is_three_d) {
+            const uint16_t effect_mode = static_cast<uint16_t>(
+                (pixel_effects.bldcnt >> 6u) & UINT16_C(3));
+            const bool bg0_first_target =
+                (pixel_effects.bldcnt & UINT16_C(1)) != 0u;
+            if (effect_mode == 1u && bg0_first_target) {
+                const uint16_t second_target_mask = static_cast<uint16_t>(
+                    (pixel_effects.bldcnt >> 8u) & UINT16_C(0x003F));
+                const uint8_t second_target_bit = static_cast<uint8_t>(
+                    UINT8_C(1) << static_cast<unsigned>(effect_second.layer));
+                const bool eligible_second = has_effect_second &&
+                    effect_second.layer != Nds2dLayer::Object &&
+                    (second_target_mask & second_target_bit) != 0u;
+                if (eligible_second &&
+                    top.three_d_alpha5 != 0u &&
+                    top.three_d_alpha5 < 31u) {
+                    return {Nds2dComposeStatus::UnsupportedThreeDAlphaBlend};
+                }
+
+                /*
+                 * BG0's 3D alpha is not BLDALPHA. Until its exact coefficient
+                 * conversion is verified, never silently use BLDALPHA for a
+                 * 3D first target. Opaque 3D pixels therefore remain opaque.
+                 */
+                pixel_effects.bldcnt = static_cast<uint16_t>(
+                    pixel_effects.bldcnt & ~UINT16_C(1));
+            }
+        }
+
         next_line[x] = Nds2dCompositedPixel{
             Nds2dEffects::apply_color_effect(
                 top.rgb555,
@@ -251,7 +332,7 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
                 effect_second.layer,
                 has_effect_second,
                 window.color_effects_enabled,
-                effects,
+                pixel_effects,
                 top.force_alpha,
                 top.bitmap_alpha_eva),
             top.layer,
@@ -268,7 +349,9 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
                     second.layer == Nds2dLayer::Object
                     ? second.object_index : UINT8_C(0xFF)),
             top.layer == Nds2dLayer::Object && top.bitmap_alpha_eva != 0u,
-            top.bitmap_alpha_eva
+            top.bitmap_alpha_eva,
+            top.is_three_d,
+            top.is_three_d ? top.three_d_alpha5 : UINT8_C(0)
         };
     }
 

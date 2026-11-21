@@ -28,7 +28,10 @@ enum class Nds2dComposeStatus : uint8_t {
     GuestMemoryError,
     BackgroundFetchFailed,
     UnsupportedObjectMode,
-    ObjectFetchFailed
+    ObjectFetchFailed,
+    ThreeDSourceUnavailable,
+    InvalidThreeDAlpha,
+    UnsupportedThreeDAlphaBlend
 };
 
 struct Nds2dCompositedPixel {
@@ -42,7 +45,21 @@ struct Nds2dCompositedPixel {
     uint8_t second_object_index = UINT8_C(0xFF);
     bool top_object_bitmap = false;
     uint8_t top_object_bitmap_alpha_eva = 0u;
+    bool top_layer_is_3d = false;
+    uint8_t top_3d_alpha5 = 0u;
 };
+
+/*
+ * One pixel supplied by the DS 3D renderer for Engine A's BG0 input.
+ * RGB is RGB555; alpha is the native 5-bit 3D alpha value. Alpha zero is
+ * transparent at the 2D-engine boundary.
+ */
+struct Nds3dBg0Pixel {
+    uint16_t rgb555 = 0u;
+    uint8_t alpha5 = 0u;
+};
+
+using Nds3dBg0Scanline = std::array<Nds3dBg0Pixel, 256>;
 
 struct Nds2dComposeResult {
     Nds2dComposeStatus status = Nds2dComposeStatus::Ok;
@@ -65,15 +82,19 @@ public:
 
     /*
      * Compose one visible 256-pixel line. The caller's output is unchanged
-     * unless all required BG, OBJ/OAM and backdrop reads succeed. Unsupported
-     * unavailable palette allocations or invalid bitmap mappings return a
-     * diagnostic without partial output.
+     * unless all required BG, OBJ/OAM, BG0 3D source and backdrop reads
+     * succeed. When Engine A selects 3D for enabled BG0 (DISPCNT bit 3), the
+     * caller must supply that rendered 3D scanline. BG0HOFS is applied across
+     * the 512-pixel horizontal wrap region; alpha zero is transparent.
+     * Partial-alpha 3D first-target blending currently fails closed because
+     * the exact hardware coefficient path is not yet verified.
      */
     Nds2dComposeResult render_scanline(
         unsigned engine_index,
         const NdsDisplayControl &display,
         uint16_t scanline,
-        std::array<Nds2dCompositedPixel, 256> &output) const noexcept;
+        std::array<Nds2dCompositedPixel, 256> &output,
+        const Nds3dBg0Scanline *three_d_bg0 = nullptr) const noexcept;
 
 private:
     GuestMemory &memory_;

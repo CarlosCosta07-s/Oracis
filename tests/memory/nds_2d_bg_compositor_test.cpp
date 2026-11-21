@@ -346,6 +346,95 @@ int main()
         return fail("BG0/BG1 first/second-target alpha blend failed");
     }
 
+    /*
+     * Engine A BG0 can be sourced from the 3D renderer. The seam is explicit:
+     * it must not silently fetch BG0 tiles when the 3D line is absent.
+     */
+    Nds3dBg0Scanline three_d_line{};
+    three_d_line[0] = {UINT16_C(0x001F), UINT8_C(31)};
+    three_d_line[1] = {UINT16_C(0x7C00), UINT8_C(0)};
+    three_d_line[255] = {UINT16_C(0x03E0), UINT8_C(31)};
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            (UINT32_C(1) << 3u) | (UINT32_C(1) << 8u) |
+                (UINT32_C(1) << 9u)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 8u, 2u,
+            UINT16_C(0x0104)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 10u, 2u,
+            UINT16_C(0x0209)) != Status::Ok) {
+        return fail("BG0 3D source selection fixture setup failed");
+    }
+    preserved = line;
+    result = compositor.render_scanline(0u, display, 0u, line);
+    if (result.status != Nds2dComposeStatus::ThreeDSourceUnavailable ||
+        line[0].rgb555 != preserved[0].rgb555 ||
+        line[0].top_layer != preserved[0].top_layer) {
+        return fail("missing BG0 3D source did not fail closed transactionally");
+    }
+
+    result = compositor.render_scanline(
+        0u, display, 0u, line, &three_d_line);
+    if (result.status != Nds2dComposeStatus::Ok ||
+        line[0].top_layer != Nds2dLayer::Bg0 ||
+        !line[0].top_layer_is_3d ||
+        line[0].top_3d_alpha5 != 31u ||
+        line[0].rgb555 != UINT16_C(0x001F) ||
+        line[0].second_layer != Nds2dLayer::Bg1 ||
+        line[1].top_layer != Nds2dLayer::Bg1 ||
+        line[1].top_layer_is_3d) {
+        return fail("BG0 3D transparency, priority or pixel metadata failed");
+    }
+
+    /* BG0 3D uses 9-bit horizontal wrapping: pixels 256..511 are transparent. */
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 0x10u, 2u,
+            UINT16_C(255)) != Status::Ok) {
+        return fail("BG0 3D horizontal scroll fixture setup failed");
+    }
+    result = compositor.render_scanline(
+        0u, display, 0u, line, &three_d_line);
+    if (result.status != Nds2dComposeStatus::Ok ||
+        line[0].top_layer != Nds2dLayer::Bg0 ||
+        !line[0].top_layer_is_3d ||
+        line[0].rgb555 != UINT16_C(0x03E0) ||
+        line[1].top_layer != Nds2dLayer::Bg1) {
+        return fail("BG0 3D 512-pixel horizontal wrap failed");
+    }
+
+    /* Partial 3D alpha is not allowed to use the ordinary BLDALPHA factors. */
+    three_d_line[255].alpha5 = UINT8_C(15);
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 0x50u, 2u,
+            UINT16_C(0x0241)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 0x52u, 2u,
+            UINT16_C(0x0808)) != Status::Ok) {
+        return fail("BG0 3D alpha diagnostic fixture setup failed");
+    }
+    preserved = line;
+    result = compositor.render_scanline(
+        0u, display, 0u, line, &three_d_line);
+    if (result.status != Nds2dComposeStatus::UnsupportedThreeDAlphaBlend ||
+        line[0].rgb555 != preserved[0].rgb555 ||
+        line[0].top_layer != preserved[0].top_layer) {
+        return fail("unsupported BG0 3D alpha blend did not fail closed");
+    }
+
+    /* Restore 2D mode for the remaining palette/error-path fixtures. */
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            (UINT32_C(1) << 8u) | (UINT32_C(1) << 9u)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 0x10u, 2u, 0u) !=
+            Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 0x50u, 2u, 0u) !=
+            Status::Ok) {
+        return fail("2D mode restore after BG0 3D tests failed");
+    }
+
     /* Extended tile-map palette slots remain unsupported and fail closed. */
     std::array<Nds2dCompositedPixel, 256> preserved = line;
     if (display.write(
