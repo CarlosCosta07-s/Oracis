@@ -23,6 +23,8 @@ void *g_power_context = nullptr;
 OracisArmRuntimePowerHandler g_power_handler = nullptr;
 void *g_irq_context = nullptr;
 OracisArmRuntimeIrqHandler g_irq_handler = nullptr;
+void *g_interrupt_wait_context = nullptr;
+OracisArmRuntimeInterruptWaitHandler g_interrupt_wait_handler = nullptr;
 void *g_coprocessor_context = nullptr;
 OracisArmRuntimeCoprocessorHandler g_coprocessor_handler = nullptr;
 void *g_bios_memory_context = nullptr;
@@ -134,6 +136,66 @@ int oracis_arm_runtime_request_irq(uint32_t return_pc)
         return -1;
     }
     return g_irq_handler(g_irq_context, g_nds_active, return_pc);
+}
+
+int oracis_arm_runtime_bind_interrupt_wait_handler(
+    void *context, OracisArmRuntimeInterruptWaitHandler handler)
+{
+    if (context == nullptr || handler == nullptr) return 0;
+    if (g_interrupt_wait_handler != nullptr ||
+        g_interrupt_wait_context != nullptr) {
+        return g_interrupt_wait_context == context &&
+            g_interrupt_wait_handler == handler ? 1 : 0;
+    }
+    g_interrupt_wait_context = context;
+    g_interrupt_wait_handler = handler;
+    return 1;
+}
+
+int oracis_arm_runtime_unbind_interrupt_wait_handler(
+    void *context, OracisArmRuntimeInterruptWaitHandler handler)
+{
+    if (context == nullptr || handler == nullptr ||
+        g_interrupt_wait_context != context ||
+        g_interrupt_wait_handler != handler) {
+        return 0;
+    }
+    g_interrupt_wait_context = nullptr;
+    g_interrupt_wait_handler = nullptr;
+    return 1;
+}
+
+int oracis_arm_runtime_request_interrupt_wait(
+    uint32_t clear_old_flags, uint32_t wait_mask)
+{
+    if (g_interrupt_wait_handler == nullptr ||
+        g_interrupt_wait_context == nullptr) {
+        return 0;
+    }
+    if (oracis_active_cpu_state == nullptr ||
+        (g_nds_active != NDS_ARM9 && g_nds_active != NDS_ARM7)) {
+        return -1;
+    }
+    return g_interrupt_wait_handler(
+        g_interrupt_wait_context, g_nds_active,
+        ORACIS_ARM_RUNTIME_INTERRUPT_WAIT_BEGIN,
+        clear_old_flags, wait_mask);
+}
+
+int oracis_arm_runtime_resume_interrupt_wait(uint32_t return_pc)
+{
+    if (g_interrupt_wait_handler == nullptr ||
+        g_interrupt_wait_context == nullptr) {
+        return 1;
+    }
+    if (oracis_active_cpu_state == nullptr ||
+        (g_nds_active != NDS_ARM9 && g_nds_active != NDS_ARM7)) {
+        return -1;
+    }
+    return g_interrupt_wait_handler(
+        g_interrupt_wait_context, g_nds_active,
+        ORACIS_ARM_RUNTIME_INTERRUPT_WAIT_RESUME,
+        return_pc, 0u);
 }
 
 
@@ -611,6 +673,9 @@ void runtime_exception_return(uint32_t new_pc)
     if (oracis_active_cpu_state == nullptr) abi_failure("runtime_exception_return");
     if (!oracis_arm_cpu_return_from_exception(&g_cpu, new_pc))
         abi_failure("runtime_exception_return (invalid SPSR or return PC)");
+    if (oracis_arm_runtime_resume_interrupt_wait(new_pc) <= 0) {
+        abi_failure("runtime_exception_return (interrupt wait resume failed)");
+    }
 }
 
 void runtime_restore_cpsr_from_spsr(void)
@@ -866,6 +931,19 @@ void runtime_swi(uint32_t swi_imm)
         }
         return;
     }
+
+    case 0x04u: /* NDS7/NDS9 IntrWait: R0=clear old flags, R1=IF mask. */
+        if (!oracis_arm_runtime_request_interrupt_wait(
+                g_cpu.R[0], g_cpu.R[1])) {
+            abi_failure("runtime_swi IntrWait (machine rejected wait request)");
+        }
+        return;
+
+    case 0x05u: /* NDS7/NDS9 VBlankIntrWait: clear and wait for IRQ_VBLANK. */
+        if (!oracis_arm_runtime_request_interrupt_wait(1u, UINT32_C(1))) {
+            abi_failure("runtime_swi VBlankIntrWait (machine rejected wait request)");
+        }
+        return;
 
     case 0x06u: /* NDS Halt: ARM7 HALTCNT or ARM9 CP15 WFI. */
         if (!oracis_arm_runtime_request_halt(g_nds_active)) {
