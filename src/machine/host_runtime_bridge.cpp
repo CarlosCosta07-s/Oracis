@@ -42,6 +42,63 @@ int g_last_machine_status =
     static_cast<int>(oracis::machine::NdsMachineStatus::Ok);
 std::vector<uint8_t> g_game_card_image;
 
+uint32_t read_u32_le(const uint8_t *bytes) noexcept
+{
+    return static_cast<uint32_t>(bytes[0]) |
+        (static_cast<uint32_t>(bytes[1]) << 8u) |
+        (static_cast<uint32_t>(bytes[2]) << 16u) |
+        (static_cast<uint32_t>(bytes[3]) << 24u);
+}
+
+bool validate_game_card_segment(
+    const OracisHostProgramSegment *segment,
+    const uint8_t *image,
+    uint32_t image_size,
+    uint32_t header_offset,
+    uint32_t &rom_offset,
+    uint64_t &rom_end) noexcept
+{
+    if (segment == nullptr || image == nullptr || segment->contents == nullptr ||
+        segment->size == 0u || segment->entry_thumb > 1u ||
+        header_offset > image_size || image_size - header_offset < 16u) {
+        return false;
+    }
+
+    rom_offset = read_u32_le(image + header_offset);
+    const uint32_t raw_entry = read_u32_le(image + header_offset + 4u);
+    const uint32_t load_address = read_u32_le(image + header_offset + 8u);
+    const uint32_t size = read_u32_le(image + header_offset + 12u);
+    const bool entry_thumb = (raw_entry & 1u) != 0u;
+    const uint32_t entry_pc = raw_entry & ~UINT32_C(1);
+    const uint64_t load_end =
+        static_cast<uint64_t>(load_address) + size;
+    const uint64_t instruction_size = entry_thumb ? UINT64_C(2) : UINT64_C(4);
+    const uint64_t entry_end =
+        static_cast<uint64_t>(entry_pc) + instruction_size;
+    const uint32_t entry_alignment = entry_thumb ? 2u : 4u;
+
+    rom_end = static_cast<uint64_t>(rom_offset) + size;
+    if (rom_offset < UINT32_C(0x200) || size == 0u ||
+        rom_end > image_size || load_end > UINT64_C(0x100000000) ||
+        entry_pc % entry_alignment != 0u ||
+        static_cast<uint64_t>(entry_pc) < load_address ||
+        entry_end > load_end) {
+        return false;
+    }
+
+    if (segment->load_address != load_address ||
+        segment->size != size ||
+        segment->entry_pc != entry_pc ||
+        segment->entry_thumb != (entry_thumb ? 1u : 0u)) {
+        return false;
+    }
+
+    return std::equal(
+        segment->contents,
+        segment->contents + segment->size,
+        image + rom_offset);
+}
+
 #ifdef ORACIS_WITH_PLATINUM_STATIC_BANKS
 bool g_arm9_compiled_bank_registered = false;
 bool g_arm7_compiled_bank_registered = false;
@@ -313,6 +370,84 @@ extern "C" int oracis_host_runtime_load_program_segments(
     return status == oracis::machine::NdsMachineStatus::Ok
         ? ORACIS_HOST_RUNTIME_OK
         : ORACIS_HOST_RUNTIME_MACHINE_ERROR;
+}
+
+extern "C" int oracis_host_runtime_load_game_card_program_segments(
+    const OracisHostProgramSegment *arm9,
+    const OracisHostProgramSegment *arm7)
+{
+    auto &machine = host_machine();
+    if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+    if (arm9 == nullptr || arm7 == nullptr ||
+        arm9->contents == nullptr || arm7->contents == nullptr) {
+        return ORACIS_HOST_RUNTIME_INVALID_ARGUMENT;
+    }
+    if (!machine.game_card_control().mounted() || g_game_card_image.empty()) {
+        return ORACIS_HOST_RUNTIME_GAME_CARD_ERROR;
+    }
+
+    const uint32_t image_size = static_cast<uint32_t>(g_game_card_image.size());
+    const uint8_t *image = g_game_card_image.data();
+    uint32_t arm9_rom_offset = 0u;
+    uint32_t arm7_rom_offset = 0u;
+    uint64_t arm9_rom_end = 0u;
+    uint64_t arm7_rom_end = 0u;
+
+    if (!validate_game_card_segment(
+            arm9, image, image_size, UINT32_C(0x20),
+            arm9_rom_offset, arm9_rom_end) ||
+        !validate_game_card_segment(
+            arm7, image, image_size, UINT32_C(0x30),
+            arm7_rom_offset, arm7_rom_end) ||
+        arm9_rom_offset !=
+            oracis::memory::NdsGameCardControl::SecureAreaDataOffset ||
+        arm9->size <
+            oracis::memory::NdsGameCardKey1::SecureAreaEncryptedBytes ||
+        (arm9_rom_offset < arm7_rom_end &&
+         arm7_rom_offset < arm9_rom_end)) {
+        return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID;
+    }
+
+    try {
+        std::vector<uint8_t> arm9_bytes(
+            arm9->contents, arm9->contents + arm9->size);
+        std::array<uint8_t,
+            oracis::memory::NdsGameCardKey1::SecureAreaEncryptedBytes>
+            secure_area_prefix{};
+        bool identifier_valid = false;
+        const auto decrypt_status =
+            machine.game_card_control().decrypt_secure_area_prefix(
+                secure_area_prefix.data(),
+                static_cast<uint32_t>(secure_area_prefix.size()),
+                identifier_valid);
+        if (decrypt_status != oracis::memory::Status::Ok ||
+            !identifier_valid) {
+            return ORACIS_HOST_RUNTIME_GAME_CARD_ERROR;
+        }
+
+        std::copy(
+            secure_area_prefix.begin(), secure_area_prefix.end(),
+            arm9_bytes.begin());
+
+        const oracis::machine::NdsProgramSegment arm9_segment{
+            NDS_ARM9, arm9->load_address, arm9->size, arm9->entry_pc,
+            arm9->entry_thumb != 0u, arm9_bytes.data()
+        };
+        const oracis::machine::NdsProgramSegment arm7_segment{
+            NDS_ARM7, arm7->load_address, arm7->size, arm7->entry_pc,
+            arm7->entry_thumb != 0u, arm7->contents
+        };
+        const auto load_status = machine.load_program_segments(
+            arm9_segment, arm7_segment);
+        g_last_machine_status = static_cast<int>(load_status);
+        return load_status == oracis::machine::NdsMachineStatus::Ok
+            ? ORACIS_HOST_RUNTIME_OK
+            : ORACIS_HOST_RUNTIME_MACHINE_ERROR;
+    } catch (const std::bad_alloc &) {
+        return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR;
+    } catch (...) {
+        return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR;
+    }
 }
 
 extern "C" int oracis_host_runtime_load_local_platinum_segments(

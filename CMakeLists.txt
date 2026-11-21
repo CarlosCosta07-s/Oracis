@@ -387,6 +387,17 @@ if(BUILD_TESTING)
         COMMAND oracis_host_runtime_bridge_c_test
     )
 
+    add_executable(oracis_game_card_boot_loader_test
+        tests/host/game_card_boot_loader_test.cpp
+    )
+    target_link_libraries(oracis_game_card_boot_loader_test PRIVATE
+        oracis_machine
+    )
+    add_test(
+        NAME oracis_game_card_boot_loader_test
+        COMMAND oracis_game_card_boot_loader_test
+    )
+
     add_executable(oracis_local_program_loader_test
         tests/host/local_program_loader_test.cpp
     )

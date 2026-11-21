@@ -108,6 +108,15 @@ typedef struct OracisHostProgramSegment {
 int oracis_host_runtime_load_program_segments(
     const OracisHostProgramSegment *arm9,
     const OracisHostProgramSegment *arm7);
+/*
+ * Validate two raw segments against the mounted NDS header and image, decrypt
+ * the ARM9 0x800-byte Secure Area prefix using the user-supplied ARM7 BIOS
+ * KEY1 table, then load both segments. This seeds PC/CPSR.T but does not
+ * reproduce BIOS boot setup or guarantee that the game can execute.
+ */
+int oracis_host_runtime_load_game_card_program_segments(
+    const OracisHostProgramSegment *arm9,
+    const OracisHostProgramSegment *arm7);
 int oracis_host_runtime_program_loaded(void);
 
 /*
