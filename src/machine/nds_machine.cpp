@@ -87,6 +87,23 @@ int NdsMachine::runtime_power_handler(
     return 0;
 }
 
+int NdsMachine::runtime_interrupt_wait_handler(
+    void *context, NdsCpu cpu, uint32_t operation,
+    uint32_t argument0, uint32_t argument1)
+{
+    auto *machine = static_cast<NdsMachine *>(context);
+    if (machine == nullptr) return -1;
+
+    NdsMachineStatus status = NdsMachineStatus::UnsupportedPowerMode;
+    if (operation == ORACIS_ARM_RUNTIME_INTERRUPT_WAIT_BEGIN) {
+        status = machine->begin_interrupt_wait(
+            cpu, argument0, argument1);
+    } else if (operation == ORACIS_ARM_RUNTIME_INTERRUPT_WAIT_RESUME) {
+        status = machine->resume_interrupt_wait(cpu, argument0);
+    }
+    return status == NdsMachineStatus::Ok ? 1 : -1;
+}
+
 int NdsMachine::runtime_coprocessor_handler(
     void *context, NdsCpu cpu, uint32_t is_write,
     uint32_t cp_num, uint32_t op1, uint32_t crn,
@@ -1033,6 +1050,9 @@ NdsMachineStatus NdsMachine::initialize() noexcept
 
     arm9_state_ = {};
     arm7_state_ = {};
+    interrupt_wait_active_.fill(false);
+    interrupt_wait_masks_.fill(0u);
+    interrupt_wait_resume_pcs_.fill(0u);
     program_loaded_ = false;
     /* CP15 Control.V and fixed-one bits are owned by the ARM9 TCM controller. */
     arm9_state_.cpsr = ORACIS_ARM_MODE_SYSTEM;
@@ -1066,6 +1086,12 @@ NdsMachineStatus NdsMachine::initialize() noexcept
         return rollback(NdsMachineStatus::RuntimeAlreadyBound);
     }
     irq_handler_bound_ = true;
+
+    if (!oracis_arm_runtime_bind_interrupt_wait_handler(
+            this, &NdsMachine::runtime_interrupt_wait_handler)) {
+        return rollback(NdsMachineStatus::RuntimeAlreadyBound);
+    }
+    interrupt_wait_handler_bound_ = true;
 
     if (!oracis_arm_runtime_bind_coprocessor_handler(
             this, &NdsMachine::runtime_coprocessor_handler)) {
@@ -1296,6 +1322,9 @@ NdsMachineStatus NdsMachine::load_program_segments(
     arm9_state_.R[15] = arm9.entry_pc;
     arm7_state_.R[15] = arm7.entry_pc;
     run_states_.fill(NdsCpuRunState::Running);
+    interrupt_wait_active_.fill(false);
+    interrupt_wait_masks_.fill(0u);
+    interrupt_wait_resume_pcs_.fill(0u);
     program_loaded_ = true;
     return NdsMachineStatus::Ok;
 }
@@ -1304,6 +1333,7 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
 {
     const bool owns_runtime =
         runtime_bound_ || power_handler_bound_ || irq_handler_bound_ ||
+        interrupt_wait_handler_bound_ ||
         coprocessor_handler_bound_ || bios_memory_handler_bound_ ||
         bios_crc16_handler_bound_ || bios_bit_unpack_handler_bound_ ||
         bios_lz77_handler_bound_ || bios_rle_handler_bound_ ||
@@ -1464,6 +1494,13 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
         }
         coprocessor_handler_bound_ = false;
     }
+    if (interrupt_wait_handler_bound_) {
+        if (!oracis_arm_runtime_unbind_interrupt_wait_handler(
+                this, &NdsMachine::runtime_interrupt_wait_handler)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        interrupt_wait_handler_bound_ = false;
+    }
     if (irq_handler_bound_) {
         if (!oracis_arm_runtime_unbind_irq_handler(
                 this, &NdsMachine::runtime_irq_handler)) {
@@ -1490,6 +1527,9 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
     oracis_scheduler_reset(NDS_ARM7);
     system_clock_.reset();
     run_states_.fill(NdsCpuRunState::Running);
+    interrupt_wait_active_.fill(false);
+    interrupt_wait_masks_.fill(0u);
+    interrupt_wait_resume_pcs_.fill(0u);
     idle_core_cycles_offset_.fill(0u);
     next_round_first_cpu_ = NDS_ARM9;
     program_loaded_ = false;
@@ -1785,6 +1825,96 @@ NdsMachineStatus NdsMachine::enter_cpu_halt(NdsCpu cpu) noexcept
     return NdsMachineStatus::Ok;
 }
 
+NdsMachineStatus NdsMachine::begin_interrupt_wait(
+    NdsCpu cpu, uint32_t clear_old_flags, uint32_t wait_mask) noexcept
+{
+    if (!initialized_) return NdsMachineStatus::NotInitialized;
+    if (!valid_cpu(cpu)) return NdsMachineStatus::InvalidCpu;
+    const unsigned index = cpu_index(cpu);
+    if (slice_active_[index ^ 1u]) {
+        return NdsMachineStatus::SliceAlreadyActive;
+    }
+    ArmCpuState *state = cpu_state(cpu);
+    if (state == nullptr) return NdsMachineStatus::InvalidCpu;
+
+    if (clear_old_flags != 0u && wait_mask != 0u &&
+        interrupt_control_.write(
+            cpu, memory::NdsInterruptControl::IfAddress,
+            4u, wait_mask) != memory::Status::Ok) {
+        return NdsMachineStatus::SchedulerFailure;
+    }
+    if (interrupt_control_.write(
+            cpu, memory::NdsInterruptControl::ImeAddress,
+            4u, 1u) != memory::Status::Ok) {
+        return NdsMachineStatus::SchedulerFailure;
+    }
+
+    const memory::ReadResult pending = interrupt_control_.read(
+        cpu, memory::NdsInterruptControl::IfAddress, 4u);
+    if (pending.status != memory::Status::Ok) {
+        return NdsMachineStatus::SchedulerFailure;
+    }
+
+    /* KEEP mode returns immediately when a requested IF flag is already set. */
+    if (clear_old_flags == 0u &&
+        (pending.value & wait_mask) != 0u) {
+        interrupt_wait_active_[index] = false;
+        interrupt_wait_masks_[index] = 0u;
+        interrupt_wait_resume_pcs_[index] = 0u;
+        run_states_[index] = NdsCpuRunState::Running;
+        return NdsMachineStatus::Ok;
+    }
+
+    interrupt_wait_active_[index] = true;
+    interrupt_wait_masks_[index] = wait_mask;
+    interrupt_wait_resume_pcs_[index] = state->R[15];
+    run_states_[index] = NdsCpuRunState::Halted;
+
+    /* A BIOS wait called from a generated bank must unwind at this boundary. */
+    if (slice_active_[index] && !oracis_scheduler_request_yield(cpu)) {
+        interrupt_wait_active_[index] = false;
+        interrupt_wait_masks_[index] = 0u;
+        interrupt_wait_resume_pcs_[index] = 0u;
+        run_states_[index] = NdsCpuRunState::Running;
+        return NdsMachineStatus::SchedulerFailure;
+    }
+    return NdsMachineStatus::Ok;
+}
+
+NdsMachineStatus NdsMachine::resume_interrupt_wait(
+    NdsCpu cpu, uint32_t return_pc) noexcept
+{
+    if (!initialized_) return NdsMachineStatus::NotInitialized;
+    if (!valid_cpu(cpu)) return NdsMachineStatus::InvalidCpu;
+    const unsigned index = cpu_index(cpu);
+    if (!interrupt_wait_active_[index] ||
+        interrupt_wait_resume_pcs_[index] != return_pc) {
+        return NdsMachineStatus::Ok;
+    }
+
+    const memory::ReadResult pending = interrupt_control_.read(
+        cpu, memory::NdsInterruptControl::IfAddress, 4u);
+    if (pending.status != memory::Status::Ok) {
+        return NdsMachineStatus::SchedulerFailure;
+    }
+
+    if ((pending.value & interrupt_wait_masks_[index]) != 0u) {
+        interrupt_wait_active_[index] = false;
+        interrupt_wait_masks_[index] = 0u;
+        interrupt_wait_resume_pcs_[index] = 0u;
+        run_states_[index] = NdsCpuRunState::Running;
+        return NdsMachineStatus::Ok;
+    }
+
+    /* An unrelated IRQ returned to the BIOS wait site: sleep again. */
+    run_states_[index] = NdsCpuRunState::Halted;
+    if (slice_active_[index] && !oracis_scheduler_request_yield(cpu)) {
+        run_states_[index] = NdsCpuRunState::Running;
+        return NdsMachineStatus::SchedulerFailure;
+    }
+    return NdsMachineStatus::Ok;
+}
+
 NdsMachineStatus NdsMachine::write_arm7_halt_control(uint8_t value) noexcept
 {
     if (!initialized_) return NdsMachineStatus::NotInitialized;
@@ -1808,6 +1938,19 @@ bool NdsMachine::cpu_can_execute(NdsCpu cpu) noexcept
 
     const unsigned index = cpu_index(cpu);
     if (run_states_[index] == NdsCpuRunState::Running) return true;
+
+    if (interrupt_wait_active_[index]) {
+        const memory::ReadResult pending = interrupt_control_.read(
+            cpu, memory::NdsInterruptControl::IfAddress, 4u);
+        if (pending.status != memory::Status::Ok) return false;
+        if ((pending.value & interrupt_wait_masks_[index]) != 0u) {
+            interrupt_wait_active_[index] = false;
+            interrupt_wait_masks_[index] = 0u;
+            interrupt_wait_resume_pcs_[index] = 0u;
+            run_states_[index] = NdsCpuRunState::Running;
+            return true;
+        }
+    }
 
     /*
      * NDS7 HALT wakes on IE&IF, independently of IME and CPSR.I.
