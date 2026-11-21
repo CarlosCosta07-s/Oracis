@@ -36,6 +36,7 @@ Status NdsGameCardControl::mount_image(const uint8_t*b,uint32_t n) noexcept{
  key1_command_mode_=false;key1_activation_pending_=false;
  key1_random_i_=0u;key1_random_j_=0u;key1_command_counter_=0u;
  last_key1_command_={};last_key1_command_valid_=false;last_key1_command_transmissions_=0u;
+ last_key1_command_opcode_=0u;key1_repeat_delay_cycles_remaining_=0u;
  if(key1_.table_loaded()){
   const Status key_status=initialize_key1_from_image();
   if(key_status!=Status::Ok){image_=nullptr;image_size_=0u;key1_.reset();return key_status;}
@@ -61,16 +62,19 @@ Status NdsGameCardControl::initialize_key1_from_image() noexcept{
 }
 Status NdsGameCardControl::set_chip_id(uint32_t id) noexcept{if(!installed_)return Status::Unmapped;if(!image_)return Status::PermissionDenied;if(busy_||key1_command_mode_)return Status::PermissionDenied;chip_id_=id;chip_id_configured_=true;return Status::Ok;}
 void NdsGameCardControl::unmount_image() noexcept{reset_transfer();image_=nullptr;image_size_=0u;chip_id_=0u;chip_id_configured_=false;header_protocol_available_=false;header_normal_rom_control_=0u;header_key1_rom_control_=0u;header_secure_area_delay_=0u;key2_seed_index_=0u;}
-void NdsGameCardControl::reset_transfer() noexcept{command_={};seed_registers_={};key1_.reset();key2_.clear();aux_spi_control_=0u;rom_control_=0u;current_offset_=0u;current_window_base_=0u;remaining_words_=0u;cycles_until_data_=0u;cycles_per_byte_=5u;owner_cpu_=NDS_ARM9;reset_released_=false;busy_=false;data_ready_=false;dummy_data_=false;chip_id_data_=false;wrap_read_window_=false;key2_data_active_=false;key1_command_mode_=false;key1_activation_pending_=false;key1_random_i_=0u;key1_random_j_=0u;key1_command_counter_=0u;last_key1_command_={};last_key1_command_valid_=false;last_key1_command_transmissions_=0u;}
+void NdsGameCardControl::reset_transfer() noexcept{command_={};seed_registers_={};key1_.reset();key2_.clear();aux_spi_control_=0u;rom_control_=0u;current_offset_=0u;current_window_base_=0u;remaining_words_=0u;cycles_until_data_=0u;cycles_per_byte_=5u;owner_cpu_=NDS_ARM9;reset_released_=false;busy_=false;data_ready_=false;dummy_data_=false;chip_id_data_=false;wrap_read_window_=false;key2_data_active_=false;key1_command_mode_=false;key1_activation_pending_=false;key1_random_i_=0u;key1_random_j_=0u;key1_command_counter_=0u;last_key1_command_={};last_key1_command_valid_=false;last_key1_command_transmissions_=0u;last_key1_command_opcode_=0u;key1_repeat_delay_cycles_remaining_=0u;}
 Status NdsGameCardControl::decode_next_key1_command(
     NdsGameCardKey1Command &decoded) noexcept
 {
  if(!installed_)return Status::Unmapped;
- if(!key1_command_mode_||busy_)return Status::PermissionDenied;
+ if(!key1_command_mode_||busy_||!chip_id_configured_)
+  return Status::PermissionDenied;
+ const bool newer=newer_protocol_variant();
+ if(newer&&!header_protocol_available_)return Status::PermissionDenied;
  const uint8_t *wire_bytes=command_.data();
 
  bool repeated=false;
- if(newer_protocol_variant()&&last_key1_command_valid_){
+ if(newer&&last_key1_command_valid_){
   repeated=true;
   for(uint32_t index=0u;index<CommandBytes;++index){
    if(wire_bytes[index]!=last_key1_command_[index]){
@@ -79,12 +83,21 @@ Status NdsGameCardControl::decode_next_key1_command(
    }
   }
  }
+ if(repeated&&key1_repeat_delay_cycles_remaining_!=0u)
+  return Status::PermissionDenied;
+ if(!repeated&&newer&&last_key1_command_valid_){
+  const uint8_t previous_maximum=
+      last_key1_command_opcode_==UINT8_C(0x02)?UINT8_C(9):UINT8_C(2);
+  if(last_key1_command_transmissions_<previous_maximum)
+   return Status::PermissionDenied;
+ }
+
  const uint32_t expected_counter=repeated
      ? key1_command_counter_
      : ((key1_command_counter_+1u)&UINT32_C(0x000FFFFF));
  NdsGameCardKey1Command candidate{};
  const Status status=key1_.decode_command(
-     wire_bytes,size,expected_counter,
+     wire_bytes,CommandBytes,expected_counter,
      key1_random_i_,key1_random_j_,candidate);
  if(status!=Status::Ok)return status;
 
@@ -95,9 +108,13 @@ Status NdsGameCardControl::decode_next_key1_command(
   if(last_key1_command_transmissions_>=maximum_transmissions)
    return Status::PermissionDenied;
   ++last_key1_command_transmissions_;
+  key1_repeat_delay_cycles_remaining_=0u;
  }else{
   key1_command_counter_=candidate.counter20;
   last_key1_command_transmissions_=UINT8_C(1);
+  last_key1_command_opcode_=candidate.opcode;
+  key1_repeat_delay_cycles_remaining_=newer
+      ? header_secure_area_delay_core_cycles() : 0u;
  }
  for(uint32_t index=0u;index<CommandBytes;++index)
   last_key1_command_[index]=wire_bytes[index];
