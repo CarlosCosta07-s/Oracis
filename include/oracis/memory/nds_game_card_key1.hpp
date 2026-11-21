@@ -40,6 +40,7 @@ public:
     static constexpr uint32_t Arm7BiosKeyTableOffset = UINT32_C(0x30);
     static constexpr uint32_t KeyTableWords = KeyTableBytes / 4u;
     static constexpr uint32_t BlockBytes = 8u;
+    static constexpr uint32_t SecureAreaEncryptedBytes = UINT32_C(0x800);
 
     NdsGameCardKey1() noexcept = default;
     NdsGameCardKey1(const NdsGameCardKey1 &) = delete;
@@ -65,6 +66,12 @@ public:
 
     Status encrypt_block(uint8_t *bytes, uint32_t size) const noexcept;
     Status decrypt_block(uint8_t *bytes, uint32_t size) const noexcept;
+
+    /* Decrypt the retail 0x800-byte Secure Area prefix: decrypt its ID with
+     * KEY1 level 2, then the complete prefix with level 3. Reports whether
+     * the resulting identifier is "encryObj" and restores the prior schedule. */
+    Status decrypt_secure_area(uint8_t *bytes, uint32_t size,
+                               bool &identifier_valid) noexcept;
 
     /* Game Card command bytes are wire-order (MSB first); these helpers
      * reverse them around the little-endian 64-bit block primitive. */
