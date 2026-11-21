@@ -50,12 +50,13 @@ int main(){
  if(card.busy()||!(bus_read_u32(NdsInterruptControl::IfAddress)&imask))return fail("128 word transfer incomplete");
  if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)return fail("second irq clear failed");
  /* ARM9 Game Card DMA timing 5; one DRQ edge transfers one fixed-source word. */
+ if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)return fail("clear card IRQ before DMA failed");
  constexpr uint32_t dma0=NdsDmaControl::FirstRegisterAddress,dma1=dma0+12u;
  write_b7(0x40u);bus_write_u32(dma0,NdsGameCardControl::DataAddress);bus_write_u32(dma0+4u,0x02000000u);
  bus_write_u32(dma0+8u,1u|(2u<<NdsDmaControl::SourceControlShift)|(5u<<27u)|NdsDmaControl::RepeatMask|NdsDmaControl::WordTransferMask|NdsDmaControl::IrqEnableMask|NdsDmaControl::EnableMask);
  if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,small|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok)return fail("ARM9 DMA card command failed");
  card.advance_bus_cycles(40u);
- if(memory.read(NDS_ARM9,0x02000000u,4u).value!=word(0x40u)||!card.busy()||
+ if(memory.read(NDS_ARM9,0x02000000u,4u).value!=word(0x40u)||card.busy()||
     (bus_read_u32(dma0+8u)&NdsDmaControl::EnableMask)==0u||
     (irq.read(NDS_ARM9,NdsInterruptControl::IfAddress,4u).value&((1u<<8u)|imask))!=((1u<<8u)|imask))
     return fail("ARM9 DMA did not consume Game Card DRQ");
@@ -66,7 +67,7 @@ int main(){
  bus_write_u32(dma1+8u,1u|(2u<<NdsDmaControl::SourceControlShift)|(2u<<28u)|NdsDmaControl::RepeatMask|NdsDmaControl::WordTransferMask|NdsDmaControl::IrqEnableMask|NdsDmaControl::EnableMask);
  if(card.write(NDS_ARM7,NdsGameCardControl::RomControlAddress,4u,small|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok)return fail("ARM7 DMA card command failed");
  card.advance_bus_cycles(40u);
- if(memory.read(NDS_ARM7,0x02000004u,4u).value!=word(0x44u)||!card.busy()||
+ if(memory.read(NDS_ARM7,0x02000004u,4u).value!=word(0x44u)||card.busy()||
     (bus_read_u32(dma1+8u)&NdsDmaControl::EnableMask)==0u||
     (irq.read(NDS_ARM7,NdsInterruptControl::IfAddress,4u).value&((1u<<9u)|imask))!=((1u<<9u)|imask))
     return fail("ARM7 DMA did not consume Game Card DRQ");
