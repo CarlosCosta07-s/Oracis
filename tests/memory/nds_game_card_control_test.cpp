@@ -25,7 +25,19 @@ int main(){
  dma.attach_game_card_control(card);card.attach_dma_control(dma);
  std::array<uint8_t,0x9000> image{};
  for(uint32_t i=0;i<image.size();++i)image[i]=uint8_t((i*13u+7u)&255u);
+ image[0x0Cu]='C';image[0x0Du]='P';image[0x0Eu]='U';image[0x0Fu]='E';
  if(card.mount_image(image.data(),uint32_t(image.size()))!=Status::Ok)return fail("mount failed");
+ std::array<uint8_t,NdsGameCardKey1::KeyTableBytes> bios_key_table{};
+ for(uint32_t i=0u;i<bios_key_table.size();++i)
+     bios_key_table[i]=uint8_t((i*37u+11u)&255u);
+ if(card.load_key1_key_table(bios_key_table.data(),
+        uint32_t(bios_key_table.size()-1u))!=Status::InvalidRegion||
+    card.key1_initialized())
+     return fail("malformed KEY1 BIOS table was accepted");
+ if(card.load_key1_key_table(bios_key_table.data(),
+        uint32_t(bios_key_table.size()))!=Status::Ok||
+    !card.key1_initialized()||card.key1_id_code()!=UINT32_C(0x45555043))
+     return fail("KEY1 table was not initialized from the mounted Game Code");
  ArmCpuState a9{},a7{};a9.cpsr=ORACIS_ARM_MODE_SYSTEM;a7.cpsr=ORACIS_ARM_MODE_SYSTEM;
  if(!oracis_arm_runtime_bind_cpus(&a9,&a7)||!oracis_arm_runtime_select_cpu(NDS_ARM9)||
     !oracis_bus_bind_memory(&memory)||!oracis_bus_bind_interrupt_control(&irq)||
