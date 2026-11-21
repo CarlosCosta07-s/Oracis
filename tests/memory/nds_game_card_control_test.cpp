@@ -15,6 +15,11 @@ void write_card_command(uint8_t opcode,uint32_t offset){
  for(uint32_t i=0;i<8u;++i)bus_write_u8(NdsGameCardControl::CommandAddress+i,b[i]);
 }
 void write_b7(uint32_t offset){write_card_command(oracis::memory::NdsGameCardControl::RomReadCommand,offset);}
+void write_key1_command(const std::array<uint8_t,8> &bytes){
+ using oracis::memory::NdsGameCardControl;
+ for(uint32_t i=0u;i<bytes.size();++i)
+  bus_write_u8(NdsGameCardControl::CommandAddress+i,bytes[i]);
+}
 std::array<uint8_t,8> make_key1_command(uint8_t opcode,uint16_t parameter16,
         uint32_t following24,uint32_t counter20){
  return {{
@@ -457,13 +462,15 @@ int main(){
  NdsGameCardKey1Command decoded_key1{};
  auto encrypted_key2_activation=make_key1_command(
      0x04u,UINT16_C(0x1234),UINT32_C(0xABCDEF),key1_counter+1u);
- if(command_codec.encrypt_command(encrypted_key2_activation.data(),8u)!=Status::Ok||
-    card.decode_next_key1_command(encrypted_key2_activation.data(),8u,decoded_key1)!=Status::Ok||
+ if(command_codec.encrypt_command(encrypted_key2_activation.data(),8u)!=Status::Ok)
+     return fail("could not encrypt synthetic KEY1 0x40 command");
+ write_key1_command(encrypted_key2_activation);
+ if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
     decoded_key1.kind!=NdsGameCardKey1CommandKind::ActivateKey2||
     decoded_key1.key2_seed24!=UINT32_C(0xABCDEF)||
     card.key1_command_counter()!=key1_counter+1u)
      return fail("new KEY1 command was not decoded and counted at k+1");
- if(card.decode_next_key1_command(encrypted_key2_activation.data(),8u,decoded_key1)!=Status::Ok||
+ if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
     card.key1_command_counter()!=key1_counter+1u)
      return fail("newer cart did not accept the one required repeated command");
  if(card.decode_next_key1_command(encrypted_key2_activation.data(),8u,decoded_key1)!=Status::PermissionDenied)
@@ -473,15 +480,17 @@ int main(){
  const uint32_t packed_randoms=(uint32_t(key1_random_i)<<12u)|key1_random_j;
  auto encrypted_secure_block=make_key1_command(
      0x02u,UINT16_C(0x0006),packed_randoms,secure_counter);
- if(command_codec.encrypt_command(encrypted_secure_block.data(),8u)!=Status::Ok||
-    card.decode_next_key1_command(encrypted_secure_block.data(),8u,decoded_key1)!=Status::Ok||
+ if(command_codec.encrypt_command(encrypted_secure_block.data(),8u)!=Status::Ok)
+     return fail("could not encrypt synthetic KEY1 Secure Area command");
+ write_key1_command(encrypted_secure_block);
+ if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
     decoded_key1.kind!=NdsGameCardKey1CommandKind::ReadSecureAreaBlock||
     decoded_key1.secure_area_block!=6u||
     decoded_key1.random_i!=key1_random_i||decoded_key1.random_j!=key1_random_j||
     card.key1_command_counter()!=secure_counter)
      return fail("KEY1 secure-area command did not validate its block, i/j and k");
  for(uint32_t repeat=0u;repeat<8u;++repeat){
-  if(card.decode_next_key1_command(encrypted_secure_block.data(),8u,decoded_key1)!=Status::Ok||
+  if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
      card.key1_command_counter()!=secure_counter)
       return fail("newer cart did not accept all eight secure-area data repetitions");
  }
@@ -505,9 +514,11 @@ int main(){
      return fail("old variant KEY1 activation failed");
  auto old_variant_command=make_key1_command(
      0x04u,0u,UINT32_C(0x123456),key1_counter+1u);
- if(command_codec.encrypt_command(old_variant_command.data(),8u)!=Status::Ok||
-    card.decode_next_key1_command(old_variant_command.data(),8u,decoded_key1)!=Status::Ok||
-    card.decode_next_key1_command(old_variant_command.data(),8u,decoded_key1)!=Status::PermissionDenied)
+ if(command_codec.encrypt_command(old_variant_command.data(),8u)!=Status::Ok)
+     return fail("could not encrypt old-variant KEY1 command");
+ write_key1_command(old_variant_command);
+ if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
+    card.decode_next_key1_command(decoded_key1)!=Status::PermissionDenied)
      return fail("old cart variant accepted a repeated KEY1 command without incrementing k");
  if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)
      return fail("could not clear old variant KEY1 activation IRQ");
