@@ -243,11 +243,19 @@ private:
     static bool valid_cpu(NdsCpu cpu) noexcept;
     static unsigned cpu_index(NdsCpu cpu) noexcept;
     void sync_arm9_tcm_timing_state() noexcept;
+    NdsMachineStatus begin_interrupt_wait(
+        NdsCpu cpu, uint32_t clear_old_flags,
+        uint32_t wait_mask) noexcept;
+    NdsMachineStatus resume_interrupt_wait(
+        NdsCpu cpu, uint32_t return_pc) noexcept;
     static int runtime_power_handler(
         void *context, NdsCpu cpu,
         uint32_t operation, uint32_t value);
     static int runtime_irq_handler(
         void *context, NdsCpu cpu, uint32_t return_pc);
+    static int runtime_interrupt_wait_handler(
+        void *context, NdsCpu cpu, uint32_t operation,
+        uint32_t argument0, uint32_t argument1);
     static int runtime_coprocessor_handler(
         void *context, NdsCpu cpu, uint32_t is_write,
         uint32_t cp_num, uint32_t op1, uint32_t crn,
@@ -297,12 +305,16 @@ private:
 
     std::array<bool, 2> slice_active_{};
     std::array<NdsCpuRunState, 2> run_states_{};
+    std::array<bool, 2> interrupt_wait_active_{};
+    std::array<uint32_t, 2> interrupt_wait_masks_{};
+    std::array<uint32_t, 2> interrupt_wait_resume_pcs_{};
     /* Core-cycle equivalents already reported through explicit idle time. */
     std::array<uint64_t, 2> idle_core_cycles_offset_{};
     NdsCpu next_round_first_cpu_ = NDS_ARM9;
     bool runtime_bound_ = false;
     bool power_handler_bound_ = false;
     bool irq_handler_bound_ = false;
+    bool interrupt_wait_handler_bound_ = false;
     bool coprocessor_handler_bound_ = false;
     bool bios_memory_handler_bound_ = false;
     bool bios_crc16_handler_bound_ = false;
