@@ -49,29 +49,52 @@ int main(){
  for(uint32_t n=0;n<128u;++n){if(n&&!(bus_read_u32(NdsGameCardControl::RomControlAddress)&NdsGameCardControl::RomCtrlDrqMask))return fail("DRQ not ready for word");if(bus_read_u32(NdsGameCardControl::DataAddress)!=word(0x100u+n*4u))return fail("block word mismatch");if(n<127u)card.advance_bus_cycles(20u);}
  if(card.busy()||!(bus_read_u32(NdsInterruptControl::IfAddress)&imask))return fail("128 word transfer incomplete");
  if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)return fail("second irq clear failed");
- /* ARM9 Game Card DMA timing 5; one DRQ edge transfers one fixed-source word. */
+ /* ARM9 Game Card DMA timing 5 streams a 0x200-byte block, one DRQ word per request. */
  if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)return fail("clear card IRQ before DMA failed");
  constexpr uint32_t dma0=NdsDmaControl::FirstRegisterAddress,dma1=dma0+12u;
- write_b7(0x40u);bus_write_u32(dma0,NdsGameCardControl::DataAddress);bus_write_u32(dma0+4u,0x02000000u);
- bus_write_u32(dma0+8u,1u|(2u<<NdsDmaControl::SourceControlShift)|(5u<<27u)|NdsDmaControl::RepeatMask|NdsDmaControl::WordTransferMask|NdsDmaControl::IrqEnableMask|NdsDmaControl::EnableMask);
- if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,small|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok)return fail("ARM9 DMA card command failed");
- card.advance_bus_cycles(40u);
- if(memory.read(NDS_ARM9,0x02000000u,4u).value!=word(0x40u)||card.busy()||
+ constexpr uint32_t arm9_dma_destination=0x02000000u;
+ write_b7(0x80u);
+ bus_write_u32(dma0,NdsGameCardControl::DataAddress);
+ bus_write_u32(dma0+4u,arm9_dma_destination);
+ bus_write_u32(dma0+8u,1u|(2u<<NdsDmaControl::SourceControlShift)|(5u<<27u)|
+     NdsDmaControl::RepeatMask|NdsDmaControl::WordTransferMask|
+     NdsDmaControl::IrqEnableMask|NdsDmaControl::EnableMask);
+ if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+     normal|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok)
+     return fail("ARM9 DMA card command failed");
+ card.advance_bus_cycles(40u+127u*20u);
+ for(uint32_t index=0u;index<128u;++index){
+     if(memory.read(NDS_ARM9,arm9_dma_destination+index*4u,4u).value!=word(0x80u+index*4u))
+         return fail("ARM9 Game Card DMA block word mismatch");
+ }
+ if(card.busy()||
     (bus_read_u32(dma0+8u)&NdsDmaControl::EnableMask)==0u||
+    bus_read_u32(dma0)!=NdsGameCardControl::DataAddress||
+    bus_read_u32(dma0+4u)!=arm9_dma_destination||
     (irq.read(NDS_ARM9,NdsInterruptControl::IfAddress,4u).value&((1u<<8u)|imask))!=((1u<<8u)|imask))
-    return fail("ARM9 DMA did not consume Game Card DRQ");
- bus_write_u16(dma0+10u,0u);if(card.busy())return fail("ARM9 one-word transfer did not complete");
+     return fail("ARM9 Game Card DMA did not stream 128 words or preserve programmed state");
+ bus_write_u16(dma0+10u,0u);
+ if(card.busy())return fail("ARM9 128-word transfer did not complete");
  /* ARM7 Game Card DMA timing 2 uses its independent DMA register bank. */
  if(!oracis_arm_runtime_select_cpu(NDS_ARM7))return fail("ARM7 select failed");
- write_b7(0x44u);bus_write_u32(dma1,NdsGameCardControl::DataAddress);bus_write_u32(dma1+4u,0x02000004u);
- bus_write_u32(dma1+8u,1u|(2u<<NdsDmaControl::SourceControlShift)|(2u<<28u)|NdsDmaControl::RepeatMask|NdsDmaControl::WordTransferMask|NdsDmaControl::IrqEnableMask|NdsDmaControl::EnableMask);
- if(card.write(NDS_ARM7,NdsGameCardControl::RomControlAddress,4u,small|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok)return fail("ARM7 DMA card command failed");
+ write_b7(0x44u);
+ bus_write_u32(dma1,NdsGameCardControl::DataAddress);
+ bus_write_u32(dma1+4u,0x02000004u);
+ bus_write_u32(dma1+8u,1u|(2u<<NdsDmaControl::SourceControlShift)|(2u<<28u)|
+     NdsDmaControl::RepeatMask|NdsDmaControl::WordTransferMask|
+     NdsDmaControl::IrqEnableMask|NdsDmaControl::EnableMask);
+ if(card.write(NDS_ARM7,NdsGameCardControl::RomControlAddress,4u,
+     small|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok)
+     return fail("ARM7 DMA card command failed");
  card.advance_bus_cycles(40u);
  if(memory.read(NDS_ARM7,0x02000004u,4u).value!=word(0x44u)||card.busy()||
     (bus_read_u32(dma1+8u)&NdsDmaControl::EnableMask)==0u||
+    bus_read_u32(dma1)!=NdsGameCardControl::DataAddress||
+    bus_read_u32(dma1+4u)!=0x02000004u||
     (irq.read(NDS_ARM7,NdsInterruptControl::IfAddress,4u).value&((1u<<9u)|imask))!=((1u<<9u)|imask))
-    return fail("ARM7 DMA did not consume Game Card DRQ");
- bus_write_u16(dma1+10u,0u);if(card.busy())return fail("ARM7 one-word transfer did not complete");
+     return fail("ARM7 DMA did not consume its Game Card DRQ word");
+ bus_write_u16(dma1+10u,0u);
+ if(card.busy())return fail("ARM7 one-word transfer did not complete");
  if(!oracis_arm_runtime_select_cpu(NDS_ARM9))return fail("ARM9 restore failed");
  write_b7(0x400u);
  if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,normal|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::AddressOverflow||card.busy())return fail("range check not transactional");
