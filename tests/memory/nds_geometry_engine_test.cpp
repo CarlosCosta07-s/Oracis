@@ -3,6 +3,7 @@
 #include "oracis/memory/guest_memory.hpp"
 
 #include <array>
+#include <bit>
 #include <cstdint>
 #include <cstdio>
 
@@ -229,7 +230,7 @@ int main()
         !write_command(geometry, 0x11u)) {
         return fail("projection stack overflow fixture enqueue failed");
     }
-    geometry.advance_bus_cycles(34u);
+    geometry.advance_bus_cycles(35u);
     status = geometry.read(
         NDS_ARM9, NdsGeometryEngine::GxStatAddress, 4u).value;
     if ((status & (UINT32_C(1) << 15u)) == 0u ||
