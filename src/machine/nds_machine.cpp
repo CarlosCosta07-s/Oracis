@@ -1825,6 +1825,59 @@ NdsMachineStatus NdsMachine::enter_cpu_halt(NdsCpu cpu) noexcept
     return NdsMachineStatus::Ok;
 }
 
+NdsMachineStatus NdsMachine::read_bios_interrupt_flags(
+    NdsCpu cpu, uint32_t &flags) const noexcept
+{
+    if (!valid_cpu(cpu)) return NdsMachineStatus::InvalidCpu;
+
+    uint32_t address = UINT32_C(0x0380FFF8);
+    if (cpu == NDS_ARM9) {
+        constexpr uint32_t DtcmInterruptFlagsOffset = UINT32_C(0x00003FF8);
+        const memory::NdsArm9Tcm::TimingState timing =
+            arm9_tcm_.timing_state();
+        if (timing.dtcm_base == 0u ||
+            timing.dtcm_window_size <
+                memory::NdsArm9Tcm::DtcmPhysicalSize ||
+            timing.dtcm_base >
+                UINT32_MAX - DtcmInterruptFlagsOffset) {
+            return NdsMachineStatus::UnsupportedPowerMode;
+        }
+        address = timing.dtcm_base + DtcmInterruptFlagsOffset;
+    }
+
+    const memory::ReadResult result = memory_.read(cpu, address, 4u);
+    if (result.status != memory::Status::Ok) {
+        return NdsMachineStatus::SchedulerFailure;
+    }
+    flags = result.value;
+    return NdsMachineStatus::Ok;
+}
+
+NdsMachineStatus NdsMachine::write_bios_interrupt_flags(
+    NdsCpu cpu, uint32_t flags) noexcept
+{
+    if (!valid_cpu(cpu)) return NdsMachineStatus::InvalidCpu;
+
+    uint32_t address = UINT32_C(0x0380FFF8);
+    if (cpu == NDS_ARM9) {
+        constexpr uint32_t DtcmInterruptFlagsOffset = UINT32_C(0x00003FF8);
+        const memory::NdsArm9Tcm::TimingState timing =
+            arm9_tcm_.timing_state();
+        if (timing.dtcm_base == 0u ||
+            timing.dtcm_window_size <
+                memory::NdsArm9Tcm::DtcmPhysicalSize ||
+            timing.dtcm_base >
+                UINT32_MAX - DtcmInterruptFlagsOffset) {
+            return NdsMachineStatus::UnsupportedPowerMode;
+        }
+        address = timing.dtcm_base + DtcmInterruptFlagsOffset;
+    }
+
+    return memory_.write(cpu, address, 4u, flags) == memory::Status::Ok
+        ? NdsMachineStatus::Ok
+        : NdsMachineStatus::SchedulerFailure;
+}
+
 NdsMachineStatus NdsMachine::begin_interrupt_wait(
     NdsCpu cpu, uint32_t clear_old_flags, uint32_t wait_mask) noexcept
 {
@@ -1837,32 +1890,51 @@ NdsMachineStatus NdsMachine::begin_interrupt_wait(
     ArmCpuState *state = cpu_state(cpu);
     if (state == nullptr) return NdsMachineStatus::InvalidCpu;
 
-    if (clear_old_flags != 0u && wait_mask != 0u &&
-        interrupt_control_.write(
-            cpu, memory::NdsInterruptControl::IfAddress,
-            4u, wait_mask) != memory::Status::Ok) {
-        return NdsMachineStatus::SchedulerFailure;
-    }
+    /*
+     * Match the BIOS critical section: mask IME while checking/consuming its
+     * per-CPU IRQ shadow word, then force IME back on before HALT.
+     */
     if (interrupt_control_.write(
             cpu, memory::NdsInterruptControl::ImeAddress,
-            4u, 1u) != memory::Status::Ok) {
+            4u, 0u) != memory::Status::Ok) {
         return NdsMachineStatus::SchedulerFailure;
     }
 
-    const memory::ReadResult pending = interrupt_control_.read(
-        cpu, memory::NdsInterruptControl::IfAddress, 4u);
-    if (pending.status != memory::Status::Ok) {
-        return NdsMachineStatus::SchedulerFailure;
+    uint32_t flags = 0u;
+    NdsMachineStatus flag_status = read_bios_interrupt_flags(cpu, flags);
+    if (flag_status != NdsMachineStatus::Ok) {
+        static_cast<void>(interrupt_control_.write(
+            cpu, memory::NdsInterruptControl::ImeAddress, 4u, 1u));
+        return flag_status;
     }
 
-    /* KEEP mode returns immediately when a requested IF flag is already set. */
-    if (clear_old_flags == 0u &&
-        (pending.value & wait_mask) != 0u) {
+    const uint32_t matched_flags = flags & wait_mask;
+    if (clear_old_flags != 0u || matched_flags != 0u) {
+        flag_status = write_bios_interrupt_flags(
+            cpu, flags & ~matched_flags);
+        if (flag_status != NdsMachineStatus::Ok) {
+            static_cast<void>(interrupt_control_.write(
+                cpu, memory::NdsInterruptControl::ImeAddress, 4u, 1u));
+            return flag_status;
+        }
+    }
+
+    /* KEEP mode returns immediately if a BIOS IRQ-check flag is already set. */
+    if (clear_old_flags == 0u && matched_flags != 0u) {
         interrupt_wait_active_[index] = false;
         interrupt_wait_masks_[index] = 0u;
         interrupt_wait_resume_pcs_[index] = 0u;
         run_states_[index] = NdsCpuRunState::Running;
-        return NdsMachineStatus::Ok;
+        return interrupt_control_.write(
+            cpu, memory::NdsInterruptControl::ImeAddress,
+            4u, 1u) == memory::Status::Ok
+            ? NdsMachineStatus::Ok : NdsMachineStatus::SchedulerFailure;
+    }
+
+    if (interrupt_control_.write(
+            cpu, memory::NdsInterruptControl::ImeAddress,
+            4u, 1u) != memory::Status::Ok) {
+        return NdsMachineStatus::SchedulerFailure;
     }
 
     interrupt_wait_active_[index] = true;
@@ -1892,13 +1964,16 @@ NdsMachineStatus NdsMachine::resume_interrupt_wait(
         return NdsMachineStatus::Ok;
     }
 
-    const memory::ReadResult pending = interrupt_control_.read(
-        cpu, memory::NdsInterruptControl::IfAddress, 4u);
-    if (pending.status != memory::Status::Ok) {
-        return NdsMachineStatus::SchedulerFailure;
-    }
+    uint32_t flags = 0u;
+    const NdsMachineStatus flag_status =
+        read_bios_interrupt_flags(cpu, flags);
+    if (flag_status != NdsMachineStatus::Ok) return flag_status;
 
-    if ((pending.value & interrupt_wait_masks_[index]) != 0u) {
+    const uint32_t matched_flags = flags & interrupt_wait_masks_[index];
+    if (matched_flags != 0u) {
+        const NdsMachineStatus write_status = write_bios_interrupt_flags(
+            cpu, flags & ~matched_flags);
+        if (write_status != NdsMachineStatus::Ok) return write_status;
         interrupt_wait_active_[index] = false;
         interrupt_wait_masks_[index] = 0u;
         interrupt_wait_resume_pcs_[index] = 0u;
@@ -1906,7 +1981,7 @@ NdsMachineStatus NdsMachine::resume_interrupt_wait(
         return NdsMachineStatus::Ok;
     }
 
-    /* An unrelated IRQ returned to the BIOS wait site: sleep again. */
+    /* An IRQ handler without a matching BIOS shadow flag returned: wait again. */
     run_states_[index] = NdsCpuRunState::Halted;
     if (slice_active_[index] && !oracis_scheduler_request_yield(cpu)) {
         run_states_[index] = NdsCpuRunState::Running;
@@ -1938,19 +2013,6 @@ bool NdsMachine::cpu_can_execute(NdsCpu cpu) noexcept
 
     const unsigned index = cpu_index(cpu);
     if (run_states_[index] == NdsCpuRunState::Running) return true;
-
-    if (interrupt_wait_active_[index]) {
-        const memory::ReadResult pending = interrupt_control_.read(
-            cpu, memory::NdsInterruptControl::IfAddress, 4u);
-        if (pending.status != memory::Status::Ok) return false;
-        if ((pending.value & interrupt_wait_masks_[index]) != 0u) {
-            interrupt_wait_active_[index] = false;
-            interrupt_wait_masks_[index] = 0u;
-            interrupt_wait_resume_pcs_[index] = 0u;
-            run_states_[index] = NdsCpuRunState::Running;
-            return true;
-        }
-    }
 
     /*
      * NDS7 HALT wakes on IE&IF, independently of IME and CPSR.I.
