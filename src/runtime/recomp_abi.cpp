@@ -21,6 +21,8 @@ ArmCpuState *g_arm9_state = nullptr;
 ArmCpuState *g_arm7_state = nullptr;
 void *g_power_context = nullptr;
 OracisArmRuntimePowerHandler g_power_handler = nullptr;
+void *g_irq_context = nullptr;
+OracisArmRuntimeIrqHandler g_irq_handler = nullptr;
 void *g_coprocessor_context = nullptr;
 OracisArmRuntimeCoprocessorHandler g_coprocessor_handler = nullptr;
 void *g_bios_memory_context = nullptr;
@@ -99,6 +101,41 @@ int oracis_arm_runtime_unbind_power_handler(
     g_power_handler = nullptr;
     return 1;
 }
+
+int oracis_arm_runtime_bind_irq_handler(
+    void *context, OracisArmRuntimeIrqHandler handler)
+{
+    if (context == nullptr || handler == nullptr) return 0;
+    if (g_irq_handler != nullptr || g_irq_context != nullptr) {
+        return g_irq_context == context && g_irq_handler == handler ? 1 : 0;
+    }
+    g_irq_context = context;
+    g_irq_handler = handler;
+    return 1;
+}
+
+int oracis_arm_runtime_unbind_irq_handler(
+    void *context, OracisArmRuntimeIrqHandler handler)
+{
+    if (context == nullptr || handler == nullptr ||
+        g_irq_context != context || g_irq_handler != handler) {
+        return 0;
+    }
+    g_irq_context = nullptr;
+    g_irq_handler = nullptr;
+    return 1;
+}
+
+int oracis_arm_runtime_request_irq(uint32_t return_pc)
+{
+    if (g_irq_handler == nullptr || g_irq_context == nullptr) return 0;
+    if (oracis_active_cpu_state == nullptr ||
+        (g_nds_active != NDS_ARM9 && g_nds_active != NDS_ARM7)) {
+        return -1;
+    }
+    return g_irq_handler(g_irq_context, g_nds_active, return_pc);
+}
+
 
 int oracis_arm_runtime_bind_coprocessor_handler(
     void *context, OracisArmRuntimeCoprocessorHandler handler)
@@ -681,6 +718,17 @@ uint32_t nds_bios_integer_sqrt(uint32_t value) noexcept
 }
 
 } // namespace
+
+void runtime_irq(uint32_t return_address)
+{
+    if (oracis_active_cpu_state == nullptr ||
+        (g_nds_active != NDS_ARM9 && g_nds_active != NDS_ARM7)) {
+        abi_failure("runtime_irq (no active CPU)");
+    }
+    if (oracis_arm_runtime_request_irq(return_address) < 0) {
+        abi_failure("runtime_irq (machine rejected architectural IRQ boundary)");
+    }
+}
 
 void runtime_swi(uint32_t swi_imm)
 {
