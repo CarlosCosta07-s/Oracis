@@ -64,8 +64,8 @@ public:
  /* Validate and consume a KEY1 command without starting its data/gap transfer.
   * advance_bus_cycles() drives the header secure-delay countdown. */
  Status decode_next_key1_command(NdsGameCardKey1Command &decoded) noexcept;
- /* Complete a previously validated 0x40 command after the ROMCTRL KEY1 gap.
-  * clock_bytes must equal the number of gap bytes actually clocked on the bus. */
+ /* Complete the gap after a decoded KEY1 command. clock_bytes must match the
+  * live ROMCTRL gap settings and the clocks actually emitted by the bus. */
  Status complete_key1_command_gap(uint32_t clock_bytes) noexcept;
  bool installed() const noexcept{return installed_;}
  bool key2_initialized() const noexcept{return key2_.initialized();}
