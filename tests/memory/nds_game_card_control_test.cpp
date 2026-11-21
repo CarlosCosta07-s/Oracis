@@ -15,6 +15,17 @@ void write_card_command(uint8_t opcode,uint32_t offset){
  for(uint32_t i=0;i<8u;++i)bus_write_u8(NdsGameCardControl::CommandAddress+i,b[i]);
 }
 void write_b7(uint32_t offset){write_card_command(oracis::memory::NdsGameCardControl::RomReadCommand,offset);}
+std::array<uint8_t,8> make_key1_command(uint8_t opcode,uint16_t parameter16,
+        uint32_t following24,uint32_t counter20){
+ return {{
+  uint8_t((opcode<<4u)|((parameter16>>12u)&0x0Fu)),
+  uint8_t(parameter16>>4u),
+  uint8_t(((parameter16&0x0Fu)<<4u)|((following24>>20u)&0x0Fu)),
+  uint8_t(following24>>12u),uint8_t(following24>>4u),
+  uint8_t(((following24&0x0Fu)<<4u)|((counter20>>16u)&0x0Fu)),
+  uint8_t(counter20>>8u),uint8_t(counter20)
+ }};
+}
 void write_activate_key1(uint16_t random_i,uint16_t random_j,uint32_t counter){
  using oracis::memory::NdsGameCardControl;
  const uint8_t b[8]={NdsGameCardControl::ActivateKey1Command,
@@ -434,6 +445,70 @@ int main(){
      return fail("four-byte 3C HIGH-Z response did not complete KEY1 activation");
  if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)
      return fail("could not clear four-byte KEY1 activation IRQ");
+ /* The stateful KEY1 path accepts a new command at k+1 and bounded repeats
+  * only for the newer Chip ID variant. The caller owns the secure-delay timing. */
+ NdsGameCardKey1 command_codec;
+ if(command_codec.load_key_table(bios_key_table.data(),
+        static_cast<uint32_t>(bios_key_table.size()))!=Status::Ok||
+    command_codec.initialize(UINT32_C(0x45555043),2u,8u)!=Status::Ok)
+     return fail("could not initialize a reference KEY1 command codec");
+ NdsGameCardKey1Command decoded_key1{};
+ auto encrypted_key2_activation=make_key1_command(
+     0x04u,UINT16_C(0x1234),UINT32_C(0xABCDEF),key1_counter+1u);
+ if(command_codec.encrypt_command(encrypted_key2_activation.data(),8u)!=Status::Ok||
+    card.decode_next_key1_command(encrypted_key2_activation.data(),8u,decoded_key1)!=Status::Ok||
+    decoded_key1.kind!=NdsGameCardKey1CommandKind::ActivateKey2||
+    decoded_key1.key2_seed24!=UINT32_C(0xABCDEF)||
+    card.key1_command_counter()!=key1_counter+1u)
+     return fail("new KEY1 command was not decoded and counted at k+1");
+ if(card.decode_next_key1_command(encrypted_key2_activation.data(),8u,decoded_key1)!=Status::Ok||
+    card.key1_command_counter()!=key1_counter+1u)
+     return fail("newer cart did not accept the one required repeated command");
+ if(card.decode_next_key1_command(encrypted_key2_activation.data(),8u,decoded_key1)!=Status::PermissionDenied)
+     return fail("newer cart accepted more than two transmissions of a normal KEY1 command");
+
+ const uint32_t secure_counter=key1_counter+2u;
+ const uint32_t packed_randoms=(uint32_t(key1_random_i)<<12u)|key1_random_j;
+ auto encrypted_secure_block=make_key1_command(
+     0x02u,UINT16_C(0x0006),packed_randoms,secure_counter);
+ if(command_codec.encrypt_command(encrypted_secure_block.data(),8u)!=Status::Ok||
+    card.decode_next_key1_command(encrypted_secure_block.data(),8u,decoded_key1)!=Status::Ok||
+    decoded_key1.kind!=NdsGameCardKey1CommandKind::ReadSecureAreaBlock||
+    decoded_key1.secure_area_block!=6u||
+    decoded_key1.random_i!=key1_random_i||decoded_key1.random_j!=key1_random_j||
+    card.key1_command_counter()!=secure_counter)
+     return fail("KEY1 secure-area command did not validate its block, i/j and k");
+ for(uint32_t repeat=0u;repeat<8u;++repeat){
+  if(card.decode_next_key1_command(encrypted_secure_block.data(),8u,decoded_key1)!=Status::Ok||
+     card.key1_command_counter()!=secure_counter)
+      return fail("newer cart did not accept all eight secure-area data repetitions");
+ }
+ if(card.decode_next_key1_command(encrypted_secure_block.data(),8u,decoded_key1)!=Status::PermissionDenied)
+     return fail("newer cart accepted more than nine secure-area command transmissions");
+
+ /* The old/smaller variant increments k on every command and rejects replay. */
+ card.reset_transfer();
+ if(card.set_chip_id(UINT32_C(0x000000C2))!=Status::Ok||
+    card.load_key1_key_table(bios_key_table.data(),
+        static_cast<uint32_t>(bios_key_table.size()))!=Status::Ok||
+    card.newer_protocol_variant())
+     return fail("could not configure old KEY1 protocol variant");
+ bus_write_u16(NdsGameCardControl::AuxSpiControlAddress,
+     uint16_t(NdsGameCardControl::AuxSpiIrqEnableMask|
+              NdsGameCardControl::AuxSpiSlotEnableMask));
+ write_activate_key1(key1_random_i,key1_random_j,key1_counter);
+ if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+     no_reply_control|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok||
+    !card.key1_command_mode())
+     return fail("old variant KEY1 activation failed");
+ auto old_variant_command=make_key1_command(
+     0x04u,0u,UINT32_C(0x123456),key1_counter+1u);
+ if(command_codec.encrypt_command(old_variant_command.data(),8u)!=Status::Ok||
+    card.decode_next_key1_command(old_variant_command.data(),8u,decoded_key1)!=Status::Ok||
+    card.decode_next_key1_command(old_variant_command.data(),8u,decoded_key1)!=Status::PermissionDenied)
+     return fail("old cart variant accepted a repeated KEY1 command without incrementing k");
+ if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)
+     return fail("could not clear old variant KEY1 activation IRQ");
  if(!oracis_bus_unbind_game_card_control(&card)||!oracis_bus_unbind_dma_control(&dma)||
     !oracis_bus_unbind_interrupt_control(&irq)||!oracis_bus_unbind_memory(&memory)||
     !oracis_arm_runtime_unbind_cpus(&a9,&a7))return fail("bus teardown failed");
