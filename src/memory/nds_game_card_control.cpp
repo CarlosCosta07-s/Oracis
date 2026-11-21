@@ -67,7 +67,7 @@ Status NdsGameCardControl::decode_next_key1_command(
     NdsGameCardKey1Command &decoded) noexcept
 {
  if(!installed_)return Status::Unmapped;
- if(!key1_command_mode_)return Status::PermissionDenied;
+ if(!key1_command_mode_||busy_)return Status::PermissionDenied;
  if(wire_bytes==nullptr)return Status::InvalidRegion;
  if(size!=CommandBytes)return Status::InvalidWidth;
 
