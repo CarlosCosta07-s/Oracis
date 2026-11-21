@@ -264,7 +264,107 @@ int main()
         return fail("KEY1 command decoder accepted an invalid size or counter");
     }
 
-    std::puts("NDS KEY1 table loading, code levels, block vectors and command byte order passed");
+    /* Secure Area prefix is encrypted in two layers: ID at level 2,
+     * then all 0x800 bytes at level 3. */
+    constexpr uint32_t secure_area_game_code = UINT32_C(0x45555043);
+    std::array<uint8_t,NdsGameCardKey1::SecureAreaEncryptedBytes>
+        secure_area_plain{};
+    for (uint32_t index = 0u; index < secure_area_plain.size(); ++index) {
+        secure_area_plain[index] =
+            static_cast<uint8_t>((index * 19u + 0x25u) & 0xFFu);
+    }
+    constexpr uint8_t secure_area_id[8] = {
+        UINT8_C('e'), UINT8_C('n'), UINT8_C('c'), UINT8_C('r'),
+        UINT8_C('y'), UINT8_C('O'), UINT8_C('b'), UINT8_C('j')
+    };
+    for (uint32_t index = 0u; index < 8u; ++index)
+        secure_area_plain[index] = secure_area_id[index];
+
+    auto secure_area_ciphertext = secure_area_plain;
+    NdsGameCardKey1 secure_area_encryptor;
+    if (secure_area_encryptor.load_key_table(
+            table.data(), NdsGameCardKey1::KeyTableBytes) != Status::Ok ||
+        secure_area_encryptor.initialize(
+            secure_area_game_code, 3u, 8u) != Status::Ok) {
+        return fail("could not initialize level-3 Secure Area test schedule");
+    }
+    for (uint32_t offset = 0u; offset < secure_area_ciphertext.size();
+         offset += NdsGameCardKey1::BlockBytes) {
+        if (secure_area_encryptor.encrypt_block(
+                secure_area_ciphertext.data() + offset,
+                NdsGameCardKey1::BlockBytes) != Status::Ok) {
+            return fail("could not encrypt synthetic level-3 Secure Area");
+        }
+    }
+    if (secure_area_encryptor.initialize(
+            secure_area_game_code, 2u, 8u) != Status::Ok ||
+        secure_area_encryptor.encrypt_block(
+            secure_area_ciphertext.data(), NdsGameCardKey1::BlockBytes) != Status::Ok) {
+        return fail("could not apply the additional level-2 Secure Area ID layer");
+    }
+
+    NdsGameCardKey1 secure_area_decryptor;
+    if (secure_area_decryptor.load_key_table(
+            table.data(), NdsGameCardKey1::KeyTableBytes) != Status::Ok ||
+        secure_area_decryptor.initialize(
+            secure_area_game_code, 2u, 8u) != Status::Ok) {
+        return fail("could not initialize Secure Area decryptor");
+    }
+    bool secure_area_identifier_valid = false;
+    if (secure_area_decryptor.decrypt_secure_area(
+            secure_area_ciphertext.data(),
+            static_cast<uint32_t>(secure_area_ciphertext.size()),
+            secure_area_identifier_valid) != Status::Ok ||
+        !secure_area_identifier_valid ||
+        secure_area_decryptor.level() != 2u ||
+        secure_area_decryptor.modulo_bytes() != 8u) {
+        return fail("two-stage Secure Area KEY1 decryption or schedule restore failed");
+    }
+    for (uint32_t index = 0u; index < secure_area_plain.size(); ++index) {
+        if (secure_area_ciphertext[index] != secure_area_plain[index]) {
+            return fail("Secure Area KEY1 decryption did not restore all 0x800 bytes");
+        }
+    }
+
+    /* A wrong identifier is reported to the caller without being confused
+     * with a cryptographic/argument error. */
+    auto invalid_secure_area = secure_area_plain;
+    invalid_secure_area[0] = UINT8_C('X');
+    auto invalid_secure_ciphertext = invalid_secure_area;
+    if (secure_area_encryptor.initialize(
+            secure_area_game_code, 3u, 8u) != Status::Ok) {
+        return fail("could not restore level-3 schedule for invalid-ID test");
+    }
+    for (uint32_t offset = 0u; offset < invalid_secure_ciphertext.size();
+         offset += NdsGameCardKey1::BlockBytes) {
+        if (secure_area_encryptor.encrypt_block(
+                invalid_secure_ciphertext.data() + offset,
+                NdsGameCardKey1::BlockBytes) != Status::Ok) {
+            return fail("could not encrypt invalid-ID Secure Area");
+        }
+    }
+    if (secure_area_encryptor.initialize(
+            secure_area_game_code, 2u, 8u) != Status::Ok ||
+        secure_area_encryptor.encrypt_block(
+            invalid_secure_ciphertext.data(), NdsGameCardKey1::BlockBytes) != Status::Ok ||
+        secure_area_decryptor.decrypt_secure_area(
+            invalid_secure_ciphertext.data(),
+            static_cast<uint32_t>(invalid_secure_ciphertext.size()),
+            secure_area_identifier_valid) != Status::Ok ||
+        secure_area_identifier_valid) {
+        return fail("Secure Area decryptor accepted an invalid encrypted identifier");
+    }
+    if (secure_area_decryptor.decrypt_secure_area(
+            invalid_secure_ciphertext.data(),
+            static_cast<uint32_t>(invalid_secure_ciphertext.size() - 1u),
+            secure_area_identifier_valid) != Status::InvalidWidth ||
+        secure_area_decryptor.decrypt_secure_area(
+            nullptr, NdsGameCardKey1::SecureAreaEncryptedBytes,
+            secure_area_identifier_valid) != Status::InvalidRegion) {
+        return fail("Secure Area decryptor accepted invalid buffer arguments");
+    }
+
+    std::puts("NDS KEY1 table loading, code levels, block vectors, command byte order and Secure Area decryption passed");
     key1.reset();
     if (!key1.table_loaded() || key1.initialized() || key1.id_code() != 0u ||
         key1.level() != 0u || key1.modulo_bytes() != 0u ||
