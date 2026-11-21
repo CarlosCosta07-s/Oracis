@@ -1,4 +1,4 @@
-/* Original NDS Game Card controller: raw, unencrypted B7 reads only. */
+/* Original NDS Game Card controller with a seed-driven KEY2 data path. */
 #ifndef ORACIS_MEMORY_NDS_GAME_CARD_CONTROL_HPP
 #define ORACIS_MEMORY_NDS_GAME_CARD_CONTROL_HPP
 #include <array>
@@ -89,7 +89,7 @@ private:
  uint32_t chip_id_=0u;
  bool chip_id_configured_=false;
  bool chip_id_data_=false;
- bool reset_released_=false,busy_=false,data_ready_=false,dummy_data_=false,wrap_read_window_=false,installed_=false;
+ bool reset_released_=false,busy_=false,data_ready_=false,dummy_data_=false,wrap_read_window_=false,installed_=false,key2_data_active_=false;
 };
 }
 #endif
