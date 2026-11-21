@@ -35,7 +35,25 @@ int main(){
  std::array<uint8_t,0x9000> image{};
  for(uint32_t i=0;i<image.size();++i)image[i]=uint8_t((i*13u+7u)&255u);
  image[0x0Cu]='C';image[0x0Du]='P';image[0x0Eu]='U';image[0x0Fu]='E';
+ image[0x13u]=3u;
+ constexpr uint32_t header_normal_romctrl=UINT32_C(0x00586000);
+ constexpr uint32_t header_key1_romctrl=UINT32_C(0x001808F8);
+ for(uint32_t i=0u;i<4u;++i){
+  image[NdsGameCardControl::HeaderNormalRomControlOffset+i]=uint8_t(header_normal_romctrl>>(i*8u));
+  image[NdsGameCardControl::HeaderKey1RomControlOffset+i]=uint8_t(header_key1_romctrl>>(i*8u));
+ }
+ image[NdsGameCardControl::HeaderSecureAreaDelayOffset]=UINT8_C(0x1E);
+ image[NdsGameCardControl::HeaderSecureAreaDelayOffset+1u]=UINT8_C(0x05);
  if(card.mount_image(image.data(),uint32_t(image.size()))!=Status::Ok)return fail("mount failed");
+ if(!card.header_protocol_available()||
+    card.header_normal_rom_control()!=header_normal_romctrl||
+    card.header_key1_rom_control()!=header_key1_romctrl||
+    card.header_key1_gap1_length()!=UINT32_C(0x8F8)||
+    card.header_key1_gap2_length()!=UINT32_C(0x18)||
+    card.header_key1_gap_clocks_enabled()||
+    card.header_secure_area_delay()!=UINT16_C(0x051E)||
+    card.header_key2_seed_index()!=3u)
+     return fail("cartridge header KEY1 timing or KEY2 seed metadata was decoded incorrectly");
  std::array<uint8_t,NdsGameCardKey1::KeyTableBytes> bios_key_table{};
  for(uint32_t i=0u;i<bios_key_table.size();++i)
      bios_key_table[i]=uint8_t((i*37u+11u)&255u);
@@ -107,7 +125,7 @@ int main(){
      return fail("90 chip ID command started without configured physical metadata");
  constexpr uint32_t synthetic_chip_id=UINT32_C(0x800000C2);
  if(card.set_chip_id(synthetic_chip_id)!=Status::Ok||!card.chip_id_configured()||
-    card.chip_id()!=synthetic_chip_id)
+    card.chip_id()!=synthetic_chip_id||!card.newer_protocol_variant())
      return fail("synthetic chip ID configuration failed");
  if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
      small|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok)
