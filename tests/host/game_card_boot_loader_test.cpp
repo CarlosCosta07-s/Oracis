@@ -210,7 +210,7 @@ int main()
     }
 
     std::vector<uint8_t> damaged_image = fixture.image;
-    damaged_image[kArm9RomOffset + 0x20u] ^= UINT8_C(0x80);
+    damaged_image[kArm9RomOffset] ^= UINT8_C(0x80);
     status = oracis_host_runtime_mount_game_card_image(
         damaged_image.data(), static_cast<uint32_t>(damaged_image.size()));
     if (status != ORACIS_HOST_RUNTIME_OK) {
