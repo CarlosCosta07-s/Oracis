@@ -66,7 +66,7 @@ public:
  Status decode_next_key1_command(NdsGameCardKey1Command &decoded) noexcept;
  /* Complete a previously validated 0x40 command after the ROMCTRL KEY1 gap.
   * clock_bytes must equal the number of gap bytes actually clocked on the bus. */
- Status complete_key1_activation_gap(uint32_t clock_bytes) noexcept;
+ Status complete_key1_command_gap(uint32_t clock_bytes) noexcept;
  bool installed() const noexcept{return installed_;}
  bool key2_initialized() const noexcept{return key2_.initialized();}
  bool key1_initialized() const noexcept{return key1_.initialized();}
@@ -146,6 +146,7 @@ private:
  uint32_t key1_repeat_delay_cycles_remaining_=0u;
  uint32_t key1_key2_pending_seed24_=0u;
  bool key1_key2_activation_pending_=false;
+ bool key1_command_gap_pending_=false;
 };
 }
 #endif
