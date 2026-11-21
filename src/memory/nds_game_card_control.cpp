@@ -61,11 +61,11 @@ Status NdsGameCardControl::start_transfer(NdsCpu cpu) noexcept{
  bool wrap_window=false;
  bool activate_key1=false;
  if(command_[0]==ActivateKey1Command){
-  /* The raw 3C command enters KEY1 mode; software commonly clocks one
-   * high-Z word through the standard four-byte card read path. */
-  if(!key1_.initialized()||block_code!=7u||size!=kWordBytes||
+  /* 3C has no defined reply length. Some hosts may still clock one
+   * high-Z word, so retain that explicit four-byte diagnostic form. */
+  if(!key1_.initialized()||(block_code!=0u&&block_code!=7u)||
      (rom_control_&RomCtrlKey2DataMask)!=0u)return Status::PermissionDenied;
-  dummy=true;
+  dummy=(size!=0u);
   activate_key1=true;
  }else if(size==0u||(size%kWordBytes)!=0u){
   return Status::PermissionDenied;
@@ -119,7 +119,8 @@ Status NdsGameCardControl::start_transfer(NdsCpu cpu) noexcept{
       (static_cast<uint16_t>(command_[2]&UINT8_C(0x0F))<<8u)|command_[3]);
   key1_command_counter_=
       (static_cast<uint32_t>(command_[4]&UINT8_C(0x0F))<<16u)|
-      (static_cast<uint32_t>(command_[5])<<8u)|command_[6];
+      (static_cast<uint32_t>(command_[5])<<8u)|
+      (static_cast<uint32_t>(command_[6])>>4u);
  }
  key1_activation_pending_=activate_key1;
  dummy_data_=dummy;
@@ -130,6 +131,10 @@ Status NdsGameCardControl::start_transfer(NdsCpu cpu) noexcept{
  key2_data_active_=wrap_window&&(rom_control_&RomCtrlKey2DataMask)!=0u;
  busy_=true;
  data_ready_=false;
+ /* A zero-length 3C command completes without waiting for a DATA word.
+  * Its parameters remain in force for the following KEY1 commands; k is
+  * not incremented by the activation command itself. */
+ if(activate_key1&&size==0u)finish_transfer();
  return Status::Ok;
 }
 Status NdsGameCardControl::write_rom_control(NdsCpu cpu,uint32_t value) noexcept{
