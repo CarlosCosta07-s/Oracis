@@ -9,6 +9,20 @@
 #include "oracis/memory/nds_game_card_key2.hpp"
 namespace oracis::memory {
 class NdsDmaControl;
+
+struct NdsGameCardKey1ReplyPlan {
+ uint32_t preamble_gap_bytes=0u;
+ bool preamble_clocked=false;
+ uint32_t leading_high_z_bytes=0u;
+ uint32_t preamble_key2_zero_bytes=0u;
+ uint32_t payload_bytes=0u;
+ bool payload_key2_encrypted=true;
+ uint32_t secure_block_bytes=0u;
+ uint8_t secure_block_count=0u;
+ uint32_t secure_inter_block_zero_bytes=0u;
+ bool payload_length_known=true;
+};
+
 class NdsGameCardControl final {
 public:
  static constexpr uint32_t AuxSpiControlAddress=UINT32_C(0x040001A0);
@@ -64,6 +78,8 @@ public:
  /* Validate and consume a KEY1 command without starting its data/gap transfer.
   * advance_bus_cycles() drives the header secure-delay countdown. */
  Status decode_next_key1_command(NdsGameCardKey1Command &decoded) noexcept;
+ Status describe_key1_reply(const NdsGameCardKey1Command &command,
+     NdsGameCardKey1ReplyPlan &plan) const noexcept;
  /* Complete the gap after a decoded KEY1 command. clock_bytes must match the
   * live ROMCTRL gap settings and the clocks actually emitted by the bus. */
  Status complete_key1_command_gap(uint32_t clock_bytes) noexcept;
