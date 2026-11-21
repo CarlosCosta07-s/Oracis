@@ -252,6 +252,31 @@ extern "C" int oracis_host_runtime_set_game_card_chip_id(uint32_t chip_id)
         : ORACIS_HOST_RUNTIME_GAME_CARD_ERROR;
 }
 
+extern "C" int oracis_host_runtime_decrypt_game_card_secure_area_prefix(
+    uint8_t *output, uint32_t output_size, uint32_t *identifier_valid)
+{
+    auto &machine = host_machine();
+    if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+    if (identifier_valid == nullptr) {
+        return ORACIS_HOST_RUNTIME_INVALID_ARGUMENT;
+    }
+    *identifier_valid = 0u;
+    if (output == nullptr) return ORACIS_HOST_RUNTIME_INVALID_ARGUMENT;
+
+    bool valid = false;
+    const auto status = machine.game_card_control().decrypt_secure_area_prefix(
+        output, output_size, valid);
+    if (status == oracis::memory::Status::InvalidRegion ||
+        status == oracis::memory::Status::InvalidWidth) {
+        return ORACIS_HOST_RUNTIME_INVALID_ARGUMENT;
+    }
+    if (status != oracis::memory::Status::Ok) {
+        return ORACIS_HOST_RUNTIME_GAME_CARD_ERROR;
+    }
+    *identifier_valid = valid ? 1u : 0u;
+    return ORACIS_HOST_RUNTIME_OK;
+}
+
 extern "C" int oracis_host_runtime_unmount_game_card_image(void)
 {
     auto &machine = host_machine();
