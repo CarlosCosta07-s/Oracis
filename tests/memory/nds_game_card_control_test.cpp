@@ -623,6 +623,23 @@ int main(){
     card.key2_bytes_processed()!=UINT32_C(0x910)||
     card.decode_next_key1_command(decoded_key1)!=Status::PermissionDenied)
      return fail("old cart 0x40 did not initialize and advance KEY2 across the 0x910 clocked gap or accepted a replay");
+
+ /* Subsequent old-cart KEY1 command gaps advance the already-active stream too. */
+ auto old_chip_id_command=make_key1_command(
+     0x01u,0u,packed_randoms,key1_counter+2u);
+ if(command_codec.encrypt_command(old_chip_id_command.data(),8u)!=Status::Ok)
+     return fail("could not encrypt old-cart KEY1 0x10 command");
+ write_key1_command(old_chip_id_command);
+ std::array<uint8_t,UINT32_C(0x910)> expected_old_second_gap{};
+ if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
+    decoded_key1.kind!=NdsGameCardKey1CommandKind::ReadChipId||
+    expected_old_key2.apply_keystream(expected_old_second_gap.data(),
+        static_cast<uint32_t>(expected_old_second_gap.size()))!=Status::Ok||
+    card.complete_key1_command_gap(UINT32_C(0x910))!=Status::Ok||
+    card.key2_state1()!=expected_old_key2.state1()||
+    card.key2_state2()!=expected_old_key2.state2()||
+    card.key2_bytes_processed()!=UINT32_C(0x1220))
+     return fail("old-cart KEY1 0x10 gap did not continue the shared KEY2 stream");
  if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)
      return fail("could not clear old variant KEY1 activation IRQ");
  if(!oracis_bus_unbind_game_card_control(&card)||!oracis_bus_unbind_dma_control(&dma)||
