@@ -39,6 +39,9 @@ public:
 
     Status install() noexcept;
     bool installed() const noexcept { return installed_; }
+    NdsInterruptControl &interrupt_control() const noexcept {
+        return interrupts_;
+    }
 
     ReadResult read(NdsCpu cpu, uint32_t address, uint32_t width) const noexcept;
     Status write(NdsCpu cpu, uint32_t address,

@@ -96,6 +96,7 @@ add_library(oracis_memory STATIC
     src/memory/nds_video_memory.cpp
     src/memory/nds_post_flag.cpp
     src/memory/nds_display_control.cpp
+    src/memory/nds_geometry_engine.cpp
     src/memory/nds_2d_effects.cpp
     src/memory/nds_2d_bg_fetcher.cpp
     src/memory/nds_2d_affine_bg_fetcher.cpp
