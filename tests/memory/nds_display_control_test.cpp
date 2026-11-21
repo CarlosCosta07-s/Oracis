@@ -56,6 +56,64 @@ int main()
         return fail("Engine A state was changed by Engine B configuration");
     }
 
+    constexpr uint32_t engine_a_master_bright =
+        UINT32_C(0x0400006C);
+    constexpr uint32_t engine_b_master_bright =
+        UINT32_C(0x0400106C);
+    if (display.write(
+            NDS_ARM9, engine_a_master_bright, 2u,
+            UINT16_C(0xFFFF)) != Status::Ok ||
+        display.read(NDS_ARM9, engine_a_master_bright, 2u).value !=
+            NdsDisplayControl::MasterBrightnessMask ||
+        display.write(
+            NDS_ARM9, engine_b_master_bright, 2u,
+            UINT16_C(0x8010)) != Status::Ok ||
+        display.read(NDS_ARM9, engine_b_master_bright, 2u).value !=
+            UINT16_C(0x8010) ||
+        display.read(NDS_ARM9, engine_a_master_bright, 4u).status !=
+            Status::InvalidWidth ||
+        display.write(
+            NDS_ARM9, engine_b_master_bright, 4u, UINT32_C(0)) !=
+            Status::InvalidWidth) {
+        return fail("Engine A/B MASTER_BRIGHT register masks or widths failed");
+    }
+
+    if (display.apply_master_brightness(0u, UINT16_C(0x0010)) !=
+            UINT16_C(0x0010) ||
+        display.apply_master_brightness(1u, UINT16_C(0x0010)) !=
+            UINT16_C(0x0000) ||
+        display.write(
+            NDS_ARM9, engine_a_master_bright, 2u,
+            UINT16_C(0x4008)) != Status::Ok ||
+        display.apply_master_brightness(0u, UINT16_C(0x0010)) !=
+            UINT16_C(0x0018) ||
+        display.write(
+            NDS_ARM9, engine_a_master_bright, 2u,
+            UINT16_C(0x8008)) != Status::Ok ||
+        display.apply_master_brightness(0u, UINT16_C(0x0010)) !=
+            UINT16_C(0x0008) ||
+        display.write(
+            NDS_ARM9, engine_a_master_bright, 2u,
+            UINT16_C(0xC01F)) != Status::Ok ||
+        display.apply_master_brightness(0u, UINT16_C(0x0010)) !=
+            UINT16_C(0x0010)) {
+        return fail("MASTER_BRIGHT RGB555 conversion, factor clamp or reserved-mode behavior failed");
+    }
+
+    if (display.write(
+            NDS_ARM9, engine_a_master_bright, 2u,
+            UINT16_C(0x401F)) != Status::Ok ||
+        display.apply_master_brightness(0u, UINT16_C(0x0000)) !=
+            UINT16_C(0x7FFF) ||
+        display.write(
+            NDS_ARM9, engine_a_master_bright, 2u,
+            UINT16_C(0x0000)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, engine_b_master_bright, 2u,
+            UINT16_C(0x0000)) != Status::Ok) {
+        return fail("MASTER_BRIGHT full-scale output or independent engine reset failed");
+    }
+
     constexpr uint16_t engine_a_bg_values[] = {
         UINT16_C(0xD012), UINT16_C(0xA345),
         UINT16_C(0xB678), UINT16_C(0xC9AB)

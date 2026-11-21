@@ -605,10 +605,19 @@ extern "C" int oracis_host_runtime_render_scanline(
     const uint32_t dispcnt =
         machine.display_control().dispcnt(engine_index);
     const uint32_t display_mode = (dispcnt >> 16u) & UINT32_C(3);
+    const auto apply_master_brightness =
+        [&machine, engine_index](uint16_t *pixels) noexcept {
+            for (uint32_t x = 0u; x < 256u; ++x) {
+                pixels[x] =
+                    machine.display_control().apply_master_brightness(
+                        engine_index, pixels[x]);
+            }
+        };
 
-    /* DISPCNT display mode 0 blanks either LCD to white. */
+    /* Master brightness is a post-output stage shared by every display mode. */
     if (display_mode == 0u) {
         std::fill_n(rgb555, 256u, UINT16_C(0x7FFF));
+        apply_master_brightness(rgb555);
         return ORACIS_HOST_RUNTIME_OK;
     }
 
@@ -632,6 +641,7 @@ extern "C" int oracis_host_runtime_render_scanline(
             next_line[x] = static_cast<uint16_t>(
                 pixel.value & UINT32_C(0x7FFF));
         }
+        apply_master_brightness(next_line.data());
         std::copy(next_line.begin(), next_line.end(), rgb555);
         return ORACIS_HOST_RUNTIME_OK;
     }
@@ -657,6 +667,7 @@ extern "C" int oracis_host_runtime_render_scanline(
             }
             return ORACIS_HOST_RUNTIME_VIDEO_ERROR;
         }
+        apply_master_brightness(rgb555);
         return ORACIS_HOST_RUNTIME_OK;
     }
 
@@ -686,6 +697,7 @@ extern "C" int oracis_host_runtime_render_scanline(
     for (std::size_t x = 0u; x < composed.size(); ++x) {
         rgb555[x] = composed[x].rgb555;
     }
+    apply_master_brightness(rgb555);
     return ORACIS_HOST_RUNTIME_OK;
 }
 

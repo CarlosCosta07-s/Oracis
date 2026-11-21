@@ -262,6 +262,23 @@ int main(void)
         return 1;
     }
 
+    /* MASTER_BRIGHT is applied after the ordinary BG/OBJ compositor. */
+    bus_write_u16(UINT32_C(0x0400006C), UINT16_C(0x4010));
+    bus_write_u16(UINT32_C(0x0400106C), UINT16_C(0x4010));
+    if (oracis_host_runtime_render_scanline(
+            0u, 0u, main_scanline, 256u, &video_report) !=
+            ORACIS_HOST_RUNTIME_OK ||
+        main_scanline[0] != UINT16_C(0x7FFF) ||
+        oracis_host_runtime_render_scanline(
+            1u, 191u, sub_scanline, 256u, &video_report) !=
+            ORACIS_HOST_RUNTIME_OK ||
+        sub_scanline[255] != UINT16_C(0x7FFF)) {
+        fprintf(stderr, "C host bridge did not apply engine-specific MASTER_BRIGHT after composition\n");
+        return 1;
+    }
+    bus_write_u16(UINT32_C(0x0400006C), UINT16_C(0));
+    bus_write_u16(UINT32_C(0x0400106C), UINT16_C(0));
+
     /* DISPCNT mode 2 selects a raw RGB555 image from VRAM A-D. */
     bus_write_u8(UINT32_C(0x04000240), UINT8_C(0x80)); /* VRAM A: LCDC */
     bus_write_u8(UINT32_C(0x04000241), UINT8_C(0x80)); /* VRAM B: LCDC */
@@ -299,6 +316,17 @@ int main(void)
         return 1;
     }
 
+    /* Master brightness also applies to the direct VRAM display path. */
+    bus_write_u16(UINT32_C(0x0400006C), UINT16_C(0x8010));
+    if (oracis_host_runtime_render_scanline(
+            0u, 0u, main_scanline, 256u, &video_report) !=
+            ORACIS_HOST_RUNTIME_OK ||
+        main_scanline[0] != UINT16_C(0)) {
+        fprintf(stderr, "C host bridge skipped MASTER_BRIGHT in direct VRAM mode\n");
+        return 1;
+    }
+    bus_write_u16(UINT32_C(0x0400006C), UINT16_C(0));
+
     /* An unallocated source bank fails closed and leaves caller pixels intact. */
     bus_write_u8(UINT32_C(0x04000241), 0u);
     for (unsigned x = 0u; x < 256u; ++x) main_scanline[x] = UINT16_C(0x4321);
@@ -313,9 +341,26 @@ int main(void)
         return 1;
     }
 
-    /* Display mode 0 is a white screen on both LCDs. */
+    /* Display-off white is also fed through each engine's master stage. */
     bus_write_u32(UINT32_C(0x04000000), 0u);
     bus_write_u32(UINT32_C(0x04001000), 0u);
+    bus_write_u16(UINT32_C(0x0400006C), UINT16_C(0x8010));
+    bus_write_u16(UINT32_C(0x0400106C), UINT16_C(0x8010));
+    if (oracis_host_runtime_render_scanline(
+            0u, 0u, main_scanline, 256u, &video_report) !=
+            ORACIS_HOST_RUNTIME_OK ||
+        main_scanline[0] != UINT16_C(0) ||
+        main_scanline[255] != UINT16_C(0) ||
+        oracis_host_runtime_render_scanline(
+            1u, 191u, sub_scanline, 256u, &video_report) !=
+            ORACIS_HOST_RUNTIME_OK ||
+        sub_scanline[0] != UINT16_C(0) ||
+        sub_scanline[255] != UINT16_C(0)) {
+        fprintf(stderr, "C host bridge did not apply MASTER_BRIGHT to display-off output\n");
+        return 1;
+    }
+    bus_write_u16(UINT32_C(0x0400006C), UINT16_C(0));
+    bus_write_u16(UINT32_C(0x0400106C), UINT16_C(0));
     if (oracis_host_runtime_render_scanline(
             0u, 0u, main_scanline, 256u, &video_report) !=
             ORACIS_HOST_RUNTIME_OK ||

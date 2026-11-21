@@ -35,6 +35,7 @@ public:
     static constexpr uint32_t BldcntOffset = UINT32_C(0x0050);
     static constexpr uint32_t BldalphaOffset = UINT32_C(0x0052);
     static constexpr uint32_t BldyOffset = UINT32_C(0x0054);
+    static constexpr uint32_t MasterBrightnessOffset = UINT32_C(0x006C);
     static constexpr uint32_t MainMemoryDisplayFifoAddress =
         UINT32_C(0x04000068);
     static constexpr uint32_t MainMemoryDisplayFifoCapacityWords = 4u;
@@ -50,6 +51,7 @@ public:
     static constexpr uint16_t BlendControlMask = UINT16_C(0x3FFF);
     static constexpr uint16_t BlendAlphaMask = UINT16_C(0x1F1F);
     static constexpr uint16_t BlendYMask = UINT16_C(0x001F);
+    static constexpr uint16_t MasterBrightnessMask = UINT16_C(0xC01F);
 
     struct BgScrollState {
         uint16_t horizontal = 0u;
@@ -135,6 +137,9 @@ public:
     }
     bool installed() const noexcept { return installed_; }
     uint32_t dispcnt(unsigned engine_index) const noexcept;
+    uint16_t master_brightness(unsigned engine_index) const noexcept;
+    uint16_t apply_master_brightness(
+        unsigned engine_index, uint16_t rgb555) const noexcept;
     uint16_t bg_control(
         unsigned engine_index, unsigned bg_index) const noexcept;
     uint16_t current_scanline() const noexcept { return vcount_; }
@@ -149,6 +154,7 @@ public:
 private:
     struct EngineState {
         uint32_t dispcnt = 0u;
+        uint16_t master_brightness = 0u;
         std::array<uint16_t, BgCount> bgcnt{};
         std::array<uint16_t, BgCount> bg_hofs{};
         std::array<uint16_t, BgCount> bg_vofs{};

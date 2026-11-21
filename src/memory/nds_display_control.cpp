@@ -143,6 +143,48 @@ uint32_t NdsDisplayControl::dispcnt(unsigned engine_index) const noexcept
     return engines_[engine_index].dispcnt;
 }
 
+uint16_t NdsDisplayControl::master_brightness(
+    unsigned engine_index) const noexcept
+{
+    if (engine_index >= engines_.size()) return 0u;
+    return engines_[engine_index].master_brightness;
+}
+
+uint16_t NdsDisplayControl::apply_master_brightness(
+    unsigned engine_index, uint16_t rgb555) const noexcept
+{
+    if (engine_index >= engines_.size()) {
+        return static_cast<uint16_t>(rgb555 & UINT16_C(0x7FFF));
+    }
+
+    const uint16_t control = engines_[engine_index].master_brightness;
+    const unsigned mode = static_cast<unsigned>((control >> 14u) & 3u);
+    const unsigned factor = std::min<unsigned>(
+        static_cast<unsigned>(control & UINT16_C(0x001F)), 16u);
+    const uint16_t pixel = static_cast<uint16_t>(rgb555 & UINT16_C(0x7FFF));
+    if ((mode != 1u && mode != 2u) || factor == 0u) return pixel;
+
+    uint16_t output = 0u;
+    for (unsigned channel = 0u; channel < 3u; ++channel) {
+        const unsigned shift = channel * 5u;
+        const unsigned input5 = (pixel >> shift) & 31u;
+        /* Expand RGB555 to the DS output stage's 6-bit channel domain. */
+        const unsigned input6 = (input5 << 1u) | (input5 >> 4u);
+        const unsigned numerator = mode == 1u
+            ? (63u - input6) * factor
+            : input6 * factor;
+        const unsigned adjustment = (numerator + 8u) / 16u;
+        const unsigned output6 = mode == 1u
+            ? std::min<unsigned>(63u, input6 + adjustment)
+            : (input6 >= adjustment ? input6 - adjustment : 0u);
+        /* Convert the 6-bit output back to RGB555 with nearest rounding. */
+        const unsigned output5 = (output6 * 31u + 31u) / 63u;
+        output = static_cast<uint16_t>(
+            output | static_cast<uint16_t>(output5 << shift));
+    }
+    return output;
+}
+
 uint16_t NdsDisplayControl::bg_control(
     unsigned engine_index, unsigned bg_index) const noexcept
 {
@@ -229,7 +271,8 @@ bool NdsDisplayControl::locate_engine_register(
            register_offset == MosaicOffset ||
            register_offset == BldcntOffset ||
            register_offset == BldalphaOffset ||
-           register_offset == BldyOffset;
+           register_offset == BldyOffset ||
+           register_offset == MasterBrightnessOffset;
 }
 
 bool NdsDisplayControl::is_vblank_line(uint16_t scanline) noexcept
@@ -371,6 +414,11 @@ ReadResult NdsDisplayControl::read(
         return {Status::PermissionDenied, 0u}; /* WIN0H/WIN1H/WIN0V/WIN1V are write-only. */
     }
 
+    if (offset == MasterBrightnessOffset) {
+        if (width != 2u) return {Status::InvalidWidth, 0u};
+        return {Status::Ok, engine.master_brightness};
+    }
+
     const WindowBlendState &effects = engine.window_blend;
     if (width != 2u) return {Status::InvalidWidth, 0u};
     switch (offset) {
@@ -486,6 +534,13 @@ Status NdsDisplayControl::write(
             }
         }
         engine.dispcnt = next_value;
+        return Status::Ok;
+    }
+
+    if (offset == MasterBrightnessOffset) {
+        if (width != 2u) return Status::InvalidWidth;
+        engine.master_brightness =
+            static_cast<uint16_t>(value) & MasterBrightnessMask;
         return Status::Ok;
     }
 
