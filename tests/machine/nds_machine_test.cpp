@@ -2310,6 +2310,169 @@ int main()
         NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 0u);
     bus_write_u16(oracis::memory::NdsIpcControl::SyncAddress, 0u);
 
+    /*
+     * IntrWait clears a stale IF bit, sleeps this CPU without stalling the
+     * shared bus clock, and resumes on a fresh Timer 0 overflow.
+     */
+    constexpr uint32_t intrwait_timer_irq = UINT32_C(1) << 3u;
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 could not be selected for IntrWait test");
+    }
+    arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
+    arm9->R[15] = UINT32_C(0x02007000);
+    if (machine.timer_control().write(
+            NDS_ARM9, NdsTimerControl::Timer0CounterAddress + 2u,
+            2u, 0u) != oracis::memory::Status::Ok ||
+        machine.timer_control().write(
+            NDS_ARM9, NdsTimerControl::Timer0CounterAddress,
+            2u, UINT32_C(0xFFFF)) != oracis::memory::Status::Ok ||
+        machine.timer_control().write(
+            NDS_ARM9, NdsTimerControl::Timer0CounterAddress + 2u,
+            2u, UINT32_C(0x00C0)) != oracis::memory::Status::Ok ||
+        machine.interrupt_control().write(
+            NDS_ARM9, NdsInterruptControl::IfAddress, 4u, UINT32_MAX) !=
+            oracis::memory::Status::Ok ||
+        machine.interrupt_control().write(
+            NDS_ARM9, NdsInterruptControl::IeAddress, 4u,
+            intrwait_timer_irq) != oracis::memory::Status::Ok ||
+        machine.interrupt_control().write(
+            NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 0u) !=
+            oracis::memory::Status::Ok ||
+        !machine.interrupt_control().request_irq(
+            NDS_ARM9, intrwait_timer_irq)) {
+        return fail("IntrWait test could not arm Timer 0 or seed stale IF");
+    }
+
+    InterruptWaitFixture intrwait_fixture{};
+    intrwait_fixture.swi_imm = UINT32_C(0x04);
+    intrwait_fixture.clear_old_flags = 1u;
+    intrwait_fixture.wait_mask = intrwait_timer_irq;
+    if (machine.run_dual_core_round(
+            1u, &execute_interrupt_wait_slice, nullptr,
+            &intrwait_fixture) != NdsMachineStatus::Ok ||
+        !intrwait_fixture.requested ||
+        intrwait_fixture.calls[0] != 1u ||
+        intrwait_fixture.calls[1] != 1u ||
+        machine.cpu_is_halted(NDS_ARM9) ||
+        (machine.interrupt_control().read(
+            NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value &
+            intrwait_timer_irq) == 0u ||
+        (arm9->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_IRQ ||
+        arm9->banked_spsr[ARM_BANK_IRQ] != ORACIS_ARM_MODE_SYSTEM ||
+        arm9->R[14] != UINT32_C(0x02007004) ||
+        arm9->R[15] != UINT32_C(0xFFFF0018) ||
+        machine.global_bus_cycles() != 12u) {
+        return fail("IntrWait did not clear stale IF and resume on Timer 0 IRQ");
+    }
+
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 could not be selected after IntrWait IRQ");
+    }
+    runtime_exception_return(UINT32_C(0x02007000));
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IfAddress, 4u, intrwait_timer_irq);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IeAddress, 4u, 0u);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 0u);
+    machine.timer_control().write(
+        NDS_ARM9, NdsTimerControl::Timer0CounterAddress + 2u, 2u, 0u);
+
+    /*
+     * IntrWait with clear_old_flags=0 must preserve and return immediately
+     * for an IF flag that is already active before the SWI.
+     */
+    if (!machine.interrupt_control().request_irq(
+            NDS_ARM9, intrwait_timer_irq)) {
+        return fail("IntrWait KEEP test could not seed existing IF");
+    }
+    arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
+    arm9->R[15] = UINT32_C(0x02007004);
+    InterruptWaitFixture intrwait_keep_fixture{};
+    intrwait_keep_fixture.swi_imm = UINT32_C(0x04);
+    intrwait_keep_fixture.clear_old_flags = 0u;
+    intrwait_keep_fixture.wait_mask = intrwait_timer_irq;
+    if (machine.run_dual_core_round(
+            1u, &execute_interrupt_wait_slice, nullptr,
+            &intrwait_keep_fixture) != NdsMachineStatus::Ok ||
+        !intrwait_keep_fixture.requested ||
+        intrwait_keep_fixture.calls[0] != 1u ||
+        machine.cpu_is_halted(NDS_ARM9) ||
+        (machine.interrupt_control().read(
+            NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value &
+            intrwait_timer_irq) == 0u ||
+        (arm9->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_SYSTEM ||
+        machine.global_bus_cycles() != 13u) {
+        return fail("IntrWait KEEP did not preserve an already pending IF flag");
+    }
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IfAddress, 4u, intrwait_timer_irq);
+
+    /*
+     * VBlankIntrWait discards a stale VBlank flag, then waits for the actual
+     * display controller line-192 edge rather than a fabricated IF request.
+     */
+    constexpr uint32_t vblank_irq = UINT32_C(1);
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9) ||
+        machine.display_control().write(
+            NDS_ARM9, NdsDisplayControl::DispstatAddress, 2u,
+            UINT32_C(1) << 3u) != oracis::memory::Status::Ok ||
+        machine.display_control().write(
+            NDS_ARM9, NdsDisplayControl::VcountAddress, 2u,
+            UINT32_C(191)) != oracis::memory::Status::Ok ||
+        machine.interrupt_control().write(
+            NDS_ARM9, NdsInterruptControl::IfAddress, 4u, UINT32_MAX) !=
+            oracis::memory::Status::Ok ||
+        machine.interrupt_control().write(
+            NDS_ARM9, NdsInterruptControl::IeAddress, 4u, vblank_irq) !=
+            oracis::memory::Status::Ok ||
+        machine.interrupt_control().write(
+            NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 0u) !=
+            oracis::memory::Status::Ok ||
+        !machine.interrupt_control().request_irq(NDS_ARM9, vblank_irq)) {
+        return fail("VBlankIntrWait test could not arm DISPSTAT or seed stale IF");
+    }
+
+    arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
+    arm9->R[15] = UINT32_C(0x02007008);
+    const uint32_t vblank_cycles =
+        NdsDisplayControl::CyclesPerScanline -
+        machine.display_control().scanline_cycle() +
+        NdsDisplayControl::CyclesPerScanline;
+    InterruptWaitFixture vblank_wait_fixture{};
+    vblank_wait_fixture.swi_imm = UINT32_C(0x05);
+    if (machine.run_dual_core_round(
+            vblank_cycles, &execute_interrupt_wait_slice, nullptr,
+            &vblank_wait_fixture) != NdsMachineStatus::Ok ||
+        !vblank_wait_fixture.requested ||
+        vblank_wait_fixture.calls[0] != 1u ||
+        vblank_wait_fixture.calls[1] != 1u ||
+        machine.display_control().current_scanline() !=
+            NdsDisplayControl::VisibleScanlines ||
+        (machine.interrupt_control().read(
+            NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value &
+            vblank_irq) == 0u ||
+        machine.cpu_is_halted(NDS_ARM9) ||
+        (arm9->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_IRQ ||
+        arm9->banked_spsr[ARM_BANK_IRQ] != ORACIS_ARM_MODE_SYSTEM ||
+        arm9->R[14] != UINT32_C(0x0200700C) ||
+        arm9->R[15] != UINT32_C(0xFFFF0018)) {
+        return fail("VBlankIntrWait did not resume on the real line-192 edge");
+    }
+
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 could not be selected after VBlankIntrWait IRQ");
+    }
+    runtime_exception_return(UINT32_C(0x02007008));
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IfAddress, 4u, vblank_irq);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IeAddress, 4u, 0u);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 0u);
+    machine.display_control().write(
+        NDS_ARM9, NdsDisplayControl::DispstatAddress, 2u, 0u);
+
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
         return fail("ARM9 could not be selected after native boundary IRQ test");
     }
