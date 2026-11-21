@@ -518,7 +518,10 @@ int main(){
     card.key1_command_counter()!=secure_counter)
      return fail("KEY1 secure-area command did not validate its block, i/j and k");
  if(card.describe_key1_reply(decoded_key1,key1_reply_plan)!=Status::Ok||
-    key1_reply_plan.payload_bytes!=UINT32_C(0x10A8)||
+    key1_reply_plan.payload_bytes!=0u||
+    key1_reply_plan.aggregate_payload_bytes!=UINT32_C(0x10A8)||
+    key1_reply_plan.aggregate_data_transmissions!=8u||
+    key1_reply_plan.transmission_index!=1u||
     key1_reply_plan.secure_block_bytes!=UINT32_C(0x200)||
     key1_reply_plan.secure_block_count!=8u||
     key1_reply_plan.secure_inter_block_zero_bytes!=UINT32_C(0x18)||
@@ -534,8 +537,13 @@ int main(){
  for(uint32_t repeat=0u;repeat<8u;++repeat){
   if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
      card.key1_command_counter()!=secure_counter||
+     card.describe_key1_reply(decoded_key1,key1_reply_plan)!=Status::Ok||
+     key1_reply_plan.payload_bytes!=UINT32_C(0x200)||
+     key1_reply_plan.transmission_index!=static_cast<uint8_t>(repeat+2u)||
+     key1_reply_plan.post_payload_zero_bytes!=
+         (repeat<7u?UINT32_C(0x18):0u)||
      card.complete_key1_command_gap(0u)!=Status::Ok)
-      return fail("newer cart did not accept all eight secure-area data repetitions and gaps");
+      return fail("newer cart did not describe and accept all eight secure-area data repetitions and gaps");
  }
  if(card.decode_next_key1_command(decoded_key1)!=Status::PermissionDenied)
      return fail("newer cart accepted more than nine secure-area command transmissions");
@@ -552,14 +560,20 @@ int main(){
     card.key1_random_l()!=UINT16_C(0x1234)||
     !card.key1_random_l_initialized()||
     card.describe_key1_reply(decoded_key1,key1_reply_plan)!=Status::Ok||
-    key1_reply_plan.payload_bytes!=4u||
+    key1_reply_plan.payload_bytes!=0u||
+    key1_reply_plan.aggregate_payload_bytes!=4u||
+    key1_reply_plan.aggregate_data_transmissions!=1u||
+    key1_reply_plan.transmission_index!=1u||
     !key1_reply_plan.payload_key2_encrypted||
     card.complete_key1_command_gap(0u)!=Status::Ok)
      return fail("KEY1 0x10 did not validate llll or complete its first gap");
  card.advance_bus_cycles(key1_secure_delay);
  if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
+    card.describe_key1_reply(decoded_key1,key1_reply_plan)!=Status::Ok||
+    key1_reply_plan.payload_bytes!=4u||
+    key1_reply_plan.transmission_index!=2u||
     card.complete_key1_command_gap(0u)!=Status::Ok)
-     return fail("KEY1 0x10 second transmission/gap failed after secure delay");
+     return fail("KEY1 0x10 second transmission did not expose its four-byte payload/gap");
 
  const uint32_t disable_counter=chip_id_counter+1u;
  auto wrong_l_disable=make_key1_command(
@@ -660,6 +674,7 @@ int main(){
     decoded_key1.kind!=NdsGameCardKey1CommandKind::ReadChipId||
     card.describe_key1_reply(decoded_key1,old_key1_reply_plan)!=Status::Ok||
     old_key1_reply_plan.payload_bytes!=4u||
+    old_key1_reply_plan.aggregate_payload_bytes!=4u||
     !old_key1_reply_plan.preamble_clocked||
     expected_old_key2.apply_keystream(expected_old_second_gap.data(),
         static_cast<uint32_t>(expected_old_second_gap.size()))!=Status::Ok||
@@ -680,6 +695,8 @@ int main(){
  if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
     card.describe_key1_reply(decoded_key1,old_key1_reply_plan)!=Status::Ok||
     old_key1_reply_plan.payload_bytes!=UINT32_C(0x1000)||
+    old_key1_reply_plan.aggregate_payload_bytes!=UINT32_C(0x1000)||
+    old_key1_reply_plan.aggregate_data_transmissions!=1u||
     old_key1_reply_plan.secure_block_bytes!=UINT32_C(0x1000)||
     old_key1_reply_plan.secure_block_count!=1u||
     old_key1_reply_plan.secure_inter_block_zero_bytes!=0u||
