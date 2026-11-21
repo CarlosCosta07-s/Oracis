@@ -1,5 +1,6 @@
 #include "oracis/memory/nds_dma_control.hpp"
 #include "oracis/memory/nds_display_control.hpp"
+#include "oracis/memory/nds_game_card_control.hpp"
 
 namespace oracis::memory {
 
@@ -163,7 +164,12 @@ Status NdsDmaControl::execute_transfer(
     const bool fill_source = cpu == NDS_ARM9 && source_mode == 2u &&
         state.current_source ==
             FirstFillAddress + channel_index * UINT32_C(4);
-    if (!fill_source) {
+    const uint32_t card_timing = cpu == NDS_ARM9 ? 5u : 2u;
+    const bool game_card_source = game_card_control_ != nullptr &&
+        source_mode == 2u && width == 4u && count == 1u &&
+        state.current_source == NdsGameCardControl::DataAddress &&
+        start_timing(cpu, control) == card_timing;
+    if (!fill_source && !game_card_source) {
         const Status source_status =
             memory_.validate_read(cpu, source_base, source_span);
         if (source_status != Status::Ok) return source_status;
@@ -182,7 +188,9 @@ Status NdsDmaControl::execute_transfer(
                     ? (state.fill_data & UINT32_C(0xFFFF))
                     : state.fill_data
             }
-            : memory_.read(cpu, source, width);
+            : (game_card_source
+                ? game_card_control_->read_data(cpu)
+                : memory_.read(cpu, source, width));
         if (!value) return value.status;
         const Status write_status =
             memory_.write(cpu, destination, width, value.value);
@@ -273,6 +281,32 @@ Status NdsDmaControl::trigger_display_sync(NdsCpu cpu) noexcept
     /* ARM7 timing 3 is channel-specific wireless/GBA-slot DMA, not LCD sync. */
     if (cpu != NDS_ARM9) return Status::Ok;
     return trigger_event(cpu, 3u);
+}
+
+Status NdsDmaControl::trigger_game_card(NdsCpu cpu) noexcept
+{
+    if (!valid_cpu(cpu)) return Status::InvalidCpu;
+    if (game_card_control_ == nullptr || !game_card_control_->data_ready() ||
+        game_card_control_->owner_cpu() != cpu) return Status::Ok;
+    const uint32_t timing = cpu == NDS_ARM9 ? 5u : 2u;
+    for (unsigned index = 0u; index < ChannelCount; ++index) {
+        Channel &channel = channels_[cpu_index(cpu)][index];
+        if ((channel.control & EnableMask) == 0u ||
+            start_timing(cpu, channel.control) != timing) continue;
+        const uint32_t source_mode = (channel.control >> SourceControlShift) & 3u;
+        const uint32_t width = (channel.control & WordTransferMask) ? 4u : 2u;
+        const uint32_t count = transfer_count(cpu,index,channel.control);
+        if (source_mode != 2u || width != 4u || count != 1u ||
+            channel.current_source != NdsGameCardControl::DataAddress) {
+            channel.control &= ~EnableMask;
+            return Status::InvalidRegion;
+        }
+        const Status result = execute_transfer(cpu,index,channel,false);
+        if (result != Status::Ok) channel.control &= ~EnableMask;
+        /* A DRQ request feeds only the first matching channel. */
+        return result;
+    }
+    return Status::Ok;
 }
 
 Status NdsDmaControl::trigger_main_memory_display() noexcept
@@ -415,7 +449,13 @@ Status NdsDmaControl::write(
     channel.current_source = channel.source;
     channel.current_destination = channel.destination;
 
-    if (start_timing(cpu, candidate) != 0u) return Status::Ok;
+    if (start_timing(cpu, candidate) != 0u) {
+        const uint32_t card_timing = cpu == NDS_ARM9 ? 5u : 2u;
+        if (start_timing(cpu,candidate) == card_timing &&
+            game_card_control_ != nullptr && game_card_control_->data_ready())
+            return trigger_game_card(cpu);
+        return Status::Ok;
+    }
 
     const Status result = execute_transfer(
         cpu, channel_index, channel, true);

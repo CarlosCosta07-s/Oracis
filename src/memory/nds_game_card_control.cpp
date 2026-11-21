@@ -1,4 +1,5 @@
 #include "oracis/memory/nds_game_card_control.hpp"
+#include "oracis/memory/nds_dma_control.hpp"
 namespace oracis::memory {
 namespace {
 constexpr uint32_t kWritable=UINT32_C(0x7F7F7FFF),kBlockMask=7u,kStartBytes=8u,kWordBytes=4u,kReadCommand=0xB7u;
@@ -44,7 +45,17 @@ ReadResult NdsGameCardControl::read_data(NdsCpu cpu) noexcept{
  return{Status::Ok,v};
 }
 void NdsGameCardControl::finish_transfer() noexcept{busy_=false;data_ready_=false;cycles_until_data_=0u;if(aux_spi_control_&AuxSpiIrqEnableMask)(void)interrupts_.request_irq(owner_cpu_,GameCardTransferIrqMask);}
-void NdsGameCardControl::advance_bus_cycles(uint64_t cycles) noexcept{if(!installed_||!busy_||data_ready_||cycles==0u)return;if(cycles<cycles_until_data_){cycles_until_data_-=cycles;return;}cycles_until_data_=0u;data_ready_=true;}
+void NdsGameCardControl::advance_bus_cycles(uint64_t cycles) noexcept{
+ if(!installed_||cycles==0u)return;
+ while(busy_&&!data_ready_){
+  if(cycles<cycles_until_data_){cycles_until_data_-=cycles;return;}
+  cycles-=cycles_until_data_;cycles_until_data_=0u;data_ready_=true;
+  if(dma_control_!=nullptr)(void)dma_control_->trigger_game_card(owner_cpu_);
+  /* If DMA did not consume the word, DRQ remains visible to the guest CPU. */
+  if(data_ready_)return;
+  if(cycles==0u)return;
+ }
+}
 ReadResult NdsGameCardControl::read(NdsCpu cpu,uint32_t a,uint32_t w) noexcept{
  if(!installed_)return{Status::Unmapped,0u};if(!valid_cpu(cpu))return{Status::InvalidCpu,0u};
  if(a==AuxSpiControlAddress){if(w==2u||w==4u)return{Status::Ok,aux_spi_control_};return{Status::InvalidWidth,0u};}

@@ -6,6 +6,7 @@
 #include "oracis/memory/guest_memory.hpp"
 #include "oracis/memory/nds_interrupt_control.hpp"
 namespace oracis::memory {
+class NdsDmaControl;
 class NdsGameCardControl final {
 public:
  static constexpr uint32_t AuxSpiControlAddress=UINT32_C(0x040001A0);
@@ -37,6 +38,7 @@ public:
  ReadResult read(NdsCpu cpu,uint32_t address,uint32_t width) noexcept;
  Status write(NdsCpu cpu,uint32_t address,uint32_t width,uint32_t value) noexcept;
  void advance_bus_cycles(uint64_t cycles) noexcept;
+ void attach_dma_control(NdsDmaControl &dma) noexcept { dma_control_ = &dma; }
  ReadResult read_data(NdsCpu cpu) noexcept;
  void reset_transfer() noexcept;
  bool installed() const noexcept{return installed_;}
@@ -55,6 +57,7 @@ private:
  Status start_transfer(NdsCpu cpu) noexcept;
  void finish_transfer() noexcept;
  NdsInterruptControl &interrupts_;
+ NdsDmaControl *dma_control_=nullptr;
  const uint8_t *image_=nullptr;
  uint32_t image_size_=0u;
  std::array<uint8_t,CommandBytes> command_{};

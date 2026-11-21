@@ -18,6 +18,7 @@
 namespace oracis::memory {
 
 class NdsDisplayControl;
+class NdsGameCardControl;
 
 class NdsDmaControl final {
 public:
@@ -58,6 +59,9 @@ public:
     Status trigger_display_sync(NdsCpu cpu) noexcept;
     /* Fills the empty main-memory display FIFO with one four-word burst. */
     Status trigger_main_memory_display() noexcept;
+    /* Services one DRQ word: ARM9 timing 5 or ARM7 timing 2. */
+    Status trigger_game_card(NdsCpu cpu) noexcept;
+    void attach_game_card_control(NdsGameCardControl &card) noexcept { game_card_control_ = &card; }
     void attach_display_control(NdsDisplayControl &display) noexcept {
         display_control_ = &display;
     }
@@ -101,6 +105,7 @@ private:
     GuestMemory &memory_;
     NdsInterruptControl &interrupts_;
     NdsDisplayControl *display_control_ = nullptr;
+    NdsGameCardControl *game_card_control_ = nullptr;
     std::array<std::array<Channel, ChannelCount>, 2> channels_{};
 };
 
