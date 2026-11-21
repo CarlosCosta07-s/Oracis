@@ -443,6 +443,8 @@ int main(){
     card.busy()||!card.key1_command_mode()||
     card.key1_command_counter()!=key1_counter)
      return fail("four-byte 3C HIGH-Z response did not complete KEY1 activation");
+ if(card.set_chip_id(UINT32_C(0x000000C2))!=Status::PermissionDenied)
+     return fail("Chip ID protocol variant changed after KEY1 activation");
  if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)
      return fail("could not clear four-byte KEY1 activation IRQ");
  /* The stateful KEY1 path accepts a new command at k+1 and bounded repeats
