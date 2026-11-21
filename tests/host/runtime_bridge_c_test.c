@@ -269,10 +269,10 @@ int main(void)
     bus_write_u32(UINT32_C(0x04000400), UINT32_C(0x10)); /* MTX_MODE */
     bus_write_u32(UINT32_C(0x04000400), UINT32_C(1));    /* Position matrix */
     const uint32_t gx_status = bus_read_u32(UINT32_C(0x04000600));
-    if (((gx_status >> 16u) & UINT32_C(0x1FF)) != 1u ||
-        (gx_status & (UINT32_C(1) << 26u)) != 0u ||
+    if (((gx_status >> 16u) & UINT32_C(0x1FF)) != 0u ||
+        (gx_status & (UINT32_C(1) << 26u)) == 0u ||
         (gx_status & (UINT32_C(1) << 27u)) == 0u) {
-        fprintf(stderr, "C host bus did not deliver GXFIFO writes to GXSTAT state\\n");
+        fprintf(stderr, "C host bus did not deliver GXFIFO writes to the four-entry PIPE\\n");
         return 1;
     }
 
