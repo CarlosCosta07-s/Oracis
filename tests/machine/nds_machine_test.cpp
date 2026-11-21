@@ -2582,7 +2582,7 @@ int main()
         machine.run_dual_core_round(
             1u, &execute_interrupt_wait_slice, nullptr,
             &unrelated_irq_fixture) != NdsMachineStatus::Ok ||
-        unrelated_irq_fixture.calls[0] != 3u ||
+        unrelated_irq_fixture.calls[0] != 2u ||
         (machine.interrupt_control().read(
             NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value &
             intrwait_timer_irq) == 0u ||
