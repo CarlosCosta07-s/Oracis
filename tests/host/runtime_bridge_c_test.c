@@ -37,9 +37,9 @@ int main(void)
         return 1;
     }
 
-    uint8_t synthetic_game_card[0x200] = {0};
-    synthetic_game_card[0] = UINT8_C(0xA5);
-    synthetic_game_card[1] = UINT8_C(0x5A);
+    uint8_t synthetic_game_card[0x8200] = {0};
+    synthetic_game_card[0x8000] = UINT8_C(0xA5);
+    synthetic_game_card[0x8001] = UINT8_C(0x5A);
     if (oracis_host_runtime_mount_game_card_image(NULL, 0x200u) !=
             ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID ||
         oracis_host_runtime_mount_game_card_image(
@@ -53,7 +53,7 @@ int main(void)
         return 1;
     }
     /* The bridge owns a copy: mutate the caller buffer before issuing a read. */
-    synthetic_game_card[0] = 0u;
+    synthetic_game_card[0x8000] = 0u;
 
 
     if (bus_read_u16(UINT32_C(0x04000130)) != UINT16_C(0x03FE)) {
@@ -297,7 +297,7 @@ int main(void)
     }
     bus_write_u16(UINT32_C(0x040001A0), UINT16_C(0xC000));
     const uint8_t game_card_command[8] = {
-        UINT8_C(0xB7), 0u, 0u, 0u, 0u, 0u, 0u, 0u
+        UINT8_C(0xB7), 0u, 0u, UINT8_C(0x80), 0u, 0u, 0u, 0u
     };
     for (uint32_t index = 0u; index < 8u; ++index) {
         bus_write_u8(UINT32_C(0x040001A8) + index, game_card_command[index]);

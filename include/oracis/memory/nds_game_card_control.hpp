@@ -17,6 +17,9 @@ public:
  static constexpr uint32_t SeedBytes=12u;
  static constexpr uint32_t DataAddress=UINT32_C(0x04100010);
  static constexpr uint32_t GameCardTransferIrqMask=UINT32_C(1)<<19u;
+ static constexpr uint8_t DummyCommand=UINT8_C(0x9F);
+ static constexpr uint8_t HeaderReadCommand=UINT8_C(0x00);
+ static constexpr uint8_t RomReadCommand=UINT8_C(0xB7);
  static constexpr uint32_t RomCtrlKey2DataMask=UINT32_C(1)<<13u;
  static constexpr uint32_t RomCtrlKey2SeedApplyMask=UINT32_C(1)<<15u;
  static constexpr uint32_t RomCtrlKey2CommandMask=UINT32_C(1)<<22u;
@@ -71,7 +74,7 @@ private:
  uint64_t cycles_until_data_=0u;
  uint32_t cycles_per_byte_=5u;
  NdsCpu owner_cpu_=NDS_ARM9;
- bool reset_released_=false,busy_=false,data_ready_=false,installed_=false;
+ bool reset_released_=false,busy_=false,data_ready_=false,dummy_data_=false,installed_=false;
 };
 }
 #endif
