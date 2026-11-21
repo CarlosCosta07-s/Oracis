@@ -335,4 +335,59 @@ Status NdsGameCardKey1::decrypt_block(
     return Status::Ok;
 }
 
+Status NdsGameCardKey1::decrypt_secure_area(
+    uint8_t *bytes, uint32_t size, bool &identifier_valid) noexcept
+{
+    identifier_valid = false;
+    if (bytes == nullptr) return Status::InvalidRegion;
+    if (size != SecureAreaEncryptedBytes) return Status::InvalidWidth;
+    if (!table_loaded_ || !initialized_) return Status::PermissionDenied;
+
+    const uint32_t saved_id_code = id_code_;
+    const uint32_t saved_level = level_;
+    const uint32_t saved_modulo = modulo_bytes_;
+
+    Status status = initialize(saved_id_code, 2u, 8u);
+    if (status != Status::Ok) return status;
+
+    /* The Secure Area ID is encrypted once with level 2 before the
+     * entire 0x800-byte region receives its level-3 encryption. */
+    status = decrypt_block(bytes, BlockBytes);
+    if (status != Status::Ok) {
+        (void)initialize(saved_id_code, saved_level, saved_modulo);
+        return status;
+    }
+
+    status = initialize(saved_id_code, 3u, 8u);
+    if (status != Status::Ok) {
+        (void)initialize(saved_id_code, saved_level, saved_modulo);
+        return status;
+    }
+
+    for (uint32_t offset = 0u; offset < SecureAreaEncryptedBytes;
+         offset += BlockBytes) {
+        status = decrypt_block(bytes + offset, BlockBytes);
+        if (status != Status::Ok) {
+            (void)initialize(saved_id_code, saved_level, saved_modulo);
+            return status;
+        }
+    }
+
+    constexpr uint8_t expected_identifier[BlockBytes] = {
+        UINT8_C('e'), UINT8_C('n'), UINT8_C('c'), UINT8_C('r'),
+        UINT8_C('y'), UINT8_C('O'), UINT8_C('b'), UINT8_C('j')
+    };
+    identifier_valid = true;
+    for (uint32_t index = 0u; index < BlockBytes; ++index) {
+        if (bytes[index] != expected_identifier[index]) {
+            identifier_valid = false;
+            break;
+        }
+    }
+
+    /* Keep the reusable KEY1 object in the schedule the caller had before
+     * this one-shot Secure Area operation. */
+    return initialize(saved_id_code, saved_level, saved_modulo);
+}
+
 } // namespace oracis::memory
