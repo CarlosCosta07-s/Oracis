@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import re
 import shutil
@@ -18,10 +19,16 @@ import tempfile
 from pathlib import Path
 from typing import Callable
 
-from patch_memory_access_direction import (
-    ADAPTER_IDENTITY,
-    patch_generated_source,
+_PATCHER_PATH = Path(__file__).with_name("patch_memory_access_direction.py")
+_PATCHER_SPEC = importlib.util.spec_from_file_location(
+    "oracis_memory_direction_adapter", _PATCHER_PATH
 )
+if _PATCHER_SPEC is None or _PATCHER_SPEC.loader is None:
+    raise RuntimeError(f"Cannot load memory direction adapter: {_PATCHER_PATH}")
+_PATCHER = importlib.util.module_from_spec(_PATCHER_SPEC)
+_PATCHER_SPEC.loader.exec_module(_PATCHER)
+ADAPTER_IDENTITY = _PATCHER.ADAPTER_IDENTITY
+patch_generated_source = _PATCHER.patch_generated_source
 
 ROOT = Path(__file__).resolve().parents[2]
 EXPECTED_ROM_SHA1 = "0862ec35b24de5c7e2dcb88c9eea0873110d755c"
