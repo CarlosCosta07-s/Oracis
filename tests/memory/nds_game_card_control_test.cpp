@@ -270,11 +270,50 @@ int main(){
  if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
      normal|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::AddressOverflow||card.busy())
      return fail("out-of-range B7 read was not rejected transactionally");
+ /* KEY2 data reads decrypt each returned byte and preserve stream state across commands. */
+ NdsGameCardKey2 expected_key2;
+ if(expected_key2.set_raw_seeds(arm9_raw_seed0,arm9_raw_seed1)!=Status::Ok)
+     return fail("could not prepare independent KEY2 reference stream");
+ uint8_t expected_bytes[8]{};
+ for(uint32_t i=0u;i<8u;++i)expected_bytes[i]=image[0x8000u+i];
+ if(expected_key2.apply_keystream(expected_bytes,4u)!=Status::Ok)
+     return fail("could not advance first KEY2 reference word");
  write_b7(0x8000u);
  if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
-     normal|NdsGameCardControl::RomCtrlKey2DataMask|
-     NdsGameCardControl::RomCtrlStartBusyMask)!=Status::PermissionDenied)
-     return fail("KEY2-encrypted read was incorrectly accepted");
+     small|NdsGameCardControl::RomCtrlKey2DataMask|
+     NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok||!card.busy())
+     return fail("seeded KEY2 data read was not accepted");
+ card.advance_bus_cycles(40u);
+ const uint32_t expected_first=uint32_t(expected_bytes[0])|
+     (uint32_t(expected_bytes[1])<<8u)|(uint32_t(expected_bytes[2])<<16u)|
+     (uint32_t(expected_bytes[3])<<24u);
+ if(bus_read_u32(NdsGameCardControl::DataAddress)!=expected_first||card.busy()||
+    card.key2_bytes_processed()!=4u)
+     return fail("KEY2 data word was not decrypted with the active stream");
+ if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)
+     return fail("could not clear first KEY2 data IRQ");
+ if(expected_key2.apply_keystream(expected_bytes+4u,4u)!=Status::Ok)
+     return fail("could not advance second KEY2 reference word");
+ write_b7(0x8004u);
+ if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+     small|NdsGameCardControl::RomCtrlKey2DataMask|
+     NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok)
+     return fail("second KEY2 data read did not start");
+ card.advance_bus_cycles(40u);
+ const uint32_t expected_second=uint32_t(expected_bytes[4])|
+     (uint32_t(expected_bytes[5])<<8u)|(uint32_t(expected_bytes[6])<<16u)|
+     (uint32_t(expected_bytes[7])<<24u);
+ if(bus_read_u32(NdsGameCardControl::DataAddress)!=expected_second||card.busy()||
+    card.key2_bytes_processed()!=8u)
+     return fail("KEY2 stream did not continue across consecutive card commands");
+ if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)
+     return fail("could not clear second KEY2 data IRQ");
+ write_b7(0x8000u);
+ if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+     small|NdsGameCardControl::RomCtrlKey2DataMask|
+     NdsGameCardControl::RomCtrlKey2CommandMask|
+     NdsGameCardControl::RomCtrlStartBusyMask)!=Status::PermissionDenied||card.busy())
+     return fail("unsupported KEY2 command mode did not remain fail-closed");
  if(!oracis_bus_unbind_game_card_control(&card)||!oracis_bus_unbind_dma_control(&dma)||
     !oracis_bus_unbind_interrupt_control(&irq)||!oracis_bus_unbind_memory(&memory)||
     !oracis_arm_runtime_unbind_cpus(&a9,&a7))return fail("bus teardown failed");
