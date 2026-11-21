@@ -1304,7 +1304,7 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
 {
     const bool owns_runtime =
         runtime_bound_ || power_handler_bound_ || irq_handler_bound_ ||
-        coprocessor_handler_bound_ || bios_memory_handler_bound_
+        coprocessor_handler_bound_ || bios_memory_handler_bound_ ||
         bios_crc16_handler_bound_ || bios_bit_unpack_handler_bound_ ||
         bios_lz77_handler_bound_ || bios_rle_handler_bound_ ||
         bios_huffman_handler_bound_ || bios_diff_handler_bound_ ||
