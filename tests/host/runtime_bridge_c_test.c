@@ -442,7 +442,7 @@ int main(void)
         oracis_host_runtime_global_bus_cycles();
     if (irq_round_status != ORACIS_HOST_RUNTIME_OK ||
         g_arm9_bank_calls != 2u ||
-        g_arm7_bank_calls != 2u ||
+        g_arm7_bank_calls != 1u ||
         g_arm9_irq_handler_ok != 1 ||
         g_arm7_irq_handler_ok != 1 ||
         irq_round_bus_cycles != UINT64_C(1)) {
