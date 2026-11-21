@@ -205,6 +205,8 @@ if(ORACIS_LOCAL_BANK_DIR)
             "$<TARGET_FILE:oracis_machine>"
             "$<TARGET_FILE:oracis_memory>"
             "$<TARGET_FILE:oracis_arm_state>"
+            --report-json
+            "${CMAKE_CURRENT_BINARY_DIR}/oracis_platinum_bank_symbol_audit.json"
             ${_oracis_bank_audit_nm_args}
             ${_oracis_bank_audit_allowlist_args}
         COMMAND_EXPAND_LISTS

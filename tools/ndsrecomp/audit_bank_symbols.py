@@ -8,10 +8,13 @@ local developer validation after compiling the user's locally emitted C banks.
 from __future__ import annotations
 
 import argparse
+import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 from typing import Callable, Sequence
 
 
@@ -133,14 +136,107 @@ def audit_bank_symbols(
     allowed_used = (undefined_symbols - defined_symbols) & allowed_symbols
     unresolved_symbols = undefined_symbols - defined_symbols - allowed_symbols
 
+    providers_by_symbol: dict[str, set[Path]] = {}
+    for provider_path, symbols in defined_by_provider.items():
+        for symbol in symbols:
+            providers_by_symbol.setdefault(symbol, set()).add(provider_path)
+
     return {
         "undefined_by_bank": undefined_by_bank,
+        "defined_by_provider": defined_by_provider,
+        "providers_by_symbol": providers_by_symbol,
         "undefined_symbols": undefined_symbols,
         "defined_symbols": defined_symbols,
         "resolved_symbols": resolved_symbols,
         "allowed_symbols": allowed_used,
         "unresolved_symbols": unresolved_symbols,
     }
+
+
+def build_json_report(report: dict[str, object]) -> dict[str, object]:
+    """Build a deterministic report with exact provider paths for every symbol."""
+    undefined_by_bank = report["undefined_by_bank"]
+    providers_by_symbol = report["providers_by_symbol"]
+    allowed_symbols = report["allowed_symbols"]
+    unresolved_symbols = report["unresolved_symbols"]
+
+    bank_entries = [
+        {
+            "object": str(path),
+            "undefined_symbols": sorted(symbols),
+        }
+        for path, symbols in sorted(
+            undefined_by_bank.items(), key=lambda item: str(item[0])
+        )
+    ]
+
+    symbol_entries = []
+    for symbol in sorted(report["undefined_symbols"]):
+        providers = sorted(
+            str(path) for path in providers_by_symbol.get(symbol, set())
+        )
+        if providers:
+            status = "resolved"
+        elif symbol in allowed_symbols:
+            status = "allowlisted"
+        else:
+            status = "unresolved"
+        symbol_entries.append(
+            {
+                "symbol": symbol,
+                "status": status,
+                "referenced_by": sorted(
+                    str(path)
+                    for path, symbols in undefined_by_bank.items()
+                    if symbol in symbols
+                ),
+                "provided_by": providers,
+            }
+        )
+
+    return {
+        "schema": "oracis-bank-symbol-audit-v1",
+        "status": "failed" if unresolved_symbols else "passed",
+        "summary": {
+            "undefined_symbols": len(report["undefined_symbols"]),
+            "resolved_symbols": len(report["resolved_symbols"]),
+            "allowlisted_symbols": len(allowed_symbols),
+            "unresolved_symbols": len(unresolved_symbols),
+            "symbols_with_multiple_providers": sum(
+                1
+                for entry in symbol_entries
+                if len(entry["provided_by"]) > 1
+            ),
+        },
+        "banks": bank_entries,
+        "symbol_resolution": symbol_entries,
+    }
+
+
+def write_json_report(path: Path, report: dict[str, object]) -> None:
+    """Write a complete JSON report atomically; never leave a partial report."""
+    temporary_path: Path | None = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            dir=str(path.parent),
+        )
+        temporary_path = Path(temporary_name)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(build_json_report(report), stream, indent=2, sort_keys=True)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, path)
+    except (OSError, TypeError, ValueError) as exc:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise AuditError(f"could not write JSON report {path}: {exc}") from exc
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -165,6 +261,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="optional text file listing platform/C-runtime symbols, one per line",
     )
     parser.add_argument(
+        "--report-json",
+        type=Path,
+        help="optional path for a deterministic machine-readable local audit report",
+    )
+    parser.add_argument(
         "--nm",
         default=shutil.which("llvm-nm") or shutil.which("nm") or "nm",
         help="GNU nm or LLVM nm executable (default: llvm-nm, then nm)",
@@ -178,6 +279,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             nm=args.nm,
             allowlist=args.allowlist,
         )
+        if args.report_json is not None:
+            write_json_report(args.report_json, report)
     except (AuditError, OSError, UnicodeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -190,6 +293,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"Resolved by generated banks/Oracis runtime: {len(resolved)}")
     print(f"Explicitly allowlisted platform symbols: {len(allowed)}")
     print(f"Unresolved symbols: {len(unresolved)}")
+    if args.report_json is not None:
+        print(f"JSON report: {args.report_json}")
 
     for symbol in sorted(unresolved):
         referring = sorted(

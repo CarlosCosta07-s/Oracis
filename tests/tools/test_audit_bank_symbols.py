@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import importlib.util
 import subprocess
@@ -23,7 +24,9 @@ SPEC.loader.exec_module(auditor)
 
 AuditError = auditor.AuditError
 audit_bank_symbols = auditor.audit_bank_symbols
+build_json_report = auditor.build_json_report
 parse_nm_posix = auditor.parse_nm_posix
+write_json_report = auditor.write_json_report
 
 
 class AuditBankSymbolsTests(unittest.TestCase):
@@ -93,6 +96,43 @@ class AuditBankSymbolsTests(unittest.TestCase):
         })
         self.assertEqual(report["allowed_symbols"], {"memcpy"})
         self.assertEqual(report["unresolved_symbols"], set())
+        self.assertEqual(report["providers_by_symbol"]["arm7_service"], {self.arm7})
+        self.assertEqual(report["providers_by_symbol"]["shared_helper"], {self.runtime})
+
+        structured = build_json_report(report)
+        entries = {
+            entry["symbol"]: entry for entry in structured["symbol_resolution"]
+        }
+        self.assertEqual(structured["schema"], "oracis-bank-symbol-audit-v1")
+        self.assertEqual(structured["status"], "passed")
+        self.assertEqual(
+            entries["shared_helper"]["provided_by"], [str(self.runtime)]
+        )
+        self.assertEqual(entries["memcpy"]["status"], "allowlisted")
+
+    def test_writes_complete_json_report_to_requested_local_path(self) -> None:
+        def runner(command, **kwargs):
+            if "-u" in command:
+                output = "missing_nitro_service U\n"
+            else:
+                output = "runtime_dispatch T 0 8\n"
+            return subprocess.CompletedProcess(command, 0, output, "")
+
+        report = audit_bank_symbols(
+            [self.arm9], [self.runtime], nm="nm", runner=runner
+        )
+        destination = self.root / "reports" / "symbols.json"
+        write_json_report(destination, report)
+
+        decoded = json.loads(destination.read_text(encoding="utf-8"))
+        self.assertEqual(decoded["status"], "failed")
+        self.assertEqual(decoded["summary"]["unresolved_symbols"], 1)
+        self.assertEqual(
+            decoded["symbol_resolution"][0]["symbol"], "missing_nitro_service"
+        )
+        self.assertEqual(
+            decoded["symbol_resolution"][0]["status"], "unresolved"
+        )
 
     def test_reports_unresolved_symbol(self) -> None:
         def runner(command, **kwargs):
