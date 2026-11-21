@@ -64,7 +64,37 @@ NdsClockStatus NdsSystemClock::report_cpu_cycles(
             game_card_->advance_bus_cycles(elapsed_bus_cycles);
         }
         if (geometry_ != nullptr) {
-            geometry_->advance_bus_cycles(elapsed_bus_cycles);
+            /*
+             * SWAP_BUFFERS waits for each VBlank edge (scanline 192), then
+             * spends 392 more bus cycles in the command processor. Split the
+             * geometry clock at frame edges so it cannot consume cycles from
+             * before VBlank as post-swap execution time.
+             */
+            constexpr uint64_t frame_cycles =
+                static_cast<uint64_t>(NdsDisplayControl::CyclesPerScanline) *
+                NdsDisplayControl::ScanlinesPerFrame;
+            constexpr uint64_t vblank_offset =
+                static_cast<uint64_t>(NdsDisplayControl::CyclesPerScanline) *
+                NdsDisplayControl::VisibleScanlines;
+            const uint64_t start = global_bus_cycles_;
+            uint64_t next_vblank =
+                (start / frame_cycles) * frame_cycles + vblank_offset;
+            if (next_vblank <= start) {
+                next_vblank += frame_cycles;
+            }
+            uint64_t cursor = start;
+            while (next_vblank <= synchronized_bus_cycles) {
+                geometry_->advance_bus_cycles(next_vblank - cursor);
+                geometry_->notify_vblank();
+                cursor = next_vblank;
+                if (next_vblank >
+                    std::numeric_limits<uint64_t>::max() - frame_cycles) {
+                    break;
+                }
+                next_vblank += frame_cycles;
+            }
+            geometry_->advance_bus_cycles(
+                synchronized_bus_cycles - cursor);
         }
         global_bus_cycles_ = synchronized_bus_cycles;
     }
