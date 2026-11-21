@@ -22,6 +22,24 @@ synthetic_key_table()
     return bytes;
 }
 
+std::array<uint8_t, 8> make_key1_command(
+    uint8_t opcode, uint16_t parameter16,
+    uint32_t following24, uint32_t counter20)
+{
+    return {{
+        static_cast<uint8_t>((opcode << 4u) | ((parameter16 >> 12u) & 0x0Fu)),
+        static_cast<uint8_t>(parameter16 >> 4u),
+        static_cast<uint8_t>(((parameter16 & 0x0Fu) << 4u) |
+                             ((following24 >> 20u) & 0x0Fu)),
+        static_cast<uint8_t>(following24 >> 12u),
+        static_cast<uint8_t>(following24 >> 4u),
+        static_cast<uint8_t>(((following24 & 0x0Fu) << 4u) |
+                             ((counter20 >> 16u) & 0x0Fu)),
+        static_cast<uint8_t>(counter20 >> 8u),
+        static_cast<uint8_t>(counter20)
+    }};
+}
+
 } // namespace
 
 int main()
@@ -141,6 +159,82 @@ int main()
         if (wire_command[index] != plaintext[7u - index]) {
             return fail("KEY1 command decrypt did not restore MSB-first wire bytes");
         }
+    }
+
+    constexpr uint16_t protocol_i = UINT16_C(0x0ABC);
+    constexpr uint16_t protocol_j = UINT16_C(0x0123);
+    constexpr uint32_t activation_counter = UINT32_C(0x54321);
+    constexpr uint32_t first_command_counter = activation_counter + 1u;
+
+    auto activate_key2 = make_key1_command(
+        0x04u, UINT16_C(0x1234), UINT32_C(0xABCDEF),
+        first_command_counter);
+    if (key1.encrypt_command(activate_key2.data(),
+            static_cast<uint32_t>(activate_key2.size())) != Status::Ok) {
+        return fail("could not encrypt synthetic KEY1 command 0x40");
+    }
+
+    NdsGameCardKey1Command decoded{};
+    if (key1.decode_command(activate_key2.data(),
+            static_cast<uint32_t>(activate_key2.size()),
+            first_command_counter, protocol_i, protocol_j, decoded) != Status::Ok ||
+        decoded.kind != NdsGameCardKey1CommandKind::ActivateKey2 ||
+        decoded.opcode != 0x04u ||
+        decoded.parameter16 != UINT16_C(0x1234) ||
+        decoded.key2_seed24 != UINT32_C(0xABCDEF) ||
+        decoded.counter20 != first_command_counter) {
+        return fail("KEY1 command 0x40 fields were not decoded correctly");
+    }
+
+    auto secure_block = make_key1_command(
+        0x02u, UINT16_C(0x0006),
+        (static_cast<uint32_t>(protocol_i) << 12u) | protocol_j,
+        first_command_counter + 1u);
+    if (key1.encrypt_command(secure_block.data(),
+            static_cast<uint32_t>(secure_block.size())) != Status::Ok ||
+        key1.decode_command(secure_block.data(),
+            static_cast<uint32_t>(secure_block.size()),
+            first_command_counter + 1u, protocol_i, protocol_j, decoded) != Status::Ok ||
+        decoded.kind != NdsGameCardKey1CommandKind::ReadSecureAreaBlock ||
+        decoded.secure_area_block != 6u ||
+        decoded.random_i != protocol_i || decoded.random_j != protocol_j) {
+        return fail("KEY1 secure-area block command parameters were not validated");
+    }
+
+    auto wrong_randoms = make_key1_command(
+        0x02u, UINT16_C(0x0006), UINT32_C(0xABC124),
+        first_command_counter + 2u);
+    if (key1.encrypt_command(wrong_randoms.data(),
+            static_cast<uint32_t>(wrong_randoms.size())) != Status::Ok ||
+        key1.decode_command(wrong_randoms.data(),
+            static_cast<uint32_t>(wrong_randoms.size()),
+            first_command_counter + 2u, protocol_i, protocol_j, decoded) !=
+            Status::PermissionDenied) {
+        return fail("KEY1 accepted secure-area command with mismatched i/j values");
+    }
+
+    auto wrong_counter = make_key1_command(
+        0x04u, 0u, UINT32_C(0x000001), first_command_counter + 3u);
+    if (key1.encrypt_command(wrong_counter.data(),
+            static_cast<uint32_t>(wrong_counter.size())) != Status::Ok ||
+        key1.decode_command(wrong_counter.data(),
+            static_cast<uint32_t>(wrong_counter.size()),
+            first_command_counter + 4u, protocol_i, protocol_j, decoded) !=
+            Status::PermissionDenied) {
+        return fail("KEY1 accepted a command with an unexpected rolling counter");
+    }
+
+    auto invalid_block = make_key1_command(
+        0x02u, UINT16_C(0x0003),
+        (static_cast<uint32_t>(protocol_i) << 12u) | protocol_j,
+        first_command_counter + 5u);
+    if (key1.encrypt_command(invalid_block.data(),
+            static_cast<uint32_t>(invalid_block.size())) != Status::Ok ||
+        key1.decode_command(invalid_block.data(),
+            static_cast<uint32_t>(invalid_block.size()),
+            first_command_counter + 5u, protocol_i, protocol_j, decoded) !=
+            Status::PermissionDenied) {
+        return fail("KEY1 accepted a secure-area block outside 0004h..0007h");
     }
 
     std::puts("NDS KEY1 table loading, code levels, block vectors and command byte order passed");
