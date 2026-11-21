@@ -87,7 +87,7 @@ O Oracis agora possui uma implementação própria de registro/lookup em \`stati
 - \`oracis_static_dispatch_lookup\` consulta endereço e estado ARM/Thumb (CPSR.T).
 - \`runtime_dispatch\`, variantes literais e \`runtime_dispatch_with_exchange\` chegam ao dispatcher e invocam a função escolhida.
 - Miss, CPU sem banco, estado desalinhado e entrada inválida encerram com diagnóstico; não existe fallback interpretado.
-- As tabelas precisam estar ordenadas por \`(addr, thumb)\`; duplicatas do mesmo par dentro da mesma tabela são rejeitadas.
+- As tabelas precisam estar ordenadas por \`(addr, thumb)\`; duplicatas do mesmo par dentro da mesma tabela são rejeitadas. Uma mesma tabela também não pode ser registrada duas vezes para o mesmo CPU, mesmo com nomes diferentes; isso evita candidatos duplicados e contagens ambíguas.
 - Se bancos diferentes oferecem a mesma chave, o maior intervalo validado vence; empate mantém a primeira tabela registrada.
 
 O contrato de seleção foi comparado ao algoritmo de lookup do NDSRecomp. O registro não copia nem depende do runtime/runner upstream.

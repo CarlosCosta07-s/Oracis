@@ -106,6 +106,9 @@ RegisterBankStatus StaticDispatchRegistry::register_bank(
         if (bank.name == bank_name) {
             return RegisterBankStatus::DuplicateBankName;
         }
+        if (bank.table == table) {
+            return RegisterBankStatus::DuplicateBankTable;
+        }
     }
 
     uint32_t previous_address = 0u;
@@ -262,6 +265,7 @@ const char *StaticDispatchRegistry::register_status_name(
     case RegisterBankStatus::UnsortedTable: return "dispatch table is not sorted by address/mode key";
     case RegisterBankStatus::DuplicateEntryKey: return "duplicate dispatch address/mode key";
     case RegisterBankStatus::DuplicateBankName: return "duplicate bank name";
+    case RegisterBankStatus::DuplicateBankTable: return "dispatch table is already registered for this CPU";
     }
     return "unknown registration status";
 }

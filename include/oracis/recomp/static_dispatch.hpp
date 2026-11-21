@@ -28,7 +28,8 @@ enum class RegisterBankStatus : uint8_t {
     InvalidValidation,
     UnsortedTable,
     DuplicateEntryKey,
-    DuplicateBankName
+    DuplicateBankName,
+    DuplicateBankTable
 };
 
 enum class DispatchLookupStatus : uint8_t {

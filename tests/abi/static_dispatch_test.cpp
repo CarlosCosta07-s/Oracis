@@ -284,6 +284,11 @@ int main()
         RegisterBankStatus::DuplicateBankName) {
         return fail("duplicate bank name was accepted");
     }
+    if (registry.register_bank(NDS_ARM9, arm9_table, 3u, "arm9-main-alias") !=
+            RegisterBankStatus::DuplicateBankTable ||
+        registry.bank_count(NDS_ARM9) != 4u) {
+        return fail("same dispatch table was registered twice under different names");
+    }
 
     if (!registry.unregister_bank(NDS_ARM9, same_address_modes, 2u) ||
         registry.unregister_bank(NDS_ARM9, same_address_modes, 2u) ||
