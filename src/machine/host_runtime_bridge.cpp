@@ -196,7 +196,8 @@ extern "C" int oracis_host_runtime_mount_game_card_image(
 {
     auto &machine = host_machine();
     if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
-    if (bytes == nullptr || size < UINT32_C(0x200)) {
+    if (bytes == nullptr || size < UINT32_C(0x200) ||
+        size > UINT32_C(0x20000000)) {
         return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID;
     }
 

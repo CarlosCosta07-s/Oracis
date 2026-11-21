@@ -6,6 +6,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -90,25 +91,61 @@ static bool g_video_error_reported = false;
 
 static bool mount_game_card_file(const char *path)
 {
-    size_t image_size = 0u;
-    void *image = SDL_LoadFile(path, &image_size);
-    if (image == NULL) {
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
         SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
-            "Could not read Game Card image '%s': %s", path, SDL_GetError());
+            "Could not open Game Card image '%s'.", path);
         return false;
     }
 
-    if (image_size < 0x200u || image_size > UINT32_MAX) {
+    if (fseek(file, 0L, SEEK_END) != 0) {
         SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
-            "Game Card image '%s' has an invalid size (%zu bytes).",
-            path, image_size);
-        SDL_free(image);
+            "Could not determine Game Card image size for '%s'.", path);
+        (void)fclose(file);
+        return false;
+    }
+
+    const long file_size = ftell(file);
+    if (file_size < 0x200L ||
+        (unsigned long)file_size > 0x20000000UL) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Game Card image '%s' has an invalid size (%ld bytes); "
+            "expected 512 bytes through 512 MiB.",
+            path, file_size);
+        (void)fclose(file);
+        return false;
+    }
+
+    if (fseek(file, 0L, SEEK_SET) != 0) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not rewind Game Card image '%s'.", path);
+        (void)fclose(file);
+        return false;
+    }
+
+    const size_t image_size = (size_t)file_size;
+    void *image = malloc(image_size);
+    if (image == NULL) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not allocate %zu bytes for Game Card image '%s'.",
+            image_size, path);
+        (void)fclose(file);
+        return false;
+    }
+
+    const size_t bytes_read = fread(image, 1u, image_size, file);
+    const bool read_ok = bytes_read == image_size && ferror(file) == 0;
+    const int close_status = fclose(file);
+    if (!read_ok || close_status != 0) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not read the complete Game Card image '%s'.", path);
+        free(image);
         return false;
     }
 
     const int status = oracis_host_runtime_mount_game_card_image(
         (const uint8_t *)image, (uint32_t)image_size);
-    SDL_free(image);
+    free(image);
     if (status != ORACIS_HOST_RUNTIME_OK) {
         SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
             "Game Card image mount failed (bridge=%d).", status);

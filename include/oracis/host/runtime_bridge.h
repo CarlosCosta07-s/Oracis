@@ -65,6 +65,7 @@ int oracis_host_runtime_shutdown(void);
 /*
  * Copy a local raw NDS image (at least the 0x200-byte NDS header) into the
  * Game Card device. The caller may release its input buffer after this call.
+ * Images are limited to 512 MiB, the DS Game Card ROM address-space maximum.
  * Reads currently support unencrypted B7 ROM transactions only.
  */
 int oracis_host_runtime_mount_game_card_image(

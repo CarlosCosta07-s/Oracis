@@ -45,6 +45,8 @@ int main(void)
         oracis_host_runtime_mount_game_card_image(
             synthetic_game_card, 0x1FFu) != ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID ||
         oracis_host_runtime_mount_game_card_image(
+            synthetic_game_card, UINT32_C(0x20000001)) != ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID ||
+        oracis_host_runtime_mount_game_card_image(
             synthetic_game_card, (uint32_t)sizeof(synthetic_game_card)) !=
             ORACIS_HOST_RUNTIME_OK) {
         fprintf(stderr, "C host bridge rejected a valid synthetic Game Card image or accepted an invalid one\\n");

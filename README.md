@@ -31,7 +31,7 @@ Consulte [docs/TECH_STACK.md](docs/TECH_STACK.md), [docs/NDSRECOMP_INTEGRATION.m
 
 ## Cartucho local no desktop
 
-O host SDL aceita `--game-card caminho/para/jogo.nds`. O arquivo precisa conter ao menos o cabeçalho NDS de 0x200 bytes; o bridge copia os bytes para memória própria e os libera no desligamento. O dispositivo Game Card implementa atualmente apenas leituras ROM B7 sem criptografia, então esta opção monta a imagem no barramento para desenvolvimento e testes — **não inicia o jogo nem comprova compatibilidade**. KEY1/KEY2, SPI de backup e seleção de arquivos no Android continuam pendentes. Não coloque imagens de jogos no repositório.
+O host SDL aceita `--game-card caminho/para/jogo.nds`. O arquivo precisa conter ao menos o cabeçalho NDS de 0x200 bytes e não pode ultrapassar 512 MiB; o desktop confere o tamanho antes da alocação e o bridge copia os bytes para memória própria, liberando-os no desligamento. O dispositivo Game Card implementa atualmente apenas leituras ROM B7 sem criptografia, então esta opção monta a imagem no barramento para desenvolvimento e testes — **não inicia o jogo nem comprova compatibilidade**. KEY1/KEY2, SPI de backup e seleção de arquivos no Android continuam pendentes. Não coloque imagens de jogos no repositório.
 
 ## Estado atual
 
