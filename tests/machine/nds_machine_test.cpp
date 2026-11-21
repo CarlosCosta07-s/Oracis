@@ -2118,6 +2118,167 @@ int main()
         NDS_ARM7, oracis::memory::NdsTimerControl::Timer0CounterAddress + 2u,
         2u, 0u);
 
+    /*
+     * DMA completion originates in the device, sets IF, and is consumed by
+     * the native scheduler at the next safe boundary.
+     */
+    constexpr uint32_t dma0_irq = UINT32_C(1) << 8u;
+    constexpr uint32_t dma0_source = UINT32_C(0x02008000);
+    constexpr uint32_t dma0_destination = UINT32_C(0x02008100);
+    constexpr uint32_t dma0_word = UINT32_C(0xBADC0FFE);
+    constexpr uint32_t dma0_registers =
+        oracis::memory::NdsDmaControl::FirstRegisterAddress;
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9) ||
+        machine.guest_memory().write(
+            NDS_ARM9, dma0_source, 4u, dma0_word) !=
+            oracis::memory::Status::Ok ||
+        machine.guest_memory().write(
+            NDS_ARM9, dma0_destination, 4u, 0u) !=
+            oracis::memory::Status::Ok) {
+        return fail("DMA IRQ test could not seed mapped guest RAM");
+    }
+    runtime_coproc_write(15u, 0u, 1u, 0u, 0u, cp15_vector_select);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IfAddress, 4u, UINT32_MAX);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IeAddress, 4u, dma0_irq);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 1u);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::IfAddress, 4u, UINT32_MAX);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::IeAddress, 4u, 0u);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::ImeAddress, 4u, 0u);
+    arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
+    arm9->R[15] = UINT32_C(0x02006000);
+    arm7->cpsr = ORACIS_ARM_MODE_SYSTEM | CPSR_T_BIT;
+    arm7->R[15] = UINT32_C(0x02381002);
+
+    bus_write_u32(dma0_registers, dma0_source);
+    bus_write_u32(dma0_registers + 4u, dma0_destination);
+    bus_write_u32(
+        dma0_registers + 8u,
+        UINT32_C(1) |
+            oracis::memory::NdsDmaControl::WordTransferMask |
+            oracis::memory::NdsDmaControl::IrqEnableMask |
+            oracis::memory::NdsDmaControl::EnableMask);
+    SchedulerFixture dma_irq_fixture{};
+    if (machine.guest_memory().read(
+            NDS_ARM9, dma0_destination, 4u).value != dma0_word ||
+        (machine.interrupt_control().read(
+            NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value &
+            dma0_irq) == 0u ||
+        (bus_read_u32(dma0_registers + 8u) &
+            oracis::memory::NdsDmaControl::EnableMask) != 0u ||
+        machine.run_dual_core_round(
+            1u, &execute_test_slice, nullptr, &dma_irq_fixture) !=
+            NdsMachineStatus::Ok ||
+        dma_irq_fixture.calls[0] != 1u ||
+        dma_irq_fixture.calls[1] != 1u ||
+        dma_irq_fixture.irq_context_calls[0] != 0u ||
+        dma_irq_fixture.irq_context_calls[1] != 0u ||
+        (arm9->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_IRQ ||
+        arm9->banked_spsr[ARM_BANK_IRQ] != ORACIS_ARM_MODE_SYSTEM ||
+        arm9->R[14] != UINT32_C(0x02006004) ||
+        arm9->R[15] != UINT32_C(0xFFFF0018) ||
+        (arm7->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_SYSTEM ||
+        machine.global_bus_cycles() != 10u) {
+        return fail("DMA completion IRQ did not reach native ARM9 scheduler delivery");
+    }
+
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 could not be selected after DMA IRQ");
+    }
+    runtime_exception_return(UINT32_C(0x02006000));
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IfAddress, 4u, dma0_irq);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IeAddress, 4u, 0u);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 0u);
+
+    /*
+     * IPCSYNC's send edge requests the peer's IRQ line. This verifies the
+     * cross-core device route as well as ARM7's native low-vector entry.
+     */
+    constexpr uint32_t ipc_sync_irq =
+        oracis::memory::NdsIpcControl::SyncIrqMask;
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM7)) {
+        return fail("ARM7 could not be selected for IPCSYNC IRQ setup");
+    }
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::IfAddress, 4u, UINT32_MAX);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::IeAddress, 4u, ipc_sync_irq);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::ImeAddress, 4u, 1u);
+    bus_write_u16(
+        oracis::memory::NdsIpcControl::SyncAddress,
+        oracis::memory::NdsIpcControl::SyncReceiveIrqEnableMask);
+
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 could not be selected for IPCSYNC IRQ send");
+    }
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IfAddress, 4u, UINT32_MAX);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IeAddress, 4u, 0u);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 0u);
+    arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
+    arm9->R[15] = UINT32_C(0x02006000);
+    arm7->cpsr = ORACIS_ARM_MODE_SYSTEM | CPSR_T_BIT;
+    arm7->R[15] = UINT32_C(0x02381002);
+    bus_write_u16(
+        oracis::memory::NdsIpcControl::SyncAddress,
+        static_cast<uint16_t>((UINT16_C(0x5) << 8u) |
+            oracis::memory::NdsIpcControl::SyncSendIrqMask));
+
+    SchedulerFixture ipc_irq_fixture{};
+    if ((machine.interrupt_control().read(
+            NDS_ARM7, NdsInterruptControl::IfAddress, 4u).value &
+            ipc_sync_irq) == 0u ||
+        machine.run_dual_core_round(
+            1u, &execute_test_slice, nullptr, &ipc_irq_fixture) !=
+            NdsMachineStatus::Ok ||
+        ipc_irq_fixture.calls[0] != 1u ||
+        ipc_irq_fixture.calls[1] != 1u ||
+        ipc_irq_fixture.irq_context_calls[0] != 0u ||
+        ipc_irq_fixture.irq_context_calls[1] != 0u ||
+        (arm9->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_SYSTEM ||
+        (arm7->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_IRQ ||
+        arm7->banked_spsr[ARM_BANK_IRQ] !=
+            (ORACIS_ARM_MODE_SYSTEM | CPSR_T_BIT) ||
+        arm7->R[14] != UINT32_C(0x02381006) ||
+        arm7->R[15] != UINT32_C(0x00000018) ||
+        machine.global_bus_cycles() != 11u) {
+        return fail("IPCSYNC remote IRQ did not reach native ARM7 scheduler delivery");
+    }
+
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM7)) {
+        return fail("ARM7 could not be selected after IPCSYNC IRQ");
+    }
+    runtime_exception_return(UINT32_C(0x02381002));
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::IfAddress, 4u, ipc_sync_irq);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::IeAddress, 4u, 0u);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::ImeAddress, 4u, 0u);
+    bus_write_u16(oracis::memory::NdsIpcControl::SyncAddress, 0u);
+
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 could not be selected after IPCSYNC IRQ");
+    }
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IfAddress, 4u, UINT32_MAX);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IeAddress, 4u, 0u);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 0u);
+    bus_write_u16(oracis::memory::NdsIpcControl::SyncAddress, 0u);
+
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
         return fail("ARM9 could not be selected after native boundary IRQ test");
     }
