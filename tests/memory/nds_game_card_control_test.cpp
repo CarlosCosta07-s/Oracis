@@ -15,6 +15,14 @@ void write_card_command(uint8_t opcode,uint32_t offset){
  for(uint32_t i=0;i<8u;++i)bus_write_u8(NdsGameCardControl::CommandAddress+i,b[i]);
 }
 void write_b7(uint32_t offset){write_card_command(oracis::memory::NdsGameCardControl::RomReadCommand,offset);}
+void write_activate_key1(uint16_t random_i,uint16_t random_j,uint32_t counter){
+ using oracis::memory::NdsGameCardControl;
+ const uint8_t b[8]={NdsGameCardControl::ActivateKey1Command,
+     uint8_t(random_i>>4u),
+     uint8_t((random_i<<4u)|(random_j>>8u)),uint8_t(random_j),
+     uint8_t(counter>>16u),uint8_t(counter>>8u),uint8_t(counter),0u};
+ for(uint32_t i=0u;i<8u;++i)bus_write_u8(NdsGameCardControl::CommandAddress+i,b[i]);
+}
 }
 int main(){
  using namespace oracis::memory;
@@ -355,6 +363,35 @@ int main(){
      NdsGameCardControl::RomCtrlKey2CommandMask|
      NdsGameCardControl::RomCtrlStartBusyMask)!=Status::PermissionDenied||card.busy())
      return fail("unsupported KEY2 command mode did not remain fail-closed");
+
+ /* Raw 3C activates KEY1 only after its four-byte high-Z response is drained. */
+ constexpr uint16_t key1_random_i=UINT16_C(0xABC),key1_random_j=UINT16_C(0x123);
+ constexpr uint32_t key1_counter=UINT32_C(0x54321);
+ write_activate_key1(key1_random_i,key1_random_j,key1_counter);
+ const uint32_t no_reply_control=NdsGameCardControl::RomCtrlResetReleaseMask;
+ if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+     no_reply_control|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::PermissionDenied||
+    card.key1_command_mode())
+     return fail("3C activation accepted a zero-length response mode");
+ if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+     small|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok||
+    !card.busy()||card.key1_command_mode())
+     return fail("raw 3C KEY1 activation did not start in four-byte card mode");
+ if(card.key1_random_i()!=key1_random_i||card.key1_random_j()!=key1_random_j||
+    card.key1_command_counter()!=key1_counter)
+     return fail("raw 3C random protocol parameters were not retained");
+ card.advance_bus_cycles(39u);
+ if(!card.busy()||card.data_ready()||card.key1_command_mode())
+     return fail("3C activated KEY1 before the response word was ready");
+ card.advance_bus_cycles(1u);
+ if(!card.data_ready()||!card.busy()||card.key1_command_mode()||
+    bus_read_u32(NdsGameCardControl::DataAddress)!=UINT32_MAX||
+    card.busy()||!card.key1_command_mode())
+     return fail("3C did not finish with a high-Z word and enter KEY1 mode");
+ write_b7(0x8000u);
+ if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+     small|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::PermissionDenied||card.busy())
+     return fail("raw B7 command was accepted after KEY1 activation");
  if(!oracis_bus_unbind_game_card_control(&card)||!oracis_bus_unbind_dma_control(&dma)||
     !oracis_bus_unbind_interrupt_control(&irq)||!oracis_bus_unbind_memory(&memory)||
     !oracis_arm_runtime_unbind_cpus(&a9,&a7))return fail("bus teardown failed");
