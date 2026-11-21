@@ -155,6 +155,7 @@ Status NdsGameCardControl::describe_key1_reply(
   return Status::PermissionDenied;
 
  NdsGameCardKey1ReplyPlan candidate{};
+ candidate.transmission_index=last_key1_command_transmissions_;
  candidate.preamble_gap_bytes=header_key1_initial_gap_bytes();
  candidate.preamble_clocked=header_key1_gap_clocks_enabled();
  if(candidate.preamble_clocked&&candidate.preamble_gap_bytes!=0u){
@@ -164,19 +165,33 @@ Status NdsGameCardControl::describe_key1_reply(
 
  switch(command.kind){
  case NdsGameCardKey1CommandKind::ActivateKey2:
-  candidate.payload_bytes=0u;
+  /* 0x40 only installs the KEY2 seed; it has no payload. */
   break;
  case NdsGameCardKey1CommandKind::ReadChipId:
-  candidate.payload_bytes=4u;
+  candidate.aggregate_payload_bytes=4u;
+  candidate.aggregate_data_transmissions=UINT8_C(1);
+  candidate.payload_bytes=
+      newer_protocol_variant()&&candidate.transmission_index==UINT8_C(1)
+          ? 0u : UINT32_C(4);
   break;
  case NdsGameCardKey1CommandKind::ReadSecureAreaBlock:
   if(newer_protocol_variant()){
-   /* Eight 200h data chunks, with 18h KEY2-zero bytes between chunks. */
-   candidate.payload_bytes=UINT32_C(0x10A8);
+   /* First transmission is a zero-length command. The following eight
+    * transmissions return 200h bytes each, separated by 18h KEY2 zeros. */
+   candidate.aggregate_payload_bytes=UINT32_C(0x10A8);
+   candidate.aggregate_data_transmissions=UINT8_C(8);
    candidate.secure_block_bytes=UINT32_C(0x200);
    candidate.secure_block_count=UINT8_C(8);
    candidate.secure_inter_block_zero_bytes=UINT32_C(0x18);
+   candidate.payload_bytes=
+       candidate.transmission_index==UINT8_C(1)
+           ? 0u : UINT32_C(0x200);
+   if(candidate.transmission_index>=UINT8_C(2)&&
+      candidate.transmission_index<UINT8_C(9))
+    candidate.post_payload_zero_bytes=UINT32_C(0x18);
   }else{
+   candidate.aggregate_payload_bytes=UINT32_C(0x1000);
+   candidate.aggregate_data_transmissions=UINT8_C(1);
    candidate.payload_bytes=UINT32_C(0x1000);
    candidate.secure_block_bytes=UINT32_C(0x1000);
    candidate.secure_block_count=UINT8_C(1);
@@ -186,7 +201,7 @@ Status NdsGameCardControl::describe_key1_reply(
   candidate.payload_length_known=false;
   break;
  case NdsGameCardKey1CommandKind::EnterMainDataMode:
-  candidate.payload_bytes=0u;
+  /* The command has no payload; following commands use KEY2 main-data mode. */
   break;
  default:
   return Status::PermissionDenied;
