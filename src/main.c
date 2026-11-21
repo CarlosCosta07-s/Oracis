@@ -106,7 +106,6 @@ static bool parse_game_card_chip_id(const char *text, uint32_t *chip_id)
 }
 
 static bool mount_game_card_file(const char *path)
-static bool load_arm7_bios_file(const char *path)
 {
     FILE *file = fopen(path, "rb");
     if (file == NULL) {
@@ -228,7 +227,7 @@ static bool load_arm7_bios_file(const char *path)
     return true;
 }
 
-static uint8_t expand_rgb555_channel(uint16_t channel)
+static bool load_arm7_bios_file(const char *path)static uint8_t expand_rgb555_channel(uint16_t channel)
 {
     return (uint8_t)((channel << 3u) | (channel >> 2u));
 }
