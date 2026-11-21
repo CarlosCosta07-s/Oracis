@@ -262,6 +262,20 @@ int main(void)
         return 1;
     }
 
+    /*
+     * The generated-bank C bus must route GX command ports to the Geometry
+     * Engine before the broader display-register device claims 0x0400xxxx.
+     */
+    bus_write_u32(UINT32_C(0x04000400), UINT32_C(0x10)); /* MTX_MODE */
+    bus_write_u32(UINT32_C(0x04000400), UINT32_C(1));    /* Position matrix */
+    const uint32_t gx_status = bus_read_u32(UINT32_C(0x04000600));
+    if (((gx_status >> 16u) & UINT32_C(0x1FF)) != 1u ||
+        (gx_status & (UINT32_C(1) << 26u)) != 0u ||
+        (gx_status & (UINT32_C(1) << 27u)) == 0u) {
+        fprintf(stderr, "C host bus did not deliver GXFIFO writes to GXSTAT state\\n");
+        return 1;
+    }
+
     /* MASTER_BRIGHT is applied after the ordinary BG/OBJ compositor. */
     bus_write_u16(UINT32_C(0x0400006C), UINT16_C(0x4010));
     bus_write_u16(UINT32_C(0x0400106C), UINT16_C(0x4010));

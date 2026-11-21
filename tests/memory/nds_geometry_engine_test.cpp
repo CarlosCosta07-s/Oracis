@@ -1,6 +1,9 @@
 #include "oracis/memory/nds_geometry_engine.hpp"
 #include "oracis/memory/nds_interrupt_control.hpp"
 #include "oracis/memory/guest_memory.hpp"
+#include "oracis/memory/nds_display_control.hpp"
+#include "oracis/memory/nds_system_clock.hpp"
+#include "oracis/memory/nds_timer_control.hpp"
 
 #include <array>
 #include <bit>
@@ -328,6 +331,33 @@ int main()
             UINT32_C(0x7F)) != Status::Ok ||
         geometry.fifo_entries() != 0u) {
         return fail("invalid packed GXFIFO command was not ignored");
+    }
+
+    /*
+     * The machine clock advances GX commands only at the shared ARM9/ARM7
+     * watermark. ARM9 running ahead alone must not consume a FIFO command.
+     */
+    NdsDisplayControl display(interrupts);
+    if (display.install() != Status::Ok) {
+        return fail("display device installation for Geometry Engine clock test failed");
+    }
+    NdsTimerControl timers(memory, interrupts);
+    NdsSystemClock clock(timers, display, nullptr, &geometry);
+    const uint64_t completed_before_clock = geometry.completed_commands();
+    if (!write_command(geometry, 0x10u, 1u) ||
+        !write_command(geometry, 0x15u) ||
+        geometry.fifo_entries() != 2u ||
+        clock.report_cpu_cycles(NDS_ARM9, 40u) != NdsClockStatus::Ok ||
+        clock.global_bus_cycles() != 0u ||
+        !geometry.busy()) {
+        return fail("ARM9 ahead of ARM7 incorrectly advanced Geometry Engine time");
+    }
+    if (clock.report_cpu_cycles(NDS_ARM7, 20u) != NdsClockStatus::Ok ||
+        clock.global_bus_cycles() != 20u ||
+        geometry.busy() ||
+        geometry.matrix_mode() != 1u ||
+        geometry.completed_commands() != completed_before_clock + 2u) {
+        return fail("synchronized dual-core clock did not execute GX matrix commands");
     }
 
     std::puts("NDS Geometry Engine FIFO, GXSTAT and matrix-command tests passed");
