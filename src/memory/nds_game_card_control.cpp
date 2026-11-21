@@ -283,6 +283,12 @@ ReadResult NdsGameCardControl::read_data(NdsCpu cpu) noexcept{
 void NdsGameCardControl::finish_transfer() noexcept{busy_=false;data_ready_=false;dummy_data_=false;chip_id_data_=false;wrap_read_window_=false;key2_data_active_=false;current_window_base_=0u;cycles_until_data_=0u;if(key1_activation_pending_){key1_command_mode_=true;key1_activation_pending_=false;}if(aux_spi_control_&AuxSpiIrqEnableMask)(void)interrupts_.request_irq(owner_cpu_,GameCardTransferIrqMask);}
 void NdsGameCardControl::advance_bus_cycles(uint64_t cycles) noexcept{
  if(!installed_||cycles==0u)return;
+ if(key1_repeat_delay_cycles_remaining_!=0u){
+  if(cycles>=key1_repeat_delay_cycles_remaining_)
+   key1_repeat_delay_cycles_remaining_=0u;
+  else
+   key1_repeat_delay_cycles_remaining_-=static_cast<uint32_t>(cycles);
+ }
  while(busy_&&!data_ready_){
   if(cycles<cycles_until_data_){cycles_until_data_-=cycles;return;}
   cycles-=cycles_until_data_;cycles_until_data_=0u;data_ready_=true;
