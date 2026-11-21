@@ -70,11 +70,12 @@ private:
  uint16_t aux_spi_control_=0u;
  uint32_t rom_control_=0u;
  uint32_t current_offset_=0u;
+ uint32_t current_window_base_=0u;
  uint32_t remaining_words_=0u;
  uint64_t cycles_until_data_=0u;
  uint32_t cycles_per_byte_=5u;
  NdsCpu owner_cpu_=NDS_ARM9;
- bool reset_released_=false,busy_=false,data_ready_=false,dummy_data_=false,installed_=false;
+ bool reset_released_=false,busy_=false,data_ready_=false,dummy_data_=false,wrap_read_window_=false,installed_=false;
 };
 }
 #endif

@@ -80,19 +80,45 @@ int main(){
  if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)
      return fail("could not clear header command IRQ");
 
- /* B7 cannot read the secure area below 0x8000. */
+ /* Retail B7 redirects secure-range addresses into the main data region. */
  write_b7(0x7FFCu);
  if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
-     small|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::PermissionDenied||card.busy())
-     return fail("B7 unexpectedly exposed the secure area");
+     small|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok)
+     return fail("B7 secure-range address was not redirected");
+ card.advance_bus_cycles(40u);
+ if(bus_read_u32(NdsGameCardControl::DataAddress)!=word(0x81FCu)||card.busy())
+     return fail("B7 secure-range redirect did not target 0x8000+(addr&0x1FF)");
+ if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)
+     return fail("could not clear redirected-read IRQ");
+
+ /* B7 is byte-addressed and allows unaligned starting offsets. */
  write_b7(0x8022u);
  if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
-     small|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::InvalidRegion||card.busy())
-     return fail("B7 accepted an unaligned word address");
+     small|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok)
+     return fail("B7 rejected an unaligned byte address");
+ card.advance_bus_cycles(40u);
+ if(bus_read_u32(NdsGameCardControl::DataAddress)!=word(0x8022u)||card.busy())
+     return fail("unaligned B7 word did not preserve byte order");
+ if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)
+     return fail("could not clear unaligned-read IRQ");
+
+ /* A page crossing 0x1000 wraps within the same 4 KiB window. */
  write_b7(0x8F00u);
  if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
-     normal|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::InvalidRegion||card.busy())
-     return fail("retail B7 read crossed a 0x1000-byte cartridge window");
+     normal|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok)
+     return fail("B7 page crossing a 4 KiB boundary did not start");
+ card.advance_bus_cycles(40u+127u*20u);
+ for(uint32_t index=0u;index<128u;++index){
+     const uint32_t expected_offset=index<64u
+         ? 0x8F00u+index*4u : 0x8000u+(index-64u)*4u;
+     if(bus_read_u32(NdsGameCardControl::DataAddress)!=word(expected_offset))
+         return fail("B7 stream did not wrap at the current 4 KiB window");
+     if(index+1u<128u)card.advance_bus_cycles(20u);
+ }
+ if(card.busy()||(bus_read_u32(NdsInterruptControl::IfAddress)&imask)==0u)
+     return fail("wrapped B7 page did not complete");
+ if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)
+     return fail("could not clear wrapped-page IRQ");
 
  /* One-word B7 read uses a legal post-secure-area address. */
  write_b7(0x8020u);

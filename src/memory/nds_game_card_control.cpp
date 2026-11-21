@@ -3,7 +3,7 @@
 namespace oracis::memory {
 namespace {
 constexpr uint32_t kWritable=UINT32_C(0x7F7F7FFF),kBlockMask=7u,kStartBytes=8u,kWordBytes=4u;
-constexpr uint32_t kHeaderBytes=0x200u,kDummyBytes=0x2000u,kRetailWindowBytes=0x1000u,kSecureAreaEnd=0x8000u;
+constexpr uint32_t kHeaderBytes=0x200u,kDummyBytes=0x2000u,kRetailWindowBytes=0x1000u,kRetailRedirectBase=0x8000u,kRetailRedirectMask=0x01FFu;
 uint32_t block_bytes(uint32_t code) noexcept {if(code==0u)return 0u;if(code==7u)return 4u;return UINT32_C(0x100)<<code;}
 }
 bool NdsGameCardControl::valid_cpu(NdsCpu c) noexcept{return c==NDS_ARM9||c==NDS_ARM7;}
@@ -12,7 +12,7 @@ bool NdsGameCardControl::seed_address(uint32_t a) noexcept{return a>=SeedAddress
 Status NdsGameCardControl::install() noexcept{if(installed_)return Status::InvalidRegion;reset_transfer();command_={};seed_registers_={};aux_spi_control_=0u;installed_=true;return Status::Ok;}
 Status NdsGameCardControl::mount_image(const uint8_t*b,uint32_t n) noexcept{if(!installed_)return Status::Unmapped;if(!b||n==0u)return Status::InvalidRegion;if(busy_)return Status::PermissionDenied;image_=b;image_size_=n;return Status::Ok;}
 void NdsGameCardControl::unmount_image() noexcept{reset_transfer();image_=nullptr;image_size_=0u;}
-void NdsGameCardControl::reset_transfer() noexcept{command_={};seed_registers_={};aux_spi_control_=0u;rom_control_=0u;current_offset_=0u;remaining_words_=0u;cycles_until_data_=0u;cycles_per_byte_=5u;owner_cpu_=NDS_ARM9;reset_released_=false;busy_=false;data_ready_=false;dummy_data_=false;}
+void NdsGameCardControl::reset_transfer() noexcept{command_={};seed_registers_={};aux_spi_control_=0u;rom_control_=0u;current_offset_=0u;current_window_base_=0u;remaining_words_=0u;cycles_until_data_=0u;cycles_per_byte_=5u;owner_cpu_=NDS_ARM9;reset_released_=false;busy_=false;data_ready_=false;dummy_data_=false;wrap_read_window_=false;}
 uint32_t NdsGameCardControl::read_rom_control() const noexcept{uint32_t v=rom_control_;if(data_ready_)v|=RomCtrlDrqMask;if(busy_)v|=RomCtrlStartBusyMask;return v;}
 Status NdsGameCardControl::start_transfer(NdsCpu cpu) noexcept{
  if(!installed_)return Status::Unmapped;if(!valid_cpu(cpu))return Status::InvalidCpu;
@@ -25,6 +25,7 @@ Status NdsGameCardControl::start_transfer(NdsCpu cpu) noexcept{
  if(size==0u||(size%kWordBytes)!=0u)return Status::PermissionDenied;
  uint32_t offset=0u;
  bool dummy=false;
+ bool wrap_window=false;
  if(command_[0]==DummyCommand){
   /* After reset the 9F dummy command clocks out an 8 KiB high-Z stream. */
   if(size!=kDummyBytes)return Status::PermissionDenied;
@@ -33,22 +34,39 @@ Status NdsGameCardControl::start_transfer(NdsCpu cpu) noexcept{
   /* The initial 00 command returns the raw 0x200-byte NDS header. */
   if(size!=kHeaderBytes)return Status::PermissionDenied;
  }else if(command_[0]==RomReadCommand){
-  offset=(uint32_t(command_[1])<<24u)|(uint32_t(command_[2])<<16u)|
+  const uint32_t requested_offset =
+      (uint32_t(command_[1])<<24u)|(uint32_t(command_[2])<<16u)|
       (uint32_t(command_[3])<<8u)|uint32_t(command_[4]);
-  /* Retail B7 reads cannot access the secure area or cross a 0x1000 window. */
-  if(offset<kSecureAreaEnd)return Status::PermissionDenied;
-  if((offset&(kWordBytes-1u))!=0u)return Status::InvalidRegion;
-  if(size>kRetailWindowBytes ||
-     (offset&(kRetailWindowBytes-1u))+size>kRetailWindowBytes)
-      return Status::InvalidRegion;
+  /*
+   * Retail cards redirect 0000-7FFF reads into the main data area. B7 is
+   * byte-addressed and wraps to the start of its active 4 KiB window.
+   */
+  offset=requested_offset<kRetailRedirectBase
+      ? kRetailRedirectBase+(requested_offset&kRetailRedirectMask)
+      : requested_offset;
+  wrap_window=true;
  }else{
   return Status::PermissionDenied;
  }
- if(static_cast<uint64_t>(offset)+size>image_size_)return Status::AddressOverflow;
+
+ const uint32_t window_base = wrap_window
+     ? (offset & ~(kRetailWindowBytes-1u)) : 0u;
+ if(!dummy){
+  /* Preflight every byte of the requested stream, including 4 KiB wrap. */
+  for(uint32_t byte=0u;byte<size;++byte){
+   const uint64_t address=wrap_window
+       ? static_cast<uint64_t>(window_base)|
+           ((offset-window_base+byte)&(kRetailWindowBytes-1u))
+       : static_cast<uint64_t>(offset)+byte;
+   if(address>=image_size_)return Status::AddressOverflow;
+  }
+ }
 
  current_offset_=offset;
+ current_window_base_=window_base;
  remaining_words_=size/kWordBytes;
  dummy_data_=dummy;
+ wrap_read_window_=wrap_window;
  cycles_per_byte_=(rom_control_&RomCtrlClockSlowMask)!=0u?8u:5u;
  cycles_until_data_=static_cast<uint64_t>(kStartBytes)*cycles_per_byte_;
  owner_cpu_=cpu;
@@ -69,18 +87,27 @@ ReadResult NdsGameCardControl::read_data(NdsCpu cpu) noexcept{
  if(!installed_)return{Status::Unmapped,0u};if(!valid_cpu(cpu))return{Status::InvalidCpu,0u};
  if(cpu!=owner_cpu_)return{Status::CpuAccessDenied,0u};
  if(!busy_||!data_ready_||remaining_words_==0u)return{Status::PermissionDenied,0u};
- const uint32_t v=dummy_data_?UINT32_MAX:
-     (uint32_t(image_[current_offset_])|
-      (uint32_t(image_[current_offset_+1u])<<8u)|
-      (uint32_t(image_[current_offset_+2u])<<16u)|
-      (uint32_t(image_[current_offset_+3u])<<24u));
- if(!dummy_data_)current_offset_+=kWordBytes;
+ uint32_t value=dummy_data_?UINT32_MAX:0u;
+ if(!dummy_data_){
+  for(uint32_t byte=0u;byte<kWordBytes;++byte){
+   const uint32_t address=wrap_read_window_
+       ? current_window_base_|
+           ((current_offset_-current_window_base_+byte)&(kRetailWindowBytes-1u))
+       : current_offset_+byte;
+   value|=static_cast<uint32_t>(image_[address])<<(byte*8u);
+  }
+  current_offset_=wrap_read_window_
+      ? current_window_base_|
+          ((current_offset_-current_window_base_+kWordBytes)&
+              (kRetailWindowBytes-1u))
+      : current_offset_+kWordBytes;
+ }
  --remaining_words_;data_ready_=false;
  if(remaining_words_==0u)finish_transfer();
  else cycles_until_data_=static_cast<uint64_t>(kWordBytes)*cycles_per_byte_;
- return{Status::Ok,v};
+ return{Status::Ok,value};
 }
-void NdsGameCardControl::finish_transfer() noexcept{busy_=false;data_ready_=false;dummy_data_=false;cycles_until_data_=0u;if(aux_spi_control_&AuxSpiIrqEnableMask)(void)interrupts_.request_irq(owner_cpu_,GameCardTransferIrqMask);}
+void NdsGameCardControl::finish_transfer() noexcept{busy_=false;data_ready_=false;dummy_data_=false;wrap_read_window_=false;current_window_base_=0u;cycles_until_data_=0u;if(aux_spi_control_&AuxSpiIrqEnableMask)(void)interrupts_.request_irq(owner_cpu_,GameCardTransferIrqMask);}
 void NdsGameCardControl::advance_bus_cycles(uint64_t cycles) noexcept{
  if(!installed_||cycles==0u)return;
  while(busy_&&!data_ready_){
