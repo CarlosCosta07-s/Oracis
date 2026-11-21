@@ -40,6 +40,9 @@ public:
     static constexpr uint32_t MainMemoryDisplayFifoCapacityWords = 4u;
     static constexpr uint32_t MainMemoryDisplayWidth = 256u;
     static constexpr uint32_t MainMemoryDisplayHeight = 192u;
+    static constexpr uint32_t MainMemoryDisplayCyclesPerPixel = 6u;
+    static constexpr uint32_t MainMemoryDisplayActiveCycles =
+        MainMemoryDisplayWidth * MainMemoryDisplayCyclesPerPixel;
     static constexpr uint32_t BgCount = 4u;
     static constexpr uint16_t BgScrollValueMask = UINT16_C(0x01FF);
     static constexpr uint32_t BgAffineReferenceMask = UINT32_C(0x0FFFFFFF);

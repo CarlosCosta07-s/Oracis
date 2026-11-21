@@ -692,9 +692,7 @@ void NdsDisplayControl::advance_bus_cycles(uint64_t cycles) noexcept
         if (main_memory_display_active_ && main_memory_display_mode() &&
             vcount_ < VisibleScanlines &&
             main_memory_display_pixel_index_ < MainMemoryDisplayWidth) {
-            const uint32_t next_pixel_cycle = static_cast<uint32_t>(
-                (static_cast<uint64_t>(main_memory_display_pixel_index_) *
-                    Arm9HblankStartCycle + 255u) / MainMemoryDisplayWidth);
+            const uint32_t next_pixel_cycle = main_memory_display_pixel_index_ * MainMemoryDisplayCyclesPerPixel;
             if (next_pixel_cycle > line_cycle_) {
                 next_event = std::min(
                     next_event, next_pixel_cycle - line_cycle_);
@@ -723,9 +721,7 @@ void NdsDisplayControl::advance_bus_cycles(uint64_t cycles) noexcept
         if (main_memory_display_active_ && main_memory_display_mode() &&
             vcount_ < VisibleScanlines &&
             main_memory_display_pixel_index_ < MainMemoryDisplayWidth) {
-            const uint32_t next_pixel_cycle = static_cast<uint32_t>(
-                (static_cast<uint64_t>(main_memory_display_pixel_index_) *
-                    Arm9HblankStartCycle + 255u) / MainMemoryDisplayWidth);
+            const uint32_t next_pixel_cycle = main_memory_display_pixel_index_ * MainMemoryDisplayCyclesPerPixel;
             if (line_cycle_ == next_pixel_cycle) {
                 advance_main_memory_display_pixel();
             }

@@ -478,7 +478,8 @@ int main()
         display.main_memory_display_fifo_words() != 4u) {
         return fail("main-memory display DMA did not start at the next frame");
     }
-    display.advance_bus_cycles(51u);
+    display.advance_bus_cycles(
+        8u * NdsDisplayControl::MainMemoryDisplayCyclesPerPixel);
     uint16_t mmd_scanline[NdsDisplayControl::MainMemoryDisplayWidth]{};
     if (display.copy_main_memory_display_scanline(
             0u, mmd_scanline, NdsDisplayControl::MainMemoryDisplayWidth) !=
@@ -500,7 +501,7 @@ int main()
     display.advance_bus_cycles(
         static_cast<uint64_t>(NdsDisplayControl::VisibleScanlines) *
             NdsDisplayControl::CyclesPerScanline -
-        51u);
+        8u * NdsDisplayControl::MainMemoryDisplayCyclesPerPixel);
     if ((bus_read_u32(control_reg(0u)) & NdsDmaControl::EnableMask) != 0u ||
         display.main_memory_display_fifo_words() != 0u ||
         (interrupts.read(NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value &
