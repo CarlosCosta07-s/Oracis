@@ -943,7 +943,7 @@ int main(){
       UINT8_C(0xC2),UINT8_C(0x00),UINT8_C(0x00),UINT8_C(0x80)}};
   if(expected_automatic_new_key2.apply_keystream(expected_new_key2_chip_id.data(),4u)!=Status::Ok)
    return fail("could not derive newer-cart KEY2 B8 Chip ID stream");
-  const uint32_t expected_new_key2_chip_id=
+  const uint32_t expected_new_key2_chip_id_word=
       static_cast<uint32_t>(expected_new_key2_chip_id[0])|
       (static_cast<uint32_t>(expected_new_key2_chip_id[1])<<8u)|
       (static_cast<uint32_t>(expected_new_key2_chip_id[2])<<16u)|
@@ -951,7 +951,7 @@ int main(){
   card.advance_bus_cycles((UINT32_C(8)+UINT32_C(0x18)+UINT32_C(4))*UINT32_C(5));
   const ReadResult actual_new_key2_b8=card.read_data(NDS_ARM9);
   if(actual_new_key2_b8.status!=Status::Ok||
-     actual_new_key2_b8.value!=expected_new_key2_chip_id||
+     actual_new_key2_b8.value!=expected_new_key2_chip_id_word||
      card.busy()||!card.key2_command_mode()||
      card.key2_bytes_processed()!=expected_automatic_new_key2.bytes_processed())
    return fail("newer-cart KEY2 B8 did not return the encrypted Chip ID or preserve KEY2 mode");
@@ -1146,7 +1146,7 @@ int main(){
        UINT8_C(0xC2),UINT8_C(0x00),UINT8_C(0x00),UINT8_C(0x00)}};
    if(expected_automatic_old_key2.apply_keystream(expected_old_key2_chip_id.data(),4u)!=Status::Ok)
     return fail("could not derive older-cart KEY2 B8 Chip ID stream");
-   const uint32_t expected_old_key2_chip_id=
+   const uint32_t expected_old_key2_chip_id_word=
        static_cast<uint32_t>(expected_old_key2_chip_id[0])|
        (static_cast<uint32_t>(expected_old_key2_chip_id[1])<<8u)|
        (static_cast<uint32_t>(expected_old_key2_chip_id[2])<<16u)|
@@ -1154,7 +1154,7 @@ int main(){
    card.advance_bus_cycles((UINT32_C(8)+UINT32_C(0x18)+UINT32_C(4))*UINT32_C(5));
    const ReadResult actual_old_key2_b8=card.read_data(NDS_ARM9);
    if(actual_old_key2_b8.status!=Status::Ok||
-      actual_old_key2_b8.value!=expected_old_key2_chip_id||
+      actual_old_key2_b8.value!=expected_old_key2_chip_id_word||
       card.busy()||!card.key2_command_mode()||
       card.key2_bytes_processed()!=expected_automatic_old_key2.bytes_processed())
     return fail("older-cart KEY2 B8 did not return encrypted Chip ID or preserve stream");
