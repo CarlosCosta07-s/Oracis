@@ -2023,6 +2023,98 @@ int main()
     machine.interrupt_control().write(
         NDS_ARM7, NdsInterruptControl::ImeAddress, 4u, 0u);
 
+    /*
+     * Drive IRQs from the actual shared timer clock. Both timer 0 counters
+     * start at 0xFFFF, and the round's synchronized bus tick overflows them.
+     */
+    constexpr uint32_t timer0_irq = UINT32_C(1) << 3u;
+    const NdsCpu timer_irq_cpus[] = {NDS_ARM9, NDS_ARM7};
+    for (const NdsCpu cpu : timer_irq_cpus) {
+        if (machine.timer_control().write(
+                cpu, oracis::memory::NdsTimerControl::Timer0CounterAddress,
+                2u, UINT32_C(0xFFFF)) != oracis::memory::Status::Ok ||
+            machine.timer_control().write(
+                cpu, oracis::memory::NdsTimerControl::Timer0CounterAddress + 2u,
+                2u, UINT32_C(0x00C0)) != oracis::memory::Status::Ok ||
+            machine.interrupt_control().write(
+                cpu, NdsInterruptControl::IfAddress, 4u, UINT32_MAX) !=
+                oracis::memory::Status::Ok ||
+            machine.interrupt_control().write(
+                cpu, NdsInterruptControl::IeAddress, 4u, timer0_irq) !=
+                oracis::memory::Status::Ok ||
+            machine.interrupt_control().write(
+                cpu, NdsInterruptControl::ImeAddress, 4u, 1u) !=
+                oracis::memory::Status::Ok) {
+            return fail("Timer 0 native IRQ test setup failed");
+        }
+    }
+
+    arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
+    arm9->R[15] = UINT32_C(0x02006000);
+    arm7->cpsr = ORACIS_ARM_MODE_SYSTEM | CPSR_T_BIT;
+    arm7->R[15] = UINT32_C(0x02381002);
+
+    SchedulerFixture timer_irq_fixture{};
+    if (machine.run_dual_core_round(
+            1u, &execute_test_slice, nullptr, &timer_irq_fixture) !=
+            NdsMachineStatus::Ok ||
+        timer_irq_fixture.calls[0] != 1u ||
+        timer_irq_fixture.calls[1] != 1u ||
+        timer_irq_fixture.irq_context_calls[0] != 0u ||
+        timer_irq_fixture.irq_context_calls[1] != 0u ||
+        (machine.interrupt_control().read(
+            NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value &
+            timer0_irq) == 0u ||
+        (machine.interrupt_control().read(
+            NDS_ARM7, NdsInterruptControl::IfAddress, 4u).value &
+            timer0_irq) == 0u ||
+        machine.timer_control().read(
+            NDS_ARM9, oracis::memory::NdsTimerControl::Timer0CounterAddress,
+            2u).value != UINT32_C(0xFFFF) ||
+        machine.timer_control().read(
+            NDS_ARM7, oracis::memory::NdsTimerControl::Timer0CounterAddress,
+            2u).value != UINT32_C(0xFFFF) ||
+        (arm9->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_IRQ ||
+        arm9->banked_spsr[ARM_BANK_IRQ] != ORACIS_ARM_MODE_SYSTEM ||
+        arm9->R[14] != UINT32_C(0x02006004) ||
+        arm9->R[15] != UINT32_C(0xFFFF0018) ||
+        (arm7->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_IRQ ||
+        arm7->banked_spsr[ARM_BANK_IRQ] !=
+            (ORACIS_ARM_MODE_SYSTEM | CPSR_T_BIT) ||
+        arm7->R[14] != UINT32_C(0x02381006) ||
+        arm7->R[15] != UINT32_C(0x00000018) ||
+        machine.global_bus_cycles() != 9u) {
+        return fail("Timer 0 overflow did not reach native ARM9/ARM7 IRQ delivery");
+    }
+
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 could not be selected after Timer 0 IRQ");
+    }
+    runtime_exception_return(UINT32_C(0x02006000));
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IfAddress, 4u, timer0_irq);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IeAddress, 4u, 0u);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 0u);
+    machine.timer_control().write(
+        NDS_ARM9, oracis::memory::NdsTimerControl::Timer0CounterAddress + 2u,
+        2u, 0u);
+
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM7)) {
+        return fail("ARM7 could not be selected after Timer 0 IRQ");
+    }
+    runtime_exception_return(UINT32_C(0x02381002));
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::IfAddress, 4u, timer0_irq);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::IeAddress, 4u, 0u);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::ImeAddress, 4u, 0u);
+    machine.timer_control().write(
+        NDS_ARM7, oracis::memory::NdsTimerControl::Timer0CounterAddress + 2u,
+        2u, 0u);
+
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
         return fail("ARM9 could not be selected after native boundary IRQ test");
     }
