@@ -321,9 +321,20 @@ int main()
         (status & (UINT32_C(1) << 26u)) != 0u) {
         return fail("GXSTAT did not expose full FIFO count/empty flags");
     }
+    /* One PIPE pop leaves three entries; the next pop prefetches two. */
+    geometry.advance_bus_cycles(19u);
+    if (geometry.pipe_entries() != 3u ||
+        geometry.fifo_entries() != 256u) {
+        return fail("PIPE drained before its three-entry refill threshold");
+    }
+    geometry.advance_bus_cycles(19u);
+    if (geometry.pipe_entries() != 4u ||
+        geometry.fifo_entries() != 254u) {
+        return fail("PIPE did not prefetch two FIFO entries below three");
+    }
     geometry.advance_bus_cycles(
         UINT64_C(19) * (NdsGeometryEngine::CommandFifoCapacity +
-                        NdsGeometryEngine::CommandPipeCapacity));
+                        NdsGeometryEngine::CommandPipeCapacity - 2u));
     status = geometry.read(
         NDS_ARM9, NdsGeometryEngine::GxStatAddress, 4u).value;
     if (geometry.fifo_entries() != 0u || geometry.pipe_entries() != 0u ||
