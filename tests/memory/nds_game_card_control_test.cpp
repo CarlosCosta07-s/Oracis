@@ -470,6 +470,14 @@ int main(){
     decoded_key1.key2_seed24!=UINT32_C(0xABCDEF)||
     card.key1_command_counter()!=key1_counter+1u)
      return fail("new KEY1 command was not decoded and counted at k+1");
+ NdsGameCardKey1ReplyPlan key1_reply_plan{};
+ if(card.describe_key1_reply(decoded_key1,key1_reply_plan)!=Status::Ok||
+    key1_reply_plan.preamble_gap_bytes!=UINT32_C(0x910)||
+    key1_reply_plan.preamble_clocked||
+    key1_reply_plan.leading_high_z_bytes!=0u||
+    key1_reply_plan.preamble_key2_zero_bytes!=0u||
+    key1_reply_plan.payload_bytes!=0u)
+     return fail("new-cart 0x40 reply plan did not describe its silent gap and empty payload");
  if(card.complete_key1_command_gap(1u)!=Status::PermissionDenied||
     card.complete_key1_command_gap(0u)!=Status::Ok||card.key2_initialized())
      return fail("newer 0x40 gap accepted a wrong clock count or activated KEY2 too early");
@@ -509,6 +517,13 @@ int main(){
     decoded_key1.random_i!=key1_random_i||decoded_key1.random_j!=key1_random_j||
     card.key1_command_counter()!=secure_counter)
      return fail("KEY1 secure-area command did not validate its block, i/j and k");
+ if(card.describe_key1_reply(decoded_key1,key1_reply_plan)!=Status::Ok||
+    key1_reply_plan.payload_bytes!=UINT32_C(0x10A8)||
+    key1_reply_plan.secure_block_bytes!=UINT32_C(0x200)||
+    key1_reply_plan.secure_block_count!=8u||
+    key1_reply_plan.secure_inter_block_zero_bytes!=UINT32_C(0x18)||
+    !key1_reply_plan.payload_key2_encrypted)
+     return fail("new-cart 0x20 reply plan did not describe eight 200h blocks with 18h inter-block zero bytes");
  if(card.complete_key1_command_gap(0u)!=Status::Ok||
     card.key1_repeat_delay_cycles_remaining()!=card.header_secure_area_delay_core_cycles()||
     card.decode_next_key1_command(decoded_key1)!=Status::PermissionDenied)
@@ -536,6 +551,9 @@ int main(){
     decoded_key1.kind!=NdsGameCardKey1CommandKind::ReadChipId||
     card.key1_random_l()!=UINT16_C(0x1234)||
     !card.key1_random_l_initialized()||
+    card.describe_key1_reply(decoded_key1,key1_reply_plan)!=Status::Ok||
+    key1_reply_plan.payload_bytes!=4u||
+    !key1_reply_plan.payload_key2_encrypted||
     card.complete_key1_command_gap(0u)!=Status::Ok)
      return fail("KEY1 0x10 did not validate llll or complete its first gap");
  card.advance_bus_cycles(key1_secure_delay);
@@ -609,8 +627,15 @@ int main(){
      return fail("could not encrypt old-variant KEY1 command");
  write_key1_command(old_variant_command);
  if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
+    card.describe_key1_reply(decoded_key1,old_key1_reply_plan)!=Status::Ok||
+    old_key1_reply_plan.preamble_gap_bytes!=UINT32_C(0x910)||
+    !old_key1_reply_plan.preamble_clocked||
+    old_key1_reply_plan.leading_high_z_bytes!=1u||
+    old_key1_reply_plan.preamble_key2_zero_bytes!=UINT32_C(0x90F)||
+    old_key1_reply_plan.payload_bytes!=0u||
     card.complete_key1_command_gap(0u)!=Status::PermissionDenied)
-     return fail("old cart accepted a zero-clock gap while ROMCTRL gap pulses were enabled");
+     return fail("old cart reply plan or zero-clock gap validation was incorrect");
+ NdsGameCardKey1ReplyPlan old_key1_reply_plan{};
  NdsGameCardKey2 expected_old_key2;
  std::array<uint8_t,UINT32_C(0x910)> expected_old_gap{};
  if(expected_old_key2.initialize_from_random_seed(UINT32_C(0x123456),3u)!=Status::Ok||
@@ -633,6 +658,9 @@ int main(){
  std::array<uint8_t,UINT32_C(0x910)> expected_old_second_gap{};
  if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
     decoded_key1.kind!=NdsGameCardKey1CommandKind::ReadChipId||
+    card.describe_key1_reply(decoded_key1,old_key1_reply_plan)!=Status::Ok||
+    old_key1_reply_plan.payload_bytes!=4u||
+    old_key1_reply_plan.preamble_clocked||
     expected_old_key2.apply_keystream(expected_old_second_gap.data(),
         static_cast<uint32_t>(expected_old_second_gap.size()))!=Status::Ok||
     card.complete_key1_command_gap(UINT32_C(0x910))!=Status::Ok||
