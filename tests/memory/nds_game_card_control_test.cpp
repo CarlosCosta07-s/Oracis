@@ -513,6 +513,55 @@ int main(){
  if(card.decode_next_key1_command(decoded_key1)!=Status::PermissionDenied)
      return fail("newer cart accepted more than nine secure-area command transmissions");
 
+ /* The llll value from 0x40 is reused by 0x10, 0x60 and 0xA0. */
+ const uint32_t chip_id_counter=secure_counter+1u;
+ auto encrypted_key1_chip_id=make_key1_command(
+     0x01u,UINT16_C(0x1234),packed_randoms,chip_id_counter);
+ if(command_codec.encrypt_command(encrypted_key1_chip_id.data(),8u)!=Status::Ok)
+     return fail("could not encrypt KEY1 0x10 command");
+ write_key1_command(encrypted_key1_chip_id);
+ if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
+    decoded_key1.kind!=NdsGameCardKey1CommandKind::ReadChipId||
+    card.key1_random_l()!=UINT16_C(0x1234)||
+    !card.key1_random_l_initialized())
+     return fail("KEY1 0x10 did not reuse and validate llll from 0x40");
+ card.advance_bus_cycles(key1_secure_delay);
+ if(card.decode_next_key1_command(decoded_key1)!=Status::Ok)
+     return fail("KEY1 0x10 second transmission failed after secure delay");
+
+ const uint32_t disable_counter=chip_id_counter+1u;
+ auto wrong_l_disable=make_key1_command(
+     0x06u,UINT16_C(0x5678),packed_randoms,disable_counter);
+ if(command_codec.encrypt_command(wrong_l_disable.data(),8u)!=Status::Ok)
+     return fail("could not encrypt invalid KEY1 0x60 command");
+ write_key1_command(wrong_l_disable);
+ if(card.decode_next_key1_command(decoded_key1)!=Status::PermissionDenied)
+     return fail("KEY1 0x60 accepted an llll value different from command 0x40");
+ auto encrypted_disable_key2=make_key1_command(
+     0x06u,UINT16_C(0x1234),packed_randoms,disable_counter);
+ if(command_codec.encrypt_command(encrypted_disable_key2.data(),8u)!=Status::Ok)
+     return fail("could not encrypt valid KEY1 0x60 command");
+ write_key1_command(encrypted_disable_key2);
+ if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
+    decoded_key1.kind!=NdsGameCardKey1CommandKind::DisableKey2)
+     return fail("KEY1 0x60 rejected the original llll value");
+ card.advance_bus_cycles(key1_secure_delay);
+ if(card.decode_next_key1_command(decoded_key1)!=Status::Ok)
+     return fail("KEY1 0x60 second transmission failed after secure delay");
+
+ const uint32_t main_mode_counter=disable_counter+1u;
+ auto encrypted_main_mode=make_key1_command(
+     0x0Au,UINT16_C(0x1234),packed_randoms,main_mode_counter);
+ if(command_codec.encrypt_command(encrypted_main_mode.data(),8u)!=Status::Ok)
+     return fail("could not encrypt KEY1 0xA0 command");
+ write_key1_command(encrypted_main_mode);
+ if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
+    decoded_key1.kind!=NdsGameCardKey1CommandKind::EnterMainDataMode)
+     return fail("KEY1 0xA0 did not validate the shared llll parameter");
+ card.advance_bus_cycles(key1_secure_delay);
+ if(card.decode_next_key1_command(decoded_key1)!=Status::Ok)
+     return fail("KEY1 0xA0 second transmission failed after secure delay");
+
  /* The old/smaller variant increments k on every command and rejects replay. */
  card.reset_transfer();
  if(card.set_chip_id(UINT32_C(0x000000C2))!=Status::Ok||
