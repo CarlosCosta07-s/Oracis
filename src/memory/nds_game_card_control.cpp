@@ -148,7 +148,9 @@ Status NdsGameCardControl::describe_key1_reply(
 {
  if(!installed_)return Status::Unmapped;
  if(!key1_command_mode_||!key1_command_gap_pending_||
+    !header_protocol_available_||
     command.opcode!=last_key1_command_opcode_||
+    static_cast<uint8_t>(command.kind)!=command.opcode||
     command.counter20!=key1_command_counter_)
   return Status::PermissionDenied;
 
