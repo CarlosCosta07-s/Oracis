@@ -34,8 +34,22 @@ enum {
     ORACIS_ARM_RUNTIME_POWER_ARM9_POSTFLG = 2
 };
 
+enum {
+    ORACIS_ARM_RUNTIME_INTERRUPT_WAIT_BEGIN = 0,
+    ORACIS_ARM_RUNTIME_INTERRUPT_WAIT_RESUME = 1
+};
+
 typedef int (*OracisArmRuntimePowerHandler)(
     void *context, NdsCpu cpu, uint32_t operation, uint32_t value);
+
+/*
+ * BIOS IntrWait/VBlankIntrWait continuation bridge. BEGIN receives
+ * clear_old_flags and wait_mask; RESUME receives the architectural return PC
+ * after an unrelated IRQ handler has returned.
+ */
+typedef int (*OracisArmRuntimeInterruptWaitHandler)(
+    void *context, NdsCpu cpu, uint32_t operation,
+    uint32_t argument0, uint32_t argument1);
 
 /*
  * Runtime IRQ service. return_pc is the next guest PC at an instruction
@@ -98,6 +112,13 @@ int oracis_arm_runtime_bind_irq_handler(
 int oracis_arm_runtime_unbind_irq_handler(
     void *context, OracisArmRuntimeIrqHandler handler);
 int oracis_arm_runtime_request_irq(uint32_t return_pc);
+int oracis_arm_runtime_bind_interrupt_wait_handler(
+    void *context, OracisArmRuntimeInterruptWaitHandler handler);
+int oracis_arm_runtime_unbind_interrupt_wait_handler(
+    void *context, OracisArmRuntimeInterruptWaitHandler handler);
+int oracis_arm_runtime_request_interrupt_wait(
+    uint32_t clear_old_flags, uint32_t wait_mask);
+int oracis_arm_runtime_resume_interrupt_wait(uint32_t return_pc);
 int oracis_arm_runtime_bind_coprocessor_handler(
     void *context, OracisArmRuntimeCoprocessorHandler handler);
 int oracis_arm_runtime_unbind_coprocessor_handler(
