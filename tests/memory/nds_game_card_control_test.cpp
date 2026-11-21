@@ -392,9 +392,11 @@ int main(){
  if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
      small|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::PermissionDenied||card.busy())
      return fail("raw B7 command was accepted after KEY1 activation");
+ if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)
+     return fail("could not clear KEY1 activation IRQ");
  if(!oracis_bus_unbind_game_card_control(&card)||!oracis_bus_unbind_dma_control(&dma)||
     !oracis_bus_unbind_interrupt_control(&irq)||!oracis_bus_unbind_memory(&memory)||
     !oracis_arm_runtime_unbind_cpus(&a9,&a7))return fail("bus teardown failed");
- std::puts("NDS Game Card dummy/header commands, B7 limits, DRQ, ARM9/ARM7 DMA and IRQ passed");
+ std::puts("NDS Game Card dummy/header commands, KEY1 activation, B7 limits, DRQ, ARM9/ARM7 DMA and IRQ passed");
  return 0;
 }
