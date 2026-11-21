@@ -276,6 +276,12 @@ if(BUILD_TESTING)
     target_link_libraries(oracis_nds_display_control_test PRIVATE oracis_memory)
     add_test(NAME oracis_nds_display_control_test COMMAND oracis_nds_display_control_test)
 
+    add_executable(oracis_nds_geometry_engine_test
+        tests/memory/nds_geometry_engine_test.cpp
+    )
+    target_link_libraries(oracis_nds_geometry_engine_test PRIVATE oracis_memory)
+    add_test(NAME oracis_nds_geometry_engine_test COMMAND oracis_nds_geometry_engine_test)
+
     add_executable(oracis_nds_2d_effects_test
         tests/memory/nds_2d_effects_test.cpp
     )
