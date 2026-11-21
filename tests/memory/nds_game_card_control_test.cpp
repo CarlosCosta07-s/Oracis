@@ -707,7 +707,93 @@ int main(){
     card.key2_state2()!=expected_old_key2.state2()||
     card.key2_bytes_processed()!=UINT32_C(0x1B30))
      return fail("old-cart Secure Area reply plan or third KEY1 gap stream advancement was incorrect");
- if(!oracis_bus_unbind_game_card_control(&card)||!oracis_bus_unbind_dma_control(&dma)||
+  /* The 0x40 command now traverses ROMCTRL and the bus-cycle scheduler. */
+ card.reset_transfer();
+ if(card.set_chip_id(UINT32_C(0x800000C2))!=Status::Ok||
+    card.load_key1_key_table(bios_key_table.data(),
+        static_cast<uint32_t>(bios_key_table.size()))!=Status::Ok||
+    irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)
+  return fail("could not prepare bus-driven newer-cart KEY1 activation");
+ bus_write_u16(NdsGameCardControl::AuxSpiControlAddress,
+     uint16_t(NdsGameCardControl::AuxSpiIrqEnableMask|
+              NdsGameCardControl::AuxSpiSlotEnableMask));
+ write_activate_key1(key1_random_i,key1_random_j,key1_counter);
+ if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+     no_reply_control|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok||
+    !card.key1_command_mode())
+  return fail("bus-driven 3C setup did not enter KEY1 mode");
+ auto automatic_new_key2=make_key1_command(
+     0x04u,UINT16_C(0x1234),UINT32_C(0xABCDEF),key1_counter+1u);
+ if(command_codec.encrypt_command(automatic_new_key2.data(),8u)!=Status::Ok)
+  return fail("could not encrypt bus-driven newer-cart 0x40 command");
+ write_key1_command(automatic_new_key2);
+ constexpr uint64_t key1_command_gap_cycles=
+     (UINT64_C(8)+UINT64_C(0x910))*UINT64_C(5);
+ if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+     no_reply_control|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok||
+    !card.busy()||card.key2_initialized())
+  return fail("newer-cart 0x40 did not start its scheduled silent gap");
+ card.advance_bus_cycles(key1_command_gap_cycles);
+ if(card.busy()||card.key2_initialized()||
+    card.key1_repeat_delay_cycles_remaining()!=
+        card.header_secure_area_delay_core_cycles())
+  return fail("newer-cart 0x40 did not finish its first scheduled transmission");
+ card.advance_bus_cycles(card.header_secure_area_delay_core_cycles());
+ write_key1_command(automatic_new_key2);
+ if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+     no_reply_control|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok||
+    !card.busy())
+  return fail("newer-cart 0x40 retransmission did not start after the header delay");
+ card.advance_bus_cycles(key1_command_gap_cycles);
+ NdsGameCardKey2 expected_automatic_new_key2;
+ if(expected_automatic_new_key2.initialize_from_random_seed(
+        UINT32_C(0xABCDEF),3u)!=Status::Ok||
+    card.busy()||!card.key2_initialized()||
+    card.key2_state1()!=expected_automatic_new_key2.state1()||
+    card.key2_state2()!=expected_automatic_new_key2.state2()||
+    card.key2_bytes_processed()!=0u)
+  return fail("newer-cart 0x40 did not activate KEY2 after its second scheduled transmission");
+
+ /* Older carts clock the 0x910-byte gap and advance KEY2 during it. */
+ card.reset_transfer();
+ if(card.set_chip_id(UINT32_C(0x000000C2))!=Status::Ok||
+    card.load_key1_key_table(bios_key_table.data(),
+        static_cast<uint32_t>(bios_key_table.size()))!=Status::Ok||
+    irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)
+  return fail("could not prepare bus-driven older-cart KEY1 activation");
+ bus_write_u16(NdsGameCardControl::AuxSpiControlAddress,
+     uint16_t(NdsGameCardControl::AuxSpiIrqEnableMask|
+              NdsGameCardControl::AuxSpiSlotEnableMask));
+ write_activate_key1(key1_random_i,key1_random_j,key1_counter);
+ if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+     no_reply_control|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok||
+    !card.key1_command_mode()||
+    card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+        old_gap_control)!=Status::Ok)
+  return fail("older-cart KEY1 activation or ROMCTRL gap setup failed");
+ auto automatic_old_key2=make_key1_command(
+     0x04u,0u,UINT32_C(0x123456),key1_counter+1u);
+ if(command_codec.encrypt_command(automatic_old_key2.data(),8u)!=Status::Ok)
+  return fail("could not encrypt bus-driven older-cart 0x40 command");
+ write_key1_command(automatic_old_key2);
+ if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+     old_gap_control|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok||
+    !card.busy())
+  return fail("older-cart 0x40 did not start its clocked gap");
+ card.advance_bus_cycles(key1_command_gap_cycles);
+ NdsGameCardKey2 expected_automatic_old_key2;
+ std::array<uint8_t,UINT32_C(0x910)> automatic_old_gap{};
+ if(expected_automatic_old_key2.initialize_from_random_seed(
+        UINT32_C(0x123456),3u)!=Status::Ok||
+    expected_automatic_old_key2.apply_keystream(automatic_old_gap.data(),
+        static_cast<uint32_t>(automatic_old_gap.size()))!=Status::Ok||
+    card.busy()||!card.key2_initialized()||
+    card.key2_state1()!=expected_automatic_old_key2.state1()||
+    card.key2_state2()!=expected_automatic_old_key2.state2()||
+    card.key2_bytes_processed()!=UINT32_C(0x910))
+  return fail("older-cart 0x40 did not clock the KEY2 stream through the automatic gap");
+
+if(!oracis_bus_unbind_game_card_control(&card)||!oracis_bus_unbind_dma_control(&dma)||
     !oracis_bus_unbind_interrupt_control(&irq)||!oracis_bus_unbind_memory(&memory)||
     !oracis_arm_runtime_unbind_cpus(&a9,&a7))return fail("bus teardown failed");
  std::puts("NDS Game Card dummy/header commands, KEY1 activation and command sequencing, B7 limits, DRQ, ARM9/ARM7 DMA and IRQ passed");
