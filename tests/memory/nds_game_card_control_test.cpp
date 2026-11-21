@@ -640,6 +640,7 @@ int main(){
  if(command_codec.encrypt_command(old_variant_command.data(),8u)!=Status::Ok)
      return fail("could not encrypt old-variant KEY1 command");
  write_key1_command(old_variant_command);
+ NdsGameCardKey1ReplyPlan old_key1_reply_plan{};
  if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
     card.describe_key1_reply(decoded_key1,old_key1_reply_plan)!=Status::Ok||
     old_key1_reply_plan.preamble_gap_bytes!=UINT32_C(0x910)||
@@ -649,7 +650,6 @@ int main(){
     old_key1_reply_plan.payload_bytes!=0u||
     card.complete_key1_command_gap(0u)!=Status::PermissionDenied)
      return fail("old cart reply plan or zero-clock gap validation was incorrect");
- NdsGameCardKey1ReplyPlan old_key1_reply_plan{};
  NdsGameCardKey2 expected_old_key2;
  std::array<uint8_t,UINT32_C(0x910)> expected_old_gap{};
  if(expected_old_key2.initialize_from_random_seed(UINT32_C(0x123456),3u)!=Status::Ok||
