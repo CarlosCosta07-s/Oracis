@@ -64,6 +64,37 @@ bool execute_test_slice(
     return runtime_should_yield();
 }
 
+struct InterruptWaitFixture {
+    uint32_t swi_imm = 0u;
+    uint32_t clear_old_flags = 1u;
+    uint32_t wait_mask = 0u;
+    uint32_t calls[2]{};
+    bool requested = false;
+};
+
+bool execute_interrupt_wait_slice(
+    void *opaque, NdsCpu cpu, ArmCpuState *state, uint64_t cycle_budget)
+{
+    auto *fixture = static_cast<InterruptWaitFixture *>(opaque);
+    if (fixture == nullptr || state == nullptr ||
+        (cpu != NDS_ARM9 && cpu != NDS_ARM7) ||
+        cycle_budget > UINT32_MAX) {
+        return false;
+    }
+
+    ++fixture->calls[static_cast<unsigned>(cpu)];
+    if (cpu == NDS_ARM9 && !fixture->requested) {
+        state->R[0] = fixture->clear_old_flags;
+        state->R[1] = fixture->wait_mask;
+        runtime_swi(fixture->swi_imm);
+        fixture->requested = true;
+        if (runtime_should_yield()) return true;
+    }
+
+    runtime_tick(static_cast<uint32_t>(cycle_budget));
+    return runtime_should_yield();
+}
+
 bool provide_test_irq_context(
     void *opaque, NdsCpu cpu, const ArmCpuState *state,
     uint32_t *return_address, uint32_t *vector_base)
