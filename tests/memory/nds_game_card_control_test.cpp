@@ -854,6 +854,30 @@ int main(){
   if(card.key2_bytes_processed()!=UINT32_C(0x10C4))
    return fail("newer-cart 0x20 stream did not advance by the full 10C0h period");
 
+  /* New-cart 0xA0 enters KEY2 command mode after its second transmission. */
+  const uint32_t new_main_mode_counter=new_secure_counter+1u;
+  auto automatic_new_main_mode=make_key1_command(
+      0x0Au,UINT16_C(0x1234),packed_randoms,new_main_mode_counter);
+  if(command_codec.encrypt_command(automatic_new_main_mode.data(),8u)!=Status::Ok)
+   return fail("could not encrypt newer-cart 0xA0 command");
+  write_key1_command(automatic_new_main_mode);
+  if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+      no_reply_control|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok||!card.busy())
+   return fail("newer-cart 0xA0 first transmission did not start");
+  card.advance_bus_cycles(key1_command_gap_cycles);
+  if(card.busy()||!card.key1_command_mode()||card.key2_command_mode()||
+     card.key1_repeat_delay_cycles_remaining()!=card.header_secure_area_delay_core_cycles())
+   return fail("newer-cart 0xA0 switched modes before its second transmission");
+  card.advance_bus_cycles(card.header_secure_area_delay_core_cycles());
+  write_key1_command(automatic_new_main_mode);
+  if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+      no_reply_control|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok||!card.busy())
+   return fail("newer-cart 0xA0 second transmission did not start");
+  card.advance_bus_cycles(key1_command_gap_cycles);
+  if(card.busy()||card.key1_command_mode()||!card.key2_command_mode()||
+     card.key2_bytes_processed()!=UINT32_C(0x10C4))
+   return fail("newer-cart 0xA0 did not enter KEY2 mode after its final silent gap");
+
  /* Older carts clock the 0x910-byte gap and advance KEY2 during it. */
  card.reset_transfer();
  if(card.set_chip_id(UINT32_C(0x000000C2))!=Status::Ok||
@@ -964,6 +988,21 @@ int main(){
   }
   if(card.busy()||card.key2_bytes_processed()!=UINT32_C(0x2B34))
    return fail("older-cart 0x20 did not finish its full KEY2 stream");
+
+  /* Old-cart 0xA0 enters KEY2 command mode after one clocked transmission. */
+  const uint32_t old_main_mode_counter=old_secure_counter+1u;
+  auto automatic_old_main_mode=make_key1_command(
+      0x0Au,UINT16_C(0x1234),packed_randoms,old_main_mode_counter);
+  if(command_codec.encrypt_command(automatic_old_main_mode.data(),8u)!=Status::Ok)
+   return fail("could not encrypt older-cart 0xA0 command");
+  write_key1_command(automatic_old_main_mode);
+  if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+      old_gap_control|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok||!card.busy())
+   return fail("older-cart 0xA0 did not start its KEY1 gap");
+  card.advance_bus_cycles(key1_command_gap_cycles);
+  if(card.busy()||card.key1_command_mode()||!card.key2_command_mode()||
+     card.key2_bytes_processed()!=UINT32_C(0x3444))
+   return fail("older-cart 0xA0 did not enter KEY2 mode after consuming its dummy interval");
 
 if(!oracis_bus_unbind_game_card_control(&card)||!oracis_bus_unbind_dma_control(&dma)||
     !oracis_bus_unbind_interrupt_control(&irq)||!oracis_bus_unbind_memory(&memory)||
