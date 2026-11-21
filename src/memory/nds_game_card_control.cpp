@@ -142,6 +142,57 @@ Status NdsGameCardControl::decode_next_key1_command(
  decoded=candidate;
  return Status::Ok;
 }
+Status NdsGameCardControl::describe_key1_reply(
+    const NdsGameCardKey1Command &command,
+    NdsGameCardKey1ReplyPlan &plan) const noexcept
+{
+ if(!installed_)return Status::Unmapped;
+ if(!key1_command_mode_||!key1_command_gap_pending_||
+    command.opcode!=last_key1_command_opcode_||
+    command.counter20!=key1_command_counter_)
+  return Status::PermissionDenied;
+
+ NdsGameCardKey1ReplyPlan candidate{};
+ candidate.preamble_gap_bytes=header_key1_initial_gap_bytes();
+ candidate.preamble_clocked=header_key1_gap_clocks_enabled();
+ if(candidate.preamble_clocked&&candidate.preamble_gap_bytes!=0u){
+  candidate.leading_high_z_bytes=1u;
+  candidate.preamble_key2_zero_bytes=candidate.preamble_gap_bytes-1u;
+ }
+
+ switch(command.kind){
+ case NdsGameCardKey1CommandKind::ActivateKey2:
+  candidate.payload_bytes=0u;
+  break;
+ case NdsGameCardKey1CommandKind::ReadChipId:
+  candidate.payload_bytes=4u;
+  break;
+ case NdsGameCardKey1CommandKind::ReadSecureAreaBlock:
+  if(newer_protocol_variant()){
+   /* Eight 200h data chunks, with 18h KEY2-zero bytes between chunks. */
+   candidate.payload_bytes=UINT32_C(0x10A8);
+   candidate.secure_block_bytes=UINT32_C(0x200);
+   candidate.secure_block_count=UINT8_C(8);
+   candidate.secure_inter_block_zero_bytes=UINT32_C(0x18);
+  }else{
+   candidate.payload_bytes=UINT32_C(0x1000);
+   candidate.secure_block_bytes=UINT32_C(0x1000);
+   candidate.secure_block_count=UINT8_C(1);
+  }
+  break;
+ case NdsGameCardKey1CommandKind::DisableKey2:
+  candidate.payload_length_known=false;
+  break;
+ case NdsGameCardKey1CommandKind::EnterMainDataMode:
+  candidate.payload_bytes=0u;
+  break;
+ default:
+  return Status::PermissionDenied;
+ }
+
+ plan=candidate;
+ return Status::Ok;
+}
 Status NdsGameCardControl::complete_key1_command_gap(
     uint32_t clock_bytes) noexcept
 {
