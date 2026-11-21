@@ -26,7 +26,7 @@ Status NdsGameCardControl::mount_image(const uint8_t*b,uint32_t n) noexcept{
 }
 Status NdsGameCardControl::load_key1_key_table(const uint8_t*b,uint32_t n) noexcept{
  if(!installed_)return Status::Unmapped;
- if(busy_)return Status::PermissionDenied;
+ if(busy_||key1_command_mode_)return Status::PermissionDenied;
  const Status status=key1_.load_key_table(b,n);
  if(status!=Status::Ok)return status;
  return image_==nullptr?Status::Ok:initialize_key1_from_image();
