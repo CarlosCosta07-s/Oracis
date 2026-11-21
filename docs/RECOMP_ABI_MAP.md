@@ -181,3 +181,11 @@ Até a ligação dos bancos reais ao runtime e a execução verificável da sequ
 ## 12. Auditoria reproduzível dos símbolos externos
 
 `tools/ndsrecomp/audit_bank_symbols.py` compara as referências indefinidas dos objetos C dos bancos ARM9/ARM7 com as definições presentes nos próprios objetos e nas bibliotecas do runtime Oracis. O relatório agrupa símbolos compartilhados entre CPUs, identifica os objetos que os referenciam e falha para qualquer nome que não tenha provedor ou allowlist local explícito. A ferramenta possui testes sintéticos na suite Python. Isso torna reproduzível a conferência dos 48 nomes únicos registrados no primeiro inventário, mas não afirma que os símbolos reais já foram resolvidos: essa conclusão depende de rodar a auditoria contra os objetos locais de Pokémon Platinum e as bibliotecas efetivamente construídas.
+
+## 13. Ciclo de vida da ponte host
+
+A ponte C host (oracis_host_runtime_*) possui um ciclo de vida próprio para a instância NdsMachine. Um shutdown bem-sucedido primeiro encerra as fatias dos dois CPUs e desfaz os vínculos globais da máquina; em seguida, oracis_static_dispatch_clear() remove todos os bancos registrados, inclusive tabelas C fornecidas pelo host que são armazenadas por ponteiro não proprietário. Só depois dessa limpeza a ponte destrói a instância parada. A próxima chamada de inicialização constrói uma NdsMachine nova, com os dispositivos e o mapa retail reinstalados.
+
+Essa recriação pertence à ponte host: NdsMachine::shutdown() continua responsável por desfazer os vínculos e encerrar a execução, sem limpar por conta própria o registry global de bancos. Se o shutdown falhar parcialmente, a ponte limpa as tabelas de dispatch depois de encerrar as fatias, mas mantém a instância para não destruir um objeto que ainda possa possuir vínculos globais pendentes.
+
+oracis_host_runtime_bridge_c_test cobre esse contrato com tabelas ARM9/ARM7 automáticas: elas permanecem registradas até o shutdown, saem de escopo e, depois, buscas para seus endereços precisam retornar CPU_NOT_REGISTERED, sem candidato nem ponteiro residual. O teste também inicializa uma segunda instância limpa, confirma que não há bancos herdados e executa outro shutdown. São fixtures sintéticas; isso não demonstra o boot do jogo nem a ligação dos bancos reais.
