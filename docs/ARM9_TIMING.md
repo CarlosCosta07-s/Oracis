@@ -55,7 +55,7 @@ Os custos por fetch vêm da tabela NDS7/CODE: Main RAM S32=2/S16=1; WRAM/BIOS/I/
 
 ## Timing de acesso a dados
 
-`runtime_mem_cycles(addr,width,sequential)` usa as colunas N32/S32/N16/S16 da tabela NDS/DATA. `width` aceita 1, 2 ou 4 bytes: 8/16-bit usam N16/S16 e 32-bit usam N32/S32. Os custos ARM9 são convertidos do barramento de 33 MHz para ciclos core de 66 MHz; ARM7 já opera na escala de 33 MHz.
+`runtime_mem_cycles(addr,width,sequential)` mantém o contrato legado de três argumentos e aplica custos-base sem direção. Os bancos C emitidos para o Oracis passam pelo adaptador `oracis-memory-direction-v1` e chamam `runtime_mem_cycles_ex(addr,width,sequential,direction)`, com `ORACIS_MEMORY_ACCESS_READ=0` ou `ORACIS_MEMORY_ACCESS_WRITE=1`. `width` aceita 1, 2 ou 4 bytes: 8/16-bit usam N16/S16 e 32-bit usam N32/S32. Os custos ARM9 são convertidos do barramento de 33 MHz para ciclos core de 66 MHz; ARM7 já opera na escala de 33 MHz.
 
 | CPU / região | N32 | S32 | N16 | S16 |
 |---|---:|---:|---:|---:|
@@ -69,13 +69,15 @@ Os custos por fetch vêm da tabela NDS7/CODE: Main RAM S32=2/S16=1; WRAM/BIOS/I/
 
 A tabela usa os custos-base documentados de NDS7/DATA e NDS9/DATA. Main RAM abrange `0x02000000–0x02FFFFFF`; WRAM, BIOS, a janela de I/O suportada (`0x04000000–0x04000FFF`) e OAM usam as classes de barramento de 32-bit. No ARM9, Palette/VRAM usa sua classe de 16-bit; no ARM7, somente VRAM C/D atribuída como Work RAM usa a classe VRAM, na janela potencial `0x06000000–0x0603FFFF`. TCM normal custa um ciclo core ARM9 por acesso.
 
-**Limitação da ABI:** o contrato fixado de `runtime_mem_cycles` só recebe endereço, largura e flag sequencial; não informa se a operação é load ou store. A implementação aplica os custos-base DATA uniformemente e não tenta inventar diferenças de write-buffer ou de direção. Quando ITCM/DTCM está em load mode, leituras são encaminhadas à memória externa enquanto stores continuam alimentando o TCM privado; como a ABI não informa direção, qualquer acesso na janela TCM em load mode falha explicitamente. O snapshot de regiões e modos CP15 é publicado pela `NdsMachine` a cada alteração em Control/c9.
+**Direção e TCM load mode:** o NDSRecomp fixado continua emitindo `runtime_mem_cycles(addr,width,sequential)` sem direção. O emissor Oracis adapta o C gerado antes de publicá-lo: `patch_memory_access_direction.py` associa cada chamada de timing à seguinte operação guest `bus_read_*`/`bus_write_*` e a converte em `runtime_mem_cycles_ex`. O código-fonte e a revisão upstream permanecem intactos; a prova sintética roda o compilador fixado sobre instruções ARM/Thumb LDR, STR, LDM e STM, adapta a saída e compila os bancos em C99. O adaptador falha fechado se não encontrar uma operação de barramento associável. O helper legado de três argumentos continua disponível, mas permanece fail-closed para TCM em load mode porque não conhece a direção.
+
+Com direção explícita, ITCM/DTCM normal continuam custando um ciclo core ARM9. Em load mode, stores ainda alimentam o backing privado do TCM e custam um ciclo; reads ignoram o overlay e usam a classe de timing da região externa subjacente. O DTCM em `0x027C0000`, sobre Main RAM, usa portanto o timing NDS9/DATA de Main RAM para reads (20 ciclos core para N32 não sequencial, 4 para N32 sequencial). O ITCM em load mode ainda não tem uma região externa inferior mapeada em baixa memória no mapa Oracis; reads ali falham explicitamente em vez de receber um custo presumido. O snapshot de regiões e modos CP15 é publicado pela `NdsMachine` a cada alteração em Control/c9.
 
 Gamecard/GBA slot e Wi-Fi dependem de EXMEMCNT/WIFIWAITCNT e continuam fail-closed. O N32 não sequencial ARM7 para VRAM C/D também permanece bloqueado porque o valor da tabela é incerto. Palette RAM não é mapeada no ARM7. Contenção com PPU, wait states de cache e write-buffer não estão modelados. Isto é timing-base por classe de região, não um modelo de arbitragem global do barramento.
 
 ## Combinação de ciclos ARM7
 
-`arm7_cycle_combine(flat_cycles,num_data,is_load,has_internal)` reconstrói a combinação AddCycles_CD/CDI do ARM7TDMI. O prologue gerado chama `runtime_code_cycles(pc)` em cada instrução; essa chamada guarda PC e CPSR.T. Cada `runtime_mem_cycles` acumula seu custo bruto em `num_data` e registra o endereço do último acesso. A combinação é aplicada uma única vez por instrução, inclusive para LDM/STM.
+`arm7_cycle_combine(flat_cycles,num_data,is_load,has_internal)` reconstrói a combinação AddCycles_CD/CDI do ARM7TDMI. O prologue gerado chama `runtime_code_cycles(pc)` em cada instrução; essa chamada guarda PC e CPSR.T. Cada chamada de `runtime_mem_cycles` ou `runtime_mem_cycles_ex` acumula seu custo bruto em `num_data` e registra o endereço do último acesso. A combinação é aplicada uma única vez por instrução, inclusive para LDM/STM.
 
 As tabelas de código e dados são diferentes: em Main RAM, NDS7/CODE usa N32=9/N16=8/S32=2/S16=1; NDS7/DATA usa N32=10/N16=9/S32=2/S16=1. O ARM7 usa NDS7/CODE para `num_code` e o valor acumulado dos acessos NDS7/DATA para `num_data`.
 
