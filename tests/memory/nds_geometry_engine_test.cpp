@@ -621,12 +621,14 @@ int main()
         geometry.build_buffer_index() != 1u ||
         geometry.render_buffer_index() != 0u ||
         geometry.swap_parameters() != 3u ||
-        geometry.vertex_count() != 16u ||
-        geometry.polygon_count() != 7u ||
-        geometry.render_vertex_count() != 0u ||
-        geometry.render_polygon_count() != 0u ||
+        geometry.vertex_count() != 0u ||
+        geometry.polygon_count() != 0u ||
+        geometry.render_vertex_count() != 16u ||
+        geometry.render_polygon_count() != 7u ||
         geometry.render_vertex_at(0u) == nullptr ||
-        geometry.render_polygon_at(0u) == nullptr) {
+        geometry.render_polygon_at(0u) == nullptr ||
+        geometry.render_vertex_at(15u) == nullptr ||
+        geometry.render_polygon_at(6u) == nullptr) {
         return fail("VBlank did not exchange render and build Geometry RAM");
     }
 
