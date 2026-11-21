@@ -564,7 +564,8 @@ int main(){
 
  /* The old/smaller variant increments k on every command and rejects replay. */
  card.reset_transfer();
- if(card.set_chip_id(UINT32_C(0x000000C2))!=Status::Ok||
+ if(card.key1_random_l_initialized()||card.key1_random_l()!=0u||
+    card.set_chip_id(UINT32_C(0x000000C2))!=Status::Ok||
     card.load_key1_key_table(bios_key_table.data(),
         static_cast<uint32_t>(bios_key_table.size()))!=Status::Ok||
     card.newer_protocol_variant())
