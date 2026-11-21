@@ -476,7 +476,10 @@ Status NdsDisplayControl::write(
                 (next_value & UINT32_C(0x80000000)) == 0u;
             if (was_mmd_output != becomes_mmd_output ||
                 ((engine.dispcnt ^ next_value) & UINT32_C(0x00030000)) != 0u) {
-                main_memory_display_active_ = false;
+                /* At the initial pixel boundary, this is the next frame. */
+                main_memory_display_active_ = becomes_mmd_output &&
+                    vcount_ == 0u && line_cycle_ == 0u &&
+                    main_memory_display_pixel_index_ == 0u;
                 main_memory_display_pixel_index_ = 0u;
                 clear_main_memory_display_fifo();
                 main_memory_display_frame_.fill(0u);

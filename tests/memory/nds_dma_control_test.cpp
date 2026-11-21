@@ -468,15 +468,9 @@ int main()
         UINT16_C(0x0003), UINT16_C(0x7FFD),
         UINT16_C(0x0004), UINT16_C(0x7FFC)
     };
-    if (display.main_memory_display_fifo_words() != 0u) {
-        return fail("main-memory display DMA transferred before the next frame");
-    }
-    display.advance_bus_cycles(
-        static_cast<uint64_t>(NdsDisplayControl::ScanlinesPerFrame) *
-        NdsDisplayControl::CyclesPerScanline);
-    if (display.current_scanline() != 0u ||
-        display.main_memory_display_fifo_words() != 4u) {
-        return fail("main-memory display DMA did not start at the next frame");
+    if (display.main_memory_display_fifo_words() != 0u ||
+        display.current_scanline() != 0u) {
+        return fail("main-memory display DMA transferred before the first LCD pixel");
     }
     display.advance_bus_cycles(
         8u * NdsDisplayControl::MainMemoryDisplayCyclesPerPixel);
