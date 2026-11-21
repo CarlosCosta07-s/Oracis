@@ -130,7 +130,7 @@ private:
  uint32_t read_rom_control() const noexcept;
  Status write_rom_control(NdsCpu cpu,uint32_t value) noexcept;
  Status start_transfer(NdsCpu cpu) noexcept;
- Status start_key1_activation_transfer(NdsCpu cpu) noexcept;
+ Status start_key1_command_transfer(NdsCpu cpu) noexcept;
  Status initialize_key1_from_image() noexcept;
  void finish_transfer() noexcept;
  NdsInterruptControl &interrupts_;
@@ -173,6 +173,8 @@ private:
  bool key1_command_bytes_pending_=false;
  uint32_t key1_gap_clock_bytes_=0u;
  uint64_t key1_gap_cycles_=0u;
+ uint32_t key1_reply_payload_bytes_=0u;
+ bool key1_reply_payload_encrypted_=false;
 };
 }
 #endif
