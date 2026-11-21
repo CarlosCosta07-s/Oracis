@@ -283,6 +283,9 @@ int main(){
      small|NdsGameCardControl::RomCtrlKey2DataMask|
      NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok||!card.busy())
      return fail("seeded KEY2 data read was not accepted");
+ if(card.read_data(NDS_ARM9).status!=Status::PermissionDenied||
+    card.key2_bytes_processed()!=0u)
+     return fail("KEY2 stream advanced before the first data word became ready");
  card.advance_bus_cycles(40u);
  const uint32_t expected_first=uint32_t(expected_bytes[0])|
      (uint32_t(expected_bytes[1])<<8u)|(uint32_t(expected_bytes[2])<<16u)|
@@ -308,6 +311,32 @@ int main(){
      return fail("KEY2 stream did not continue across consecutive card commands");
  if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)
      return fail("could not clear second KEY2 data IRQ");
+
+ /* The Game Card DMA DRQ path must consume the same encrypted word stream. */
+ uint8_t expected_dma_bytes[4]={image[0x8400u],image[0x8401u],image[0x8402u],image[0x8403u]};
+ if(expected_key2.apply_keystream(expected_dma_bytes,4u)!=Status::Ok)
+     return fail("could not advance KEY2 reference stream for DMA");
+ const uint32_t expected_dma_word=uint32_t(expected_dma_bytes[0])|
+     (uint32_t(expected_dma_bytes[1])<<8u)|(uint32_t(expected_dma_bytes[2])<<16u)|
+     (uint32_t(expected_dma_bytes[3])<<24u);
+ constexpr uint32_t encrypted_dma_destination=0x02000100u;
+ write_b7(0x8400u);
+ bus_write_u32(dma0,NdsGameCardControl::DataAddress);
+ bus_write_u32(dma0+4u,encrypted_dma_destination);
+ bus_write_u32(dma0+8u,1u|(2u<<NdsDmaControl::SourceControlShift)|
+     (5u<<27u)|NdsDmaControl::WordTransferMask|NdsDmaControl::EnableMask);
+ if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+     small|NdsGameCardControl::RomCtrlKey2DataMask|
+     NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok)
+     return fail("KEY2 Game Card DMA transaction did not start");
+ card.advance_bus_cycles(40u);
+ if(memory.read(NDS_ARM9,encrypted_dma_destination,4u).value!=expected_dma_word||
+    card.busy()||card.key2_bytes_processed()!=12u||
+    (bus_read_u32(dma0+8u)&NdsDmaControl::EnableMask)!=0u)
+     return fail("Game Card DMA bypassed or corrupted the KEY2 data stream");
+ if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)
+     return fail("could not clear encrypted Game Card DMA IRQ");
+
  write_b7(0x8000u);
  if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
      small|NdsGameCardControl::RomCtrlKey2DataMask|
