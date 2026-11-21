@@ -61,8 +61,8 @@ public:
  void attach_dma_control(NdsDmaControl &dma) noexcept { dma_control_ = &dma; }
  ReadResult read_data(NdsCpu cpu) noexcept;
  void reset_transfer() noexcept;
- /* Validate and consume the next encrypted KEY1 command without starting its
-  * data/gap transfer. Repeated commands are accepted only for newer carts. */
+ /* Validate and consume a KEY1 command without starting its data/gap transfer.
+  * The caller must honor the header secure delay between newer-cart repeats. */
  Status decode_next_key1_command(
      const uint8_t *wire_bytes,uint32_t size,
      NdsGameCardKey1Command &decoded) noexcept;
