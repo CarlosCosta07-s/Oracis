@@ -882,7 +882,7 @@ int main(){
    * through ROM data, including gap2 between 200h-byte blocks. */
   constexpr uint32_t key2_b7_size=UINT32_C(0x400);
   std::array<uint8_t,8> new_key2_b7_plain{{
-      UINT8_C(0xB7),UINT8_C(0x00),UINT8_C(0x00),UINT8_C(0x80),
+      UINT8_C(0xB7),UINT8_C(0x00),UINT8_C(0x00),UINT8_C(0x8E),
       UINT8_C(0x00),UINT8_C(0x00),UINT8_C(0x00),UINT8_C(0x00)}};
   auto new_key2_b7_wire=new_key2_b7_plain;
   if(expected_automatic_new_key2.apply_keystream(new_key2_b7_wire.data(),8u)!=Status::Ok)
@@ -899,7 +899,8 @@ int main(){
    return fail("newer-cart KEY2 B7 command did not start its 400h-byte read");
   std::array<uint8_t,key2_b7_size> expected_new_key2_b7_data{};
   for(uint32_t byte=0u;byte<expected_new_key2_b7_data.size();++byte)
-   expected_new_key2_b7_data[byte]=image[UINT32_C(0x8000)+byte];
+   expected_new_key2_b7_data[byte]=image[UINT32_C(0x8000)|
+       ((UINT32_C(0x0E00)+byte)&UINT32_C(0x0FFF))];
   if(expected_automatic_new_key2.apply_keystream(
        expected_new_key2_b7_data.data(),
        static_cast<uint32_t>(expected_new_key2_b7_data.size()))!=Status::Ok)
