@@ -72,6 +72,7 @@ public:
  uint16_t key1_random_i() const noexcept{return key1_random_i_;}
  uint16_t key1_random_j() const noexcept{return key1_random_j_;}
  uint32_t key1_command_counter() const noexcept{return key1_command_counter_;}
+ uint32_t key1_repeat_delay_cycles_remaining() const noexcept{return key1_repeat_delay_cycles_remaining_;}
  bool chip_id_configured() const noexcept{return chip_id_configured_;}
  uint32_t chip_id() const noexcept{return chip_id_;}
  bool newer_protocol_variant() const noexcept{return chip_id_configured_&&(chip_id_&UINT32_C(0x80000000))!=0u;}
@@ -134,6 +135,8 @@ private:
  std::array<uint8_t,CommandBytes> last_key1_command_{};
  bool last_key1_command_valid_=false;
  uint8_t last_key1_command_transmissions_=0u;
+ uint8_t last_key1_command_opcode_=0u;
+ uint32_t key1_repeat_delay_cycles_remaining_=0u;
 };
 }
 #endif
