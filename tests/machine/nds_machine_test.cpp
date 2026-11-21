@@ -2031,6 +2031,9 @@ int main()
     const NdsCpu timer_irq_cpus[] = {NDS_ARM9, NDS_ARM7};
     for (const NdsCpu cpu : timer_irq_cpus) {
         if (machine.timer_control().write(
+                cpu, oracis::memory::NdsTimerControl::Timer0CounterAddress + 2u,
+                2u, 0u) != oracis::memory::Status::Ok ||
+            machine.timer_control().write(
                 cpu, oracis::memory::NdsTimerControl::Timer0CounterAddress,
                 2u, UINT32_C(0xFFFF)) != oracis::memory::Status::Ok ||
             machine.timer_control().write(
