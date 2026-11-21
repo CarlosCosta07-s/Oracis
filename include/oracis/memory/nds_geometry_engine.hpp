@@ -123,6 +123,9 @@ public:
     uint8_t render_buffer_index() const noexcept { return render_buffer_index_; }
     uint8_t swap_parameters() const noexcept { return swap_parameters_; }
     bool vertex_list_open() const noexcept { return vertex_list_open_; }
+    bool incomplete_polygon_list() const noexcept {
+        return has_incomplete_primitive();
+    }
     uint8_t primitive_mode() const noexcept { return primitive_mode_; }
     const Polygon *polygon_at(uint32_t index) const noexcept {
         const auto &buffer = buffers_[build_buffer_index_];
@@ -195,6 +198,7 @@ private:
     void submit_vertex() noexcept;
     void begin_vertex_list(uint32_t parameter) noexcept;
     void end_vertex_list() noexcept;
+    bool has_incomplete_primitive() const noexcept;
     void append_vertex_to_list(uint32_t vertex_index) noexcept;
     void emit_polygon(const uint32_t *indices, uint8_t count) noexcept;
     void reset_build_buffer() noexcept;
@@ -260,6 +264,7 @@ private:
     uint32_t active_polygon_attributes_ = 0u;
     uint8_t primitive_mode_ = 0u;
     bool vertex_list_open_ = false;
+    bool incomplete_polygon_list_ = false;
     uint32_t vertex_list_vertex_count_ = 0u;
     std::array<uint32_t, 4> primitive_vertices_{};
     uint8_t primitive_vertex_count_ = 0u;

@@ -259,6 +259,7 @@ Status NdsGeometryEngine::install() noexcept
     active_polygon_attributes_ = 0u;
     primitive_mode_ = 0u;
     vertex_list_open_ = false;
+    incomplete_polygon_list_ = false;
     vertex_list_vertex_count_ = 0u;
     primitive_vertices_ = {};
     primitive_vertex_count_ = 0u;
@@ -649,7 +650,7 @@ bool NdsGeometryEngine::begin_next_command() noexcept
         /* SwapBuffers halts GX processing until the next VBlank edge. */
         swap_waiting_vblank_ = true;
         active_cycles_remaining_ = 0u;
-        if (vertex_list_open_) {
+        if (has_incomplete_primitive()) {
             swap_lockup_ = true;
         }
     }
@@ -682,7 +683,7 @@ void NdsGeometryEngine::notify_vblank() noexcept
         return;
     }
 
-    if (vertex_list_open_) {
+    if (has_incomplete_primitive()) {
         swap_lockup_ = true;
         swap_waiting_vblank_ = false;
         return;
@@ -695,6 +696,11 @@ void NdsGeometryEngine::notify_vblank() noexcept
         static_cast<uint8_t>(active_parameters_[0] & UINT32_C(3));
     swap_buffer_clear_cycles_ = 10u;
     swap_waiting_vblank_ = false;
+    vertex_list_open_ = false;
+    incomplete_polygon_list_ = false;
+    vertex_list_vertex_count_ = 0u;
+    primitive_vertex_count_ = 0u;
+    primitive_vertices_ = {};
     active_cycles_remaining_ = 392u;
 }
 
@@ -1094,6 +1100,9 @@ void NdsGeometryEngine::submit_vertex() noexcept
 
 void NdsGeometryEngine::begin_vertex_list(uint32_t parameter) noexcept
 {
+    if (has_incomplete_primitive()) {
+        incomplete_polygon_list_ = true;
+    }
     vertex_list_open_ = true;
     primitive_mode_ = static_cast<uint8_t>(parameter & 3u);
     active_polygon_attributes_ = pending_polygon_attributes_;
@@ -1107,10 +1116,30 @@ void NdsGeometryEngine::begin_vertex_list(uint32_t parameter) noexcept
 
 void NdsGeometryEngine::end_vertex_list() noexcept
 {
-    vertex_list_open_ = false;
-    vertex_list_vertex_count_ = 0u;
-    primitive_vertex_count_ = 0u;
-    primitive_vertices_ = {};
+    /*
+     * END_VTXS is a compatibility dummy on real DS hardware. It does not
+     * close, flush, or discard the active primitive list.
+     */
+}
+
+bool NdsGeometryEngine::has_incomplete_primitive() const noexcept
+{
+    if (incomplete_polygon_list_) return true;
+    if (!vertex_list_open_ || vertex_list_vertex_count_ == 0u) return false;
+
+    switch (primitive_mode_) {
+    case 0u: /* Separate triangles: 3 vertices per polygon. */
+        return primitive_vertex_count_ != 0u;
+    case 1u: /* Separate quads: 4 vertices per polygon. */
+        return primitive_vertex_count_ != 0u;
+    case 2u: /* Triangle strips: the first polygon needs 3 vertices. */
+        return vertex_list_vertex_count_ < 3u;
+    case 3u: /* Quad strips: 4 vertices, then complete pairs. */
+        return vertex_list_vertex_count_ < 4u ||
+            (vertex_list_vertex_count_ & 1u) != 0u;
+    default:
+        return true;
+    }
 }
 
 void NdsGeometryEngine::emit_polygon(

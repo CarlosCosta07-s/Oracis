@@ -378,6 +378,13 @@ int main()
         return fail("BEGIN_VTXS triangle-strip setup enqueue failed");
     }
     geometry.advance_bus_cycles(2u);
+    if (!write_command(geometry, 0x41u)) {
+        return fail("early dummy END_VTXS enqueue failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    if (!geometry.vertex_list_open() || geometry.incomplete_polygon_list()) {
+        return fail("END_VTXS unexpectedly closed or damaged an empty active list");
+    }
     const uint32_t packed_normal =
         UINT32_C(1) | (UINT32_C(0x3FF) << 10u) |
         (UINT32_C(0x100) << 20u);
@@ -497,9 +504,9 @@ int main()
         return fail("END_VTXS command enqueue failed");
     }
     geometry.advance_bus_cycles(1u);
-    if (geometry.vertex_list_open() || geometry.polygon_count() != 4u ||
-        geometry.primitive_mode() != 2u) {
-        return fail("triangle-strip assembly or END_VTXS handling failed");
+    if (!geometry.vertex_list_open() || geometry.polygon_count() != 4u ||
+        geometry.primitive_mode() != 2u || geometry.incomplete_polygon_list()) {
+        return fail("END_VTXS changed a complete active triangle-strip list");
     }
     const NdsGeometryEngine::Polygon *strip_first = geometry.polygon_at(0u);
     const NdsGeometryEngine::Polygon *strip_second = geometry.polygon_at(1u);
@@ -676,18 +683,38 @@ int main()
     }
 
     /*
-     * Issuing SWAP_BUFFERS before END_VTXS is a documented Geometry Engine
-     * lockup. It must not exchange the build/render RAM or continue commands.
+     * A triangle with only two vertices is an incomplete polygon list.
+     * END_VTXS is a dummy command and does not cure the incomplete primitive.
      */
     NdsGeometryEngine locked_geometry(interrupts);
     if (locked_geometry.install() != Status::Ok ||
-        !write_command(locked_geometry, 0x40u, UINT32_C(2))) {
-        return fail("open-list swap lockup fixture setup failed");
+        !write_command(locked_geometry, 0x40u, UINT32_C(0))) {
+        return fail("incomplete-triangle swap lockup fixture setup failed");
+    }
+    locked_geometry.advance_bus_cycles(1u);
+    const uint32_t first_vertex_xy = UINT32_C(0x00001000);
+    if (!write_command(locked_geometry, 0x23u, first_vertex_xy) ||
+        !write_command(locked_geometry, 0x23u, UINT32_C(0)) ||
+        !write_command(locked_geometry, 0x23u, UINT32_C(0x10000000)) ||
+        !write_command(locked_geometry, 0x23u, UINT32_C(0))) {
+        return fail("incomplete-triangle VTX_16 fixture enqueue failed");
+    }
+    locked_geometry.advance_bus_cycles(18u);
+    if (locked_geometry.vertex_count() != 2u ||
+        locked_geometry.polygon_count() != 0u ||
+        !locked_geometry.incomplete_polygon_list()) {
+        return fail("two-vertex triangle was not recorded as an incomplete polygon");
+    }
+    if (!write_command(locked_geometry, 0x41u)) {
+        return fail("incomplete-triangle dummy END_VTXS enqueue failed");
     }
     locked_geometry.advance_bus_cycles(1u);
     if (!locked_geometry.vertex_list_open() ||
-        !write_command(locked_geometry, 0x50u, UINT32_C(0))) {
-        return fail("open-list swap lockup command enqueue failed");
+        !locked_geometry.incomplete_polygon_list()) {
+        return fail("END_VTXS incorrectly closed or completed the partial triangle");
+    }
+    if (!write_command(locked_geometry, 0x50u, UINT32_C(0))) {
+        return fail("incomplete-triangle SWAP_BUFFERS enqueue failed");
     }
     locked_geometry.advance_bus_cycles(1u);
     if (!locked_geometry.swap_lockup() ||
@@ -695,7 +722,7 @@ int main()
         !locked_geometry.busy() ||
         locked_geometry.build_buffer_index() != 0u ||
         locked_geometry.render_buffer_index() != 1u) {
-        return fail("SWAP_BUFFERS inside an open vertex list did not lock up safely");
+        return fail("SWAP_BUFFERS with an incomplete polygon did not lock up safely");
     }
     locked_geometry.notify_vblank();
     if (!locked_geometry.swap_lockup() ||
