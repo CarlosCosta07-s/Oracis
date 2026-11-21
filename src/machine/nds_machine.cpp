@@ -1061,6 +1061,12 @@ NdsMachineStatus NdsMachine::initialize() noexcept
     }
     power_handler_bound_ = true;
 
+    if (!oracis_arm_runtime_bind_irq_handler(
+            this, &NdsMachine::runtime_irq_handler)) {
+        return rollback(NdsMachineStatus::RuntimeAlreadyBound);
+    }
+    irq_handler_bound_ = true;
+
     if (!oracis_arm_runtime_bind_coprocessor_handler(
             this, &NdsMachine::runtime_coprocessor_handler)) {
         return rollback(NdsMachineStatus::RuntimeAlreadyBound);
@@ -1297,8 +1303,8 @@ NdsMachineStatus NdsMachine::load_program_segments(
 NdsMachineStatus NdsMachine::shutdown() noexcept
 {
     const bool owns_runtime =
-        runtime_bound_ || power_handler_bound_ ||
-        coprocessor_handler_bound_ || bios_memory_handler_bound_ ||
+        runtime_bound_ || power_handler_bound_ || irq_handler_bound_ ||
+        coprocessor_handler_bound_ || bios_memory_handler_bound_
         bios_crc16_handler_bound_ || bios_bit_unpack_handler_bound_ ||
         bios_lz77_handler_bound_ || bios_rle_handler_bound_ ||
         bios_huffman_handler_bound_ || bios_diff_handler_bound_ ||
@@ -1457,6 +1463,13 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
             return NdsMachineStatus::ShutdownFailed;
         }
         coprocessor_handler_bound_ = false;
+    }
+    if (irq_handler_bound_) {
+        if (!oracis_arm_runtime_unbind_irq_handler(
+                this, &NdsMachine::runtime_irq_handler)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        irq_handler_bound_ = false;
     }
     if (power_handler_bound_) {
         if (!oracis_arm_runtime_unbind_power_handler(
@@ -1618,7 +1631,23 @@ NdsMachineStatus NdsMachine::run_dual_core_round(
             return NdsMachineStatus::Ok;
         }
         if (irq_context == nullptr) {
-            return NdsMachineStatus::IrqContextUnavailable;
+            /*
+             * Native Oracis banks keep R15 at the next instruction boundary.
+             * The runtime IRQ contract converts this PC to LR_irq = PC + 4.
+             * This enters the vector between slices; the next slice dispatches
+             * the compiled handler. Custom executors can still provide an
+             * instruction-specific link through irq_context below.
+             */
+            if (!oracis_arm_runtime_select_cpu(cpu)) {
+                return NdsMachineStatus::SchedulerFailure;
+            }
+            const int irq_result =
+                oracis_arm_runtime_request_irq(state->R[15]);
+            return irq_result == 1
+                ? NdsMachineStatus::Ok
+                : (irq_result == 0
+                    ? NdsMachineStatus::IrqContextUnavailable
+                    : NdsMachineStatus::IrqEntryFailed);
         }
 
         uint32_t return_address = 0u;
@@ -1831,6 +1860,78 @@ NdsMachineStatus NdsMachine::try_deliver_pending_irq(
         cpu, *state, return_address, vector_base)
         ? NdsMachineStatus::IrqEntered
         : NdsMachineStatus::IrqEntryFailed;
+}
+
+bool NdsMachine::cpu_slice_active(NdsCpu cpu) const noexcept
+{
+    return initialized_ && valid_cpu(cpu) && slice_active_[cpu_index(cpu)];
+}
+
+NdsMachineStatus NdsMachine::enter_runtime_irq(
+    NdsCpu cpu, uint32_t return_pc) noexcept
+{
+    if (!initialized_) return NdsMachineStatus::NotInitialized;
+    if (!valid_cpu(cpu)) return NdsMachineStatus::InvalidCpu;
+
+    const unsigned index = cpu_index(cpu);
+    if (slice_active_[index ^ 1u]) {
+        return NdsMachineStatus::SliceAlreadyActive;
+    }
+
+    if (!cpu_can_execute(cpu)) return NdsMachineStatus::CpuHalted;
+    ArmCpuState *state = cpu_state(cpu);
+    if (state == nullptr) return NdsMachineStatus::InvalidCpu;
+    if (!interrupt_control_.irq_asserted(cpu) ||
+        (state->cpsr & CPSR_I_BIT) != 0u) {
+        return NdsMachineStatus::IrqNotEligible;
+    }
+
+    const uint32_t alignment =
+        (state->cpsr & CPSR_T_BIT) != 0u ? 2u : 4u;
+    if ((return_pc % alignment) != 0u ||
+        return_pc > UINT32_MAX - UINT32_C(4)) {
+        return NdsMachineStatus::IrqEntryFailed;
+    }
+
+    if (!oracis_arm_runtime_select_cpu(cpu)) {
+        return NdsMachineStatus::SchedulerFailure;
+    }
+
+    const uint32_t irq_link = return_pc + UINT32_C(4);
+    return interrupt_control_.try_enter_irq(
+        cpu, *state, irq_link, exception_vector_base(cpu))
+        ? NdsMachineStatus::IrqEntered
+        : NdsMachineStatus::IrqEntryFailed;
+}
+
+int NdsMachine::runtime_irq_handler(
+    void *context, NdsCpu cpu, uint32_t return_pc)
+{
+    auto *machine = static_cast<NdsMachine *>(context);
+    if (machine == nullptr || !machine->initialized_ ||
+        machine->cpu_state(cpu) == nullptr ||
+        oracis_active_cpu_state != machine->cpu_state(cpu)) {
+        return -1;
+    }
+
+    const bool dispatch_now = machine->cpu_slice_active(cpu);
+    const NdsMachineStatus status =
+        machine->enter_runtime_irq(cpu, return_pc);
+    if (status == NdsMachineStatus::IrqNotEligible ||
+        status == NdsMachineStatus::CpuHalted) {
+        return 0;
+    }
+    if (status != NdsMachineStatus::IrqEntered) return -1;
+
+    if (dispatch_now) {
+        ArmCpuState *state = machine->cpu_state(cpu);
+        if (state == nullptr ||
+            !oracis_arm_runtime_select_cpu(cpu)) {
+            return -1;
+        }
+        runtime_dispatch(state->R[15]);
+    }
+    return 1;
 }
 
 uint32_t NdsMachine::exception_vector_base(NdsCpu cpu) const noexcept
