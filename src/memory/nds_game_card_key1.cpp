@@ -103,7 +103,6 @@ void NdsGameCardKey1::apply_key_code(
     }
 }
 
-Status NdsGameCardKey1::initialize(
 void NdsGameCardKey1::reset() noexcept
 {
     active_table_ = {};
@@ -113,6 +112,7 @@ void NdsGameCardKey1::reset() noexcept
     initialized_ = false;
 }
 
+Status NdsGameCardKey1::initialize(
     uint32_t id_code, uint32_t level,
     uint32_t modulo_bytes) noexcept
 {
