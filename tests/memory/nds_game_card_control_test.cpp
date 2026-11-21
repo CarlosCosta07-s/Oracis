@@ -388,9 +388,35 @@ int main(){
      return fail("raw B7 command was accepted after KEY1 activation");
  if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)
      return fail("could not clear KEY1 activation IRQ");
+
+ /* A fresh reset can also clock one explicit HIGH-Z word after 3C. */
+ card.reset_transfer();
+ if(card.key1_initialized()||card.key1_command_mode()||
+    card.load_key1_key_table(bios_key_table.data(),
+        static_cast<uint32_t>(bios_key_table.size()))!=Status::Ok||
+    !card.key1_initialized())
+     return fail("Game Card reset did not preserve and reinitialize the external KEY1 table");
+ bus_write_u16(NdsGameCardControl::AuxSpiControlAddress,
+     uint16_t(NdsGameCardControl::AuxSpiIrqEnableMask|
+              NdsGameCardControl::AuxSpiSlotEnableMask));
+ write_activate_key1(key1_random_i,key1_random_j,key1_counter);
+ if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+     small|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok||
+    !card.busy()||card.key1_command_mode())
+     return fail("explicit four-byte 3C HIGH-Z transfer did not start");
+ card.advance_bus_cycles(40u);
+ if(!card.data_ready()||!card.busy())
+     return fail("explicit four-byte 3C response did not become ready");
+ const ReadResult high_z_word=card.read_data(NDS_ARM9);
+ if(high_z_word.status!=Status::Ok||high_z_word.value!=UINT32_MAX||
+    card.busy()||!card.key1_command_mode()||
+    card.key1_command_counter()!=key1_counter)
+     return fail("four-byte 3C HIGH-Z response did not complete KEY1 activation");
+ if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)
+     return fail("could not clear four-byte KEY1 activation IRQ");
  if(!oracis_bus_unbind_game_card_control(&card)||!oracis_bus_unbind_dma_control(&dma)||
     !oracis_bus_unbind_interrupt_control(&irq)||!oracis_bus_unbind_memory(&memory)||
     !oracis_arm_runtime_unbind_cpus(&a9,&a7))return fail("bus teardown failed");
- std::puts("NDS Game Card dummy/header commands, zero-length KEY1 activation, B7 limits, DRQ, ARM9/ARM7 DMA and IRQ passed");
+ std::puts("NDS Game Card dummy/header commands, zero-length and HIGH-Z KEY1 activation, B7 limits, DRQ, ARM9/ARM7 DMA and IRQ passed");
  return 0;
 }
