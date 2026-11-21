@@ -17,6 +17,39 @@ static int g_arm7_irq_triggered = 0;
 static int g_arm9_irq_handler_ok = 0;
 static int g_arm7_irq_handler_ok = 0;
 
+static void lifecycle_dispatch_entry(void)
+{
+}
+
+/* Register stack-owned C tables, shut down while they are alive, then return. */
+static int shutdown_with_temporary_dispatch_tables(void)
+{
+    const NdsDispatchEntry arm9_table[] = {
+        {UINT32_C(0x02004000), 0u, &lifecycle_dispatch_entry, NULL}
+    };
+    const NdsDispatchEntry arm7_table[] = {
+        {UINT32_C(0x02384000), 0u, &lifecycle_dispatch_entry, NULL}
+    };
+
+    if (oracis_static_dispatch_register_bank(
+            NDS_ARM9, arm9_table, 1u, "lifecycle-stack-arm9") !=
+            ORACIS_DISPATCH_REGISTER_OK ||
+        oracis_static_dispatch_register_bank(
+            NDS_ARM7, arm7_table, 1u, "lifecycle-stack-arm7") !=
+            ORACIS_DISPATCH_REGISTER_OK ||
+        oracis_host_runtime_has_program_banks() != 1) {
+        (void)oracis_host_runtime_shutdown();
+        fprintf(stderr, "lifecycle test could not register temporary C tables\n");
+        return 1;
+    }
+
+    if (oracis_host_runtime_shutdown() != ORACIS_HOST_RUNTIME_OK) {
+        fprintf(stderr, "lifecycle test could not shut down with temporary C tables\n");
+        return 1;
+    }
+    return 0;
+}
+
 enum {
     TEST_KEYPAD_IRQ = 1u << 12u,
     TEST_KEYPAD_A = 1u,
@@ -544,6 +577,34 @@ int main(void)
 
     if (oracis_host_runtime_shutdown() != ORACIS_HOST_RUNTIME_OK) {
         fprintf(stderr, "C host bridge shutdown was not idempotent\n");
+        return 1;
+    }
+
+    /* Reinitialize, then shut down with tables whose storage expires on return. */
+    if (oracis_host_runtime_initialize() != ORACIS_HOST_RUNTIME_OK ||
+        shutdown_with_temporary_dispatch_tables() != 0) {
+        fprintf(stderr, "C host bridge failed the temporary-table shutdown cycle\n");
+        return 1;
+    }
+
+    /* The previous helper's table storage is now out of scope. A fresh machine
+       must see an empty registry and must never consult those stale pointers. */
+    uint32_t stale_lookup_status = UINT32_MAX;
+    uint32_t stale_candidate_count = UINT32_MAX;
+    const NdsDispatchEntry *stale_candidate = NULL;
+    if (oracis_host_runtime_initialize() != ORACIS_HOST_RUNTIME_OK ||
+        oracis_host_runtime_is_initialized() != 1 ||
+        oracis_host_runtime_has_program_banks() != 0 ||
+        oracis_static_dispatch_lookup(
+            NDS_ARM9, UINT32_C(0x02004000), 0u,
+            &stale_lookup_status, &stale_candidate_count,
+            &stale_candidate) != NULL ||
+        stale_lookup_status != ORACIS_DISPATCH_LOOKUP_CPU_NOT_REGISTERED ||
+        stale_candidate_count != 0u || stale_candidate != NULL ||
+        oracis_host_runtime_run_round(1u, NULL, NULL) !=
+            ORACIS_HOST_RUNTIME_NO_PROGRAM_BANKS ||
+        oracis_host_runtime_shutdown() != ORACIS_HOST_RUNTIME_OK) {
+        fprintf(stderr, "C host bridge retained temporary dispatch tables across reinitialization\n");
         return 1;
     }
 
