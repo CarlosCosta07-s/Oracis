@@ -61,6 +61,11 @@ public:
  void attach_dma_control(NdsDmaControl &dma) noexcept { dma_control_ = &dma; }
  ReadResult read_data(NdsCpu cpu) noexcept;
  void reset_transfer() noexcept;
+ /* Validate and consume the next encrypted KEY1 command without starting its
+  * data/gap transfer. Repeated commands are accepted only for newer carts. */
+ Status decode_next_key1_command(
+     const uint8_t *wire_bytes,uint32_t size,
+     NdsGameCardKey1Command &decoded) noexcept;
  bool installed() const noexcept{return installed_;}
  bool key2_initialized() const noexcept{return key2_.initialized();}
  bool key1_initialized() const noexcept{return key1_.initialized();}
@@ -128,6 +133,8 @@ private:
  bool key1_command_mode_=false,key1_activation_pending_=false;
  uint16_t key1_random_i_=0u,key1_random_j_=0u;
  uint32_t key1_command_counter_=0u;
+ std::array<uint8_t,CommandBytes> last_key1_command_{};
+ bool last_key1_command_valid_=false;
 };
 }
 #endif
