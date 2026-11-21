@@ -44,6 +44,10 @@ int main(void)
     }
 
     uint8_t synthetic_game_card[0x8200] = {0};
+    synthetic_game_card[0x0C] = (uint8_t)'C';
+    synthetic_game_card[0x0D] = (uint8_t)'P';
+    synthetic_game_card[0x0E] = (uint8_t)'U';
+    synthetic_game_card[0x0F] = (uint8_t)'E';
     synthetic_game_card[0x8000] = UINT8_C(0xA5);
     synthetic_game_card[0x8001] = UINT8_C(0x5A);
     if (oracis_host_runtime_mount_game_card_image(NULL, 0x200u) !=
@@ -63,6 +67,20 @@ int main(void)
     if (oracis_host_runtime_set_game_card_chip_id(UINT32_C(0x800000C2)) !=
         ORACIS_HOST_RUNTIME_OK) {
         fprintf(stderr, "host bridge could not configure explicit synthetic chip ID\\n");
+        return 1;
+    }
+
+    uint8_t synthetic_arm7_bios[0x4000] = {0};
+    for (uint32_t index = 0u; index < UINT32_C(0x1048); ++index) {
+        synthetic_arm7_bios[0x30u + index] =
+            (uint8_t)((index * 37u + 11u) & 0xFFu);
+    }
+    if (oracis_host_runtime_load_game_card_arm7_bios(
+            synthetic_arm7_bios, UINT32_C(0x3FFF)) !=
+            ORACIS_HOST_RUNTIME_INVALID_ARGUMENT ||
+        oracis_host_runtime_load_game_card_arm7_bios(
+            synthetic_arm7_bios, UINT32_C(0x4000)) != ORACIS_HOST_RUNTIME_OK) {
+        fprintf(stderr, "host bridge failed to extract and initialize the synthetic ARM7 BIOS KEY1 table\\n");
         return 1;
     }
 
