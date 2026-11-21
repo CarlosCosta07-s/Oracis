@@ -6,6 +6,7 @@
 #include "oracis/recomp/runtime_scheduler.h"
 #include "oracis/recomp/static_dispatch_abi.h"
 
+#include <array>
 #include <cstdint>
 #include <cstdio>
 
@@ -2698,6 +2699,111 @@ int main()
         NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 0u);
     machine.display_control().write(
         NDS_ARM9, NdsDisplayControl::DispstatAddress, 2u, 0u);
+
+    /*
+     * A raw Chip ID command is a compact full Game Card transfer fixture.
+     * The last DATA read must set IF through AUXSPICNT.IRQ, then the native
+     * scheduler must enter ARM9's IRQ vector at the next safe round.
+     */
+    constexpr uint32_t game_card_irq =
+        oracis::memory::NdsGameCardControl::GameCardTransferIrqMask;
+    constexpr uint32_t game_card_chip_id = UINT32_C(0x12345678);
+    constexpr uint32_t game_card_pc = UINT32_C(0x02007100);
+    std::array<uint8_t, 0x200> game_card_irq_image{};
+    for (std::size_t index = 0u; index < game_card_irq_image.size(); ++index) {
+        game_card_irq_image[index] = static_cast<uint8_t>(
+            (index * 17u + 3u) & 0xFFu);
+    }
+    if (machine.game_card_control().mount_image(
+            game_card_irq_image.data(),
+            static_cast<uint32_t>(game_card_irq_image.size())) !=
+            oracis::memory::Status::Ok ||
+        machine.game_card_control().set_chip_id(game_card_chip_id) !=
+            oracis::memory::Status::Ok ||
+        !oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("Game Card IRQ test could not mount a synthetic cartridge");
+    }
+
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IfAddress, 4u, UINT32_MAX);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IeAddress, 4u, game_card_irq);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 1u);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::IfAddress, 4u, UINT32_MAX);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::IeAddress, 4u, 0u);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::ImeAddress, 4u, 0u);
+    arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
+    arm9->R[15] = game_card_pc;
+    arm7->cpsr = ORACIS_ARM_MODE_SYSTEM | CPSR_T_BIT;
+    arm7->R[15] = UINT32_C(0x02381002);
+
+    bus_write_u16(
+        oracis::memory::NdsGameCardControl::AuxSpiControlAddress,
+        static_cast<uint16_t>(
+            oracis::memory::NdsGameCardControl::AuxSpiIrqEnableMask |
+            oracis::memory::NdsGameCardControl::AuxSpiSlotEnableMask));
+    bus_write_u8(
+        oracis::memory::NdsGameCardControl::CommandAddress,
+        oracis::memory::NdsGameCardControl::ChipIdReadCommand);
+    const uint32_t game_card_transfer =
+        oracis::memory::NdsGameCardControl::RomCtrlResetReleaseMask |
+        (UINT32_C(7) <<
+            oracis::memory::NdsGameCardControl::RomCtrlBlockSizeShift) |
+        oracis::memory::NdsGameCardControl::RomCtrlStartBusyMask;
+    bus_write_u32(
+        oracis::memory::NdsGameCardControl::RomControlAddress,
+        game_card_transfer);
+
+    SchedulerFixture game_card_clock_fixture{};
+    if (!machine.game_card_control().busy() ||
+        machine.run_dual_core_round(
+            40u, &execute_test_slice, nullptr,
+            &game_card_clock_fixture) != NdsMachineStatus::Ok ||
+        !machine.game_card_control().data_ready() ||
+        machine.game_card_control().remaining_words() != 1u ||
+        (machine.interrupt_control().read(
+            NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value &
+            game_card_irq) != 0u) {
+        return fail("Game Card synthetic Chip ID transfer did not reach DATA-ready");
+    }
+
+    if (bus_read_u32(oracis::memory::NdsGameCardControl::DataAddress) !=
+            game_card_chip_id ||
+        machine.game_card_control().busy() ||
+        (machine.interrupt_control().read(
+            NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value &
+            game_card_irq) == 0u) {
+        return fail("last Game Card DATA read did not raise its enabled transfer IRQ");
+    }
+
+    SchedulerFixture game_card_irq_fixture{};
+    if (machine.run_dual_core_round(
+            1u, &execute_test_slice, nullptr,
+            &game_card_irq_fixture) != NdsMachineStatus::Ok ||
+        game_card_irq_fixture.irq_context_calls[0] != 0u ||
+        game_card_irq_fixture.irq_context_calls[1] != 0u ||
+        (arm9->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_IRQ ||
+        arm9->banked_spsr[ARM_BANK_IRQ] != ORACIS_ARM_MODE_SYSTEM ||
+        arm9->R[14] != game_card_pc + 4u ||
+        arm9->R[15] != UINT32_C(0xFFFF0018)) {
+        return fail("Game Card completion IRQ did not enter the native ARM9 vector");
+    }
+
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 could not be selected after Game Card IRQ");
+    }
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IfAddress, 4u, game_card_irq);
+    runtime_exception_return(game_card_pc);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IeAddress, 4u, 0u);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 0u);
+    machine.game_card_control().unmount_image();
 
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
         return fail("ARM9 could not be selected after native boundary IRQ test");
