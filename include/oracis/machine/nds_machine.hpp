@@ -201,6 +201,15 @@ public:
         NdsCpu cpu, uint32_t return_address,
         uint32_t vector_base) noexcept;
 
+    /*
+     * Accept an IRQ at a generated-code boundary. return_pc is the next guest
+     * PC; the machine derives LR_irq = return_pc + 4 and chooses the vector.
+     * If a CPU slice is active, it must belong to this CPU.
+     */
+    NdsMachineStatus enter_runtime_irq(
+        NdsCpu cpu, uint32_t return_pc) noexcept;
+    bool cpu_slice_active(NdsCpu cpu) const noexcept;
+
     /* ARM9 CP15 Control.V selects high exception vectors; ARM7 is fixed low. */
     uint32_t exception_vector_base(NdsCpu cpu) const noexcept;
 
@@ -237,6 +246,8 @@ private:
     static int runtime_power_handler(
         void *context, NdsCpu cpu,
         uint32_t operation, uint32_t value);
+    static int runtime_irq_handler(
+        void *context, NdsCpu cpu, uint32_t return_pc);
     static int runtime_coprocessor_handler(
         void *context, NdsCpu cpu, uint32_t is_write,
         uint32_t cp_num, uint32_t op1, uint32_t crn,
@@ -291,6 +302,7 @@ private:
     NdsCpu next_round_first_cpu_ = NDS_ARM9;
     bool runtime_bound_ = false;
     bool power_handler_bound_ = false;
+    bool irq_handler_bound_ = false;
     bool coprocessor_handler_bound_ = false;
     bool bios_memory_handler_bound_ = false;
     bool bios_crc16_handler_bound_ = false;
