@@ -16,6 +16,15 @@ import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[2]
+PATCHER_PATH = ROOT / "tools" / "ndsrecomp" / "patch_memory_access_direction.py"
+PATCHER_SPEC = importlib.util.spec_from_file_location(
+    "oracis_memory_direction_for_recompiler_test", PATCHER_PATH
+)
+if PATCHER_SPEC is None or PATCHER_SPEC.loader is None:
+    raise RuntimeError(f"Cannot load memory direction patcher: {PATCHER_PATH}")
+patcher = importlib.util.module_from_spec(PATCHER_SPEC)
+PATCHER_SPEC.loader.exec_module(patcher)
+
 EXTRACTOR_PATH = ROOT / "tools" / "ndsrecomp" / "extract_nds_programs.py"
 SPEC = importlib.util.spec_from_file_location(
     "oracis_extract_for_recompiler_test", EXTRACTOR_PATH
@@ -33,8 +42,24 @@ def make_synthetic_nds(path: Path) -> str:
     arm7_offset = 0x204
     arm9_load = 0x02000000
     arm7_load = 0x02380000
-    arm9_code = bytes.fromhex("1e ff 2f e1")  # ARM: bx lr
-    arm7_code = bytes.fromhex("70 47")        # Thumb: bx lr
+    # Exercise explicit read/write timing adaptation in actual compiler
+    # output, including single and multiple-transfer ARM/Thumb instructions.
+    arm9_code = struct.pack(
+        "<IIIII",
+        0xE5910000,  # LDR r0, [r1]
+        0xE5810000,  # STR r0, [r1]
+        0xE8B10005,  # LDMIA r1!, {r0, r2}
+        0xE8A10005,  # STMIA r1!, {r0, r2}
+        0xE12FFF1E,  # BX lr
+    )
+    arm7_code = struct.pack(
+        "<HHHHH",
+        0x6808,      # LDR r0, [r1, #0]
+        0x6008,      # STR r0, [r1, #0]
+        0xC908,      # LDMIA r1!, {r0}
+        0xC108,      # STMIA r1!, {r0}
+        0x4770,      # BX lr
+    )
 
     image = bytearray(arm7_offset + len(arm7_code))
     struct.pack_into(
@@ -84,6 +109,20 @@ def compile_bank(recompiler: Path, c_compiler: list[str], config: Path,
     empty = [name for name in expected if (output / name).stat().st_size == 0]
     if empty:
         raise AssertionError(f"NDSRecomp emitted empty files for {bank}: {empty}")
+
+    # Apply the same Oracis-owned codegen adapter used by the local bank
+    # publisher. The synthetic instruction stream must exercise both sides.
+    bank_source = output / f"{bank}.c"
+    original_source = bank_source.read_text(encoding="utf-8")
+    adapted_source, read_calls, write_calls = patcher.patch_generated_source(
+        original_source
+    )
+    if read_calls == 0 or write_calls == 0:
+        raise AssertionError(
+            f"NDSRecomp did not expose both memory directions for {bank}: "
+            f"reads={read_calls}, writes={write_calls}"
+        )
+    bank_source.write_text(adapted_source, encoding="utf-8")
 
     # Compile both generated C translation units against the Oracis C99 ABI.
     include_dir = ROOT / "include" / "oracis" / "recomp"
