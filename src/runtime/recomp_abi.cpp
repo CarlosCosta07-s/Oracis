@@ -932,15 +932,16 @@ void runtime_swi(uint32_t swi_imm)
         return;
     }
 
-    case 0x04u: /* NDS7/NDS9 IntrWait: R0=clear old flags, R1=IF mask. */
-        if (!oracis_arm_runtime_request_interrupt_wait(
-                g_cpu.R[0], g_cpu.R[1])) {
+    case 0x04u: /* NDS7/NDS9 IntrWait: R0=clear old flags, R1=IRQ mask. */
+        if (oracis_arm_runtime_request_interrupt_wait(
+                g_cpu.R[0], g_cpu.R[1]) <= 0) {
             abi_failure("runtime_swi IntrWait (machine rejected wait request)");
         }
         return;
 
     case 0x05u: /* NDS7/NDS9 VBlankIntrWait: clear and wait for IRQ_VBLANK. */
-        if (!oracis_arm_runtime_request_interrupt_wait(1u, UINT32_C(1))) {
+        if (oracis_arm_runtime_request_interrupt_wait(
+                1u, UINT32_C(1)) <= 0) {
             abi_failure("runtime_swi VBlankIntrWait (machine rejected wait request)");
         }
         return;
