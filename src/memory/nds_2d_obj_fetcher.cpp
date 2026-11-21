@@ -25,6 +25,9 @@ constexpr uint32_t kObjBitmapColorDepth = UINT32_C(1) << 13u;
 constexpr uint32_t kObjBoundaryShift = 20u;
 constexpr uint32_t kObjCount = 128u;
 constexpr uint32_t kObjEntryBytes = 8u;
+constexpr uint32_t kObjProcessingDuringHBlank = UINT32_C(1) << 23u;
+constexpr uint16_t kObjCyclesWithHBlank = UINT16_C(2124);
+constexpr uint16_t kObjCyclesWithoutHBlank = UINT16_C(1530);
 constexpr uint32_t kObj2dCharacterBytes = UINT32_C(0x8000);
 
 constexpr std::array<std::array<uint8_t, 4>, 3> kObjWidths{{
@@ -188,6 +191,11 @@ Nds2dObjFetchResult Nds2dObjFetcher::render_scanline(
     const bool one_dimensional = (dispcnt & kObjOneDimensional) != 0u;
     const uint32_t boundary = UINT32_C(32) <<
         ((dispcnt >> kObjBoundaryShift) & UINT32_C(3));
+    const uint16_t cycle_budget =
+        (dispcnt & kObjProcessingDuringHBlank) != 0u
+            ? kObjCyclesWithoutHBlank : kObjCyclesWithHBlank;
+    uint32_t cycles_used = 0u;
+    uint8_t first_unrendered_object = UINT8_C(0xFF);
 
     Nds2dObjScanline next_line{};
 
@@ -274,6 +282,23 @@ Nds2dObjFetchResult Nds2dObjFetcher::render_scanline(
             return unsupported(
                 Nds2dObjFetchStatus::UnsupportedMapping, object_index);
         }
+
+        /*
+         * DS 2D OBJ evaluation consumes a per-line cycle budget. A normal
+         * OBJ costs one cycle per horizontal pixel; affine/double-size OBJ
+         * cost two, plus ten setup cycles. Clipping at either screen edge
+         * adds the documented two-cycle penalty.
+         */
+        const uint32_t object_width = bounds_width;
+        uint32_t object_cycles = affine
+            ? UINT32_C(10) + object_width * UINT32_C(2)
+            : object_width;
+        if (sprite_x < 0 || right > 256) object_cycles += 2u;
+        if (cycles_used + object_cycles > cycle_budget) {
+            first_unrendered_object = object_index;
+            break;
+        }
+        cycles_used += object_cycles;
 
         const uint32_t bitmap_width =
             (dispcnt & kObjBitmapWidth256) != 0u
@@ -549,7 +574,11 @@ Nds2dObjFetchResult Nds2dObjFetcher::render_scanline(
     }
 
     output = next_line;
-    return {};
+    Nds2dObjFetchResult result{};
+    result.cycles_used = static_cast<uint16_t>(cycles_used);
+    result.cycles_available = cycle_budget;
+    result.first_unrendered_object = first_unrendered_object;
+    return result;
 }
 
 } // namespace oracis::memory

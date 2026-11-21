@@ -561,6 +561,100 @@ int main()
         return fail("Engine B 1D bitmap OBJ VRAM selection or capacity failed");
     }
 
+    /*
+     * DS-specific per-line OBJ budgets: bit 23 reserves H-Blank from OBJ
+     * processing (1530 cycles); clearing it allows 2124 cycles. OAM order
+     * determines which later sprites are omitted once the budget is full.
+     */
+    for (unsigned object = 0u; object < 128u; ++object) {
+        if (!write_oam(
+                memory, 0u, object,
+                UINT16_C(0x0200), 0u, 0u)) {
+            return fail("Engine A OBJ budget fixture could not disable OAM");
+        }
+    }
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            (UINT32_C(1) << 12u) |
+                (UINT32_C(1) << 23u)) != Status::Ok) {
+        return fail("Engine A OBJ budget mode setup failed");
+    }
+    for (unsigned object = 0u; object < 24u; ++object) {
+        if (!write_oam(
+                memory, 0u, object,
+                UINT16_C(50),
+                static_cast<uint16_t>(3u << 14u),
+                0u)) {
+            return fail("Engine A 1530-cycle OBJ fixture setup failed");
+        }
+    }
+    result = fetcher.render_scanline(0u, display, 50u, line);
+    if (result.status != Nds2dObjFetchStatus::Ok ||
+        result.cycles_available != UINT16_C(1530) ||
+        result.cycles_used != UINT16_C(1472) ||
+        result.first_unrendered_object != 23u) {
+        return fail("Engine A did not enforce the 1530-cycle OBJ budget in OAM order");
+    }
+
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            UINT32_C(1) << 12u) != Status::Ok) {
+        return fail("Engine A OBJ H-Blank processing mode setup failed");
+    }
+    for (unsigned object = 0u; object < 34u; ++object) {
+        if (!write_oam(
+                memory, 0u, object,
+                UINT16_C(50),
+                static_cast<uint16_t>(3u << 14u),
+                0u)) {
+            return fail("Engine A 2124-cycle OBJ fixture setup failed");
+        }
+    }
+    result = fetcher.render_scanline(0u, display, 50u, line);
+    if (result.status != Nds2dObjFetchStatus::Ok ||
+        result.cycles_available != UINT16_C(2124) ||
+        result.cycles_used != UINT16_C(2112) ||
+        result.first_unrendered_object != 33u) {
+        return fail("Engine A did not restore the 2124-cycle OBJ budget with H-Blank processing");
+    }
+
+    /* Affine setup and horizontal clipping have their respective overheads. */
+    for (unsigned object = 0u; object < 128u; ++object) {
+        if (!write_oam(
+                memory, 0u, object,
+                UINT16_C(0x0200), 0u, 0u)) {
+            return fail("Engine A OBJ affine-cost fixture could not disable OAM");
+        }
+    }
+    if (!write_affine_matrix(
+            memory, 0u, 0u,
+            UINT16_C(0x0100), 0u, 0u, UINT16_C(0x0100)) ||
+        !write_oam(
+            memory, 0u, 0u,
+            static_cast<uint16_t>(UINT16_C(0x0100) | UINT16_C(64)),
+            0u, 0u)) {
+        return fail("Engine A affine OBJ cycle fixture setup failed");
+    }
+    result = fetcher.render_scanline(0u, display, 64u, line);
+    if (result.status != Nds2dObjFetchStatus::Ok ||
+        result.cycles_used != UINT16_C(26) ||
+        result.first_unrendered_object != UINT8_C(0xFF)) {
+        return fail("Affine OBJ did not consume two cycles per pixel plus ten setup cycles");
+    }
+
+    if (!write_oam(
+            memory, 0u, 0u,
+            UINT16_C(65),
+            UINT16_C(252),
+            0u)) {
+        return fail("Engine A partially clipped OBJ fixture setup failed");
+    }
+    result = fetcher.render_scanline(0u, display, 65u, line);
+    if (result.status != Nds2dObjFetchStatus::Ok ||
+        result.cycles_used != UINT16_C(10)) {
+        return fail("Partially off-screen OBJ did not consume its two-cycle clipping overhead");
+    }
+
     std::puts("NDS Engine A/B tiled/bitmap OBJ, affine transforms, alpha, mapping, priority and OBJ-window tests passed");
     return 0;
 }

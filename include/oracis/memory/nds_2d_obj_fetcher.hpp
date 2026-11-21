@@ -49,6 +49,10 @@ struct Nds2dObjFetchResult {
     Nds2dObjFetchStatus status = Nds2dObjFetchStatus::Ok;
     Status memory_status = Status::Ok;
     uint8_t object_index = UINT8_C(0xFF);
+    /* DS per-scanline OBJ evaluation budget and first OBJ rejected by it. */
+    uint16_t cycles_used = 0u;
+    uint16_t cycles_available = 0u;
+    uint8_t first_unrendered_object = UINT8_C(0xFF);
 };
 
 class Nds2dObjFetcher final {
@@ -63,6 +67,8 @@ public:
      * Rasterizes tiled and bitmap OBJ entries intersecting one visible line,
      * including affine reverse-mapping via the selected OAM matrix group.
      * Output is committed only after all required OAM/VRAM/palette reads.
+     * The DS OBJ cycle budget is applied in OAM order; lower-priority
+     * entries after the first over-budget OBJ are omitted from this line.
      */
     Nds2dObjFetchResult render_scanline(
         unsigned engine_index,
