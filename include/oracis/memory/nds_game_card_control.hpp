@@ -24,6 +24,13 @@ public:
  static constexpr uint8_t ChipIdReadCommand=UINT8_C(0x90);
  static constexpr uint8_t RomReadCommand=UINT8_C(0xB7);
  static constexpr uint8_t ActivateKey1Command=UINT8_C(0x3C);
+ static constexpr uint32_t HeaderKey2SeedIndexOffset=UINT32_C(0x13);
+ static constexpr uint32_t HeaderNormalRomControlOffset=UINT32_C(0x60);
+ static constexpr uint32_t HeaderKey1RomControlOffset=UINT32_C(0x64);
+ static constexpr uint32_t HeaderSecureAreaDelayOffset=UINT32_C(0x6E);
+ static constexpr uint32_t RomCtrlKey1Gap1Mask=UINT32_C(0x1FFF);
+ static constexpr uint32_t RomCtrlKey1Gap2Shift=16u;
+ static constexpr uint32_t RomCtrlKey1Gap2Mask=UINT32_C(0x3F);
  static constexpr uint32_t RomCtrlKey2DataMask=UINT32_C(1)<<13u;
  static constexpr uint32_t RomCtrlKey2SeedApplyMask=UINT32_C(1)<<15u;
  static constexpr uint32_t RomCtrlKey2CommandMask=UINT32_C(1)<<22u;
@@ -64,6 +71,15 @@ public:
  uint32_t key1_command_counter() const noexcept{return key1_command_counter_;}
  bool chip_id_configured() const noexcept{return chip_id_configured_;}
  uint32_t chip_id() const noexcept{return chip_id_;}
+ bool newer_protocol_variant() const noexcept{return chip_id_configured_&&(chip_id_&UINT32_C(0x80000000))!=0u;}
+ bool header_protocol_available() const noexcept{return header_protocol_available_;}
+ uint32_t header_normal_rom_control() const noexcept{return header_normal_rom_control_;}
+ uint32_t header_key1_rom_control() const noexcept{return header_key1_rom_control_;}
+ uint32_t header_key1_gap1_length() const noexcept{return header_key1_rom_control_&RomCtrlKey1Gap1Mask;}
+ uint32_t header_key1_gap2_length() const noexcept{return (header_key1_rom_control_>>RomCtrlKey1Gap2Shift)&RomCtrlKey1Gap2Mask;}
+ bool header_key1_gap_clocks_enabled() const noexcept{return (header_key1_rom_control_&RomCtrlGapClockMask)!=0u;}
+ uint16_t header_secure_area_delay() const noexcept{return header_secure_area_delay_;}
+ uint8_t header_key2_seed_index() const noexcept{return key2_seed_index_;}
  uint64_t key2_state1() const noexcept{return key2_.state1();}
  uint64_t key2_state2() const noexcept{return key2_.state2();}
  uint64_t key2_bytes_processed() const noexcept{return key2_.bytes_processed();}
@@ -99,6 +115,10 @@ private:
  uint32_t cycles_per_byte_=5u;
  NdsCpu owner_cpu_=NDS_ARM9;
  uint32_t chip_id_=0u;
+ uint32_t header_normal_rom_control_=0u,header_key1_rom_control_=0u;
+ uint16_t header_secure_area_delay_=0u;
+ uint8_t key2_seed_index_=0u;
+ bool header_protocol_available_=false;
  bool chip_id_configured_=false;
  bool chip_id_data_=false;
  bool reset_released_=false,busy_=false,data_ready_=false,dummy_data_=false,wrap_read_window_=false,installed_=false,key2_data_active_=false;
