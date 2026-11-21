@@ -84,6 +84,12 @@ static void arm9_resume_bank(void)
     runtime_tick(1u);
 }
 
+static void arm7_resume_bank(void)
+{
+    ++g_arm7_bank_calls;
+    runtime_tick(1u);
+}
+
 static void arm7_test_bank(void)
 {
     ++g_arm7_bank_calls;
@@ -255,7 +261,7 @@ int main(void)
         0x00u, 0x00u, 0xA0u, 0xE1u,
         0x00u, 0x00u, 0xA0u, 0xE1u
     };
-    const uint8_t arm7_program[] = {0x70u, 0x47u};
+    const uint8_t arm7_program[] = {0x70u, 0x47u, 0xC0u, 0x46u};
     const OracisHostProgramSegment arm9_image = {
         UINT32_C(0x02001000),
         (uint32_t)sizeof(arm9_program),
@@ -302,15 +308,19 @@ int main(void)
         {UINT32_C(0x02001004), 0u, &arm9_resume_bank, &arm9_resume_validation},
         {UINT32_C(0xFFFF0018), 0u, &arm9_irq_vector, NULL}
     };
+    const NdsStaticValidation arm7_resume_validation = {
+        UINT32_C(0x02381002), 2u, arm7_program + 2u, NULL, 0u
+    };
     const NdsDispatchEntry arm7_table[] = {
         {UINT32_C(0x00000018), 0u, &arm7_irq_vector, NULL},
-        {UINT32_C(0x02381000), 1u, &arm7_test_bank, &arm7_validation}
+        {UINT32_C(0x02381000), 1u, &arm7_test_bank, &arm7_validation},
+        {UINT32_C(0x02381002), 1u, &arm7_resume_bank, &arm7_resume_validation}
     };
     if (oracis_static_dispatch_register_bank(
             NDS_ARM9, arm9_table, 3u, "host-c-test-arm9") !=
             ORACIS_DISPATCH_REGISTER_OK ||
         oracis_static_dispatch_register_bank(
-            NDS_ARM7, arm7_table, 2u, "host-c-test-arm7") !=
+            NDS_ARM7, arm7_table, 3u, "host-c-test-arm7") !=
             ORACIS_DISPATCH_REGISTER_OK ||
         oracis_host_runtime_has_program_banks() != 1) {
         oracis_static_dispatch_clear();
@@ -429,7 +439,7 @@ int main(void)
     if (oracis_host_runtime_run_round(1u, NULL, NULL) !=
             ORACIS_HOST_RUNTIME_OK ||
         g_arm9_bank_calls != 2u ||
-        g_arm7_bank_calls != 1u ||
+        g_arm7_bank_calls != 2u ||
         g_arm9_irq_handler_ok != 1 ||
         g_arm7_irq_handler_ok != 1 ||
         oracis_host_runtime_global_bus_cycles() != UINT64_C(1)) {
@@ -495,7 +505,7 @@ int main(void)
     if (oracis_static_dispatch_unregister_bank(
             NDS_ARM9, arm9_table, 3u) == 0 ||
         oracis_static_dispatch_unregister_bank(
-            NDS_ARM7, arm7_table, 2u) == 0 ||
+            NDS_ARM7, arm7_table, 3u) == 0 ||
         oracis_host_runtime_has_program_banks() != 0) {
         oracis_static_dispatch_clear();
         fprintf(stderr, "host C test banks were not unregistered\n");
