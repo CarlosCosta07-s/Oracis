@@ -531,6 +531,7 @@ void NdsGameCardControl::advance_bus_cycles(uint64_t cycles) noexcept{
      finish_transfer();
      return;
     }
+    busy_=true;
     remaining_words_=payload_bytes/kWordBytes;
     chip_id_data_=true;
     dummy_data_=false;
