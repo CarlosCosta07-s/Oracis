@@ -27,11 +27,11 @@ Se o core estiver em HALT, ou se a execução devolver a fatia antes de alcança
 
 ## Entrada IRQ
 
-A máquina verifica interrupções no início e no fim de cada round. Quando a linha IRQ está ativa e `CPSR.I` está limpo, ela consulta `NdsMachineIrqContextProvider`.
+A máquina verifica interrupções no início e no fim de cada round. Para bancos NDSRecomp, `runtime_tick` também consulta a linha IRQ após aposentar a instrução, antes do retorno ao host. Se a linha está ativa e `CPSR.I` está limpo, `runtime_irq(return_pc)` entra na exceção e despacha o vetor na mesma fatia.
 
 O provider deve calcular, com base no estado real do executor, o LR arquitetural correto para o ponto exato em que a execução foi interrompida. A seleção da base vetorial pertence à máquina: ARM9 consulta o bit `V` de CP15 Control (`c1,c0,0`) e começa com `V=1` no estado inicial do Nintendo DS, enquanto ARM7 usa a base baixa `0x00000000`. O ARM9 pode alterar a seleção por MCR CP15 Control. O parâmetro `vector_base` legado do callback é ignorado pela integração de rounds.
 
-A máquina não calcula LR a partir de `R[15]`. Se um IRQ elegível existir sem provider, o round retorna `IrqContextUnavailable`; se o provider não conseguir fornecer o LR, retorna `IrqContextFailed`.
+Na ABI nativa do NDSRecomp, o argumento `return_pc` é o PC seguinte da fronteira de instrução e o runtime calcula `LR_irq = return_pc + 4`; esse contrato é testado tanto em ARM quanto em Thumb. Para executores externos que não obedecem a essa ABI, `NdsMachineIrqContextProvider` continua fornecendo o LR arquitetural explícito. Falha de provider externo continua retornando `IrqContextFailed`.
 
 O IRQ é entregue somente fora de uma fatia ativa. O bit IF continua pendente até o software guest reconhecê-lo por write-one-to-clear.
 
@@ -52,6 +52,6 @@ A pré-validação não executa código, não prova cobertura de branches indire
 
 ## Limites atuais
 
-O SDL host agora inicializa e encerra `NdsMachine` por meio da ponte C em `oracis/host/runtime_bridge.h`, e o input do teclado é encaminhado ao dispositivo vinculado. A ponte oferece `oracis_host_runtime_run_round()`, que só executa quando ambos os bancos estão registrados e aceita um provider C para o LR arquitetural; a base vetorial é selecionada pela máquina a partir do CP15 ARM9. O loop SDL ainda não chama essa função porque os bancos reais e o provider arquitetural não estão prontos. Os bancos reais ARM9/ARM7 ainda não foram emitidos pelo pipeline NDSRecomp. A implementação também ainda não ordena eventos DS concorrentes nem substitui a necessidade de integrar DMA, IPC, vídeo, áudio e tempos de acesso ao barramento.
+O SDL host agora inicializa e encerra `NdsMachine` por meio da ponte C em `oracis/host/runtime_bridge.h`, e o input do teclado é encaminhado ao dispositivo vinculado. A ponte oferece `oracis_host_runtime_run_round()`, que só executa quando ambos os bancos estão registrados. O caminho nativo usa `runtime_irq` ligado à ABI e o callback de máquina por fronteira; um provider C opcional permanece para executores alternativos. A base vetorial é selecionada pela máquina a partir do CP15 ARM9. O loop SDL ainda não chama essa função porque os bancos reais e o provider arquitetural não estão prontos. Os bancos reais ARM9/ARM7 ainda não foram emitidos pelo pipeline NDSRecomp. A implementação também ainda não ordena eventos DS concorrentes nem substitui a necessidade de integrar DMA, IPC, vídeo, áudio e tempos de acesso ao barramento.
 
 Os testes de `nds_machine_test` exercitam a razão 2:1, yield antecipado, avanço ocioso durante HALT, despertar/entrega IRQ ARM7 e o adaptador `runtime_dispatch()` usando bancos estáticos sintéticos. Esses testes precisam passar na CI antes de este marco ser considerado validado.
