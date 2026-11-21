@@ -27,6 +27,14 @@ public:
     Status set_seeds(uint64_t seed1, uint64_t seed2) noexcept;
 
     /*
+     * Derive normalized LFSR states from a decrypted 24-bit command seed and
+     * the header[0x13] low-three-bit seed index. The KEY1 command that supplies
+     * random_value24 remains the caller's responsibility.
+     */
+    Status initialize_from_random_seed(
+        uint32_t random_value24, uint8_t seed_index) noexcept;
+
+    /*
      * XOR the KEY2 keystream into bytes in-place. Consecutive calls continue
      * the same stream, including across 32-bit word boundaries.
      */

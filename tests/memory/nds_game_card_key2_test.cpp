@@ -66,7 +66,33 @@ int main()
         return fail("KEY2 LFSR terminal states differed from the vector");
     }
 
-    /* A fresh stream with the same seeds reverses the XOR transformation. */
+    constexpr uint8_t header_seed_vector[16] = {
+        0x46u,0x0Cu,0xCFu,0xFEu,0xA0u,0x41u,0x71u,0x55u,
+        0x54u,0xE7u,0x43u,0xCBu,0x0Fu,0xC1u,0x18u,0xF2u
+    };
+    NdsGameCardKey2 from_header;
+    if (from_header.initialize_from_random_seed(0x00123456u, 3u) != Status::Ok ||
+        from_header.state1() != UINT64_C(0x46836A2C48) ||
+        from_header.state2() != UINT64_C(0x506CECF09D) ||
+        from_header.initialize_from_random_seed(0x01000000u, 3u) != Status::InvalidRegion ||
+        from_header.initialize_from_random_seed(0x00123456u, 8u) != Status::InvalidRegion) {
+        return fail("KEY2 protocol seed derivation or rejected-input checks failed");
+    }
+    std::array<uint8_t, 16> header_block{};
+    for (uint32_t index = 0u; index < header_block.size(); ++index) {
+        header_block[index] = plaintext[index];
+    }
+    if (from_header.apply_keystream(header_block.data(),
+            static_cast<uint32_t>(header_block.size())) != Status::Ok) {
+        return fail("KEY2 derived-seed stream could not be applied");
+    }
+    for (uint32_t index = 0u; index < header_block.size(); ++index) {
+        if (header_block[index] != header_seed_vector[index]) {
+            return fail("KEY2 header-derived synthetic vector mismatch");
+        }
+    }
+
+    /* A fresh stream with the same explicit seeds reverses the XOR transformation. */
     NdsGameCardKey2 decrypt;
     if (decrypt.set_seeds(seed1, seed2) != Status::Ok ||
         decrypt.apply_keystream(block.data(), static_cast<uint32_t>(block.size())) !=

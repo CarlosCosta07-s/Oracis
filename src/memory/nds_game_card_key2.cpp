@@ -1,6 +1,40 @@
 #include "oracis/memory/nds_game_card_key2.hpp"
 
 namespace oracis::memory {
+namespace {
+
+constexpr uint8_t kHeaderSeedBytes[8] = {
+    UINT8_C(0xE8), UINT8_C(0x4D), UINT8_C(0x5A), UINT8_C(0xB1),
+    UINT8_C(0x17), UINT8_C(0x8F), UINT8_C(0x99), UINT8_C(0xD5)
+};
+constexpr uint64_t kSecondRawSeed = UINT64_C(0x5C879B9B05);
+
+uint64_t reverse_seed_bits(uint64_t value) noexcept
+{
+    uint64_t reversed = 0u;
+    for (uint32_t bit = 0u; bit < NdsGameCardKey2::SeedBits; ++bit) {
+        reversed |= ((value >> bit) & UINT64_C(1)) <<
+            (NdsGameCardKey2::SeedBits - 1u - bit);
+    }
+    return reversed;
+}
+
+} // namespace
+
+Status NdsGameCardKey2::initialize_from_random_seed(
+    uint32_t random_value24, uint8_t seed_index) noexcept
+{
+    if (random_value24 > UINT32_C(0x00FFFFFF) || seed_index >= 8u) {
+        return Status::InvalidRegion;
+    }
+
+    const uint64_t raw_seed1 =
+        ((static_cast<uint64_t>(random_value24) << 15u) +
+         UINT64_C(0x6000) + kHeaderSeedBytes[seed_index]) & SeedMask;
+    const uint64_t raw_seed2 = kSecondRawSeed & SeedMask;
+    return set_seeds(
+        reverse_seed_bits(raw_seed1), reverse_seed_bits(raw_seed2));
+}
 
 Status NdsGameCardKey2::set_seeds(
     uint64_t seed1, uint64_t seed2) noexcept
