@@ -428,9 +428,10 @@ Status NdsGameCardControl::start_key2_command_transfer(NdsCpu cpu) noexcept
       (static_cast<uint32_t>(decoded[2])<<16u)|
       (static_cast<uint32_t>(decoded[3])<<8u)|
       static_cast<uint32_t>(decoded[4]);
-  offset=requested_offset<kRetailRedirectBase
-      ? kRetailRedirectBase+(requested_offset&kRetailRedirectMask)
-      : requested_offset;
+  /* KEY2 main-data reads cannot address the protected Secure Area. */
+  if(requested_offset<kRetailRedirectBase)
+   return Status::PermissionDenied;
+  offset=requested_offset;
   wrap_window=true;
  }else if(decoded[0]==UINT8_C(0xB8)){
   if(size!=kWordBytes)return Status::PermissionDenied;
