@@ -604,6 +604,18 @@ int main(void)
         return 1;
     }
 
+    /* Host shutdown must release the previous device map so this process can
+       start a completely new machine and register a fresh set of banks. */
+    if (oracis_host_runtime_initialize() != ORACIS_HOST_RUNTIME_OK ||
+        oracis_host_runtime_is_initialized() != 1 ||
+        oracis_host_runtime_has_program_banks() != 0 ||
+        oracis_host_runtime_run_round(1u, NULL, NULL) !=
+            ORACIS_HOST_RUNTIME_NO_PROGRAM_BANKS ||
+        oracis_host_runtime_shutdown() != ORACIS_HOST_RUNTIME_OK) {
+        fprintf(stderr, "C host bridge could not initialize a clean second machine lifecycle\n");
+        return 1;
+    }
+
     oracis_host_set_keypad_state(0u);
     puts("C host runtime bridge lifecycle/keypad/2D scanline/ARM9-ARM7 IRQ tests passed");
     return 0;

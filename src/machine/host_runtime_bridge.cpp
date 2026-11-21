@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <new>
+#include <optional>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -31,11 +32,19 @@ extern const unsigned
 
 namespace {
 
+std::optional<oracis::machine::NdsMachine> &host_machine_storage() noexcept
+{
+    static std::optional<oracis::machine::NdsMachine> storage;
+    return storage;
+}
+
 oracis::machine::NdsMachine &host_machine() noexcept
 {
-    static oracis::machine::NdsMachine machine(
-        oracis::memory::SharedWramMode::Arm9All32K);
-    return machine;
+    auto &storage = host_machine_storage();
+    if (!storage.has_value()) {
+        storage.emplace(oracis::memory::SharedWramMode::Arm9All32K);
+    }
+    return *storage;
 }
 
 int g_last_machine_status =
@@ -250,6 +259,15 @@ extern "C" int oracis_host_runtime_shutdown(void)
     g_arm9_compiled_bank_registered = false;
     g_arm7_compiled_bank_registered = false;
 #endif
+
+    /*
+     * NdsMachine::shutdown unbinds process-global callbacks but intentionally
+     * keeps its installed device map. Destroy the stopped instance so a later
+     * host initialize can construct a clean machine with fresh devices.
+     */
+    if (status == oracis::machine::NdsMachineStatus::Ok) {
+        host_machine_storage().reset();
+    }
 
     return status == oracis::machine::NdsMachineStatus::Ok
         ? ORACIS_HOST_RUNTIME_OK
