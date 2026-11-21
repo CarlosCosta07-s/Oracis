@@ -99,7 +99,7 @@ private:
     Status write_gxfifo(uint32_t value) noexcept;
     Status write_command_port(uint8_t command, uint32_t value) noexcept;
     Status enqueue_command(uint8_t command, uint32_t parameter) noexcept;
-    void parse_command_word(uint32_t value) noexcept;
+    Status parse_command_word(uint32_t value) noexcept;
     void advance_input_commands() noexcept;
     void update_fifo_irq() noexcept;
     uint32_t status_register() const noexcept;
