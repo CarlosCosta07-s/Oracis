@@ -2806,6 +2806,157 @@ int main()
         NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 0u);
     machine.game_card_control().unmount_image();
 
+    /*
+     * Exercise the complete Game Card DRQ path through the machine clock:
+     * each ready word is consumed by a repeated ARM9 DMA channel, copied to
+     * guest RAM, and the final word raises both DMA and Game Card IRQs.
+     */
+    constexpr uint32_t game_card_dma_source =
+        oracis::memory::NdsGameCardControl::DataAddress;
+    constexpr uint32_t game_card_dma_destination = UINT32_C(0x02010000);
+    constexpr uint32_t game_card_dma_registers =
+        oracis::memory::NdsDmaControl::FirstRegisterAddress;
+    constexpr uint32_t game_card_dma_irq = UINT32_C(1) << 8u;
+    constexpr uint32_t game_card_dma_pc = UINT32_C(0x02007200);
+    constexpr uint32_t game_card_dma_offset = UINT32_C(0x8400);
+    constexpr uint32_t game_card_dma_words = UINT32_C(128);
+    constexpr uint32_t game_card_dma_completion_irqs =
+        game_card_irq | game_card_dma_irq;
+    std::array<uint8_t, 0x9000> game_card_dma_image{};
+    for (std::size_t index = 0u; index < game_card_dma_image.size(); ++index) {
+        game_card_dma_image[index] = static_cast<uint8_t>(
+            (index * 13u + 7u) & 0xFFu);
+    }
+    if (machine.game_card_control().mount_image(
+            game_card_dma_image.data(),
+            static_cast<uint32_t>(game_card_dma_image.size())) !=
+            oracis::memory::Status::Ok ||
+        !oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("Game Card DMA test could not mount a synthetic cartridge");
+    }
+
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IfAddress, 4u, UINT32_MAX);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IeAddress, 4u,
+        game_card_dma_completion_irqs);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 1u);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::IfAddress, 4u, UINT32_MAX);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::IeAddress, 4u, 0u);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::ImeAddress, 4u, 0u);
+    arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
+    arm9->R[15] = game_card_dma_pc;
+    arm7->cpsr = ORACIS_ARM_MODE_SYSTEM | CPSR_T_BIT;
+    arm7->R[15] = UINT32_C(0x02381002);
+
+    bus_write_u16(
+        oracis::memory::NdsGameCardControl::AuxSpiControlAddress,
+        static_cast<uint16_t>(
+            oracis::memory::NdsGameCardControl::AuxSpiIrqEnableMask |
+            oracis::memory::NdsGameCardControl::AuxSpiSlotEnableMask));
+    const uint8_t game_card_dma_command[8] = {
+        oracis::memory::NdsGameCardControl::RomReadCommand,
+        static_cast<uint8_t>(game_card_dma_offset >> 24u),
+        static_cast<uint8_t>(game_card_dma_offset >> 16u),
+        static_cast<uint8_t>(game_card_dma_offset >> 8u),
+        static_cast<uint8_t>(game_card_dma_offset),
+        0u, 0u, 0u
+    };
+    for (uint32_t index = 0u; index < 8u; ++index) {
+        bus_write_u8(
+            oracis::memory::NdsGameCardControl::CommandAddress + index,
+            game_card_dma_command[index]);
+    }
+    bus_write_u32(game_card_dma_registers, game_card_dma_source);
+    bus_write_u32(
+        game_card_dma_registers + 4u, game_card_dma_destination);
+    bus_write_u32(
+        game_card_dma_registers + 8u,
+        UINT32_C(1) |
+            (UINT32_C(2) <<
+                oracis::memory::NdsDmaControl::SourceControlShift) |
+            (UINT32_C(5) << 27u) |
+            oracis::memory::NdsDmaControl::RepeatMask |
+            oracis::memory::NdsDmaControl::WordTransferMask |
+            oracis::memory::NdsDmaControl::IrqEnableMask |
+            oracis::memory::NdsDmaControl::EnableMask);
+    const uint32_t game_card_dma_transfer =
+        oracis::memory::NdsGameCardControl::RomCtrlResetReleaseMask |
+        (UINT32_C(1) <<
+            oracis::memory::NdsGameCardControl::RomCtrlBlockSizeShift) |
+        oracis::memory::NdsGameCardControl::RomCtrlStartBusyMask;
+    bus_write_u32(
+        oracis::memory::NdsGameCardControl::RomControlAddress,
+        game_card_dma_transfer);
+
+    SchedulerFixture game_card_dma_clock_fixture{};
+    constexpr uint32_t game_card_dma_bus_cycles =
+        UINT32_C(40) + (game_card_dma_words - UINT32_C(1)) * UINT32_C(20);
+    if (!machine.game_card_control().busy() ||
+        machine.run_dual_core_round(
+            game_card_dma_bus_cycles, &execute_test_slice, nullptr,
+            &game_card_dma_clock_fixture) != NdsMachineStatus::Ok ||
+        machine.game_card_control().busy() ||
+        machine.game_card_control().data_ready() ||
+        machine.game_card_control().remaining_words() != 0u ||
+        (machine.interrupt_control().read(
+            NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value &
+            game_card_dma_completion_irqs) != game_card_dma_completion_irqs ||
+        (bus_read_u32(game_card_dma_registers + 8u) &
+            oracis::memory::NdsDmaControl::EnableMask) == 0u ||
+        bus_read_u32(game_card_dma_registers) != game_card_dma_source ||
+        bus_read_u32(game_card_dma_registers + 4u) !=
+            game_card_dma_destination) {
+        return fail("Game Card DRQ did not stream a full DMA page or assert both IRQs");
+    }
+
+    for (uint32_t index = 0u; index < game_card_dma_words; ++index) {
+        const uint32_t image_offset =
+            game_card_dma_offset + index * UINT32_C(4);
+        const uint32_t expected =
+            static_cast<uint32_t>(game_card_dma_image[image_offset]) |
+            (static_cast<uint32_t>(game_card_dma_image[image_offset + 1u]) << 8u) |
+            (static_cast<uint32_t>(game_card_dma_image[image_offset + 2u]) << 16u) |
+            (static_cast<uint32_t>(game_card_dma_image[image_offset + 3u]) << 24u);
+        const auto actual = machine.guest_memory().read(
+            NDS_ARM9,
+            game_card_dma_destination + index * UINT32_C(4), 4u);
+        if (!actual || actual.value != expected) {
+            return fail("Game Card DRQ DMA page did not match the synthetic image");
+        }
+    }
+
+    SchedulerFixture game_card_dma_irq_fixture{};
+    if (machine.run_dual_core_round(
+            1u, &execute_test_slice, nullptr,
+            &game_card_dma_irq_fixture) != NdsMachineStatus::Ok ||
+        game_card_dma_irq_fixture.irq_context_calls[0] != 0u ||
+        game_card_dma_irq_fixture.irq_context_calls[1] != 0u ||
+        (arm9->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_IRQ ||
+        arm9->banked_spsr[ARM_BANK_IRQ] != ORACIS_ARM_MODE_SYSTEM ||
+        arm9->R[14] != game_card_dma_pc + 4u ||
+        arm9->R[15] != UINT32_C(0xFFFF0018)) {
+        return fail("Game Card DMA completion did not enter the native ARM9 IRQ vector");
+    }
+
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9) ||
+        machine.interrupt_control().write(
+            NDS_ARM9, NdsInterruptControl::IfAddress, 4u,
+            game_card_dma_completion_irqs) != oracis::memory::Status::Ok) {
+        return fail("Game Card DMA IRQ test could not acknowledge both requests");
+    }
+    runtime_exception_return(game_card_dma_pc);
+    bus_write_u16(game_card_dma_registers + 10u, 0u);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IeAddress, 4u, 0u);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 0u);
+    machine.game_card_control().unmount_image();
+
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
         return fail("ARM9 could not be selected after native boundary IRQ test");
     }
