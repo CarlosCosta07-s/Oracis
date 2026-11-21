@@ -992,7 +992,7 @@ int main(){
   /* Old-cart 0xA0 enters KEY2 command mode after one clocked transmission. */
   const uint32_t old_main_mode_counter=old_secure_counter+1u;
   auto automatic_old_main_mode=make_key1_command(
-      0x0Au,UINT16_C(0x1234),packed_randoms,old_main_mode_counter);
+      0x0Au,UINT16_C(0x0000),packed_randoms,old_main_mode_counter);
   if(command_codec.encrypt_command(automatic_old_main_mode.data(),8u)!=Status::Ok)
    return fail("could not encrypt older-cart 0xA0 command");
   write_key1_command(automatic_old_main_mode);
