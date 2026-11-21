@@ -171,6 +171,46 @@ Status NdsGameCardKey1::encrypt_block(
     return Status::Ok;
 }
 
+Status NdsGameCardKey1::encrypt_command(
+    uint8_t *wire_bytes, uint32_t size) const noexcept
+{
+    if (wire_bytes == nullptr) return Status::InvalidRegion;
+    if (size != BlockBytes) return Status::InvalidWidth;
+
+    uint8_t block[BlockBytes]{};
+    for (uint32_t index = 0u; index < BlockBytes; ++index) {
+        block[index] = wire_bytes[BlockBytes - 1u - index];
+    }
+
+    const Status status = encrypt_block(block, size);
+    if (status != Status::Ok) return status;
+
+    for (uint32_t index = 0u; index < BlockBytes; ++index) {
+        wire_bytes[index] = block[BlockBytes - 1u - index];
+    }
+    return Status::Ok;
+}
+
+Status NdsGameCardKey1::decrypt_command(
+    uint8_t *wire_bytes, uint32_t size) const noexcept
+{
+    if (wire_bytes == nullptr) return Status::InvalidRegion;
+    if (size != BlockBytes) return Status::InvalidWidth;
+
+    uint8_t block[BlockBytes]{};
+    for (uint32_t index = 0u; index < BlockBytes; ++index) {
+        block[index] = wire_bytes[BlockBytes - 1u - index];
+    }
+
+    const Status status = decrypt_block(block, size);
+    if (status != Status::Ok) return status;
+
+    for (uint32_t index = 0u; index < BlockBytes; ++index) {
+        wire_bytes[index] = block[BlockBytes - 1u - index];
+    }
+    return Status::Ok;
+}
+
 Status NdsGameCardKey1::decrypt_block(
     uint8_t *bytes, uint32_t size) const noexcept
 {
