@@ -112,6 +112,55 @@ int main()
         return fail("ITCM Thumb fetch/refill timing did not follow word alignment");
     }
 
+    /*
+     * The direction-aware helper models ARM946E-S load mode: DATA reads
+     * bypass the TCM overlay and access the underlying external region,
+     * while writes still fill the private TCM backing at one core cycle.
+     */
+    if (runtime_mem_cycles_ex(
+            UINT32_C(0x01FF8000), 4u, 0u,
+            ORACIS_MEMORY_ACCESS_READ) != 1u ||
+        runtime_mem_cycles_ex(
+            UINT32_C(0x01FF8000), 4u, 0u,
+            ORACIS_MEMORY_ACCESS_WRITE) != 1u ||
+        runtime_mem_cycles_ex(
+            UINT32_C(0x027C0000), 4u, 0u,
+            ORACIS_MEMORY_ACCESS_READ) != 1u ||
+        runtime_mem_cycles_ex(
+            UINT32_C(0x027C0000), 4u, 0u,
+            ORACIS_MEMORY_ACCESS_WRITE) != 1u) {
+        return fail("normal ITCM/DTCM direction-aware timing changed");
+    }
+
+    oracis_runtime_set_arm9_tcm_timing_state(
+        UINT32_C(0x02000000), UINT32_C(0x027C0000),
+        UINT32_C(0x00004000), 1u, 1u);
+    if (runtime_mem_cycles_ex(
+            UINT32_C(0x027C0000), 4u, 0u,
+            ORACIS_MEMORY_ACCESS_WRITE) != 1u ||
+        runtime_mem_cycles_ex(
+            UINT32_C(0x027C0000), 4u, 0u,
+            ORACIS_MEMORY_ACCESS_READ) != 20u ||
+        runtime_mem_cycles_ex(
+            UINT32_C(0x027C0000), 4u, 1u,
+            ORACIS_MEMORY_ACCESS_READ) != 4u ||
+        runtime_mem_cycles_ex(
+            UINT32_C(0x027C0000), 2u, 0u,
+            ORACIS_MEMORY_ACCESS_READ) != 18u ||
+        runtime_mem_cycles_ex(
+            UINT32_C(0x027C3FFE), 4u, 0u,
+            ORACIS_MEMORY_ACCESS_READ) != 20u ||
+        runtime_mem_cycles_ex(
+            UINT32_C(0x00001000), 4u, 0u,
+            ORACIS_MEMORY_ACCESS_WRITE) != 1u) {
+        return fail("ITCM/DTCM load-mode read/write timing was not distinguished");
+    }
+
+    /* Restore normal mode before validating ARM7 and unbinding the runtime. */
+    oracis_runtime_set_arm9_tcm_timing_state(
+        UINT32_C(0x02000000), UINT32_C(0x027C0000),
+        UINT32_C(0x00004000), 0u, 0u);
+
     if (!oracis_arm_runtime_select_cpu(NDS_ARM7)) {
         return fail("ARM7 selection failed");
     }
