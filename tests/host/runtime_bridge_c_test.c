@@ -50,13 +50,9 @@ int main(void)
         fprintf(stderr, "C host bridge rejected a valid synthetic Game Card image or accepted an invalid one\\n");
         return 1;
     }
-    /* The bridge owns a copy: callers can immediately reuse their input buffer. */
+    /* The bridge owns a copy: mutate the caller buffer before issuing a read. */
     synthetic_game_card[0] = 0u;
-    if (oracis_host_runtime_unmount_game_card_image() != ORACIS_HOST_RUNTIME_OK ||
-        oracis_host_runtime_unmount_game_card_image() != ORACIS_HOST_RUNTIME_OK) {
-        fprintf(stderr, "C host bridge failed to unmount Game Card image cleanly\\n");
-        return 1;
-    }
+
 
     if (bus_read_u16(UINT32_C(0x04000130)) != UINT16_C(0x03FE)) {
         fprintf(stderr, "pre-bind host key state did not reach KEYINPUT\n");
@@ -288,6 +284,40 @@ int main(void)
         oracis_host_runtime_global_bus_cycles() != UINT64_C(1)) {
         oracis_static_dispatch_clear();
         fprintf(stderr, "C host bridge failed to execute synchronized ARM9/ARM7 banks\n");
+        return 1;
+    }
+
+    /* Run a real B7 transaction after the caller has changed its source buffer. */
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        oracis_static_dispatch_clear();
+        fprintf(stderr, "host bridge could not select ARM9 for Game Card read\n");
+        return 1;
+    }
+    bus_write_u16(UINT32_C(0x040001A0), UINT16_C(0xC000));
+    const uint8_t game_card_command[8] = {
+        UINT8_C(0xB7), 0u, 0u, 0u, 0u, 0u, 0u, 0u
+    };
+    for (uint32_t index = 0u; index < 8u; ++index) {
+        bus_write_u8(UINT32_C(0x040001A8) + index, game_card_command[index]);
+    }
+    bus_write_u32(UINT32_C(0x040001A4),
+        (UINT32_C(7) << 24u) | (UINT32_C(1) << 29u) | (UINT32_C(1) << 31u));
+    if ((bus_read_u32(UINT32_C(0x040001A4)) & (UINT32_C(1) << 31u)) == 0u ||
+        oracis_host_runtime_run_round(39u, NULL, NULL) != ORACIS_HOST_RUNTIME_OK ||
+        oracis_host_runtime_global_bus_cycles() != UINT64_C(40) ||
+        !oracis_arm_runtime_select_cpu(NDS_ARM9) ||
+        bus_read_u32(UINT32_C(0x04100010)) != UINT32_C(0x00005AA5) ||
+        (bus_read_u32(UINT32_C(0x040001A4)) &
+            ((UINT32_C(1) << 31u) | (UINT32_C(1) << 23u))) != 0u ||
+        (bus_read_u32(UINT32_C(0x04000214)) & (UINT32_C(1) << 19u)) == 0u) {
+        oracis_static_dispatch_clear();
+        fprintf(stderr, "host bridge did not preserve its copied Game Card image through a timed B7 read\n");
+        return 1;
+    }
+    if (oracis_host_runtime_unmount_game_card_image() != ORACIS_HOST_RUNTIME_OK ||
+        oracis_host_runtime_unmount_game_card_image() != ORACIS_HOST_RUNTIME_OK) {
+        oracis_static_dispatch_clear();
+        fprintf(stderr, "C host bridge failed to unmount Game Card image cleanly\n");
         return 1;
     }
 
