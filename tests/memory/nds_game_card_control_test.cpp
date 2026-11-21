@@ -514,6 +514,6 @@ int main(){
  if(!oracis_bus_unbind_game_card_control(&card)||!oracis_bus_unbind_dma_control(&dma)||
     !oracis_bus_unbind_interrupt_control(&irq)||!oracis_bus_unbind_memory(&memory)||
     !oracis_arm_runtime_unbind_cpus(&a9,&a7))return fail("bus teardown failed");
- std::puts("NDS Game Card dummy/header commands, zero-length and HIGH-Z KEY1 activation, B7 limits, DRQ, ARM9/ARM7 DMA and IRQ passed");
+ std::puts("NDS Game Card dummy/header commands, KEY1 activation and command sequencing, B7 limits, DRQ, ARM9/ARM7 DMA and IRQ passed");
  return 0;
 }
