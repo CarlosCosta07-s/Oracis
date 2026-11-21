@@ -39,7 +39,8 @@ jobs:
             tools/ndsrecomp/build_recompiler.py \
             tools/ndsrecomp/extract_nds_programs.py \
             tools/ndsrecomp/emit_platinum_banks.py \
-            tools/ndsrecomp/audit_bank_symbols.py
+            tools/ndsrecomp/audit_bank_symbols.py \
+            tools/ndsrecomp/patch_memory_access_direction.py
           python3 -m unittest discover \
             --start-directory tests/tools \
             --pattern 'test_*.py' \
@@ -125,13 +126,14 @@ jobs:
           install -m 0644 tools/ndsrecomp/extract_nds_programs.py "$output/tools/ndsrecomp/"
           install -m 0644 tools/ndsrecomp/emit_platinum_banks.py "$output/tools/ndsrecomp/"
           install -m 0644 tools/ndsrecomp/audit_bank_symbols.py "$output/tools/ndsrecomp/"
+          install -m 0644 tools/ndsrecomp/patch_memory_access_direction.py "$output/tools/ndsrecomp/"
           for header in runtime_arm.h arm_cpu_state.h arm_cpu_state_ops.h arm_flags.h runtime_event_trace.h; do
             install -m 0644 "include/oracis/recomp/$header" "$output/include/oracis/recomp/$header"
           done
           cat > "$output/README.txt" <<'EOF'
-          Oracis local tooling artifact: pinned NDSRecomp static compiler, local scripts and ABI headers.
+          Oracis local tooling artifact: pinned NDSRecomp compiler, extraction/emission tools, memory direction adapter and ABI headers.
           Upstream revision: 14b7e15023e9affc9dc375e4e611ac703f5c76ab
-          Includes the compiler, Oracis extraction/emission scripts, and the Oracis-owned
+          Includes the compiler, Oracis extraction/emission scripts, the generated-bank memory direction adapter, and the Oracis-owned
           C ABI headers needed to compile locally generated bank objects.
           No ROM, BIOS, extracted segment, generated bank or game data is included.
           The scripts only read user-provided local game files and write generated output locally.
@@ -140,7 +142,9 @@ jobs:
             cd "$output"
             sha256sum nds_recompile tools/ndsrecomp/extract_nds_programs.py \
               tools/ndsrecomp/emit_platinum_banks.py \
-              tools/ndsrecomp/audit_bank_symbols.py include/oracis/recomp/*.h > SHA256SUMS
+              tools/ndsrecomp/audit_bank_symbols.py \
+              tools/ndsrecomp/patch_memory_access_direction.py \
+              include/oracis/recomp/*.h > SHA256SUMS
           )
 
       - name: Upload pinned compiler for local bank generation
