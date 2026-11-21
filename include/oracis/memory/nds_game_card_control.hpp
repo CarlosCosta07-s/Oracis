@@ -78,7 +78,10 @@ public:
  uint32_t header_key1_gap1_length() const noexcept{return header_key1_rom_control_&RomCtrlKey1Gap1Mask;}
  uint32_t header_key1_gap2_length() const noexcept{return (header_key1_rom_control_>>RomCtrlKey1Gap2Shift)&RomCtrlKey1Gap2Mask;}
  bool header_key1_gap_clocks_enabled() const noexcept{return (header_key1_rom_control_&RomCtrlGapClockMask)!=0u;}
+ bool header_key1_slow_clock() const noexcept{return (header_key1_rom_control_&RomCtrlClockSlowMask)!=0u;}
+ uint32_t header_key1_initial_gap_bytes() const noexcept{return header_key1_gap1_length()+header_key1_gap2_length();}
  uint16_t header_secure_area_delay() const noexcept{return header_secure_area_delay_;}
+ uint32_t header_secure_area_delay_core_cycles() const noexcept{return static_cast<uint32_t>(header_secure_area_delay_)*UINT32_C(256);}
  uint8_t header_key2_seed_index() const noexcept{return key2_seed_index_;}
  uint64_t key2_state1() const noexcept{return key2_.state1();}
  uint64_t key2_state2() const noexcept{return key2_.state2();}
