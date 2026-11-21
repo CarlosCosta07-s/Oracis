@@ -609,10 +609,20 @@ int main(){
      return fail("could not encrypt old-variant KEY1 command");
  write_key1_command(old_variant_command);
  if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
+    card.complete_key1_command_gap(0u)!=Status::PermissionDenied)
+     return fail("old cart accepted a zero-clock gap while ROMCTRL gap pulses were enabled");
+ NdsGameCardKey2 expected_old_key2;
+ std::array<uint8_t,UINT32_C(0x910)> expected_old_gap{};
+ if(expected_old_key2.initialize_from_random_seed(UINT32_C(0x123456),3u)!=Status::Ok||
+    expected_old_key2.apply_keystream(expected_old_gap.data(),
+        static_cast<uint32_t>(expected_old_gap.size()))!=Status::Ok||
     card.complete_key1_command_gap(UINT32_C(0x910))!=Status::Ok||
     !card.key2_initialized()||
+    card.key2_state1()!=expected_old_key2.state1()||
+    card.key2_state2()!=expected_old_key2.state2()||
+    card.key2_bytes_processed()!=UINT32_C(0x910)||
     card.decode_next_key1_command(decoded_key1)!=Status::PermissionDenied)
-     return fail("old cart 0x40 did not activate KEY2 after 0x910 live gap clocks or accepted a replay");
+     return fail("old cart 0x40 did not initialize and advance KEY2 across the 0x910 clocked gap or accepted a replay");
  if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)
      return fail("could not clear old variant KEY1 activation IRQ");
  if(!oracis_bus_unbind_game_card_control(&card)||!oracis_bus_unbind_dma_control(&dma)||
