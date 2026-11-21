@@ -602,10 +602,16 @@ int main()
     if (clock.report_cpu_cycles(NDS_ARM9, UINT64_C(817920)) !=
             NdsClockStatus::Ok ||
         clock.global_bus_cycles() != UINT64_C(20) ||
+        geometry.swap_waiting_for_vblank()) {
+        return fail("ARM9 ahead of ARM7 incorrectly advanced SWAP_BUFFERS");
+    }
+    if (clock.report_cpu_cycles(NDS_ARM7, UINT64_C(21)) !=
+            NdsClockStatus::Ok ||
+        clock.global_bus_cycles() != UINT64_C(21) ||
         !geometry.swap_waiting_for_vblank() ||
         geometry.build_buffer_index() != 0u ||
         geometry.render_buffer_index() != 1u) {
-        return fail("SWAP_BUFFERS did not wait while ARM7 lagged");
+        return fail("SWAP_BUFFERS did not wait after command execution started");
     }
     if (clock.report_cpu_cycles(NDS_ARM7, UINT64_C(408960)) !=
             NdsClockStatus::Ok ||
