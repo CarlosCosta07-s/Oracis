@@ -135,6 +135,7 @@ private:
  uint32_t key1_command_counter_=0u;
  std::array<uint8_t,CommandBytes> last_key1_command_{};
  bool last_key1_command_valid_=false;
+ uint8_t last_key1_command_transmissions_=0u;
 };
 }
 #endif
