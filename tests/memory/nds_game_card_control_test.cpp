@@ -473,7 +473,7 @@ int main(){
  if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
     card.key1_command_counter()!=key1_counter+1u)
      return fail("newer cart did not accept the one required repeated command");
- if(card.decode_next_key1_command(encrypted_key2_activation.data(),8u,decoded_key1)!=Status::PermissionDenied)
+ if(card.decode_next_key1_command(decoded_key1)!=Status::PermissionDenied)
      return fail("newer cart accepted more than two transmissions of a normal KEY1 command");
 
  const uint32_t secure_counter=key1_counter+2u;
@@ -494,7 +494,7 @@ int main(){
      card.key1_command_counter()!=secure_counter)
       return fail("newer cart did not accept all eight secure-area data repetitions");
  }
- if(card.decode_next_key1_command(encrypted_secure_block.data(),8u,decoded_key1)!=Status::PermissionDenied)
+ if(card.decode_next_key1_command(decoded_key1)!=Status::PermissionDenied)
      return fail("newer cart accepted more than nine secure-area command transmissions");
 
  /* The old/smaller variant increments k on every command and rejects replay. */
