@@ -878,6 +878,84 @@ int main(){
      card.key2_bytes_processed()!=UINT32_C(0x10C4))
    return fail("newer-cart 0xA0 did not enter KEY2 mode after its final silent gap");
 
+  /* KEY2 main-data B7 decrypts the command and continues the same stream
+   * through ROM data, including gap2 between 200h-byte blocks. */
+  constexpr uint32_t key2_b7_size=UINT32_C(0x400);
+  std::array<uint8_t,8> new_key2_b7_plain{{
+      UINT8_C(0xB7),UINT8_C(0x00),UINT8_C(0x00),UINT8_C(0x80),
+      UINT8_C(0x00),UINT8_C(0x00),UINT8_C(0x00),UINT8_C(0x00)}};
+  auto new_key2_b7_wire=new_key2_b7_plain;
+  if(expected_automatic_new_key2.apply_keystream(new_key2_b7_wire.data(),8u)!=Status::Ok)
+   return fail("could not encrypt newer-cart KEY2 B7 command");
+  write_key1_command(new_key2_b7_wire);
+  const uint32_t key2_b7_control=no_reply_control|
+      (UINT32_C(2)<<NdsGameCardControl::RomCtrlBlockSizeShift)|
+      (UINT32_C(0x18)<<NdsGameCardControl::RomCtrlKey1Gap2Shift)|
+      NdsGameCardControl::RomCtrlKey2DataMask|
+      NdsGameCardControl::RomCtrlKey2CommandMask;
+  if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+      key2_b7_control|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok||
+     !card.busy()||card.remaining_words()!=key2_b7_size/4u)
+   return fail("newer-cart KEY2 B7 command did not start its 400h-byte read");
+  std::array<uint8_t,key2_b7_size> expected_new_key2_b7_data{};
+  for(uint32_t byte=0u;byte<expected_new_key2_b7_data.size();++byte)
+   expected_new_key2_b7_data[byte]=image[UINT32_C(0x8000)+byte];
+  if(expected_automatic_new_key2.apply_keystream(
+       expected_new_key2_b7_data.data(),
+       static_cast<uint32_t>(expected_new_key2_b7_data.size()))!=Status::Ok)
+   return fail("could not derive newer-cart KEY2 B7 data stream");
+  for(uint32_t word_index=0u;word_index<key2_b7_size/4u;++word_index){
+   const uint32_t delay_cycles=word_index==0u
+       ? (UINT32_C(8)+UINT32_C(0x18))*UINT32_C(5)
+       : (word_index==UINT32_C(128)
+           ? (UINT32_C(4)+UINT32_C(0x18))*UINT32_C(5)
+           : UINT32_C(4)*UINT32_C(5));
+   card.advance_bus_cycles(delay_cycles);
+   const ReadResult actual=card.read_data(NDS_ARM9);
+   const uint32_t expected=
+       static_cast<uint32_t>(expected_new_key2_b7_data[word_index*4u])|
+       (static_cast<uint32_t>(expected_new_key2_b7_data[word_index*4u+1u])<<8u)|
+       (static_cast<uint32_t>(expected_new_key2_b7_data[word_index*4u+2u])<<16u)|
+       (static_cast<uint32_t>(expected_new_key2_b7_data[word_index*4u+3u])<<24u);
+   if(actual.status!=Status::Ok||actual.value!=expected)
+    return fail("newer-cart KEY2 B7 DATA did not match the continuous encrypted stream");
+  }
+  if(card.busy()||!card.key2_command_mode()||
+     card.key2_bytes_processed()!=expected_automatic_new_key2.bytes_processed())
+   return fail("newer-cart KEY2 B7 did not preserve main-data mode and stream position");
+
+  /* B8 follows B7 using the same stream and returns the encrypted Chip ID. */
+  std::array<uint8_t,8> new_key2_b8_plain{{UINT8_C(0xB8),0u,0u,0u,0u,0u,0u,0u}};
+  auto new_key2_b8_wire=new_key2_b8_plain;
+  if(expected_automatic_new_key2.apply_keystream(new_key2_b8_wire.data(),8u)!=Status::Ok)
+   return fail("could not encrypt newer-cart KEY2 B8 command");
+  write_key1_command(new_key2_b8_wire);
+  const uint32_t key2_b8_control=no_reply_control|
+      (UINT32_C(7)<<NdsGameCardControl::RomCtrlBlockSizeShift)|
+      (UINT32_C(0x18)<<NdsGameCardControl::RomCtrlKey1Gap2Shift)|
+      NdsGameCardControl::RomCtrlKey2DataMask|
+      NdsGameCardControl::RomCtrlKey2CommandMask;
+  if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+      key2_b8_control|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok||
+     !card.busy()||card.remaining_words()!=1u)
+   return fail("newer-cart KEY2 B8 command did not start");
+  std::array<uint8_t,4> expected_new_key2_chip_id{{
+      UINT8_C(0xC2),UINT8_C(0x00),UINT8_C(0x00),UINT8_C(0x80)}};
+  if(expected_automatic_new_key2.apply_keystream(expected_new_key2_chip_id.data(),4u)!=Status::Ok)
+   return fail("could not derive newer-cart KEY2 B8 Chip ID stream");
+  const uint32_t expected_new_key2_chip_id=
+      static_cast<uint32_t>(expected_new_key2_chip_id[0])|
+      (static_cast<uint32_t>(expected_new_key2_chip_id[1])<<8u)|
+      (static_cast<uint32_t>(expected_new_key2_chip_id[2])<<16u)|
+      (static_cast<uint32_t>(expected_new_key2_chip_id[3])<<24u);
+  card.advance_bus_cycles((UINT32_C(8)+UINT32_C(0x18))*UINT32_C(5));
+  const ReadResult actual_new_key2_b8=card.read_data(NDS_ARM9);
+  if(actual_new_key2_b8.status!=Status::Ok||
+     actual_new_key2_b8.value!=expected_new_key2_chip_id||
+     card.busy()||!card.key2_command_mode()||
+     card.key2_bytes_processed()!=expected_automatic_new_key2.bytes_processed())
+   return fail("newer-cart KEY2 B8 did not return the encrypted Chip ID or preserve KEY2 mode");
+
  /* Older carts clock the 0x910-byte gap and advance KEY2 during it. */
  card.reset_transfer();
  if(card.set_chip_id(UINT32_C(0x000000C2))!=Status::Ok||
