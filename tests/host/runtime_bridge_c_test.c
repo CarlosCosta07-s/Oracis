@@ -84,6 +84,28 @@ int main(void)
         return 1;
     }
 
+    uint8_t secure_area_prefix[UINT32_C(0x800)] = {0};
+    uint32_t secure_area_identifier_valid = UINT32_C(1);
+    if (oracis_host_runtime_decrypt_game_card_secure_area_prefix(
+            NULL, UINT32_C(0x800), &secure_area_identifier_valid) !=
+            ORACIS_HOST_RUNTIME_INVALID_ARGUMENT ||
+        oracis_host_runtime_decrypt_game_card_secure_area_prefix(
+            secure_area_prefix, UINT32_C(0x800), NULL) !=
+            ORACIS_HOST_RUNTIME_INVALID_ARGUMENT ||
+        oracis_host_runtime_decrypt_game_card_secure_area_prefix(
+            secure_area_prefix, UINT32_C(0x7FF),
+            &secure_area_identifier_valid) != ORACIS_HOST_RUNTIME_INVALID_ARGUMENT) {
+        fprintf(stderr, "C host bridge accepted invalid Secure Area prefix arguments\\n");
+        return 1;
+    }
+    if (oracis_host_runtime_decrypt_game_card_secure_area_prefix(
+            secure_area_prefix, UINT32_C(0x800),
+            &secure_area_identifier_valid) != ORACIS_HOST_RUNTIME_OK ||
+        secure_area_identifier_valid != 0u) {
+        fprintf(stderr, "C host bridge failed to report an invalid synthetic Secure Area ID\\n");
+        return 1;
+    }
+
     if (bus_read_u16(UINT32_C(0x04000130)) != UINT16_C(0x03FE)) {
         fprintf(stderr, "pre-bind host key state did not reach KEYINPUT\n");
         return 1;
