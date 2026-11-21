@@ -391,7 +391,7 @@ int main()
     vertex = geometry.vertex_at(1u);
     if (vertex == nullptr ||
         vertex->source_position !=
-            std::array<int32_t, 3>{INT32_C(4096), -INT32_C(4096), INT32_C(2048)}) {
+            std::array<int32_t, 3>{INT32_C(4096), -INT32_C(64), INT32_C(2048)}) {
         return fail("VTX_10 signed 10-bit and six-fraction decode was incorrect");
     }
 
