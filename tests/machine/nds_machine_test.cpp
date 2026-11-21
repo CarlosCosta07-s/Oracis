@@ -2504,6 +2504,119 @@ int main()
         NDS_ARM7, NdsInterruptControl::ImeAddress, 4u, 0u);
 
     /*
+     * An unrelated enabled interrupt may wake IntrWait's HALT, but after its
+     * handler returns without setting the requested BIOS shadow bit, the CPU
+     * must re-enter HALT and continue waiting for the selected source.
+     */
+    constexpr uint32_t intrwait_unrelated_irq = UINT32_C(1) << 16u;
+    constexpr uint32_t intrwait_resume_pc = UINT32_C(0x02007010);
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9) ||
+        machine.guest_memory().write(
+            NDS_ARM9, arm9_irq_check_flags_address, 4u, 0u) !=
+            oracis::memory::Status::Ok ||
+        machine.interrupt_control().write(
+            NDS_ARM9, NdsInterruptControl::IfAddress, 4u, UINT32_MAX) !=
+            oracis::memory::Status::Ok ||
+        machine.interrupt_control().write(
+            NDS_ARM9, NdsInterruptControl::IeAddress, 4u,
+            intrwait_timer_irq | intrwait_unrelated_irq) !=
+            oracis::memory::Status::Ok ||
+        machine.interrupt_control().write(
+            NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 0u) !=
+            oracis::memory::Status::Ok) {
+        return fail("IntrWait unrelated IRQ test could not configure ARM9");
+    }
+    arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
+    arm9->R[15] = intrwait_resume_pc;
+    InterruptWaitFixture unrelated_irq_fixture{};
+    unrelated_irq_fixture.swi_imm = UINT32_C(0x04);
+    unrelated_irq_fixture.clear_old_flags = 1u;
+    unrelated_irq_fixture.wait_mask = intrwait_timer_irq;
+    if (machine.run_dual_core_round(
+            1u, &execute_interrupt_wait_slice, nullptr,
+            &unrelated_irq_fixture) != NdsMachineStatus::Ok ||
+        !unrelated_irq_fixture.requested ||
+        unrelated_irq_fixture.calls[0] != 1u ||
+        unrelated_irq_fixture.calls[1] != 1u ||
+        !machine.cpu_is_halted(NDS_ARM9)) {
+        return fail("IntrWait did not enter HALT before its selected interrupt");
+    }
+
+    if (!machine.interrupt_control().request_irq(
+            NDS_ARM9, intrwait_unrelated_irq) ||
+        machine.run_dual_core_round(
+            1u, &execute_interrupt_wait_slice, nullptr,
+            &unrelated_irq_fixture) != NdsMachineStatus::Ok ||
+        unrelated_irq_fixture.calls[0] != 2u ||
+        (arm9->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_IRQ ||
+        arm9->R[14] != intrwait_resume_pc + 4u ||
+        arm9->R[15] != UINT32_C(0xFFFF0018)) {
+        return fail("Unrelated IRQ did not wake IntrWait into the ARM9 handler");
+    }
+
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9) ||
+        machine.interrupt_control().write(
+            NDS_ARM9, NdsInterruptControl::IfAddress, 4u,
+            intrwait_unrelated_irq) != oracis::memory::Status::Ok) {
+        return fail("Unrelated IRQ test could not acknowledge its interrupt");
+    }
+    runtime_exception_return(intrwait_resume_pc);
+    if (!machine.cpu_is_halted(NDS_ARM9) ||
+        (arm9->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_SYSTEM ||
+        arm9->R[15] != intrwait_resume_pc ||
+        (machine.guest_memory().read(
+            NDS_ARM9, arm9_irq_check_flags_address, 4u).value &
+            intrwait_timer_irq) != 0u) {
+        return fail("IntrWait did not re-enter HALT after an unrelated IRQ");
+    }
+
+    if (machine.timer_control().write(
+            NDS_ARM9, NdsTimerControl::Timer0CounterAddress + 2u,
+            2u, 0u) != oracis::memory::Status::Ok ||
+        machine.timer_control().write(
+            NDS_ARM9, NdsTimerControl::Timer0CounterAddress,
+            2u, UINT32_C(0xFFFF)) != oracis::memory::Status::Ok ||
+        machine.timer_control().write(
+            NDS_ARM9, NdsTimerControl::Timer0CounterAddress + 2u,
+            2u, UINT32_C(0x00C0)) != oracis::memory::Status::Ok ||
+        machine.run_dual_core_round(
+            1u, &execute_interrupt_wait_slice, nullptr,
+            &unrelated_irq_fixture) != NdsMachineStatus::Ok ||
+        unrelated_irq_fixture.calls[0] != 3u ||
+        (machine.interrupt_control().read(
+            NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value &
+            intrwait_timer_irq) == 0u ||
+        (arm9->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_IRQ ||
+        arm9->R[14] != intrwait_resume_pc + 4u ||
+        arm9->R[15] != UINT32_C(0xFFFF0018) ||
+        machine.cpu_is_halted(NDS_ARM9)) {
+        return fail("Requested Timer 0 IRQ did not wake IntrWait after unrelated IRQ");
+    }
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9) ||
+        machine.guest_memory().write(
+            NDS_ARM9, arm9_irq_check_flags_address, 4u,
+            intrwait_timer_irq) != oracis::memory::Status::Ok ||
+        machine.interrupt_control().write(
+            NDS_ARM9, NdsInterruptControl::IfAddress, 4u,
+            intrwait_timer_irq) != oracis::memory::Status::Ok) {
+        return fail("IntrWait final IRQ handler could not record its BIOS flag");
+    }
+    runtime_exception_return(intrwait_resume_pc);
+    if (machine.cpu_is_halted(NDS_ARM9) ||
+        (machine.guest_memory().read(
+            NDS_ARM9, arm9_irq_check_flags_address, 4u).value &
+            intrwait_timer_irq) != 0u ||
+        (arm9->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_SYSTEM) {
+        return fail("IntrWait did not complete after the requested IRQ flag arrived");
+    }
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IeAddress, 4u, 0u);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 0u);
+    machine.timer_control().write(
+        NDS_ARM9, NdsTimerControl::Timer0CounterAddress + 2u, 2u, 0u);
+
+    /*
      * VBlankIntrWait discards a stale BIOS flag and waits for the actual
      * display controller line-192 edge, then consumes the handler's BIOS flag.
      */
