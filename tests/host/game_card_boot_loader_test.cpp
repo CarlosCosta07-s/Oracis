@@ -234,7 +234,24 @@ int main()
     }
     arm9 = arm9_segment(fixture.image);
     arm7 = arm7_segment(fixture.image);
-    if (oracis_host_runtime_load_game_card_program_segments(&arm9, &arm7) !=
+
+    std::vector<uint8_t> malformed_header = fixture.image;
+    write_u32_le(malformed_header, 0x2Cu, UINT32_C(0x7FFFFFFF));
+    status = oracis_host_runtime_mount_game_card_image(
+        malformed_header.data(),
+        static_cast<uint32_t>(malformed_header.size()));
+    if (status != ORACIS_HOST_RUNTIME_OK ||
+        oracis_host_runtime_load_mounted_game_card_program() !=
+            ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID ||
+        oracis_host_runtime_program_loaded() != 0) {
+        (void)oracis_host_runtime_shutdown();
+        return fail("header-driven loader accepted a segment outside the mounted image");
+    }
+
+    status = oracis_host_runtime_mount_game_card_image(
+        fixture.image.data(), static_cast<uint32_t>(fixture.image.size()));
+    if (status != ORACIS_HOST_RUNTIME_OK ||
+        oracis_host_runtime_load_mounted_game_card_program() !=
             ORACIS_HOST_RUNTIME_OK ||
         oracis_host_runtime_program_loaded() != 1 ||
         oracis_host_runtime_global_bus_cycles() != 0u) {

@@ -360,7 +360,7 @@ int main(int argc, char *argv[])
     const char *arm7_bios_path = NULL;
     uint32_t game_card_chip_id = 0u;
     bool game_card_chip_id_set = false;
-
+    bool game_card_program_loaded = false;
 
     oracis_host_set_keypad_state(0u);
 
@@ -480,6 +480,24 @@ int main(int argc, char *argv[])
             game_card_chip_id);
     }
 
+    if (game_card_path != NULL && arm7_bios_path != NULL) {
+        const int load_status =
+            oracis_host_runtime_load_mounted_game_card_program();
+        if (load_status != ORACIS_HOST_RUNTIME_OK) {
+            SDL_LogCritical(
+                SDL_LOG_CATEGORY_APPLICATION,
+                "Game Card ARM9/ARM7 loading failed (bridge=%d, machine=%d).",
+                load_status,
+                oracis_host_runtime_last_machine_status());
+            goto cleanup;
+        }
+        game_card_program_loaded = true;
+        SDL_Log(
+            "ARM9/ARM7 segments were validated against the mounted NDS header; "
+            "the ARM9 Secure Area prefix was decrypted into guest RAM. "
+            "BIOS startup and native CPU execution remain disabled.");
+    }
+
     for (uint32_t engine = 0u; engine < 2u; ++engine) {
         screen_pixels[engine] = (uint32_t *)calloc(
             (size_t)ORACIS_SCREEN_WIDTH * (size_t)ORACIS_SCREEN_HEIGHT,
@@ -517,8 +535,12 @@ int main(int argc, char *argv[])
         goto cleanup;
     }
 #if !defined(__ANDROID__)
-    const int image_status =
-        oracis_host_runtime_load_local_platinum_segments(NULL);
+    int image_status = ORACIS_HOST_RUNTIME_OK;
+    if (!game_card_program_loaded && game_card_path == NULL) {
+        image_status = oracis_host_runtime_load_local_platinum_segments(NULL);
+    } else if (!game_card_program_loaded) {
+        image_status = ORACIS_HOST_RUNTIME_LOCAL_IMAGE_MISSING;
+    }
     if (image_status == ORACIS_HOST_RUNTIME_OK) {
         OracisHostRuntimeEntryPointReport arm9_entry = {0};
         OracisHostRuntimeEntryPointReport arm7_entry = {0};
@@ -541,11 +563,23 @@ int main(int argc, char *argv[])
                 "Static entry preflight unavailable (bridge=%d).",
                 preflight_status);
         }
+        if (game_card_program_loaded) {
+            SDL_Log(
+                "User Game Card ARM9/ARM7 segments are in guest memory. "
+                "Native execution remains disabled until BIOS startup, IRQ "
+                "delivery and required runtime services are complete.");
+        } else {
+            SDL_Log(
+                "Local Platinum USA Rev 1 ARM9/ARM7 images were size/hash verified "
+                "and loaded into guest memory. Native execution remains disabled "
+                "until the IRQ provider and required runtime services are complete."
+            );
+        }
+    } else if (game_card_path != NULL) {
         SDL_Log(
-            "Local Platinum USA Rev 1 ARM9/ARM7 images were size/hash verified "
-            "and loaded into guest memory. Native execution remains disabled "
-            "until the IRQ provider and required runtime services are complete."
-        );
+            "Game Card image is mounted, but program loading was skipped because "
+            "--arm7-bios was not supplied. Pass a user-owned 16 KiB ARM7 BIOS "
+            "with --arm7-bios to validate and load the Secure Area.");
     } else if (image_status == ORACIS_HOST_RUNTIME_LOCAL_IMAGE_MISSING) {
         SDL_Log(
             "Local Platinum images were not found. The host remains in "
@@ -561,18 +595,33 @@ int main(int argc, char *argv[])
         goto cleanup;
     }
 #else
-    SDL_Log(
-        "Local Platinum ARM9/ARM7 banks registered. Android file selection "
-        "and local program-image loading are not wired yet."
-    );
+    if (game_card_program_loaded) {
+        SDL_Log(
+            "User Game Card ARM9/ARM7 segments loaded with the Secure Area "
+            "prefix decrypted. Android CPU execution remains disabled.");
+    } else if (game_card_path != NULL) {
+        SDL_Log(
+            "Game Card image mounted; supply --arm7-bios with a user-owned "
+            "16 KiB ARM7 BIOS to load the program segments.");
+    } else {
+        SDL_Log(
+            "Local Platinum ARM9/ARM7 banks registered. Android file selection "
+            "and local program-image loading are not wired yet.");
+    }
 #endif
 #else
-    SDL_Log(
-        "Oracis host started: NDS machine initialized; "
-        "two %d x %d prototype screens (no static game banks linked).",
-        ORACIS_SCREEN_WIDTH,
-        ORACIS_SCREEN_HEIGHT
-    );
+    if (game_card_program_loaded) {
+        SDL_Log(
+            "Oracis host started: user Game Card ARM9/ARM7 segments loaded; "
+            "native execution remains disabled.");
+    } else {
+        SDL_Log(
+            "Oracis host started: NDS machine initialized; "
+            "two %d x %d prototype screens (no static game banks linked).",
+            ORACIS_SCREEN_WIDTH,
+            ORACIS_SCREEN_HEIGHT
+        );
+    }
 #endif
 
     exit_code = EXIT_SUCCESS;

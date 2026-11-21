@@ -117,6 +117,9 @@ int oracis_host_runtime_load_program_segments(
 int oracis_host_runtime_load_game_card_program_segments(
     const OracisHostProgramSegment *arm9,
     const OracisHostProgramSegment *arm7);
+/* Parse the two program segments directly from the mounted NDS header and
+ * load them through the validated Game Card/Secure Area path. */
+int oracis_host_runtime_load_mounted_game_card_program(void);
 int oracis_host_runtime_program_loaded(void);
 
 /*

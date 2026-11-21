@@ -450,6 +450,58 @@ extern "C" int oracis_host_runtime_load_game_card_program_segments(
     }
 }
 
+extern "C" int oracis_host_runtime_load_mounted_game_card_program(void)
+{
+    auto &machine = host_machine();
+    if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+    if (!machine.game_card_control().mounted() || g_game_card_image.empty()) {
+        return ORACIS_HOST_RUNTIME_GAME_CARD_ERROR;
+    }
+
+    const uint32_t image_size = static_cast<uint32_t>(g_game_card_image.size());
+    const uint8_t *image = g_game_card_image.data();
+    if (image_size < UINT32_C(0x40)) {
+        return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID;
+    }
+
+    const uint32_t arm9_rom_offset = read_u32_le(image + UINT32_C(0x20));
+    const uint32_t arm9_entry_raw = read_u32_le(image + UINT32_C(0x24));
+    const uint32_t arm9_load_address = read_u32_le(image + UINT32_C(0x28));
+    const uint32_t arm9_size = read_u32_le(image + UINT32_C(0x2C));
+    const uint32_t arm7_rom_offset = read_u32_le(image + UINT32_C(0x30));
+    const uint32_t arm7_entry_raw = read_u32_le(image + UINT32_C(0x34));
+    const uint32_t arm7_load_address = read_u32_le(image + UINT32_C(0x38));
+    const uint32_t arm7_size = read_u32_le(image + UINT32_C(0x3C));
+    const uint64_t arm9_rom_end =
+        static_cast<uint64_t>(arm9_rom_offset) + arm9_size;
+    const uint64_t arm7_rom_end =
+        static_cast<uint64_t>(arm7_rom_offset) + arm7_size;
+
+    if (arm9_rom_offset < UINT32_C(0x200) ||
+        arm7_rom_offset < UINT32_C(0x200) ||
+        arm9_size == 0u || arm7_size == 0u ||
+        arm9_rom_end > image_size || arm7_rom_end > image_size) {
+        return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID;
+    }
+
+    const OracisHostProgramSegment arm9{
+        arm9_load_address,
+        arm9_size,
+        arm9_entry_raw & ~UINT32_C(1),
+        arm9_entry_raw & UINT32_C(1),
+        image + arm9_rom_offset
+    };
+    const OracisHostProgramSegment arm7{
+        arm7_load_address,
+        arm7_size,
+        arm7_entry_raw & ~UINT32_C(1),
+        arm7_entry_raw & UINT32_C(1),
+        image + arm7_rom_offset
+    };
+    return oracis_host_runtime_load_game_card_program_segments(
+        &arm9, &arm7);
+}
+
 extern "C" int oracis_host_runtime_load_local_platinum_segments(
     const char *directory)
 {
