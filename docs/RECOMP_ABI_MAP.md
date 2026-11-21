@@ -98,7 +98,7 @@ O callback \`oracis_bus_validate_dispatch\` é instalado quando \`oracis_bus_bin
 
 \`GuestMemory::map_ram\` cria armazenamento vazio e não prova identidade. Escritas C \`bus_write_*\` marcam a proveniência byte a byte; \`GuestMemory::map_image\` copia bytes fornecidos pelo carregador e marca a faixa inicializada. Um banco que não tenha bytes materializados, ou cujos bytes divergirem, permanece inativo. O unbind da memória remove o callback.
 
-Essa camada ainda não implementa o carregador de bancos do Pokémon Platinum, cache por revisão, ciclo de vida de overlays ou proteção contra descarga enquanto uma função do banco ainda está em execução. O chamador precisa manter tabelas, metadados e funções válidos enquanto registrados.
+Essa camada ainda não implementa o carregador de bancos do Pokémon Platinum, cache por revisão, ciclo de vida de overlays ou proteção contra descarga enquanto uma função do banco ainda está em execução. O chamador precisa manter tabelas, metadados e funções válidos enquanto registrados. O encerramento da ponte global `oracis_host_runtime_shutdown()` termina as fatias dos dois CPUs e limpa todo o registry estático (bancos compilados e tabelas registradas pela ABI C), inclusive após uma falha parcial de unbind, para que ponteiros não proprietários não sobrevivam ao ciclo da máquina.
 
 ### Pilha de retorno e link slots
 

@@ -59,7 +59,10 @@ typedef struct OracisHostVideoScanlineReport {
 /* Initializes the process-wide NDS machine and binds its base devices. */
 int oracis_host_runtime_initialize(void);
 
-/* Unbinds the machine and releases its process-wide runtime bindings. */
+/*
+ * Stops both CPU slices, unbinds the machine and clears all static dispatch
+ * registrations (including caller-owned C tables with non-owning pointers).
+ */
 int oracis_host_runtime_shutdown(void);
 
 /*

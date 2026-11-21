@@ -102,32 +102,6 @@ bool validate_game_card_segment(
 #ifdef ORACIS_WITH_PLATINUM_STATIC_BANKS
 bool g_arm9_compiled_bank_registered = false;
 bool g_arm7_compiled_bank_registered = false;
-
-bool unregister_compiled_banks() noexcept
-{
-    bool success = true;
-    if (g_arm7_compiled_bank_registered) {
-        if (oracis_static_dispatch_unregister_bank(
-                NDS_ARM7,
-                g_dispatch_pokemon_platinum_usa_rev1_arm7,
-                g_dispatch_pokemon_platinum_usa_rev1_arm7_len) != 0) {
-            g_arm7_compiled_bank_registered = false;
-        } else {
-            success = false;
-        }
-    }
-    if (g_arm9_compiled_bank_registered) {
-        if (oracis_static_dispatch_unregister_bank(
-                NDS_ARM9,
-                g_dispatch_pokemon_platinum_usa_rev1_arm9,
-                g_dispatch_pokemon_platinum_usa_rev1_arm9_len) != 0) {
-            g_arm9_compiled_bank_registered = false;
-        } else {
-            success = false;
-        }
-    }
-    return success;
-}
 #endif
 
 struct IrqProviderContext {
@@ -237,15 +211,23 @@ extern "C" int oracis_host_runtime_shutdown(void)
     std::vector<uint8_t>().swap(g_game_card_image);
     const auto status = machine.shutdown();
     g_last_machine_status = static_cast<int>(status);
-    if (status != oracis::machine::NdsMachineStatus::Ok) {
-        return ORACIS_HOST_RUNTIME_MACHINE_ERROR;
-    }
+
+    /*
+     * The registry stores non-owning table/validation pointers. Once shutdown
+     * has stopped both CPU slices, discard every registration (compiled or
+     * host-provided) so caller-owned tables cannot outlive this machine.
+     * Clear even after a partial unbind failure: shutdown has already ended
+     * execution slices, and retaining stale function pointers is unsafe.
+     */
+    oracis_static_dispatch_clear();
 #ifdef ORACIS_WITH_PLATINUM_STATIC_BANKS
-    if (!unregister_compiled_banks()) {
-        return ORACIS_HOST_RUNTIME_BANK_REGISTRATION_FAILED;
-    }
+    g_arm9_compiled_bank_registered = false;
+    g_arm7_compiled_bank_registered = false;
 #endif
-    return ORACIS_HOST_RUNTIME_OK;
+
+    return status == oracis::machine::NdsMachineStatus::Ok
+        ? ORACIS_HOST_RUNTIME_OK
+        : ORACIS_HOST_RUNTIME_MACHINE_ERROR;
 }
 
 extern "C" int oracis_host_runtime_mount_game_card_image(

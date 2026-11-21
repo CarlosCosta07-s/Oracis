@@ -528,20 +528,17 @@ int main(void)
         return 1;
     }
 
-    if (oracis_static_dispatch_unregister_bank(
-            NDS_ARM9, arm9_table, 3u) == 0 ||
-        oracis_static_dispatch_unregister_bank(
-            NDS_ARM7, arm7_table, 3u) == 0 ||
-        oracis_host_runtime_has_program_banks() != 0) {
-        oracis_static_dispatch_clear();
-        fprintf(stderr, "host C test banks were not unregistered\n");
-        return 1;
-    }
-
-    if (oracis_host_runtime_shutdown() != ORACIS_HOST_RUNTIME_OK ||
+    /*
+     * Leave the C-owned bank tables registered intentionally. Host shutdown
+     * must clear the non-owning registry before this stack frame releases
+     * their storage, including on a later initialize/shutdown cycle.
+     */
+    if (oracis_host_runtime_has_program_banks() != 1 ||
+        oracis_host_runtime_shutdown() != ORACIS_HOST_RUNTIME_OK ||
         oracis_host_runtime_is_initialized() != 0 ||
+        oracis_host_runtime_has_program_banks() != 0 ||
         oracis_host_runtime_last_machine_status() != 0) {
-        fprintf(stderr, "C host bridge failed to shut down NdsMachine\n");
+        fprintf(stderr, "C host bridge failed to shut down and clear registered bank tables\n");
         return 1;
     }
 
