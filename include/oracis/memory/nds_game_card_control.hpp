@@ -23,6 +23,7 @@ public:
  static constexpr uint8_t HeaderReadCommand=UINT8_C(0x00);
  static constexpr uint8_t ChipIdReadCommand=UINT8_C(0x90);
  static constexpr uint8_t RomReadCommand=UINT8_C(0xB7);
+ static constexpr uint8_t ActivateKey1Command=UINT8_C(0x3C);
  static constexpr uint32_t RomCtrlKey2DataMask=UINT32_C(1)<<13u;
  static constexpr uint32_t RomCtrlKey2SeedApplyMask=UINT32_C(1)<<15u;
  static constexpr uint32_t RomCtrlKey2CommandMask=UINT32_C(1)<<22u;
@@ -56,7 +57,11 @@ public:
  bool installed() const noexcept{return installed_;}
  bool key2_initialized() const noexcept{return key2_.initialized();}
  bool key1_initialized() const noexcept{return key1_.initialized();}
+ bool key1_command_mode() const noexcept{return key1_command_mode_;}
  uint32_t key1_id_code() const noexcept{return key1_.id_code();}
+ uint16_t key1_random_i() const noexcept{return key1_random_i_;}
+ uint16_t key1_random_j() const noexcept{return key1_random_j_;}
+ uint32_t key1_command_counter() const noexcept{return key1_command_counter_;}
  bool chip_id_configured() const noexcept{return chip_id_configured_;}
  uint32_t chip_id() const noexcept{return chip_id_;}
  uint64_t key2_state1() const noexcept{return key2_.state1();}
@@ -97,6 +102,9 @@ private:
  bool chip_id_configured_=false;
  bool chip_id_data_=false;
  bool reset_released_=false,busy_=false,data_ready_=false,dummy_data_=false,wrap_read_window_=false,installed_=false,key2_data_active_=false;
+ bool key1_command_mode_=false,key1_activation_pending_=false;
+ uint16_t key1_random_i_=0u,key1_random_j_=0u;
+ uint32_t key1_command_counter_=0u;
 };
 }
 #endif
