@@ -39,7 +39,7 @@ SPEC.loader.exec_module(extractor)
 def make_synthetic_nds(path: Path) -> str:
     """Create a minimal NDS header with one ARM BX LR and one Thumb BX LR."""
     arm9_offset = 0x200
-    arm7_offset = 0x204
+    arm7_offset = 0x300
     arm9_load = 0x02000000
     arm7_load = 0x02380000
     # Exercise explicit read/write timing adaptation in actual compiler
