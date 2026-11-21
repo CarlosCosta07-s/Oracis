@@ -643,6 +643,86 @@ int main()
     }
 
     /*
+     * VIEWPORT maps valid clip-space coordinates into the configured BG0
+     * rectangle. DS viewport origin is bottom-left, so screen Y grows up.
+     */
+    NdsGeometryEngine viewport_geometry(interrupts);
+    if (viewport_geometry.install() != Status::Ok) {
+        return fail("viewport Geometry Engine installation failed");
+    }
+    const uint32_t viewport_parameter =
+        UINT32_C(10) |
+        (UINT32_C(20) << 8u) |
+        (UINT32_C(110) << 16u) |
+        (UINT32_C(120) << 24u);
+    if (!write_command(viewport_geometry, 0x60u, viewport_parameter)) {
+        return fail("VIEWPORT command enqueue failed");
+    }
+    viewport_geometry.advance_bus_cycles(1u);
+    if (viewport_geometry.viewport() !=
+            std::array<uint8_t, 4>{10u, 20u, 110u, 120u}) {
+        return fail("VIEWPORT fields were not decoded in X1/Y1/X2/Y2 order");
+    }
+    if (!write_command(viewport_geometry, 0x40u, UINT32_C(0))) {
+        return fail("viewport triangle BEGIN_VTXS enqueue failed");
+    }
+    viewport_geometry.advance_bus_cycles(1u);
+    const std::array<std::array<uint32_t, 3>, 3> viewport_positions = {{
+        {{UINT32_C(0x0800), UINT32_C(0xFFFFF800), UINT32_C(0x0800)}},
+        {{UINT32_C(0x0000), UINT32_C(0x0000), UINT32_C(0x0000)}},
+        {{UINT32_C(0x0800), UINT32_C(0x0000), UINT32_C(0x0800)}}
+    }};
+    for (const auto &position : viewport_positions) {
+        const uint32_t xy = (position[1] << 16u) | position[0];
+        if (!write_command(viewport_geometry, 0x23u, xy) ||
+            !write_command(viewport_geometry, 0x23u, position[2])) {
+            return fail("viewport VTX_16 enqueue failed");
+        }
+    }
+    viewport_geometry.advance_bus_cycles(27u);
+    const NdsGeometryEngine::Vertex *viewport_vertex =
+        viewport_geometry.vertex_at(0u);
+    if (viewport_geometry.vertex_count() != 3u ||
+        viewport_geometry.polygon_count() != 1u ||
+        viewport_vertex == nullptr ||
+        viewport_vertex->clip_position !=
+            std::array<int32_t, 4>{
+                INT32_C(2048), -INT32_C(2048), INT32_C(2048), INT32_C(4096)} ||
+        !viewport_vertex->screen_position_valid ||
+        viewport_vertex->screen_position !=
+            std::array<int32_t, 2>{85, 45}) {
+        return fail("clip-space vertex was not projected into the configured viewport");
+    }
+
+    /* A vertex outside any clip plane is not assigned a screen position yet. */
+    NdsGeometryEngine outside_viewport_geometry(interrupts);
+    if (outside_viewport_geometry.install() != Status::Ok ||
+        !write_command(outside_viewport_geometry, 0x40u, UINT32_C(0))) {
+        return fail("outside-viewport fixture setup failed");
+    }
+    outside_viewport_geometry.advance_bus_cycles(1u);
+    if (!write_command(
+            outside_viewport_geometry, 0x23u,
+            (UINT32_C(0) << 16u) | UINT32_C(0x3000)) ||
+        !write_command(outside_viewport_geometry, 0x23u, UINT32_C(0)) ||
+        !write_command(
+            outside_viewport_geometry, 0x23u,
+            (UINT32_C(0) << 16u) | UINT32_C(0)) ||
+        !write_command(outside_viewport_geometry, 0x23u, UINT32_C(0)) ||
+        !write_command(
+            outside_viewport_geometry, 0x23u,
+            (UINT32_C(0) << 16u) | UINT32_C(0x1000)) ||
+        !write_command(outside_viewport_geometry, 0x23u, UINT32_C(0))) {
+        return fail("outside-viewport VTX_16 enqueue failed");
+    }
+    outside_viewport_geometry.advance_bus_cycles(27u);
+    const NdsGeometryEngine::Vertex *outside_vertex =
+        outside_viewport_geometry.vertex_at(0u);
+    if (outside_vertex == nullptr || outside_vertex->screen_position_valid) {
+        return fail("out-of-volume vertex received a pre-clipping screen coordinate");
+    }
+
+    /*
      * The machine clock advances GX commands only at the shared ARM9/ARM7
      * watermark. ARM9 running ahead alone must not consume a FIFO command.
      */

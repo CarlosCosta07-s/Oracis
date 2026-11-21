@@ -37,6 +37,8 @@ public:
 
     struct Vertex {
         std::array<int32_t, 4> clip_position{};
+        std::array<int32_t, 2> screen_position{};
+        bool screen_position_valid = false;
         std::array<int32_t, 3> source_position{};
         std::array<int32_t, 3> normal{};
         uint16_t color_rgb555 = UINT16_C(0x7FFF);
@@ -144,6 +146,9 @@ public:
     uint8_t projection_stack_pointer() const noexcept {
         return projection_stack_pointer_;
     }
+    std::array<uint8_t, 4> viewport() const noexcept {
+        return {viewport_x1_, viewport_y1_, viewport_x2_, viewport_y2_};
+    }
     const Matrix &position_matrix() const noexcept { return position_matrix_; }
     const Matrix &directional_matrix() const noexcept { return directional_matrix_; }
     const Matrix &projection_matrix() const noexcept { return projection_matrix_; }
@@ -196,6 +201,7 @@ private:
     void execute_matrix_command() noexcept;
     void execute_vertex_command() noexcept;
     void submit_vertex() noexcept;
+    void calculate_screen_position(Vertex &vertex) const noexcept;
     void begin_vertex_list(uint32_t parameter) noexcept;
     void end_vertex_list() noexcept;
     bool has_incomplete_primitive() const noexcept;
@@ -244,6 +250,10 @@ private:
     Matrix texture_matrix_{};
     Matrix clip_matrix_{};
     std::array<Matrix, 1> projection_stack_{};
+    uint8_t viewport_x1_ = 0u;
+    uint8_t viewport_y1_ = 0u;
+    uint8_t viewport_x2_ = 255u;
+    uint8_t viewport_y2_ = 191u;
     std::array<Matrix, 32> position_stack_{};
     std::array<Matrix, 32> directional_stack_{};
     std::array<Matrix, 1> texture_stack_{};

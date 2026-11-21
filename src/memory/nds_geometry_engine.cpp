@@ -239,6 +239,10 @@ Status NdsGeometryEngine::install() noexcept
     directional_matrix_ = identity_matrix();
     texture_matrix_ = identity_matrix();
     clip_matrix_ = identity_matrix();
+    viewport_x1_ = 0u;
+    viewport_y1_ = 0u;
+    viewport_x2_ = 255u;
+    viewport_y2_ = 191u;
     projection_stack_ = {};
     position_stack_ = {};
     directional_stack_ = {};
@@ -1094,9 +1098,51 @@ void NdsGeometryEngine::submit_vertex() noexcept
         vertex.clip_position[column] = std::bit_cast<int32_t>(shifted);
     }
 
+    calculate_screen_position(vertex);
+
     const uint32_t stored_index = buffer.vertex_count;
     buffer.vertices[buffer.vertex_count++] = vertex;
     append_vertex_to_list(stored_index);
+}
+
+void NdsGeometryEngine::calculate_screen_position(
+    Vertex &vertex) const noexcept
+{
+    const int64_t x = vertex.clip_position[0];
+    const int64_t y = vertex.clip_position[1];
+    const int64_t z = vertex.clip_position[2];
+    const int64_t w = vertex.clip_position[3];
+
+    /*
+     * Viewport conversion is performed after clipping in hardware. Until the
+     * polygon clipper is connected, only vertices already inside all six
+     * homogeneous clip planes receive valid screen coordinates.
+     */
+    if (w <= 0 || x < -w || x > w || y < -w || y > w ||
+        z < -w || z > w) {
+        vertex.screen_position = {};
+        vertex.screen_position_valid = false;
+        return;
+    }
+
+    const int64_t viewport_width =
+        static_cast<int64_t>(viewport_x2_) - viewport_x1_;
+    const int64_t viewport_height =
+        static_cast<int64_t>(viewport_y2_) - viewport_y1_;
+    const int64_t denominator = 2 * w;
+
+    const int64_t screen_x =
+        static_cast<int64_t>(viewport_x1_) +
+        ((x + w) * viewport_width) / denominator;
+    const int64_t screen_y =
+        static_cast<int64_t>(viewport_y1_) +
+        ((y + w) * viewport_height) / denominator;
+
+    vertex.screen_position = {
+        static_cast<int32_t>(screen_x),
+        static_cast<int32_t>(screen_y)
+    };
+    vertex.screen_position_valid = true;
 }
 
 void NdsGeometryEngine::begin_vertex_list(uint32_t parameter) noexcept
@@ -1242,8 +1288,14 @@ void NdsGeometryEngine::execute_active_command() noexcept
         begin_vertex_list(active_parameters_[0]);
     } else if (active_command_ == 0x41u) {
         end_vertex_list();
+    } else if (active_command_ == 0x60u) {
+        const uint32_t parameter = active_parameters_[0];
+        viewport_x1_ = static_cast<uint8_t>(parameter & UINT32_C(0xFF));
+        viewport_y1_ = static_cast<uint8_t>((parameter >> 8u) & UINT32_C(0xFF));
+        viewport_x2_ = static_cast<uint8_t>((parameter >> 16u) & UINT32_C(0xFF));
+        viewport_y2_ = static_cast<uint8_t>((parameter >> 24u) & UINT32_C(0xFF));
     }
-    /* Clipping, lighting and rasterization remain separate stages. */
+    /* Six-plane clipping, lighting and rasterization remain separate stages. */
 }
 
 } // namespace oracis::memory
