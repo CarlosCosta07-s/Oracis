@@ -311,7 +311,7 @@ int main()
         geometry.pipe_entries() != 4u || geometry.queued_entries() != 260u ||
         geometry.write(
             NDS_ARM9, NdsGeometryEngine::CommandPortsBase +
-                UINT32_C(0x15) * 4u, 4u, 0u) != Status::PermissionDenied) {
+                UINT32_C(0x05) * 4u, 4u, 0u) != Status::PermissionDenied) {
         return fail("FIFO full condition or full-write rejection failed");
     }
     status = geometry.read(
@@ -362,7 +362,7 @@ int main()
         return fail("vertex-test position identity setup enqueue failed");
     }
     geometry.advance_bus_cycles(20u);
-    /* VTX commands outside a BEGIN/END list must not append Vertex RAM. */
+    /* VTX commands before the first BEGIN_VTXS must not append Vertex RAM. */
     const uint32_t outside_count = geometry.vertex_count();
     if (!write_command(
             geometry, 0x23u, (UINT32_C(0x2000) << 16u) | UINT32_C(0x1000)) ||
