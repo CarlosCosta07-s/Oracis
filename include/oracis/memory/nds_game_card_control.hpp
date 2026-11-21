@@ -5,6 +5,7 @@
 #include <cstdint>
 #include "oracis/memory/guest_memory.hpp"
 #include "oracis/memory/nds_interrupt_control.hpp"
+#include "oracis/memory/nds_game_card_key2.hpp"
 namespace oracis::memory {
 class NdsDmaControl;
 class NdsGameCardControl final {
@@ -47,6 +48,10 @@ public:
  ReadResult read_data(NdsCpu cpu) noexcept;
  void reset_transfer() noexcept;
  bool installed() const noexcept{return installed_;}
+ bool key2_initialized() const noexcept{return key2_.initialized();}
+ uint64_t key2_state1() const noexcept{return key2_.state1();}
+ uint64_t key2_state2() const noexcept{return key2_.state2();}
+ uint64_t key2_bytes_processed() const noexcept{return key2_.bytes_processed();}
  bool mounted() const noexcept{return image_!=nullptr;}
  bool busy() const noexcept{return busy_;}
  bool data_ready() const noexcept{return data_ready_;}
@@ -66,7 +71,8 @@ private:
  const uint8_t *image_=nullptr;
  uint32_t image_size_=0u;
  std::array<uint8_t,CommandBytes> command_{};
- std::array<uint8_t,SeedBytes> seed_registers_{};
+ std::array<std::array<uint8_t,SeedBytes>,2> seed_registers_{};
+ NdsGameCardKey2 key2_{};
  uint16_t aux_spi_control_=0u;
  uint32_t rom_control_=0u;
  uint32_t current_offset_=0u;

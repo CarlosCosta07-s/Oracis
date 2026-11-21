@@ -12,7 +12,7 @@ bool NdsGameCardControl::seed_address(uint32_t a) noexcept{return a>=SeedAddress
 Status NdsGameCardControl::install() noexcept{if(installed_)return Status::InvalidRegion;reset_transfer();command_={};seed_registers_={};aux_spi_control_=0u;installed_=true;return Status::Ok;}
 Status NdsGameCardControl::mount_image(const uint8_t*b,uint32_t n) noexcept{if(!installed_)return Status::Unmapped;if(!b||n==0u)return Status::InvalidRegion;if(busy_)return Status::PermissionDenied;image_=b;image_size_=n;return Status::Ok;}
 void NdsGameCardControl::unmount_image() noexcept{reset_transfer();image_=nullptr;image_size_=0u;}
-void NdsGameCardControl::reset_transfer() noexcept{command_={};seed_registers_={};aux_spi_control_=0u;rom_control_=0u;current_offset_=0u;current_window_base_=0u;remaining_words_=0u;cycles_until_data_=0u;cycles_per_byte_=5u;owner_cpu_=NDS_ARM9;reset_released_=false;busy_=false;data_ready_=false;dummy_data_=false;wrap_read_window_=false;}
+void NdsGameCardControl::reset_transfer() noexcept{command_={};seed_registers_={};key2_.clear();aux_spi_control_=0u;rom_control_=0u;current_offset_=0u;current_window_base_=0u;remaining_words_=0u;cycles_until_data_=0u;cycles_per_byte_=5u;owner_cpu_=NDS_ARM9;reset_released_=false;busy_=false;data_ready_=false;dummy_data_=false;wrap_read_window_=false;}
 uint32_t NdsGameCardControl::read_rom_control() const noexcept{uint32_t v=rom_control_;if(data_ready_)v|=RomCtrlDrqMask;if(busy_)v|=RomCtrlStartBusyMask;return v;}
 Status NdsGameCardControl::start_transfer(NdsCpu cpu) noexcept{
  if(!installed_)return Status::Unmapped;if(!valid_cpu(cpu))return Status::InvalidCpu;
@@ -80,6 +80,27 @@ Status NdsGameCardControl::write_rom_control(NdsCpu cpu,uint32_t value) noexcept
  rom_control_=value&kWritable;
  if(release)reset_released_=true;
  if(reset_released_)rom_control_|=RomCtrlResetReleaseMask;
+
+ if((value&RomCtrlKey2SeedApplyMask)!=0u){
+  const auto &bank=seed_registers_[cpu==NDS_ARM9?0u:1u];
+  const uint64_t raw_seed1=
+      static_cast<uint64_t>(bank[0])|
+      (static_cast<uint64_t>(bank[1])<<8u)|
+      (static_cast<uint64_t>(bank[2])<<16u)|
+      (static_cast<uint64_t>(bank[3])<<24u)|
+      ((static_cast<uint64_t>(bank[8])&UINT64_C(0x7F))<<32u)|
+      ((static_cast<uint64_t>(bank[9])&UINT64_C(0x7F))<<40u);
+  const uint64_t raw_seed2=
+      static_cast<uint64_t>(bank[4])|
+      (static_cast<uint64_t>(bank[5])<<8u)|
+      (static_cast<uint64_t>(bank[6])<<16u)|
+      (static_cast<uint64_t>(bank[7])<<24u)|
+      ((static_cast<uint64_t>(bank[10])&UINT64_C(0x7F))<<32u)|
+      ((static_cast<uint64_t>(bank[11])&UINT64_C(0x7F))<<40u);
+  const Status seed_status=key2_.set_raw_seeds(raw_seed1,raw_seed2);
+  if(seed_status!=Status::Ok)return seed_status;
+ }
+
  if((value&RomCtrlStartBusyMask)==0u)return Status::Ok;
  return start_transfer(cpu);
 }
@@ -133,7 +154,7 @@ Status NdsGameCardControl::write(NdsCpu cpu,uint32_t a,uint32_t w,uint32_t v) no
  if(a==AuxSpiControlAddress){if(w!=2u)return Status::InvalidWidth;aux_spi_control_=uint16_t(v)&UINT16_C(0xE07F);return Status::Ok;}
  if(a==RomControlAddress){if(w!=4u)return Status::InvalidWidth;return write_rom_control(cpu,v);}
  if(command_address(a)){if(busy_)return Status::PermissionDenied;const uint32_t o=a-CommandAddress;if((w!=1u&&w!=2u&&w!=4u)||o+w>CommandBytes)return Status::InvalidWidth;for(uint32_t i=0;i<w;++i)command_[o+i]=uint8_t(v>>(i*8u));return Status::Ok;}
- if(seed_address(a)){if(busy_)return Status::PermissionDenied;const uint32_t o=a-SeedAddress;const bool low=o<8u&&w==4u&&(o&3u)==0u;const bool high=o>=8u&&w==2u&&(o&1u)==0u;if(!low&&!high)return Status::InvalidWidth;for(uint32_t i=0;i<w;++i)seed_registers_[o+i]=uint8_t(v>>(i*8u));return Status::Ok;}
+ if(seed_address(a)){if(busy_)return Status::PermissionDenied;const uint32_t o=a-SeedAddress;const bool low=o<8u&&w==4u&&(o&3u)==0u;const bool high=o>=8u&&w==2u&&(o&1u)==0u;if(!low&&!high)return Status::InvalidWidth;auto &bank=seed_registers_[cpu==NDS_ARM9?0u:1u];for(uint32_t i=0;i<w;++i)bank[o+i]=uint8_t(v>>(i*8u));return Status::Ok;}
  if(a==DataAddress)return w==4u?Status::PermissionDenied:Status::InvalidWidth;
  return Status::Unmapped;
 }

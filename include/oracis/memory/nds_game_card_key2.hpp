@@ -26,6 +26,12 @@ public:
      */
     Status set_seeds(uint64_t seed1, uint64_t seed2) noexcept;
 
+    /* Accept raw 39-bit values from the Game Card seed MMIO registers. */
+    Status set_raw_seeds(uint64_t raw_seed1, uint64_t raw_seed2) noexcept;
+
+    /* Clear the active stream on cartridge reset/power-off. */
+    void clear() noexcept;
+
     /*
      * Derive normalized LFSR states from a decrypted 24-bit command seed and
      * the header[0x13] low-three-bit seed index. The KEY1 command that supplies

@@ -92,6 +92,21 @@ int main()
         }
     }
 
+    NdsGameCardKey2 raw_registers;
+    if (raw_registers.set_raw_seeds(UINT64_C(0x91A2B60B1),
+            UINT64_C(0x5C879B9B05)) != Status::Ok ||
+        raw_registers.state1() != UINT64_C(0x46836A2C48) ||
+        raw_registers.state2() != UINT64_C(0x506CECF09D)) {
+        return fail("KEY2 raw register values were not bit-reversed correctly");
+    }
+    raw_registers.clear();
+    if (raw_registers.initialized() || raw_registers.bytes_processed() != 0u ||
+        raw_registers.state1() != 0u || raw_registers.state2() != 0u ||
+        raw_registers.set_raw_seeds(NdsGameCardKey2::SeedMask + 1u, 0u) !=
+            Status::InvalidRegion) {
+        return fail("KEY2 raw seed clear or range checks failed");
+    }
+
     /* A fresh stream with the same explicit seeds reverses the XOR transformation. */
     NdsGameCardKey2 decrypt;
     if (decrypt.set_seeds(seed1, seed2) != Status::Ok ||

@@ -44,6 +44,41 @@ int main(){
  if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,small|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::PermissionDenied||card.busy())return fail("parallel ROM read started in SPI mode");
  bus_write_u16(NdsGameCardControl::AuxSpiControlAddress,uint16_t(NdsGameCardControl::AuxSpiIrqEnableMask|NdsGameCardControl::AuxSpiSlotEnableMask));
 
+ /* Seed registers are CPU-local; applying either bank replaces the shared stream. */
+ constexpr uint64_t arm9_raw_seed0=UINT64_C(0x91A2B60B1);
+ constexpr uint64_t arm9_raw_seed1=UINT64_C(0x5C879B9B05);
+ if(card.key2_initialized())return fail("KEY2 stream was not clear after cartridge reset");
+ bus_write_u32(NdsGameCardControl::SeedAddress,static_cast<uint32_t>(arm9_raw_seed0));
+ bus_write_u32(NdsGameCardControl::SeedAddress+4u,static_cast<uint32_t>(arm9_raw_seed1));
+ bus_write_u16(NdsGameCardControl::SeedAddress+8u,static_cast<uint16_t>(arm9_raw_seed0>>32u));
+ bus_write_u16(NdsGameCardControl::SeedAddress+10u,static_cast<uint16_t>(arm9_raw_seed1>>32u));
+ if(card.key2_initialized()||card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+     NdsGameCardControl::RomCtrlKey2SeedApplyMask)!=Status::Ok||
+    !card.key2_initialized()||card.key2_state1()!=UINT64_C(0x46836A2C48)||
+    card.key2_state2()!=UINT64_C(0x506CECF09D)||card.key2_bytes_processed()!=0u||
+    (bus_read_u32(NdsGameCardControl::RomControlAddress)&NdsGameCardControl::RomCtrlKey2SeedApplyMask)!=0u)
+     return fail("ARM9 KEY2 seed registers were not applied on ROMCTRL.bit15");
+
+ /* A separate ARM7 seed bank updates the same active KEY2 stream. */
+ if(!oracis_arm_runtime_select_cpu(NDS_ARM7))return fail("ARM7 select failed for KEY2 seeds");
+ constexpr uint64_t arm7_raw_seed0=UINT64_C(0x123456789A);
+ constexpr uint64_t arm7_raw_seed1=UINT64_C(0x23456789AB);
+ bus_write_u32(NdsGameCardControl::SeedAddress,static_cast<uint32_t>(arm7_raw_seed0));
+ bus_write_u32(NdsGameCardControl::SeedAddress+4u,static_cast<uint32_t>(arm7_raw_seed1));
+ bus_write_u16(NdsGameCardControl::SeedAddress+8u,static_cast<uint16_t>(arm7_raw_seed0>>32u));
+ bus_write_u16(NdsGameCardControl::SeedAddress+10u,static_cast<uint16_t>(arm7_raw_seed1>>32u));
+ if(card.write(NDS_ARM7,NdsGameCardControl::RomControlAddress,4u,
+       NdsGameCardControl::RomCtrlKey2SeedApplyMask)!=Status::Ok||
+    card.key2_state1()!=UINT64_C(0x2C8F351624)||
+    card.key2_state2()!=UINT64_C(0x6AC8F35162))
+     return fail("ARM7 KEY2 seed bank did not replace the active stream");
+ if(!oracis_arm_runtime_select_cpu(NDS_ARM9))return fail("ARM9 restore failed after KEY2 seed test");
+ if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+       NdsGameCardControl::RomCtrlKey2SeedApplyMask)!=Status::Ok||
+    card.key2_state1()!=UINT64_C(0x46836A2C48)||
+    card.key2_state2()!=UINT64_C(0x506CECF09D))
+     return fail("ARM9 KEY2 seed bank was overwritten by ARM7 writes");
+
  /* Reset-time 9F dummy command returns an 8 KiB high-Z stream (read as FF). */
  write_card_command(NdsGameCardControl::DummyCommand,0u);
  const uint32_t dummy_control=NdsGameCardControl::RomCtrlResetReleaseMask|

@@ -32,8 +32,25 @@ Status NdsGameCardKey2::initialize_from_random_seed(
         ((static_cast<uint64_t>(random_value24) << 15u) +
          UINT64_C(0x6000) + kHeaderSeedBytes[seed_index]) & SeedMask;
     const uint64_t raw_seed2 = kSecondRawSeed & SeedMask;
+    return set_raw_seeds(raw_seed1, raw_seed2);
+}
+
+Status NdsGameCardKey2::set_raw_seeds(
+    uint64_t raw_seed1, uint64_t raw_seed2) noexcept
+{
+    if (raw_seed1 > SeedMask || raw_seed2 > SeedMask) {
+        return Status::InvalidRegion;
+    }
     return set_seeds(
         reverse_seed_bits(raw_seed1), reverse_seed_bits(raw_seed2));
+}
+
+void NdsGameCardKey2::clear() noexcept
+{
+    state1_ = 0u;
+    state2_ = 0u;
+    bytes_processed_ = 0u;
+    initialized_ = false;
 }
 
 Status NdsGameCardKey2::set_seeds(
