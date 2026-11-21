@@ -28,6 +28,7 @@ public:
     static constexpr uint32_t ClipMatrixBase = UINT32_C(0x04000640);
     static constexpr uint32_t VectorMatrixBase = UINT32_C(0x04000680);
     static constexpr uint32_t CommandFifoCapacity = 256u;
+    static constexpr uint32_t CommandPipeCapacity = 4u;
     static constexpr uint32_t VertexRamCapacity = 6144u;
     static constexpr uint32_t PolygonRamCapacity = 2048u;
     static constexpr uint32_t GxFifoIrqMask = UINT32_C(1) << 21u;
@@ -82,7 +83,12 @@ public:
     /* Reassert level-sensitive GX FIFO IRQ after software writes IF. */
     void refresh_fifo_irq() noexcept;
 
+    /* GXSTAT counts only the 256-entry FIFO; the four-entry PIPE is separate. */
     uint32_t fifo_entries() const noexcept { return fifo_count_; }
+    uint32_t pipe_entries() const noexcept { return pipe_count_; }
+    uint32_t queued_entries() const noexcept {
+        return static_cast<uint32_t>(fifo_count_) + pipe_count_;
+    }
     uint32_t vertex_count() const noexcept {
         return buffers_[build_buffer_index_].vertex_count;
     }
@@ -172,6 +178,7 @@ private:
     bool fifo_push(uint8_t command, uint32_t parameter) noexcept;
     bool fifo_peek(uint32_t offset, FifoEntry &entry) const noexcept;
     bool fifo_pop(FifoEntry &entry) noexcept;
+    void refill_pipe() noexcept;
     Status write_gxfifo(uint32_t value) noexcept;
     Status write_command_port(uint8_t command, uint32_t value) noexcept;
     Status enqueue_command(uint8_t command, uint32_t parameter) noexcept;
@@ -204,6 +211,9 @@ private:
     std::array<FifoEntry, CommandFifoCapacity> fifo_{};
     uint16_t fifo_head_ = 0u;
     uint16_t fifo_count_ = 0u;
+    std::array<FifoEntry, CommandPipeCapacity> pipe_{};
+    uint8_t pipe_head_ = 0u;
+    uint8_t pipe_count_ = 0u;
 
     std::array<InputCommand, 4> input_commands_{};
     uint8_t input_command_count_ = 0u;

@@ -215,6 +215,9 @@ Status NdsGeometryEngine::install() noexcept
     fifo_ = {};
     fifo_head_ = 0u;
     fifo_count_ = 0u;
+    pipe_ = {};
+    pipe_head_ = 0u;
+    pipe_count_ = 0u;
     input_commands_ = {};
     input_command_count_ = 0u;
     input_command_index_ = 0u;
@@ -270,17 +273,28 @@ Status NdsGeometryEngine::install() noexcept
 
 bool NdsGeometryEngine::busy() const noexcept
 {
-    return fifo_count_ != 0u || active_command_valid_ || swap_lockup_;
+    return fifo_count_ != 0u || pipe_count_ != 0u ||
+        active_command_valid_ || swap_lockup_;
 }
 
 bool NdsGeometryEngine::fifo_push(
     uint8_t command, uint32_t parameter) noexcept
 {
+    const FifoEntry entry{command, parameter};
+    /* Direct PIPE writes are possible only while FIFO is empty. */
+    if (fifo_count_ == 0u && pipe_count_ < CommandPipeCapacity) {
+        const uint8_t tail = static_cast<uint8_t>(
+            (static_cast<uint32_t>(pipe_head_) + pipe_count_) %
+            CommandPipeCapacity);
+        pipe_[tail] = entry;
+        ++pipe_count_;
+        return true;
+    }
     if (fifo_count_ >= CommandFifoCapacity) return false;
     const uint16_t tail = static_cast<uint16_t>(
         (static_cast<uint32_t>(fifo_head_) + fifo_count_) %
         CommandFifoCapacity);
-    fifo_[tail] = {command, parameter};
+    fifo_[tail] = entry;
     ++fifo_count_;
     update_fifo_irq();
     return true;
@@ -289,23 +303,54 @@ bool NdsGeometryEngine::fifo_push(
 bool NdsGeometryEngine::fifo_peek(
     uint32_t offset, FifoEntry &entry) const noexcept
 {
-    if (offset >= fifo_count_) return false;
+    const uint32_t queued =
+        static_cast<uint32_t>(pipe_count_) + fifo_count_;
+    if (offset >= queued) return false;
+    if (offset < pipe_count_) {
+        const uint8_t index = static_cast<uint8_t>(
+            (static_cast<uint32_t>(pipe_head_) + offset) %
+            CommandPipeCapacity);
+        entry = pipe_[index];
+        return true;
+    }
+    const uint32_t fifo_offset = offset - pipe_count_;
     const uint16_t index = static_cast<uint16_t>(
-        (static_cast<uint32_t>(fifo_head_) + offset) %
+        (static_cast<uint32_t>(fifo_head_) + fifo_offset) %
         CommandFifoCapacity);
     entry = fifo_[index];
     return true;
 }
 
+void NdsGeometryEngine::refill_pipe() noexcept
+{
+    if (pipe_count_ > 2u || fifo_count_ == 0u) return;
+    uint8_t moved = 0u;
+    while (moved < 2u && pipe_count_ < CommandPipeCapacity &&
+           fifo_count_ != 0u) {
+        const uint8_t tail = static_cast<uint8_t>(
+            (static_cast<uint32_t>(pipe_head_) + pipe_count_) %
+            CommandPipeCapacity);
+        pipe_[tail] = fifo_[fifo_head_];
+        fifo_head_ = static_cast<uint16_t>(
+            (static_cast<uint32_t>(fifo_head_) + 1u) %
+            CommandFifoCapacity);
+        --fifo_count_;
+        ++pipe_count_;
+        ++moved;
+    }
+    if (moved != 0u) update_fifo_irq();
+}
+
 bool NdsGeometryEngine::fifo_pop(FifoEntry &entry) noexcept
 {
-    if (fifo_count_ == 0u) return false;
-    entry = fifo_[fifo_head_];
-    fifo_head_ = static_cast<uint16_t>(
-        (static_cast<uint32_t>(fifo_head_) + 1u) %
-        CommandFifoCapacity);
-    --fifo_count_;
-    update_fifo_irq();
+    if (pipe_count_ == 0u) refill_pipe();
+    if (pipe_count_ == 0u) return false;
+    entry = pipe_[pipe_head_];
+    pipe_head_ = static_cast<uint8_t>(
+        (static_cast<uint32_t>(pipe_head_) + 1u) %
+        CommandPipeCapacity);
+    --pipe_count_;
+    refill_pipe();
     return true;
 }
 
@@ -362,8 +407,11 @@ Status NdsGeometryEngine::parse_command_word(uint32_t value) noexcept
     }
 
     if (parsed_count == 0u) return Status::Ok;
-    if (entry_reservation >
-        static_cast<uint32_t>(CommandFifoCapacity - fifo_count_)) {
+    const uint32_t total_queued =
+        static_cast<uint32_t>(fifo_count_) + pipe_count_;
+    constexpr uint32_t total_capacity =
+        CommandFifoCapacity + CommandPipeCapacity;
+    if (entry_reservation > total_capacity - total_queued) {
         return Status::PermissionDenied;
     }
 
@@ -556,7 +604,9 @@ void NdsGeometryEngine::refresh_fifo_irq() noexcept
 
 bool NdsGeometryEngine::begin_next_command() noexcept
 {
-    if (active_command_valid_ || fifo_count_ == 0u) return false;
+    if (active_command_valid_) return false;
+    refill_pipe();
+    if (pipe_count_ == 0u) return false;
 
     FifoEntry first{};
     if (!fifo_peek(0u, first)) return false;
@@ -568,7 +618,9 @@ bool NdsGeometryEngine::begin_next_command() noexcept
     }
     const uint32_t required = info.parameter_count == 0u
         ? 1u : info.parameter_count;
-    if (fifo_count_ < required) return false;
+    if (static_cast<uint32_t>(pipe_count_) + fifo_count_ < required) {
+        return false;
+    }
 
     for (uint32_t index = 0u; index < required; ++index) {
         FifoEntry entry{};

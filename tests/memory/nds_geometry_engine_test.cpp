@@ -76,13 +76,14 @@ int main()
         geometry.write(
             NDS_ARM9, NdsGeometryEngine::GxFifoBase + 4u, 4u,
             UINT32_C(1)) != Status::Ok ||
-        geometry.fifo_entries() != 1u) {
+        geometry.fifo_entries() != 0u || geometry.pipe_entries() != 1u ||
+        geometry.queued_entries() != 1u) {
         return fail("GXFIFO unpacked command/parameter stream failed");
     }
     uint32_t status = geometry.read(
         NDS_ARM9, NdsGeometryEngine::GxStatAddress, 4u).value;
-    if (((status >> 16u) & UINT32_C(0x1FF)) != 1u ||
-        (status & (UINT32_C(1) << 26u)) != 0u ||
+    if (((status >> 16u) & UINT32_C(0x1FF)) != 0u ||
+        (status & (UINT32_C(1) << 26u)) == 0u ||
         (status & (UINT32_C(1) << 27u)) == 0u) {
         return fail("GXSTAT FIFO count, empty or busy bits were incorrect");
     }
@@ -116,8 +117,9 @@ int main()
             return fail("packed MTX_LOAD_4x4 parameter delivery failed");
         }
     }
-    if (geometry.fifo_entries() != 18u) {
-        return fail("packed commands did not expand to eighteen 40-bit entries");
+    if (geometry.queued_entries() != 18u || geometry.pipe_entries() != 4u ||
+        geometry.fifo_entries() != 14u) {
+        return fail("packed commands did not expand across PIPE/FIFO entries");
     }
     geometry.advance_bus_cycles(34u + 19u + 19u);
     if (geometry.busy() || geometry.completed_commands() != 4u ||
@@ -296,14 +298,17 @@ int main()
         return fail("disabled FIFO IRQ was reasserted");
     }
 
-    /* Fill all 256 FIFO entries with parameterless identity commands. */
-    for (uint32_t index = 0u; index < NdsGeometryEngine::CommandFifoCapacity;
+    /* Fill the 4-entry PIPE and all 256 FIFO entries with identity commands. */
+    for (uint32_t index = 0u;
+         index < NdsGeometryEngine::CommandFifoCapacity +
+                     NdsGeometryEngine::CommandPipeCapacity;
          ++index) {
         if (!write_command(geometry, 0x15u)) {
             return fail("FIFO rejected a command before reaching capacity");
         }
     }
     if (geometry.fifo_entries() != 256u ||
+        geometry.pipe_entries() != 4u || geometry.queued_entries() != 260u ||
         geometry.write(
             NDS_ARM9, NdsGeometryEngine::CommandPortsBase +
                 UINT32_C(0x15) * 4u, 4u, 0u) != Status::PermissionDenied) {
@@ -316,10 +321,13 @@ int main()
         (status & (UINT32_C(1) << 26u)) != 0u) {
         return fail("GXSTAT did not expose full FIFO count/empty flags");
     }
-    geometry.advance_bus_cycles(UINT64_C(19) * 256u);
+    geometry.advance_bus_cycles(
+        UINT64_C(19) * (NdsGeometryEngine::CommandFifoCapacity +
+                        NdsGeometryEngine::CommandPipeCapacity));
     status = geometry.read(
         NDS_ARM9, NdsGeometryEngine::GxStatAddress, 4u).value;
-    if (geometry.fifo_entries() != 0u || geometry.busy() ||
+    if (geometry.fifo_entries() != 0u || geometry.pipe_entries() != 0u ||
+        geometry.busy() ||
         (status & (UINT32_C(1) << 26u)) == 0u ||
         geometry.completed_commands() < 256u) {
         return fail("command processor did not drain the full FIFO");
@@ -576,7 +584,7 @@ int main()
     const uint64_t completed_before_clock = geometry.completed_commands();
     if (!write_command(geometry, 0x10u, 1u) ||
         !write_command(geometry, 0x15u) ||
-        geometry.fifo_entries() != 2u ||
+        geometry.queued_entries() != 2u || geometry.pipe_entries() != 2u ||
         clock.report_cpu_cycles(NDS_ARM9, 40u) != NdsClockStatus::Ok ||
         clock.global_bus_cycles() != 0u ||
         !geometry.busy()) {
