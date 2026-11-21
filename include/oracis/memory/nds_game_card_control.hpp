@@ -71,6 +71,8 @@ public:
  uint32_t key1_id_code() const noexcept{return key1_.id_code();}
  uint16_t key1_random_i() const noexcept{return key1_random_i_;}
  uint16_t key1_random_j() const noexcept{return key1_random_j_;}
+ uint16_t key1_random_l() const noexcept{return key1_random_l_;}
+ bool key1_random_l_initialized() const noexcept{return key1_random_l_initialized_;}
  uint32_t key1_command_counter() const noexcept{return key1_command_counter_;}
  uint32_t key1_repeat_delay_cycles_remaining() const noexcept{return key1_repeat_delay_cycles_remaining_;}
  bool chip_id_configured() const noexcept{return chip_id_configured_;}
@@ -130,7 +132,8 @@ private:
  bool chip_id_data_=false;
  bool reset_released_=false,busy_=false,data_ready_=false,dummy_data_=false,wrap_read_window_=false,installed_=false,key2_data_active_=false;
  bool key1_command_mode_=false,key1_activation_pending_=false;
- uint16_t key1_random_i_=0u,key1_random_j_=0u;
+ uint16_t key1_random_i_=0u,key1_random_j_=0u,key1_random_l_=0u;
+ bool key1_random_l_initialized_=false;
  uint32_t key1_command_counter_=0u;
  std::array<uint8_t,CommandBytes> last_key1_command_{};
  bool last_key1_command_valid_=false;
