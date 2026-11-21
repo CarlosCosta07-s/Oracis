@@ -156,19 +156,14 @@ Status NdsGameCardControl::complete_key1_command_gap(
      (rom_control_&RomCtrlGapClockMask)!=0u
          ? active_gap1+active_gap2 : 0u;
  if(clock_bytes!=required_clock_bytes)return Status::PermissionDenied;
- key1_command_gap_pending_=false;
 
- /* On newer carts every KEY1 command starts with a zero-length send and
-  * its secure delay begins only after that send's gap has completed. */
- if(newer_protocol_variant()&&last_key1_command_transmissions_==1u)
-  key1_repeat_delay_cycles_remaining_=header_secure_area_delay_core_cycles();
-
+ /* The cart enters KEY2 at the end of the final 0x40 exchange, before
+  * the following gap clocks are consumed. */
  if(key1_key2_activation_pending_&&
     last_key1_command_opcode_==UINT8_C(0x04)){
   const uint8_t required_transmissions=
       newer_protocol_variant()?UINT8_C(2):UINT8_C(1);
-  if(last_key1_command_transmissions_>=required_transmissions&&
-     key1_repeat_delay_cycles_remaining_==0u){
+  if(last_key1_command_transmissions_>=required_transmissions){
    const Status seed_status=key2_.initialize_from_random_seed(
        key1_key2_pending_seed24_,key2_seed_index_);
    if(seed_status!=Status::Ok)return seed_status;
@@ -176,6 +171,28 @@ Status NdsGameCardControl::complete_key1_command_gap(
    key1_key2_pending_seed24_=0u;
   }
  }
+
+ /* Older carts clock the gap onto the KEY2 stream. The first returned
+  * byte is HIGH-Z, but it still consumes one keystream byte; the rest are
+  * KEY2-encrypted zero bytes. Newer carts set bit28=0, so clock_bytes=0. */
+ if(clock_bytes!=0u){
+  if(!key2_.initialized())return Status::PermissionDenied;
+  uint8_t zero_bytes[64]{};
+  uint32_t remaining=clock_bytes;
+  while(remaining!=0u){
+   const uint32_t chunk=remaining<sizeof(zero_bytes)
+       ? remaining : static_cast<uint32_t>(sizeof(zero_bytes));
+   for(uint32_t index=0u;index<chunk;++index)zero_bytes[index]=0u;
+   const Status stream_status=key2_.apply_keystream(zero_bytes,chunk);
+   if(stream_status!=Status::Ok)return stream_status;
+   remaining-=chunk;
+  }
+ }
+
+ key1_command_gap_pending_=false;
+ /* New-cart secure delay starts after the first command's silent gap. */
+ if(newer_protocol_variant()&&last_key1_command_transmissions_==1u)
+  key1_repeat_delay_cycles_remaining_=header_secure_area_delay_core_cycles();
  return Status::Ok;
 }
 uint32_t NdsGameCardControl::read_rom_control() const noexcept{uint32_t v=rom_control_;if(data_ready_)v|=RomCtrlDrqMask;if(busy_)v|=RomCtrlStartBusyMask;return v;}
