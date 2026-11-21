@@ -70,6 +70,9 @@ int oracis_host_runtime_shutdown(void);
  */
 int oracis_host_runtime_mount_game_card_image(
     const uint8_t *bytes, uint32_t size);
+/* Load a user-owned 16 KiB NDS ARM7 BIOS; only its KEY1 table slice is copied. */
+int oracis_host_runtime_load_game_card_arm7_bios(
+    const uint8_t *bytes, uint32_t size);
 int oracis_host_runtime_unmount_game_card_image(void);
 /* Supply the physical 32-bit cartridge chip ID; the raw .nds dump does not contain it. */
 int oracis_host_runtime_set_game_card_chip_id(uint32_t chip_id);
