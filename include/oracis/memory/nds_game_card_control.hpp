@@ -132,6 +132,7 @@ private:
  Status write_rom_control(NdsCpu cpu,uint32_t value) noexcept;
  Status start_transfer(NdsCpu cpu) noexcept;
  Status start_key1_command_transfer(NdsCpu cpu) noexcept;
+ Status start_key2_command_transfer(NdsCpu cpu) noexcept;
  Status initialize_key1_from_image() noexcept;
  void finish_transfer() noexcept;
  NdsInterruptControl &interrupts_;
@@ -160,6 +161,9 @@ private:
  bool reset_released_=false,busy_=false,data_ready_=false,dummy_data_=false,wrap_read_window_=false,installed_=false,key2_data_active_=false;
  bool key1_command_mode_=false,key1_activation_pending_=false;
  bool key2_command_mode_=false,key1_main_data_mode_pending_=false;
+ bool key2_command_transfer_active_=false;
+ uint32_t key2_transfer_data_bytes_=0u;
+ uint32_t key2_transfer_gap2_bytes_=0u;
  uint16_t key1_random_i_=0u,key1_random_j_=0u,key1_random_l_=0u;
  bool key1_random_l_initialized_=false;
  uint32_t key1_command_counter_=0u;
