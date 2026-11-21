@@ -1,22 +1,104 @@
 #include "oracis/host/runtime_bridge.h"
 #include "oracis/memory/guest_memory_abi.h"
 #include "oracis/recomp/static_dispatch_abi.h"
+#include "oracis/recomp/runtime_arm.h"
 
 #include <stdint.h>
 #include <stdio.h>
 
 static uint32_t g_arm9_bank_calls = 0u;
 static uint32_t g_arm7_bank_calls = 0u;
+static uint32_t g_arm9_irq_return_pc = 0u;
+static uint32_t g_arm7_irq_return_pc = 0u;
+static uint32_t g_arm9_irq_saved_cpsr = 0u;
+static uint32_t g_arm7_irq_saved_cpsr = 0u;
+static int g_arm9_irq_triggered = 0;
+static int g_arm7_irq_triggered = 0;
+static int g_arm9_irq_handler_ok = 0;
+static int g_arm7_irq_handler_ok = 0;
+
+enum {
+    TEST_KEYPAD_IRQ = 1u << 12u,
+    TEST_KEYPAD_A = 1u,
+    TEST_KEYCNT_IRQ_ENABLE = 1u << 14u
+};
+
+static void arm9_irq_vector(void)
+{
+    ArmCpuState *state = oracis_active_cpu_state;
+    g_arm9_irq_handler_ok =
+        g_nds_active == NDS_ARM9 &&
+        state != NULL &&
+        (state->cpsr & UINT32_C(0x1F)) == UINT32_C(0x12) &&
+        (state->cpsr & CPSR_T_BIT) == 0u &&
+        (state->cpsr & CPSR_I_BIT) != 0u &&
+        state->banked_spsr[ARM_BANK_IRQ] == g_arm9_irq_saved_cpsr &&
+        state->R[14] == g_arm9_irq_return_pc + 4u &&
+        state->R[15] == UINT32_C(0xFFFF0018);
+    bus_write_u32(UINT32_C(0x04000214), TEST_KEYPAD_IRQ);
+    runtime_exception_return(g_arm9_irq_return_pc);
+}
+
+static void arm7_irq_vector(void)
+{
+    ArmCpuState *state = oracis_active_cpu_state;
+    g_arm7_irq_handler_ok =
+        g_nds_active == NDS_ARM7 &&
+        state != NULL &&
+        (state->cpsr & UINT32_C(0x1F)) == UINT32_C(0x12) &&
+        (state->cpsr & CPSR_T_BIT) == 0u &&
+        (state->cpsr & CPSR_I_BIT) != 0u &&
+        state->banked_spsr[ARM_BANK_IRQ] == g_arm7_irq_saved_cpsr &&
+        state->R[14] == g_arm7_irq_return_pc + 4u &&
+        state->R[15] == UINT32_C(0x00000018);
+    bus_write_u32(UINT32_C(0x04000214), TEST_KEYPAD_IRQ);
+    runtime_exception_return(g_arm7_irq_return_pc);
+}
 
 static void arm9_test_bank(void)
 {
     ++g_arm9_bank_calls;
+    if (!g_arm9_irq_triggered) {
+        ArmCpuState *state = oracis_active_cpu_state;
+        g_arm9_irq_triggered = 1;
+        g_arm9_irq_return_pc = UINT32_C(0x02001004);
+        g_arm9_irq_saved_cpsr = state->cpsr;
+        state->R[15] = g_arm9_irq_return_pc;
+        bus_write_u32(UINT32_C(0x04000210), TEST_KEYPAD_IRQ);
+        bus_write_u32(UINT32_C(0x04000208), 1u);
+        bus_write_u16(
+            UINT32_C(0x04000132),
+            (uint16_t)(TEST_KEYCNT_IRQ_ENABLE | TEST_KEYPAD_A));
+        runtime_irq(g_arm9_irq_return_pc);
+        if (state->cpsr != g_arm9_irq_saved_cpsr ||
+            state->R[15] != g_arm9_irq_return_pc) {
+            g_arm9_irq_handler_ok = 0;
+        }
+    }
     runtime_tick(1u);
 }
 
 static void arm7_test_bank(void)
 {
     ++g_arm7_bank_calls;
+    if (!g_arm7_irq_triggered) {
+        ArmCpuState *state = oracis_active_cpu_state;
+        g_arm7_irq_triggered = 1;
+        g_arm7_irq_return_pc = UINT32_C(0x02381002);
+        g_arm7_irq_saved_cpsr = state->cpsr;
+        state->R[15] = g_arm7_irq_return_pc;
+        bus_write_u32(UINT32_C(0x04000210), TEST_KEYPAD_IRQ);
+        bus_write_u32(UINT32_C(0x04000208), 1u);
+        bus_write_u16(
+            UINT32_C(0x04000132),
+            (uint16_t)(TEST_KEYCNT_IRQ_ENABLE | TEST_KEYPAD_A));
+        runtime_tick(1u);
+        if (state->cpsr != g_arm7_irq_saved_cpsr ||
+            state->R[15] != g_arm7_irq_return_pc) {
+            g_arm7_irq_handler_ok = 0;
+        }
+        return;
+    }
     runtime_tick(1u);
 }
 
@@ -204,16 +286,18 @@ int main(void)
         arm7_program, NULL, 0u
     };
     const NdsDispatchEntry arm9_table[] = {
-        {UINT32_C(0x02001000), 0u, &arm9_test_bank, &arm9_validation}
+        {UINT32_C(0x02001000), 0u, &arm9_test_bank, &arm9_validation},
+        {UINT32_C(0xFFFF0018), 0u, &arm9_irq_vector, NULL}
     };
     const NdsDispatchEntry arm7_table[] = {
+        {UINT32_C(0x00000018), 0u, &arm7_irq_vector, NULL},
         {UINT32_C(0x02381000), 1u, &arm7_test_bank, &arm7_validation}
     };
     if (oracis_static_dispatch_register_bank(
-            NDS_ARM9, arm9_table, 1u, "host-c-test-arm9") !=
+            NDS_ARM9, arm9_table, 2u, "host-c-test-arm9") !=
             ORACIS_DISPATCH_REGISTER_OK ||
         oracis_static_dispatch_register_bank(
-            NDS_ARM7, arm7_table, 1u, "host-c-test-arm7") !=
+            NDS_ARM7, arm7_table, 2u, "host-c-test-arm7") !=
             ORACIS_DISPATCH_REGISTER_OK ||
         oracis_host_runtime_has_program_banks() != 1) {
         oracis_static_dispatch_clear();
@@ -333,6 +417,8 @@ int main(void)
             ORACIS_HOST_RUNTIME_OK ||
         g_arm9_bank_calls != 2u ||
         g_arm7_bank_calls != 1u ||
+        g_arm9_irq_handler_ok != 1 ||
+        g_arm7_irq_handler_ok != 1 ||
         oracis_host_runtime_global_bus_cycles() != UINT64_C(1)) {
         oracis_static_dispatch_clear();
         fprintf(stderr, "C host bridge failed to execute synchronized ARM9/ARM7 banks\n");
@@ -394,9 +480,9 @@ int main(void)
     }
 
     if (oracis_static_dispatch_unregister_bank(
-            NDS_ARM9, arm9_table, 1u) == 0 ||
+            NDS_ARM9, arm9_table, 2u) == 0 ||
         oracis_static_dispatch_unregister_bank(
-            NDS_ARM7, arm7_table, 1u) == 0 ||
+            NDS_ARM7, arm7_table, 2u) == 0 ||
         oracis_host_runtime_has_program_banks() != 0) {
         oracis_static_dispatch_clear();
         fprintf(stderr, "host C test banks were not unregistered\n");
@@ -416,6 +502,6 @@ int main(void)
     }
 
     oracis_host_set_keypad_state(0u);
-    puts("C host runtime bridge lifecycle/keypad/2D scanline tests passed");
+    puts("C host runtime bridge lifecycle/keypad/2D scanline/ARM9-ARM7 IRQ tests passed");
     return 0;
 }
