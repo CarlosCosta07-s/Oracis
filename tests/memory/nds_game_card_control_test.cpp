@@ -757,7 +757,6 @@ int main(){
   /* New-cart 0x10 waits for its second KEY1 transmission, then
    * delivers the Chip ID through DATA after the silent gap. */
   constexpr uint32_t new_chip_id_counter=key1_counter+2u;
-  const uint32_t packed_randoms=(uint32_t(key1_random_i)<<12u)|key1_random_j;
   auto automatic_new_chip_id=make_key1_command(
       0x01u,UINT16_C(0x1234),packed_randoms,new_chip_id_counter);
   if(command_codec.encrypt_command(automatic_new_chip_id.data(),8u)!=Status::Ok)
