@@ -389,7 +389,7 @@ int main()
             std::array<int32_t, 4>{INT32_C(4096), INT32_C(8192),
                 INT32_C(12288), INT32_C(4096)} ||
         vertex->normal !=
-            std::array<int32_t, 3>{INT32_C(1), -INT32_C(1), INT32_C(256)} ||
+            std::array<int32_t, 3>{INT32_C(8), -INT32_C(8), INT32_C(2048)} ||
         vertex->color_rgb555 != UINT16_C(0x4210) ||
         vertex->texture_s != INT16_C(16) ||
         vertex->texture_t != INT16_C(-16)) {
@@ -461,10 +461,10 @@ int main()
     vertex = geometry.vertex_at(5u);
     if (vertex == nullptr ||
         vertex->source_position !=
-            std::array<int32_t, 3>{INT32_C(2047), -INT32_C(4094), INT32_C(4093)} ||
+            std::array<int32_t, 3>{INT32_C(2040), -INT32_C(4080), INT32_C(4072)} ||
         vertex->clip_position !=
-            std::array<int32_t, 4>{INT32_C(2047), -INT32_C(4094),
-                INT32_C(4093), INT32_C(4096)}) {
+            std::array<int32_t, 4>{INT32_C(2040), -INT32_C(4080),
+                INT32_C(4072), INT32_C(4096)}) {
         return fail("VTX_DIFF did not add signed 20.12 deltas or transform the result");
     }
     const ReadResult ram_count = geometry.read(

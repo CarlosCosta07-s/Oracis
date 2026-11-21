@@ -841,11 +841,30 @@ void NdsGeometryEngine::execute_vertex_command() noexcept
             static_cast<uint16_t>(parameter & UINT32_C(0x7FFF));
         return;
 
-    case 0x21u:
-        current_vertex_normal_[0] = sign_extend(parameter, 10u);
-        current_vertex_normal_[1] = sign_extend(parameter >> 10u, 10u);
-        current_vertex_normal_[2] = sign_extend(parameter >> 20u, 10u);
+    case 0x21u: {
+        const std::array<int32_t, 3> source_normal = {
+            sign_extend(parameter, 10u) * 8,
+            sign_extend(parameter >> 10u, 10u) * 8,
+            sign_extend(parameter >> 20u, 10u) * 8
+        };
+        /* NORMAL uses a signed 1.9 vector and the Directional Matrix. */
+        for (unsigned row = 0u; row < 3u; ++row) {
+            uint64_t accumulator = 0u;
+            for (unsigned column = 0u; column < 3u; ++column) {
+                const int64_t product =
+                    static_cast<int64_t>(
+                        directional_matrix_[row * 4u + column]) *
+                    static_cast<int64_t>(source_normal[column]);
+                accumulator += static_cast<uint64_t>(product);
+            }
+            const int64_t signed_accumulator =
+                std::bit_cast<int64_t>(accumulator);
+            current_vertex_normal_[row] = std::bit_cast<int32_t>(
+                static_cast<uint32_t>(
+                    static_cast<uint64_t>(signed_accumulator >> 12u)));
+        }
         return;
+    }
 
     case 0x22u:
         current_texture_s_ = static_cast<int16_t>(
@@ -888,10 +907,11 @@ void NdsGeometryEngine::execute_vertex_command() noexcept
         break;
 
     case 0x28u: {
+        /* VTX_DIFF supplies signed 1.9 values; expand to 20.12. */
         const std::array<int32_t, 3> delta = {
-            sign_extend(parameter, 10u),
-            sign_extend(parameter >> 10u, 10u),
-            sign_extend(parameter >> 20u, 10u)
+            sign_extend(parameter, 10u) * 8,
+            sign_extend(parameter >> 10u, 10u) * 8,
+            sign_extend(parameter >> 20u, 10u) * 8
         };
         for (unsigned axis = 0u; axis < 3u; ++axis) {
             const uint32_t sum =
