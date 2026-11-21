@@ -267,7 +267,21 @@ Nds2dObjFetchResult Nds2dObjFetcher::render_scanline(
         const uint32_t destination_y =
             (static_cast<uint32_t>(scanline) + UINT32_C(256) - y) &
             UINT32_C(0xFF);
-        if (destination_y >= bounds_height) continue;
+        if (destination_y >= bounds_height) {
+            /*
+             * The DS spends two OBJ-render cycles evaluating an enabled
+             * OAM entry that does not intersect the current scanline.
+             * This is separate from the two-cycle penalty for a partially
+             * clipped OBJ that does intersect the line.
+             */
+            constexpr uint32_t off_line_object_cycles = 2u;
+            if (cycles_used + off_line_object_cycles > cycle_budget) {
+                first_unrendered_object = object_index;
+                break;
+            }
+            cycles_used += off_line_object_cycles;
+            continue;
+        }
 
         const int raw_x = static_cast<int>(attr1 & UINT16_C(0x01FF));
         const int sprite_x = raw_x >= 256 ? raw_x - 512 : raw_x;

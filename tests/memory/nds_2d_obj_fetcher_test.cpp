@@ -596,6 +596,37 @@ int main()
         return fail("Engine A did not enforce the 1530-cycle OBJ budget in OAM order");
     }
 
+    /*
+     * Enabled OBJ entries that are not on this scanline still cost two
+     * cycles each before later visible OAM entries are evaluated.
+     */
+    for (unsigned object = 0u; object < 128u; ++object) {
+        if (!write_oam(
+                memory, 0u, object,
+                UINT16_C(0x0200), 0u, 0u)) {
+            return fail("Engine A off-line OBJ fixture could not disable OAM");
+        }
+    }
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
+            (UINT32_C(1) << 12u) |
+                (UINT32_C(1) << 23u)) != Status::Ok ||
+        !write_oam(
+            memory, 0u, 0u,
+            UINT16_C(10), 0u, 0u) ||
+        !write_oam(
+            memory, 0u, 1u,
+            UINT16_C(50), 0u, 0u)) {
+        return fail("Engine A off-line OBJ cycle fixture setup failed");
+    }
+    result = fetcher.render_scanline(0u, display, 50u, line);
+    if (result.status != Nds2dObjFetchStatus::Ok ||
+        result.cycles_available != UINT16_C(1530) ||
+        result.cycles_used != UINT16_C(10) ||
+        result.first_unrendered_object != UINT8_C(0xFF)) {
+        return fail("Off-line enabled OBJ did not consume two cycles before the visible OBJ");
+    }
+
     if (display.write(
             NDS_ARM9, NdsDisplayControl::EngineABase, 4u,
             UINT32_C(1) << 12u) != Status::Ok) {
