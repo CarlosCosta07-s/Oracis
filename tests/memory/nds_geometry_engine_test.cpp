@@ -590,6 +590,64 @@ int main()
         return fail("synchronized dual-core clock did not execute GX matrix commands");
     }
 
+    /*
+     * SWAP_BUFFERS waits for line 192, exchanges independent render/build
+     * RAM, clears the new build RAM after 10 cycles and completes after a
+     * further total of 392 post-VBlank cycles.
+     */
+    if (!write_command(geometry, 0x50u, UINT32_C(3)) ||
+        !geometry.busy()) {
+        return fail("SWAP_BUFFERS command enqueue failed");
+    }
+    if (clock.report_cpu_cycles(NDS_ARM9, UINT64_C(817920)) !=
+            NdsClockStatus::Ok ||
+        clock.global_bus_cycles() != UINT64_C(20) ||
+        !geometry.swap_waiting_for_vblank() ||
+        geometry.build_buffer_index() != 0u ||
+        geometry.render_buffer_index() != 1u) {
+        return fail("SWAP_BUFFERS did not wait while ARM7 lagged");
+    }
+    if (clock.report_cpu_cycles(NDS_ARM7, UINT64_C(408960)) !=
+            NdsClockStatus::Ok ||
+        clock.global_bus_cycles() != UINT64_C(408960) ||
+        geometry.swap_waiting_for_vblank() ||
+        !geometry.busy() ||
+        geometry.build_buffer_index() != 1u ||
+        geometry.render_buffer_index() != 0u ||
+        geometry.swap_parameters() != 3u ||
+        geometry.vertex_count() != 16u ||
+        geometry.polygon_count() != 7u ||
+        geometry.render_vertex_count() != 0u ||
+        geometry.render_polygon_count() != 0u ||
+        geometry.render_vertex_at(0u) == nullptr ||
+        geometry.render_polygon_at(0u) == nullptr) {
+        return fail("VBlank did not exchange render and build Geometry RAM");
+    }
+
+    if (clock.report_cpu_cycles(NDS_ARM9, UINT64_C(817940)) !=
+            NdsClockStatus::Ok ||
+        clock.report_cpu_cycles(NDS_ARM7, UINT64_C(408970)) !=
+            NdsClockStatus::Ok ||
+        clock.global_bus_cycles() != UINT64_C(408970) ||
+        geometry.vertex_count() != 0u ||
+        geometry.polygon_count() != 0u ||
+        !geometry.busy()) {
+        return fail("post-VBlank 10-cycle build buffer clear failed");
+    }
+
+    if (clock.report_cpu_cycles(NDS_ARM9, UINT64_C(818704)) !=
+            NdsClockStatus::Ok ||
+        clock.report_cpu_cycles(NDS_ARM7, UINT64_C(409352)) !=
+            NdsClockStatus::Ok ||
+        clock.global_bus_cycles() != UINT64_C(409352) ||
+        geometry.busy() ||
+        geometry.render_vertex_count() != 16u ||
+        geometry.render_polygon_count() != 7u ||
+        geometry.render_vertex_at(15u) == nullptr ||
+        geometry.render_polygon_at(6u) == nullptr) {
+        return fail("SWAP_BUFFERS did not complete after 392 post-VBlank cycles");
+    }
+
     std::puts("NDS Geometry Engine FIFO, GXSTAT and matrix-command tests passed");
     return 0;
 }

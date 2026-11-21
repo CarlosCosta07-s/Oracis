@@ -650,7 +650,13 @@ void NdsGeometryEngine::advance_bus_cycles(uint64_t cycles) noexcept
 {
     if (!installed_ || swap_lockup_) return;
     while (cycles != 0u) {
+        if (!active_command_valid_) {
+            if (!begin_next_command()) break;
+        }
+
+        /* A newly-started SWAP_BUFFERS command must stop here until VBlank. */
         if (swap_waiting_vblank_) break;
+
         if (active_command_valid_ && active_command_ == 0x50u) {
             const uint64_t step = std::min<uint64_t>(
                 cycles, active_cycles_remaining_);
@@ -670,9 +676,6 @@ void NdsGeometryEngine::advance_bus_cycles(uint64_t cycles) noexcept
                 complete_active_command();
             }
             continue;
-        }
-        if (!active_command_valid_) {
-            if (!begin_next_command()) break;
         }
 
         if (cycles < active_cycles_remaining_) {
