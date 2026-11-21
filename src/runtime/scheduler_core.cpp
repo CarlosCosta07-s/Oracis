@@ -147,6 +147,16 @@ extern "C" void runtime_tick(uint32_t cycles)
     if (state.slice_active && state.cycles >= state.deadline) {
         state.yield_requested = true;
     }
+
+    /*
+     * Generated NDS banks retire instructions through runtime_tick. Accept an
+     * IRQ at this same instruction boundary, even when the completed tick has
+     * reached the slice deadline; the exception handler is part of the guest
+     * instruction stream and the cooperative unwind still follows normally.
+     */
+    if (!state.unwinding && oracis_active_cpu_state != nullptr) {
+        runtime_irq(oracis_active_cpu_state->R[15]);
+    }
 }
 
 extern "C" bool runtime_should_yield(void)
