@@ -63,13 +63,11 @@ Status NdsGameCardControl::set_chip_id(uint32_t id) noexcept{if(!installed_)retu
 void NdsGameCardControl::unmount_image() noexcept{reset_transfer();image_=nullptr;image_size_=0u;chip_id_=0u;chip_id_configured_=false;header_protocol_available_=false;header_normal_rom_control_=0u;header_key1_rom_control_=0u;header_secure_area_delay_=0u;key2_seed_index_=0u;}
 void NdsGameCardControl::reset_transfer() noexcept{command_={};seed_registers_={};key1_.reset();key2_.clear();aux_spi_control_=0u;rom_control_=0u;current_offset_=0u;current_window_base_=0u;remaining_words_=0u;cycles_until_data_=0u;cycles_per_byte_=5u;owner_cpu_=NDS_ARM9;reset_released_=false;busy_=false;data_ready_=false;dummy_data_=false;chip_id_data_=false;wrap_read_window_=false;key2_data_active_=false;key1_command_mode_=false;key1_activation_pending_=false;key1_random_i_=0u;key1_random_j_=0u;key1_command_counter_=0u;last_key1_command_={};last_key1_command_valid_=false;last_key1_command_transmissions_=0u;}
 Status NdsGameCardControl::decode_next_key1_command(
-    const uint8_t *wire_bytes,uint32_t size,
     NdsGameCardKey1Command &decoded) noexcept
 {
  if(!installed_)return Status::Unmapped;
  if(!key1_command_mode_||busy_)return Status::PermissionDenied;
- if(wire_bytes==nullptr)return Status::InvalidRegion;
- if(size!=CommandBytes)return Status::InvalidWidth;
+ const uint8_t *wire_bytes=command_.data();
 
  bool repeated=false;
  if(newer_protocol_variant()&&last_key1_command_valid_){
