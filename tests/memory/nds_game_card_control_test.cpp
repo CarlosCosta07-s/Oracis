@@ -660,7 +660,7 @@ int main(){
     decoded_key1.kind!=NdsGameCardKey1CommandKind::ReadChipId||
     card.describe_key1_reply(decoded_key1,old_key1_reply_plan)!=Status::Ok||
     old_key1_reply_plan.payload_bytes!=4u||
-    old_key1_reply_plan.preamble_clocked||
+    !old_key1_reply_plan.preamble_clocked||
     expected_old_key2.apply_keystream(expected_old_second_gap.data(),
         static_cast<uint32_t>(expected_old_second_gap.size()))!=Status::Ok||
     card.complete_key1_command_gap(UINT32_C(0x910))!=Status::Ok||
@@ -670,6 +670,26 @@ int main(){
      return fail("old-cart KEY1 0x10 gap did not continue the shared KEY2 stream");
  if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)
      return fail("could not clear old variant KEY1 activation IRQ");
+ /* Old carts return the 4 KiB Secure Area block as one payload. */
+ auto old_secure_block_command=make_key1_command(
+     0x02u,UINT16_C(0x0006),packed_randoms,key1_counter+3u);
+ if(command_codec.encrypt_command(old_secure_block_command.data(),8u)!=Status::Ok)
+     return fail("could not encrypt old-cart Secure Area command");
+ write_key1_command(old_secure_block_command);
+ std::array<uint8_t,UINT32_C(0x910)> expected_old_third_gap{};
+ if(card.decode_next_key1_command(decoded_key1)!=Status::Ok||
+    card.describe_key1_reply(decoded_key1,old_key1_reply_plan)!=Status::Ok||
+    old_key1_reply_plan.payload_bytes!=UINT32_C(0x1000)||
+    old_key1_reply_plan.secure_block_bytes!=UINT32_C(0x1000)||
+    old_key1_reply_plan.secure_block_count!=1u||
+    old_key1_reply_plan.secure_inter_block_zero_bytes!=0u||
+    expected_old_key2.apply_keystream(expected_old_third_gap.data(),
+        static_cast<uint32_t>(expected_old_third_gap.size()))!=Status::Ok||
+    card.complete_key1_command_gap(UINT32_C(0x910))!=Status::Ok||
+    card.key2_state1()!=expected_old_key2.state1()||
+    card.key2_state2()!=expected_old_key2.state2()||
+    card.key2_bytes_processed()!=UINT32_C(0x1B30))
+     return fail("old-cart Secure Area reply plan or third KEY1 gap stream advancement was incorrect");
  if(!oracis_bus_unbind_game_card_control(&card)||!oracis_bus_unbind_dma_control(&dma)||
     !oracis_bus_unbind_interrupt_control(&irq)||!oracis_bus_unbind_memory(&memory)||
     !oracis_arm_runtime_unbind_cpus(&a9,&a7))return fail("bus teardown failed");
