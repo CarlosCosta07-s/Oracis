@@ -17,6 +17,8 @@ namespace oracis::memory {
 class NdsGameCardKey1 final {
 public:
     static constexpr uint32_t KeyTableBytes = UINT32_C(0x1048);
+    static constexpr uint32_t Arm7BiosBytes = UINT32_C(0x4000);
+    static constexpr uint32_t Arm7BiosKeyTableOffset = UINT32_C(0x30);
     static constexpr uint32_t KeyTableWords = KeyTableBytes / 4u;
     static constexpr uint32_t BlockBytes = 8u;
 
@@ -38,6 +40,9 @@ public:
     Status initialize(
         uint32_t id_code, uint32_t level,
         uint32_t modulo_bytes) noexcept;
+
+    /* Clear the active schedule while retaining the caller-supplied BIOS table. */
+    void reset() noexcept;
 
     Status encrypt_block(uint8_t *bytes, uint32_t size) const noexcept;
     Status decrypt_block(uint8_t *bytes, uint32_t size) const noexcept;
