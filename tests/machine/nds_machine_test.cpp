@@ -2771,7 +2771,8 @@ int main()
         return fail("Game Card synthetic Chip ID transfer did not reach DATA-ready");
     }
 
-    if (bus_read_u32(oracis::memory::NdsGameCardControl::DataAddress) !=
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9) ||
+        bus_read_u32(oracis::memory::NdsGameCardControl::DataAddress) !=
             game_card_chip_id ||
         machine.game_card_control().busy() ||
         (machine.interrupt_control().read(
