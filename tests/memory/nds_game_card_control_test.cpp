@@ -60,6 +60,35 @@ int main(){
  }
  image[NdsGameCardControl::HeaderSecureAreaDelayOffset]=UINT8_C(0x1E);
  image[NdsGameCardControl::HeaderSecureAreaDelayOffset+1u]=UINT8_C(0x05);
+ std::array<uint8_t,NdsGameCardKey1::KeyTableBytes> bios_key_table{};
+ for(uint32_t i=0u;i<bios_key_table.size();++i)
+     bios_key_table[i]=uint8_t((i*37u+11u)&255u);
+ std::array<uint8_t,NdsGameCardKey1::SecureAreaEncryptedBytes> plain_secure_area_prefix{};
+ for(uint32_t i=0u;i<plain_secure_area_prefix.size();++i)
+     plain_secure_area_prefix[i]=static_cast<uint8_t>((i*19u+0x25u)&0xFFu);
+ constexpr uint8_t secure_area_identifier[8]={
+     UINT8_C('e'),UINT8_C('n'),UINT8_C('c'),UINT8_C('r'),
+     UINT8_C('y'),UINT8_C('O'),UINT8_C('b'),UINT8_C('j')};
+ for(uint32_t i=0u;i<8u;++i)plain_secure_area_prefix[i]=secure_area_identifier[i];
+ auto encrypted_secure_area_prefix=plain_secure_area_prefix;
+ NdsGameCardKey1 secure_area_fixture_cipher;
+ if(secure_area_fixture_cipher.load_key_table(
+      bios_key_table.data(),static_cast<uint32_t>(bios_key_table.size()))!=Status::Ok||
+    secure_area_fixture_cipher.initialize(UINT32_C(0x45555043),3u,8u)!=Status::Ok)
+  return fail("could not initialize synthetic Secure Area fixture cipher");
+ for(uint32_t offset=0u;offset<encrypted_secure_area_prefix.size();
+     offset+=NdsGameCardKey1::BlockBytes){
+  if(secure_area_fixture_cipher.encrypt_block(
+       encrypted_secure_area_prefix.data()+offset,
+       NdsGameCardKey1::BlockBytes)!=Status::Ok)
+   return fail("could not encrypt synthetic Secure Area level-3 prefix");
+ }
+ if(secure_area_fixture_cipher.initialize(UINT32_C(0x45555043),2u,8u)!=Status::Ok||
+    secure_area_fixture_cipher.encrypt_block(encrypted_secure_area_prefix.data(),
+       NdsGameCardKey1::BlockBytes)!=Status::Ok)
+  return fail("could not encrypt synthetic Secure Area identifier layer");
+ for(uint32_t i=0u;i<encrypted_secure_area_prefix.size();++i)
+  image[NdsGameCardControl::SecureAreaDataOffset+i]=encrypted_secure_area_prefix[i];
  if(card.mount_image(image.data(),uint32_t(image.size()))!=Status::Ok)return fail("mount failed");
  if(!card.header_protocol_available()||
     card.header_normal_rom_control()!=header_normal_romctrl||
@@ -72,17 +101,37 @@ int main(){
     card.header_secure_area_delay_core_cycles()!=UINT32_C(0x051E)*UINT32_C(256)||
     card.header_key2_seed_index()!=3u)
      return fail("cartridge header KEY1 timing or KEY2 seed metadata was decoded incorrectly");
- std::array<uint8_t,NdsGameCardKey1::KeyTableBytes> bios_key_table{};
- for(uint32_t i=0u;i<bios_key_table.size();++i)
-     bios_key_table[i]=uint8_t((i*37u+11u)&255u);
  if(card.load_key1_key_table(bios_key_table.data(),
         uint32_t(bios_key_table.size()-1u))!=Status::InvalidRegion||
     card.key1_initialized())
      return fail("malformed KEY1 BIOS table was accepted");
+ std::array<uint8_t,NdsGameCardKey1::SecureAreaEncryptedBytes> decrypted_secure_area_prefix{};
+ bool secure_area_id_valid=false;
+ if(card.decrypt_secure_area_prefix(decrypted_secure_area_prefix.data(),
+      static_cast<uint32_t>(decrypted_secure_area_prefix.size()),
+      secure_area_id_valid)!=Status::PermissionDenied)
+  return fail("Secure Area prefix decrypt did not require an external KEY1 BIOS table");
  if(card.load_key1_key_table(bios_key_table.data(),
         uint32_t(bios_key_table.size()))!=Status::Ok||
     !card.key1_initialized()||card.key1_id_code()!=UINT32_C(0x45555043))
      return fail("KEY1 table was not initialized from the mounted Game Code");
+ if(card.decrypt_secure_area_prefix(nullptr,
+       NdsGameCardKey1::SecureAreaEncryptedBytes,
+       secure_area_id_valid)!=Status::InvalidRegion||
+    card.decrypt_secure_area_prefix(decrypted_secure_area_prefix.data(),
+       NdsGameCardKey1::SecureAreaEncryptedBytes-1u,
+       secure_area_id_valid)!=Status::InvalidWidth||
+    card.decrypt_secure_area_prefix(decrypted_secure_area_prefix.data(),
+       static_cast<uint32_t>(decrypted_secure_area_prefix.size()),
+       secure_area_id_valid)!=Status::Ok||!secure_area_id_valid)
+  return fail("Game Card did not copy/decrypt and validate the Secure Area prefix");
+ for(uint32_t i=0u;i<decrypted_secure_area_prefix.size();++i){
+  if(decrypted_secure_area_prefix[i]!=plain_secure_area_prefix[i]||
+     image[NdsGameCardControl::SecureAreaDataOffset+i]!=encrypted_secure_area_prefix[i])
+   return fail("Secure Area prefix copy changed the mounted image or decrypted incorrectly");
+ }
+ if(!card.key1_initialized()||card.key1_id_code()!=UINT32_C(0x45555043))
+  return fail("Secure Area prefix decrypt did not restore the active KEY1 schedule");
  ArmCpuState a9{},a7{};a9.cpsr=ORACIS_ARM_MODE_SYSTEM;a7.cpsr=ORACIS_ARM_MODE_SYSTEM;
  if(!oracis_arm_runtime_bind_cpus(&a9,&a7)||!oracis_arm_runtime_select_cpu(NDS_ARM9)||
     !oracis_bus_bind_memory(&memory)||!oracis_bus_bind_interrupt_control(&irq)||
