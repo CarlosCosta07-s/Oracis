@@ -29,6 +29,10 @@ Oracis busca executar Pokémon Platinum como código nativo em computadores mode
 
 Consulte [docs/TECH_STACK.md](docs/TECH_STACK.md), [docs/NDSRECOMP_INTEGRATION.md](docs/NDSRECOMP_INTEGRATION.md), [documentação do scheduler dual-core](docs/DUAL_CORE_SCHEDULER.md), o [mapa da ABI dos bancos](docs/RECOMP_ABI_MAP.md), o [contrato GuestMemory](docs/GUEST_MEMORY.md), a [documentação parcial do ARM9 TCM](docs/ARM9_TCM.md), o [timing parcial de busca ARM9](docs/ARM9_TIMING.md) e a [decisão ADR 0001](docs/adr/0001-ndsrecomp-static-compiler.md).
 
+## Cartucho local no desktop
+
+O host SDL aceita `--game-card caminho/para/jogo.nds`. O arquivo precisa conter ao menos o cabeçalho NDS de 0x200 bytes; o bridge copia os bytes para memória própria e os libera no desligamento. O dispositivo Game Card implementa atualmente apenas leituras ROM B7 sem criptografia, então esta opção monta a imagem no barramento para desenvolvimento e testes — **não inicia o jogo nem comprova compatibilidade**. KEY1/KEY2, SPI de backup e seleção de arquivos no Android continuam pendentes. Não coloque imagens de jogos no repositório.
+
 ## Estado atual
 
 A primeira revisão-alvo é **Pokémon Platinum USA Rev 1**, identificada localmente por SHA-1. ROM e arquivos derivados permanecem fora do Git, da CI e das releases.

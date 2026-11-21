@@ -29,7 +29,8 @@ typedef enum OracisHostRuntimeStatus {
     ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR = 10,
     ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID = 11,
     ORACIS_HOST_RUNTIME_INVALID_ARGUMENT = 12,
-    ORACIS_HOST_RUNTIME_VIDEO_ERROR = 13
+    ORACIS_HOST_RUNTIME_VIDEO_ERROR = 13,
+    ORACIS_HOST_RUNTIME_GAME_CARD_ERROR = 14
 } OracisHostRuntimeStatus;
 
 /* Result of checking the current ARM9/ARM7 start PCs against registered banks. */
@@ -60,6 +61,15 @@ int oracis_host_runtime_initialize(void);
 
 /* Unbinds the machine and releases its process-wide runtime bindings. */
 int oracis_host_runtime_shutdown(void);
+
+/*
+ * Copy a local raw NDS image (at least the 0x200-byte NDS header) into the
+ * Game Card device. The caller may release its input buffer after this call.
+ * Reads currently support unencrypted B7 ROM transactions only.
+ */
+int oracis_host_runtime_mount_game_card_image(
+    const uint8_t *bytes, uint32_t size);
+int oracis_host_runtime_unmount_game_card_image(void);
 
 /*
  * Host-provided architectural context for a pending IRQ. The callback must

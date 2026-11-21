@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 enum {
     ORACIS_SCREEN_WIDTH = 256,
@@ -86,6 +87,39 @@ static void release_all_keys(void)
 }
 
 static bool g_video_error_reported = false;
+
+static bool mount_game_card_file(const char *path)
+{
+    size_t image_size = 0u;
+    void *image = SDL_LoadFile(path, &image_size);
+    if (image == NULL) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not read Game Card image '%s': %s", path, SDL_GetError());
+        return false;
+    }
+
+    if (image_size < 0x200u || image_size > UINT32_MAX) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Game Card image '%s' has an invalid size (%zu bytes).",
+            path, image_size);
+        SDL_free(image);
+        return false;
+    }
+
+    const int status = oracis_host_runtime_mount_game_card_image(
+        (const uint8_t *)image, (uint32_t)image_size);
+    SDL_free(image);
+    if (status != ORACIS_HOST_RUNTIME_OK) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Game Card image mount failed (bridge=%d).", status);
+        return false;
+    }
+
+    SDL_Log("Mounted local Game Card image '%s' (%zu bytes). "
+            "Only unencrypted B7 reads are currently supported.",
+            path, image_size);
+    return true;
+}
 
 static uint8_t expand_rgb555_channel(uint16_t channel)
 {
@@ -214,9 +248,8 @@ int main(int argc, char *argv[])
     bool running = true;
     bool host_runtime_initialized = false;
     int exit_code = EXIT_FAILURE;
+    const char *game_card_path = NULL;
 
-    (void)argc;
-    (void)argv;
 
     oracis_host_set_keypad_state(0u);
 
@@ -227,6 +260,26 @@ int main(int argc, char *argv[])
             SDL_GetError()
         );
         return EXIT_FAILURE;
+    }
+
+    for (int argument = 1; argument < argc; ++argument) {
+        if (strcmp(argv[argument], "--game-card") == 0) {
+            if (argument + 1 >= argc || game_card_path != NULL) {
+                SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+                    "Usage: %s [--game-card path/to/game.nds]", argv[0]);
+                goto cleanup;
+            }
+            game_card_path = argv[++argument];
+        } else if (strcmp(argv[argument], "--help") == 0 ||
+                   strcmp(argv[argument], "-h") == 0) {
+            SDL_Log("Usage: %s [--game-card path/to/game.nds]", argv[0]);
+            exit_code = EXIT_SUCCESS;
+            goto cleanup;
+        } else {
+            SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+                "Unknown argument '%s'. Use --help for usage.", argv[argument]);
+            goto cleanup;
+        }
     }
 
     if (!SDL_CreateWindowAndRenderer(
@@ -268,6 +321,10 @@ int main(int argc, char *argv[])
         goto cleanup;
     }
     host_runtime_initialized = true;
+
+    if (game_card_path != NULL && !mount_game_card_file(game_card_path)) {
+        goto cleanup;
+    }
 
     for (uint32_t engine = 0u; engine < 2u; ++engine) {
         screen_pixels[engine] = (uint32_t *)calloc(

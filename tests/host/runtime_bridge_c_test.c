@@ -37,6 +37,27 @@ int main(void)
         return 1;
     }
 
+    uint8_t synthetic_game_card[0x200] = {0};
+    synthetic_game_card[0] = UINT8_C(0xA5);
+    synthetic_game_card[1] = UINT8_C(0x5A);
+    if (oracis_host_runtime_mount_game_card_image(NULL, 0x200u) !=
+            ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID ||
+        oracis_host_runtime_mount_game_card_image(
+            synthetic_game_card, 0x1FFu) != ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID ||
+        oracis_host_runtime_mount_game_card_image(
+            synthetic_game_card, (uint32_t)sizeof(synthetic_game_card)) !=
+            ORACIS_HOST_RUNTIME_OK) {
+        fprintf(stderr, "C host bridge rejected a valid synthetic Game Card image or accepted an invalid one\\n");
+        return 1;
+    }
+    /* The bridge owns a copy: callers can immediately reuse their input buffer. */
+    synthetic_game_card[0] = 0u;
+    if (oracis_host_runtime_unmount_game_card_image() != ORACIS_HOST_RUNTIME_OK ||
+        oracis_host_runtime_unmount_game_card_image() != ORACIS_HOST_RUNTIME_OK) {
+        fprintf(stderr, "C host bridge failed to unmount Game Card image cleanly\\n");
+        return 1;
+    }
+
     if (bus_read_u16(UINT32_C(0x04000130)) != UINT16_C(0x03FE)) {
         fprintf(stderr, "pre-bind host key state did not reach KEYINPUT\n");
         return 1;

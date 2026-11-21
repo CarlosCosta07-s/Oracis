@@ -40,6 +40,7 @@ oracis::machine::NdsMachine &host_machine() noexcept
 
 int g_last_machine_status =
     static_cast<int>(oracis::machine::NdsMachineStatus::Ok);
+std::vector<uint8_t> g_game_card_image;
 
 #ifdef ORACIS_WITH_PLATINUM_STATIC_BANKS
 bool g_arm9_compiled_bank_registered = false;
@@ -173,6 +174,10 @@ extern "C" int oracis_host_runtime_initialize(void)
 extern "C" int oracis_host_runtime_shutdown(void)
 {
     auto &machine = host_machine();
+    if (machine.initialized()) {
+        machine.game_card_control().unmount_image();
+    }
+    std::vector<uint8_t>().swap(g_game_card_image);
     const auto status = machine.shutdown();
     g_last_machine_status = static_cast<int>(status);
     if (status != oracis::machine::NdsMachineStatus::Ok) {
@@ -183,6 +188,43 @@ extern "C" int oracis_host_runtime_shutdown(void)
         return ORACIS_HOST_RUNTIME_BANK_REGISTRATION_FAILED;
     }
 #endif
+    return ORACIS_HOST_RUNTIME_OK;
+}
+
+extern "C" int oracis_host_runtime_mount_game_card_image(
+    const uint8_t *bytes, uint32_t size)
+{
+    auto &machine = host_machine();
+    if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+    if (bytes == nullptr || size < UINT32_C(0x200)) {
+        return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID;
+    }
+
+    try {
+        std::vector<uint8_t> candidate(bytes, bytes + size);
+        const auto status = machine.game_card_control().mount_image(
+            candidate.data(), size);
+        if (status != oracis::memory::Status::Ok) {
+            return status == oracis::memory::Status::InvalidRegion
+                ? ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID
+                : ORACIS_HOST_RUNTIME_GAME_CARD_ERROR;
+        }
+        /* vector::swap preserves the allocation address installed in the device. */
+        g_game_card_image.swap(candidate);
+        return ORACIS_HOST_RUNTIME_OK;
+    } catch (const std::bad_alloc &) {
+        return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR;
+    } catch (...) {
+        return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR;
+    }
+}
+
+extern "C" int oracis_host_runtime_unmount_game_card_image(void)
+{
+    auto &machine = host_machine();
+    if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+    machine.game_card_control().unmount_image();
+    std::vector<uint8_t>().swap(g_game_card_image);
     return ORACIS_HOST_RUNTIME_OK;
 }
 
