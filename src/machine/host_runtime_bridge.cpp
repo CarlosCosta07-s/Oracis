@@ -102,6 +102,32 @@ bool validate_game_card_segment(
 #ifdef ORACIS_WITH_PLATINUM_STATIC_BANKS
 bool g_arm9_compiled_bank_registered = false;
 bool g_arm7_compiled_bank_registered = false;
+
+bool unregister_compiled_banks() noexcept
+{
+    bool success = true;
+    if (g_arm7_compiled_bank_registered) {
+        if (oracis_static_dispatch_unregister_bank(
+                NDS_ARM7,
+                g_dispatch_pokemon_platinum_usa_rev1_arm7,
+                g_dispatch_pokemon_platinum_usa_rev1_arm7_len) != 0) {
+            g_arm7_compiled_bank_registered = false;
+        } else {
+            success = false;
+        }
+    }
+    if (g_arm9_compiled_bank_registered) {
+        if (oracis_static_dispatch_unregister_bank(
+                NDS_ARM9,
+                g_dispatch_pokemon_platinum_usa_rev1_arm9,
+                g_dispatch_pokemon_platinum_usa_rev1_arm9_len) != 0) {
+            g_arm9_compiled_bank_registered = false;
+        } else {
+            success = false;
+        }
+    }
+    return success;
+}
 #endif
 
 struct IrqProviderContext {
