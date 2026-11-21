@@ -1967,7 +1967,8 @@ int main()
     arm7->cpsr = ORACIS_ARM_MODE_SYSTEM | CPSR_T_BIT;
     arm7->R[15] = UINT32_C(0x02381002);
 
-    for (const NdsCpu cpu : {NDS_ARM9, NDS_ARM7}) {
+    const NdsCpu native_irq_cpus[] = {NDS_ARM9, NDS_ARM7};
+    for (const NdsCpu cpu : native_irq_cpus) {
         machine.interrupt_control().write(
             cpu, NdsInterruptControl::IfAddress, 4u, UINT32_MAX);
         machine.interrupt_control().write(
