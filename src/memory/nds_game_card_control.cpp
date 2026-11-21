@@ -103,7 +103,12 @@ Status NdsGameCardControl::decode_next_key1_command(
      wire_bytes,CommandBytes,expected_counter,
      key1_random_i_,key1_random_j_,candidate);
  if(status!=Status::Ok)return status;
+ if(key1_key2_activation_pending_&&candidate.opcode!=UINT8_C(0x04))
+  return Status::PermissionDenied;
+ if(key1_command_gap_pending_)return Status::PermissionDenied;
  if(candidate.opcode==UINT8_C(0x01)||
+    candidate.opcode==UINT8_C(0x06)||
+    candidate.opcode==UINT8_C(0x0A)){
     candidate.opcode==UINT8_C(0x06)||
     candidate.opcode==UINT8_C(0x0A)){
   if(!key1_random_l_initialized_||candidate.parameter16!=key1_random_l_)
@@ -125,12 +130,12 @@ Status NdsGameCardControl::decode_next_key1_command(
   key1_command_counter_=candidate.counter20;
   last_key1_command_transmissions_=UINT8_C(1);
   last_key1_command_opcode_=candidate.opcode;
-  key1_repeat_delay_cycles_remaining_=newer
-      ? header_secure_area_delay_core_cycles() : 0u;
+  key1_repeat_delay_cycles_remaining_=0u;
  }
  for(uint32_t index=0u;index<CommandBytes;++index)
   last_key1_command_[index]=wire_bytes[index];
  last_key1_command_valid_=true;
+ key1_command_gap_pending_=true;
  if(candidate.opcode==UINT8_C(0x04)){
   key1_random_l_=candidate.parameter16;
   key1_random_l_initialized_=true;
@@ -140,28 +145,36 @@ Status NdsGameCardControl::decode_next_key1_command(
  decoded=candidate;
  return Status::Ok;
 }
-Status NdsGameCardControl::complete_key1_activation_gap(
+Status NdsGameCardControl::complete_key1_command_gap(
     uint32_t clock_bytes) noexcept
 {
  if(!installed_)return Status::Unmapped;
  if(busy_||!key1_command_mode_||!chip_id_configured_||
-    !key1_key2_activation_pending_)
+    !key1_command_gap_pending_||!header_protocol_available_)
   return Status::PermissionDenied;
- const uint8_t required_transmissions=
-     newer_protocol_variant()?UINT8_C(2):UINT8_C(1);
- if(last_key1_command_opcode_!=UINT8_C(0x04)||
-    last_key1_command_transmissions_<required_transmissions||
-    key1_repeat_delay_cycles_remaining_!=0u)
-  return Status::PermissionDenied;
- if(!header_protocol_available_)return Status::PermissionDenied;
  const uint32_t required_clock_bytes=header_key1_gap_clocks_enabled()
      ? header_key1_initial_gap_bytes() : 0u;
  if(clock_bytes!=required_clock_bytes)return Status::PermissionDenied;
- const Status seed_status=key2_.initialize_from_random_seed(
-     key1_key2_pending_seed24_,key2_seed_index_);
- if(seed_status!=Status::Ok)return seed_status;
- key1_key2_activation_pending_=false;
- key1_key2_pending_seed24_=0u;
+ key1_command_gap_pending_=false;
+
+ /* On newer carts every KEY1 command starts with a zero-length send and
+  * its secure delay begins only after that send's gap has completed. */
+ if(newer_protocol_variant()&&last_key1_command_transmissions_==1u)
+  key1_repeat_delay_cycles_remaining_=header_secure_area_delay_core_cycles();
+
+ if(key1_key2_activation_pending_&&
+    last_key1_command_opcode_==UINT8_C(0x04)){
+  const uint8_t required_transmissions=
+      newer_protocol_variant()?UINT8_C(2):UINT8_C(1);
+  if(last_key1_command_transmissions_>=required_transmissions&&
+     key1_repeat_delay_cycles_remaining_==0u){
+   const Status seed_status=key2_.initialize_from_random_seed(
+       key1_key2_pending_seed24_,key2_seed_index_);
+   if(seed_status!=Status::Ok)return seed_status;
+   key1_key2_activation_pending_=false;
+   key1_key2_pending_seed24_=0u;
+  }
+ }
  return Status::Ok;
 }
 uint32_t NdsGameCardControl::read_rom_control() const noexcept{uint32_t v=rom_control_;if(data_ready_)v|=RomCtrlDrqMask;if(busy_)v|=RomCtrlStartBusyMask;return v;}
