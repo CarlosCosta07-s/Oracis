@@ -21,7 +21,7 @@ void write_activate_key1(uint16_t random_i,uint16_t random_j,uint32_t counter){
      uint8_t(random_i>>4u),
      uint8_t((random_i<<4u)|(random_j>>8u)),uint8_t(random_j),
      uint8_t(0xA0u|((counter>>16u)&0x0Fu)),uint8_t(counter>>8u),
-     uint8_t((counter&0xFFu)<<4u),UINT8_C(0xA5)};
+     uint8_t(counter),UINT8_C(0xA5)};
  for(uint32_t i=0u;i<8u;++i)bus_write_u8(NdsGameCardControl::CommandAddress+i,b[i]);
 }
 }
