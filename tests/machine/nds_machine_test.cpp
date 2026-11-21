@@ -1953,6 +1953,82 @@ int main()
         return fail("CP15 Control.V reset-to-low selection or cycle accounting failed");
     }
 
+    /*
+     * The machine-owned IRQ adapter must also work at the scheduler boundary,
+     * where no generated CPU slice is active and no external LR provider exists.
+     * Both CPUs enter their hardware vectors before their next slice executes.
+     */
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 could not be selected for native boundary IRQ test");
+    }
+    runtime_coproc_write(15u, 0u, 1u, 0u, 0u, cp15_vector_select);
+    arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
+    arm9->R[15] = UINT32_C(0x02006000);
+    arm7->cpsr = ORACIS_ARM_MODE_SYSTEM | CPSR_T_BIT;
+    arm7->R[15] = UINT32_C(0x02381002);
+
+    for (const NdsCpu cpu : {NDS_ARM9, NDS_ARM7}) {
+        machine.interrupt_control().write(
+            cpu, NdsInterruptControl::IfAddress, 4u, UINT32_MAX);
+        machine.interrupt_control().write(
+            cpu, NdsInterruptControl::IeAddress, 4u, machine_irq);
+        machine.interrupt_control().write(
+            cpu, NdsInterruptControl::ImeAddress, 4u, 1u);
+        machine.interrupt_control().request_irq(cpu, machine_irq);
+    }
+
+    SchedulerFixture native_boundary_irq_fixture{};
+    if (machine.run_dual_core_round(
+            1u, &execute_test_slice, nullptr,
+            &native_boundary_irq_fixture) != NdsMachineStatus::Ok ||
+        native_boundary_irq_fixture.calls[0] != 1u ||
+        native_boundary_irq_fixture.calls[1] != 1u ||
+        native_boundary_irq_fixture.irq_context_calls[0] != 0u ||
+        native_boundary_irq_fixture.irq_context_calls[1] != 0u ||
+        (arm9->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_IRQ ||
+        arm9->banked_spsr[ARM_BANK_IRQ] != ORACIS_ARM_MODE_SYSTEM ||
+        (arm9->cpsr & CPSR_T_BIT) != 0u ||
+        arm9->R[14] != UINT32_C(0x02006004) ||
+        arm9->R[15] != UINT32_C(0xFFFF0018) ||
+        (arm7->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_IRQ ||
+        arm7->banked_spsr[ARM_BANK_IRQ] !=
+            (ORACIS_ARM_MODE_SYSTEM | CPSR_T_BIT) ||
+        (arm7->cpsr & CPSR_T_BIT) != 0u ||
+        arm7->R[14] != UINT32_C(0x02381006) ||
+        arm7->R[15] != UINT32_C(0x00000018) ||
+        machine.global_bus_cycles() != 8u) {
+        return fail("native boundary IRQ adapter failed ARM9/ARM7 LR, SPSR or vector checks");
+    }
+
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 could not be selected to leave native boundary IRQ state");
+    }
+    runtime_exception_return(UINT32_C(0x02006000));
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IfAddress, 4u, UINT32_MAX);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::IeAddress, 4u, 0u);
+    machine.interrupt_control().write(
+        NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 0u);
+
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM7)) {
+        return fail("ARM7 could not be selected to leave native boundary IRQ state");
+    }
+    runtime_exception_return(UINT32_C(0x02381002));
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::IfAddress, 4u, UINT32_MAX);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::IeAddress, 4u, 0u);
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::ImeAddress, 4u, 0u);
+
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 could not be selected after native boundary IRQ test");
+    }
+    runtime_coproc_write(
+        15u, 0u, 1u, 0u, 0u,
+        oracis::memory::NdsArm9Tcm::RequiredControlOnesMask);
+
     /* Preserve the ARM7 Thumb mode expected by its registered dispatch entry. */
     arm7->cpsr = ORACIS_ARM_MODE_SYSTEM | CPSR_T_BIT;
 
