@@ -334,6 +334,131 @@ int main()
     }
 
     /*
+     * VTX_* commands update the retained source coordinates and emit one
+     * clip-space vertex. The test matrix is identity so 20.12 inputs remain
+     * directly observable in the transformed Vertex RAM entry.
+     */
+    if (!write_command(geometry, 0x10u, 1u) ||
+        !write_command(geometry, 0x15u)) {
+        return fail("vertex-test position identity setup enqueue failed");
+    }
+    geometry.advance_bus_cycles(20u);
+    const uint32_t packed_normal =
+        UINT32_C(1) | (UINT32_C(0x3FF) << 10u) |
+        (UINT32_C(0x100) << 20u);
+    const uint32_t packed_texcoord =
+        UINT32_C(0xFFF00010);
+    if (!write_command(geometry, 0x20u, UINT32_C(0x4210)) ||
+        !write_command(geometry, 0x21u, packed_normal) ||
+        !write_command(geometry, 0x22u, packed_texcoord)) {
+        return fail("vertex color, normal and UV command enqueue failed");
+    }
+    geometry.advance_bus_cycles(11u);
+
+    const uint32_t vtx16_xy =
+        (UINT32_C(0x2000) << 16u) | UINT32_C(0x1000);
+    if (!write_command(geometry, 0x23u, vtx16_xy) ||
+        !write_command(geometry, 0x23u, UINT32_C(0x3000))) {
+        return fail("VTX_16 parameter enqueue failed");
+    }
+    geometry.advance_bus_cycles(9u);
+    if (geometry.vertex_count() != 1u) {
+        return fail("VTX_16 did not append one transformed vertex");
+    }
+    const NdsGeometryEngine::Vertex *vertex = geometry.vertex_at(0u);
+    if (vertex == nullptr ||
+        vertex->source_position !=
+            std::array<int32_t, 3>{INT32_C(4096), INT32_C(8192), INT32_C(12288)} ||
+        vertex->clip_position !=
+            std::array<int32_t, 4>{INT32_C(4096), INT32_C(8192),
+                INT32_C(12288), INT32_C(4096)} ||
+        vertex->normal !=
+            std::array<int32_t, 3>{INT32_C(1), -INT32_C(1), INT32_C(256)} ||
+        vertex->color_rgb555 != UINT16_C(0x4210) ||
+        vertex->texture_s != INT16_C(16) ||
+        vertex->texture_t != INT16_C(-16)) {
+        return fail("VTX_16 transform or retained vertex attributes were incorrect");
+    }
+
+    const uint32_t vtx10 =
+        UINT32_C(0x040) |
+        (UINT32_C(0x3FF) << 10u) |
+        (UINT32_C(0x020) << 20u);
+    if (!write_command(geometry, 0x24u, vtx10)) {
+        return fail("VTX_10 command enqueue failed");
+    }
+    geometry.advance_bus_cycles(8u);
+    vertex = geometry.vertex_at(1u);
+    if (vertex == nullptr ||
+        vertex->source_position !=
+            std::array<int32_t, 3>{INT32_C(4096), -INT32_C(4096), INT32_C(2048)}) {
+        return fail("VTX_10 signed 10-bit and six-fraction decode was incorrect");
+    }
+
+    if (!write_command(
+            geometry, 0x25u,
+            (UINT32_C(0x4000) << 16u) | UINT32_C(0xE000))) {
+        return fail("VTX_XY command enqueue failed");
+    }
+    geometry.advance_bus_cycles(8u);
+    vertex = geometry.vertex_at(2u);
+    if (vertex == nullptr ||
+        vertex->source_position !=
+            std::array<int32_t, 3>{-INT32_C(8192), INT32_C(16384), INT32_C(2048)}) {
+        return fail("VTX_XY failed to retain the previous Z coordinate");
+    }
+
+    if (!write_command(
+            geometry, 0x26u,
+            (UINT32_C(0xF000) << 16u) | UINT32_C(0x0800))) {
+        return fail("VTX_XZ command enqueue failed");
+    }
+    geometry.advance_bus_cycles(8u);
+    vertex = geometry.vertex_at(3u);
+    if (vertex == nullptr ||
+        vertex->source_position !=
+            std::array<int32_t, 3>{INT32_C(2048), INT32_C(16384), -INT32_C(4096)}) {
+        return fail("VTX_XZ failed to retain the previous Y coordinate");
+    }
+
+    if (!write_command(
+            geometry, 0x27u,
+            (UINT32_C(0x1000) << 16u) | UINT32_C(0xF000))) {
+        return fail("VTX_YZ command enqueue failed");
+    }
+    geometry.advance_bus_cycles(8u);
+    vertex = geometry.vertex_at(4u);
+    if (vertex == nullptr ||
+        vertex->source_position !=
+            std::array<int32_t, 3>{INT32_C(2048), -INT32_C(4096), INT32_C(4096)}) {
+        return fail("VTX_YZ failed to retain the previous X coordinate");
+    }
+
+    const uint32_t vtx_diff =
+        UINT32_C(0x3FF) |
+        (UINT32_C(0x002) << 10u) |
+        (UINT32_C(0x3FD) << 20u);
+    if (!write_command(geometry, 0x28u, vtx_diff)) {
+        return fail("VTX_DIFF command enqueue failed");
+    }
+    geometry.advance_bus_cycles(8u);
+    vertex = geometry.vertex_at(5u);
+    if (vertex == nullptr ||
+        vertex->source_position !=
+            std::array<int32_t, 3>{INT32_C(2047), -INT32_C(4094), INT32_C(4093)} ||
+        vertex->clip_position !=
+            std::array<int32_t, 4>{INT32_C(2047), -INT32_C(4094),
+                INT32_C(4093), INT32_C(4096)}) {
+        return fail("VTX_DIFF did not add signed 20.12 deltas or transform the result");
+    }
+    const ReadResult ram_count = geometry.read(
+        NDS_ARM9, NdsGeometryEngine::RamCountAddress, 4u);
+    if (!ram_count || ((ram_count.value >> 16u) & UINT32_C(0x1FFF)) != 6u ||
+        (ram_count.value & UINT32_C(0x0FFF)) != 0u) {
+        return fail("RAM_COUNT did not report stored vertex count");
+    }
+
+    /*
      * The machine clock advances GX commands only at the shared ARM9/ARM7
      * watermark. ARM9 running ahead alone must not consume a FIFO command.
      */

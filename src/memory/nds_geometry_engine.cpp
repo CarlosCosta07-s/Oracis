@@ -102,6 +102,22 @@ int32_t NdsGeometryEngine::signed_fixed(uint32_t value) noexcept
     return std::bit_cast<int32_t>(value);
 }
 
+int32_t NdsGeometryEngine::sign_extend(
+    uint32_t value, unsigned width) noexcept
+{
+    if (width == 0u || width >= 32u) {
+        return std::bit_cast<int32_t>(value);
+    }
+    const uint32_t mask = (UINT32_C(1) << width) - 1u;
+    const uint32_t sign = UINT32_C(1) << (width - 1u);
+    const uint32_t raw = value & mask;
+    const int64_t extended = (raw & sign) != 0u
+        ? static_cast<int64_t>(raw) -
+            (INT64_C(1) << width)
+        : static_cast<int64_t>(raw);
+    return static_cast<int32_t>(extended);
+}
+
 NdsGeometryEngine::Matrix NdsGeometryEngine::identity_matrix() noexcept
 {
     Matrix matrix{};
@@ -224,6 +240,14 @@ Status NdsGeometryEngine::install() noexcept
     position_stack_ = {};
     directional_stack_ = {};
     texture_stack_ = {};
+    current_vertex_position_ = {};
+    current_vertex_normal_ = {};
+    current_vertex_color_ = UINT16_C(0x7FFF);
+    current_texture_s_ = 0;
+    current_texture_t_ = 0;
+    vertex_ram_ = {};
+    vertex_count_ = 0u;
+    vertex_ram_overflow_ = false;
     completed_commands_ = 0u;
     installed_ = true;
     update_fifo_irq();
@@ -403,7 +427,8 @@ ReadResult NdsGeometryEngine::read(
     }
     if (address == RamCountAddress) {
         if (width != 4u) return {Status::InvalidWidth, 0u};
-        return {Status::Ok, 0u};
+        const uint32_t count = vertex_count_ & UINT32_C(0x1FFF);
+        return {Status::Ok, count << 16u};
     }
     if (address >= ClipMatrixBase &&
         address < ClipMatrixBase + UINT32_C(0x40)) {
@@ -793,12 +818,135 @@ void NdsGeometryEngine::execute_matrix_command() noexcept
     }
 }
 
+void NdsGeometryEngine::execute_vertex_command() noexcept
+{
+    const uint32_t parameter = active_parameters_[0];
+    switch (active_command_) {
+    case 0x20u:
+        current_vertex_color_ =
+            static_cast<uint16_t>(parameter & UINT32_C(0x7FFF));
+        return;
+
+    case 0x21u:
+        current_vertex_normal_[0] = sign_extend(parameter, 10u);
+        current_vertex_normal_[1] = sign_extend(parameter >> 10u, 10u);
+        current_vertex_normal_[2] = sign_extend(parameter >> 20u, 10u);
+        return;
+
+    case 0x22u:
+        current_texture_s_ = static_cast<int16_t>(
+            sign_extend(parameter, 16u));
+        current_texture_t_ = static_cast<int16_t>(
+            sign_extend(parameter >> 16u, 16u));
+        return;
+
+    case 0x23u:
+        current_vertex_position_[0] =
+            sign_extend(parameter, 16u);
+        current_vertex_position_[1] =
+            sign_extend(parameter >> 16u, 16u);
+        current_vertex_position_[2] =
+            sign_extend(active_parameters_[1], 16u);
+        break;
+
+    case 0x24u:
+        current_vertex_position_[0] =
+            sign_extend(parameter, 10u) * 64;
+        current_vertex_position_[1] =
+            sign_extend(parameter >> 10u, 10u) * 64;
+        current_vertex_position_[2] =
+            sign_extend(parameter >> 20u, 10u) * 64;
+        break;
+
+    case 0x25u:
+        current_vertex_position_[0] = sign_extend(parameter, 16u);
+        current_vertex_position_[1] = sign_extend(parameter >> 16u, 16u);
+        break;
+
+    case 0x26u:
+        current_vertex_position_[0] = sign_extend(parameter, 16u);
+        current_vertex_position_[2] = sign_extend(parameter >> 16u, 16u);
+        break;
+
+    case 0x27u:
+        current_vertex_position_[1] = sign_extend(parameter, 16u);
+        current_vertex_position_[2] = sign_extend(parameter >> 16u, 16u);
+        break;
+
+    case 0x28u: {
+        const std::array<int32_t, 3> delta = {
+            sign_extend(parameter, 10u),
+            sign_extend(parameter >> 10u, 10u),
+            sign_extend(parameter >> 20u, 10u)
+        };
+        for (unsigned axis = 0u; axis < 3u; ++axis) {
+            const uint32_t sum =
+                std::bit_cast<uint32_t>(current_vertex_position_[axis]) +
+                std::bit_cast<uint32_t>(delta[axis]);
+            current_vertex_position_[axis] = std::bit_cast<int32_t>(sum);
+        }
+        break;
+    }
+
+    default:
+        return;
+    }
+
+    submit_vertex();
+}
+
+void NdsGeometryEngine::submit_vertex() noexcept
+{
+    if (vertex_count_ >= VertexRamCapacity) {
+        vertex_ram_overflow_ = true;
+        return;
+    }
+
+    Vertex vertex{};
+    vertex.source_position = current_vertex_position_;
+    vertex.normal = current_vertex_normal_;
+    vertex.color_rgb555 = current_vertex_color_;
+    vertex.texture_s = current_texture_s_;
+    vertex.texture_t = current_texture_t_;
+
+    const std::array<int32_t, 4> input = {
+        current_vertex_position_[0],
+        current_vertex_position_[1],
+        current_vertex_position_[2],
+        kFixedOne
+    };
+
+    /*
+     * The Geometry Engine exposes the clip matrix as Position * Projection.
+     * Inputs and matrix elements are signed 20.12 fixed-point; accumulate in
+     * 64 bits, shift once, then retain the hardware-sized 32-bit result.
+     */
+    for (unsigned row = 0u; row < 4u; ++row) {
+        uint64_t accumulator = 0u;
+        for (unsigned column = 0u; column < 4u; ++column) {
+            const int64_t product =
+                static_cast<int64_t>(clip_matrix_[row * 4u + column]) *
+                static_cast<int64_t>(input[column]);
+            accumulator += static_cast<uint64_t>(product);
+        }
+        const int64_t signed_accumulator =
+            std::bit_cast<int64_t>(accumulator);
+        const uint32_t shifted = static_cast<uint32_t>(
+            static_cast<uint64_t>(signed_accumulator >> 12u));
+        vertex.clip_position[row] = std::bit_cast<int32_t>(shifted);
+    }
+
+    vertex_ram_[vertex_count_++] = vertex;
+}
+
 void NdsGeometryEngine::execute_active_command() noexcept
 {
     if (active_command_ >= 0x10u && active_command_ <= 0x1Cu) {
         execute_matrix_command();
+    } else if (active_command_ >= 0x20u && active_command_ <= 0x28u) {
+        execute_vertex_command();
     }
-    /* Non-matrix command payloads are decoded and timed, but not rendered yet. */
+    /* Polygon assembly, lighting and rasterization are separate stages. */
 }
 
 } // namespace oracis::memory

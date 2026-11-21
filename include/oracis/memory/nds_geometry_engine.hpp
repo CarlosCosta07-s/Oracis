@@ -2,8 +2,8 @@
  * Nintendo DS Geometry Engine command FIFO and matrix command processor.
  *
  * This first hardware slice implements command intake, FIFO status/IRQ,
- * command timing for documented GX commands, and the matrix command family.
- * Vertex submission and polygon rasterization are separate subsystems.
+ * command timing, the matrix command family, and transformed vertex capture.
+ * Polygon clipping/assembly and rasterization remain separate subsystems.
  */
 #ifndef ORACIS_MEMORY_NDS_GEOMETRY_ENGINE_HPP
 #define ORACIS_MEMORY_NDS_GEOMETRY_ENGINE_HPP
@@ -28,9 +28,19 @@ public:
     static constexpr uint32_t ClipMatrixBase = UINT32_C(0x04000640);
     static constexpr uint32_t VectorMatrixBase = UINT32_C(0x04000680);
     static constexpr uint32_t CommandFifoCapacity = 256u;
+    static constexpr uint32_t VertexRamCapacity = 6144u;
     static constexpr uint32_t GxFifoIrqMask = UINT32_C(1) << 21u;
 
     using Matrix = std::array<int32_t, 16>;
+
+    struct Vertex {
+        std::array<int32_t, 4> clip_position{};
+        std::array<int32_t, 3> source_position{};
+        std::array<int32_t, 3> normal{};
+        uint16_t color_rgb555 = UINT16_C(0x7FFF);
+        int16_t texture_s = 0;
+        int16_t texture_t = 0;
+    };
 
     explicit NdsGeometryEngine(NdsInterruptControl &interrupts) noexcept
         : interrupts_(interrupts) {}
@@ -54,6 +64,11 @@ public:
     void refresh_fifo_irq() noexcept;
 
     uint32_t fifo_entries() const noexcept { return fifo_count_; }
+    uint32_t vertex_count() const noexcept { return vertex_count_; }
+    bool vertex_ram_overflow() const noexcept { return vertex_ram_overflow_; }
+    const Vertex *vertex_at(uint32_t index) const noexcept {
+        return index < vertex_count_ ? &vertex_ram_[index] : nullptr;
+    }
     bool busy() const noexcept;
     bool matrix_stack_error() const noexcept { return matrix_stack_error_; }
     uint8_t matrix_mode() const noexcept { return matrix_mode_; }
@@ -92,6 +107,7 @@ private:
     static CommandInfo command_info(uint8_t command) noexcept;
     static uint16_t command_cycles(uint8_t command, uint8_t matrix_mode) noexcept;
     static int32_t signed_fixed(uint32_t value) noexcept;
+    static int32_t sign_extend(uint32_t value, unsigned width) noexcept;
     static Matrix matrix_from_parameters(
         uint8_t command, const uint32_t *parameters) noexcept;
     static Matrix multiply(const Matrix &left, const Matrix &right) noexcept;
@@ -111,6 +127,8 @@ private:
     void complete_active_command() noexcept;
     void execute_active_command() noexcept;
     void execute_matrix_command() noexcept;
+    void execute_vertex_command() noexcept;
+    void submit_vertex() noexcept;
     void set_current_matrix(const Matrix &matrix) noexcept;
     void multiply_current_matrix(const Matrix &matrix,
                                  bool position_only = false) noexcept;
@@ -153,6 +171,15 @@ private:
     std::array<Matrix, 32> position_stack_{};
     std::array<Matrix, 32> directional_stack_{};
     std::array<Matrix, 1> texture_stack_{};
+
+    std::array<int32_t, 3> current_vertex_position_{};
+    std::array<int32_t, 3> current_vertex_normal_{};
+    uint16_t current_vertex_color_ = UINT16_C(0x7FFF);
+    int16_t current_texture_s_ = 0;
+    int16_t current_texture_t_ = 0;
+    std::array<Vertex, VertexRamCapacity> vertex_ram_{};
+    uint32_t vertex_count_ = 0u;
+    bool vertex_ram_overflow_ = false;
 
     uint64_t completed_commands_ = 0u;
     bool installed_ = false;
