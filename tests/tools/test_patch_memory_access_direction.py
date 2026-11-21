@@ -119,5 +119,55 @@ void bank(void) {
         self.assertEqual((patched, reads, writes), (source, 0, 0))
 
 
+    def test_timing_call_cannot_borrow_bus_access_from_the_next_function(self):
+        source = """
+void function_without_access(void) {
+    runtime_mem_cycles(address, 4u, 0u);
+}
+void unrelated_reader(void) {
+    value = bus_read_u32(address);
+}
+"""
+        with self.assertRaisesRegex(ValueError, "no subsequent bus_read/write"):
+            patcher.patch_generated_source(source)
+
+    def test_nested_blocks_and_extern_c_wrapper_keep_function_scope(self):
+        source = r'''
+extern "C" {
+void bank(void) {
+    if (enabled) {
+        runtime_mem_cycles(address, 4u, 0u);
+        value = bus_read_u32(address);
+    }
+}
+}
+'''
+        patched, reads, writes = patcher.patch_generated_source(source)
+
+        self.assertEqual((reads, writes), (1, 0))
+        self.assertIn(
+            "runtime_mem_cycles_ex(address, 4u, 0u, "
+            "ORACIS_MEMORY_ACCESS_READ)",
+            patched,
+        )
+
+    def test_each_function_uses_its_own_bus_operation_sequence(self):
+        source = """
+void load_word(void) {
+    runtime_mem_cycles(load_address, 4u, 0u);
+    loaded = bus_read_u32(load_address);
+}
+void store_word(void) {
+    runtime_mem_cycles(store_address, 4u, 0u);
+    bus_write_u32(store_address, stored);
+}
+"""
+        patched, reads, writes = patcher.patch_generated_source(source)
+
+        self.assertEqual((reads, writes), (1, 1))
+        self.assertEqual(patched.count("ORACIS_MEMORY_ACCESS_READ)"), 1)
+        self.assertEqual(patched.count("ORACIS_MEMORY_ACCESS_WRITE)"), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
