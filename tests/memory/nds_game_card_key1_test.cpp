@@ -49,6 +49,11 @@ int main()
         key1.encrypt_block(invalid_block, 7u) != Status::InvalidWidth ||
         key1.encrypt_block(invalid_block, NdsGameCardKey1::BlockBytes) !=
             Status::PermissionDenied ||
+        key1.encrypt_command(nullptr, NdsGameCardKey1::BlockBytes) !=
+            Status::InvalidRegion ||
+        key1.encrypt_command(invalid_block, 7u) != Status::InvalidWidth ||
+        key1.encrypt_command(invalid_block, NdsGameCardKey1::BlockBytes) !=
+            Status::PermissionDenied ||
         key1.initialize(UINT32_C(0x45555043), 0u, 8u) != Status::InvalidRegion ||
         key1.initialize(UINT32_C(0x45555043), 2u, 4u) != Status::InvalidRegion) {
         return fail("KEY1 rejected-input validation was not fail-closed");
@@ -110,7 +115,35 @@ int main()
         return fail("KEY1 schedule/encryption/decryption vector mismatch");
     }
 
-    std::puts("NDS KEY1 table loading, keycode levels and 64-bit cipher vectors passed");
+    if (key1.initialize(UINT32_C(0x45555043), 2u, 8u) != Status::Ok) {
+        return fail("could not restore level-2 KEY1 schedule for command-order vector");
+    }
+    uint8_t wire_command[8] = {
+        plaintext[7], plaintext[6], plaintext[5], plaintext[4],
+        plaintext[3], plaintext[2], plaintext[1], plaintext[0]
+    };
+    constexpr uint8_t encrypted_wire_expected[8] = {
+        UINT8_C(0x60), UINT8_C(0x1C), UINT8_C(0x05), UINT8_C(0x0D),
+        UINT8_C(0x9B), UINT8_C(0xDB), UINT8_C(0x30), UINT8_C(0x4E)
+    };
+    if (key1.encrypt_command(wire_command, sizeof(wire_command)) != Status::Ok) {
+        return fail("KEY1 command encryption rejected a valid wire-order block");
+    }
+    for (uint32_t index = 0u; index < sizeof(wire_command); ++index) {
+        if (wire_command[index] != encrypted_wire_expected[index]) {
+            return fail("KEY1 command encryption used the wrong byte order");
+        }
+    }
+    if (key1.decrypt_command(wire_command, sizeof(wire_command)) != Status::Ok) {
+        return fail("KEY1 command decryption rejected a valid wire-order block");
+    }
+    for (uint32_t index = 0u; index < sizeof(wire_command); ++index) {
+        if (wire_command[index] != plaintext[7u - index]) {
+            return fail("KEY1 command decrypt did not restore MSB-first wire bytes");
+        }
+    }
+
+    std::puts("NDS KEY1 table loading, code levels, block vectors and command byte order passed");
     key1.reset();
     if (!key1.table_loaded() || key1.initialized() || key1.id_code() != 0u ||
         key1.level() != 0u || key1.modulo_bytes() != 0u ||
