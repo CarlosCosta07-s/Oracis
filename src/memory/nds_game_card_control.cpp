@@ -149,8 +149,12 @@ Status NdsGameCardControl::complete_key1_command_gap(
  if(busy_||!key1_command_mode_||!chip_id_configured_||
     !key1_command_gap_pending_||!header_protocol_available_)
   return Status::PermissionDenied;
- const uint32_t required_clock_bytes=header_key1_gap_clocks_enabled()
-     ? header_key1_initial_gap_bytes() : 0u;
+ const uint32_t active_gap1=rom_control_&RomCtrlKey1Gap1Mask;
+ const uint32_t active_gap2=
+     (rom_control_>>RomCtrlKey1Gap2Shift)&RomCtrlKey1Gap2Mask;
+ const uint32_t required_clock_bytes=
+     (rom_control_&RomCtrlGapClockMask)!=0u
+         ? active_gap1+active_gap2 : 0u;
  if(clock_bytes!=required_clock_bytes)return Status::PermissionDenied;
  key1_command_gap_pending_=false;
 
