@@ -562,16 +562,16 @@ int main(void)
     }
 
     /*
-     * Leave the C-owned bank tables registered intentionally. Host shutdown
-     * must clear the non-owning registry before this stack frame releases
-     * their storage, including on a later initialize/shutdown cycle.
+     * Add short-lived C tables while the machine is running. The helper shuts
+     * down the host before returning, so both its tables and the tables above
+     * are removed while their backing storage is still alive.
      */
     if (oracis_host_runtime_has_program_banks() != 1 ||
-        oracis_host_runtime_shutdown() != ORACIS_HOST_RUNTIME_OK ||
+        shutdown_with_temporary_dispatch_tables() != 0 ||
         oracis_host_runtime_is_initialized() != 0 ||
         oracis_host_runtime_has_program_banks() != 0 ||
         oracis_host_runtime_last_machine_status() != 0) {
-        fprintf(stderr, "C host bridge failed to shut down and clear registered bank tables\n");
+        fprintf(stderr, "C host bridge failed to clear dispatch tables at shutdown\n");
         return 1;
     }
 
@@ -580,31 +580,27 @@ int main(void)
         return 1;
     }
 
-    /* Reinitialize, then shut down with tables whose storage expires on return. */
-    if (oracis_host_runtime_initialize() != ORACIS_HOST_RUNTIME_OK ||
-        shutdown_with_temporary_dispatch_tables() != 0) {
-        fprintf(stderr, "C host bridge failed the temporary-table shutdown cycle\n");
-        return 1;
-    }
-
-    /* The previous helper's table storage is now out of scope. A fresh machine
-       must see an empty registry and must never consult those stale pointers. */
-    uint32_t stale_lookup_status = UINT32_MAX;
-    uint32_t stale_candidate_count = UINT32_MAX;
-    const NdsDispatchEntry *stale_candidate = NULL;
-    if (oracis_host_runtime_initialize() != ORACIS_HOST_RUNTIME_OK ||
-        oracis_host_runtime_is_initialized() != 1 ||
-        oracis_host_runtime_has_program_banks() != 0 ||
-        oracis_static_dispatch_lookup(
+    /* The helper's table storage is now out of scope. Neither CPU may retain
+       a registry entry or return a pointer into those expired stack arrays. */
+    uint32_t arm9_lookup_status = UINT32_MAX;
+    uint32_t arm7_lookup_status = UINT32_MAX;
+    uint32_t arm9_candidate_count = UINT32_MAX;
+    uint32_t arm7_candidate_count = UINT32_MAX;
+    const NdsDispatchEntry *arm9_candidate = NULL;
+    const NdsDispatchEntry *arm7_candidate = NULL;
+    if (oracis_static_dispatch_lookup(
             NDS_ARM9, UINT32_C(0x02004000), 0u,
-            &stale_lookup_status, &stale_candidate_count,
-            &stale_candidate) != NULL ||
-        stale_lookup_status != ORACIS_DISPATCH_LOOKUP_CPU_NOT_REGISTERED ||
-        stale_candidate_count != 0u || stale_candidate != NULL ||
-        oracis_host_runtime_run_round(1u, NULL, NULL) !=
-            ORACIS_HOST_RUNTIME_NO_PROGRAM_BANKS ||
-        oracis_host_runtime_shutdown() != ORACIS_HOST_RUNTIME_OK) {
-        fprintf(stderr, "C host bridge retained temporary dispatch tables across reinitialization\n");
+            &arm9_lookup_status, &arm9_candidate_count,
+            &arm9_candidate) != NULL ||
+        arm9_lookup_status != ORACIS_DISPATCH_LOOKUP_CPU_NOT_REGISTERED ||
+        arm9_candidate_count != 0u || arm9_candidate != NULL ||
+        oracis_static_dispatch_lookup(
+            NDS_ARM7, UINT32_C(0x02384000), 0u,
+            &arm7_lookup_status, &arm7_candidate_count,
+            &arm7_candidate) != NULL ||
+        arm7_lookup_status != ORACIS_DISPATCH_LOOKUP_CPU_NOT_REGISTERED ||
+        arm7_candidate_count != 0u || arm7_candidate != NULL) {
+        fprintf(stderr, "C host bridge retained expired temporary dispatch tables\n");
         return 1;
     }
 
