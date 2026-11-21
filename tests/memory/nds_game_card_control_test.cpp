@@ -846,6 +846,10 @@ int main(){
    if(card.busy()||card.key2_bytes_processed()!=UINT64_C(4)+
        (static_cast<uint64_t>(chunk)+1u)*UINT64_C(0x218))
     return fail("newer-cart 0x20 did not consume its 18h KEY2 zero interval");
+   std::array<uint8_t,UINT32_C(0x18)> expected_secure_padding{};
+   if(expected_automatic_new_key2.apply_keystream(expected_secure_padding.data(),
+       static_cast<uint32_t>(expected_secure_padding.size()))!=Status::Ok)
+    return fail("could not advance reference KEY2 through the secure-area padding");
   }
   if(card.key2_bytes_processed()!=UINT32_C(0x10C4))
    return fail("newer-cart 0x20 stream did not advance by the full 10C0h period");
@@ -942,8 +946,11 @@ int main(){
   std::array<uint8_t,UINT32_C(0x1000)> expected_old_secure{};
   for(uint32_t byte=0u;byte<expected_old_secure.size();++byte)
    expected_old_secure[byte]=image[UINT32_C(0x6000)+byte];
-  if(expected_automatic_old_key2.apply_keystream(expected_old_secure.data(),
-      static_cast<uint32_t>(expected_old_secure.size()))!=Status::Ok)
+  std::array<uint8_t,UINT32_C(0x910)> expected_old_secure_gap{};
+  if(expected_automatic_old_key2.apply_keystream(expected_old_secure_gap.data(),
+       static_cast<uint32_t>(expected_old_secure_gap.size()))!=Status::Ok||
+     expected_automatic_old_key2.apply_keystream(expected_old_secure.data(),
+       static_cast<uint32_t>(expected_old_secure.size()))!=Status::Ok)
    return fail("could not derive older-cart KEY2 Secure Area block");
   for(uint32_t word_index=0u;word_index<1024u;++word_index){
    card.advance_bus_cycles(20u);
