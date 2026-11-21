@@ -88,15 +88,13 @@ Status NdsGameCardControl::write_rom_control(NdsCpu cpu,uint32_t value) noexcept
       (static_cast<uint64_t>(bank[1])<<8u)|
       (static_cast<uint64_t>(bank[2])<<16u)|
       (static_cast<uint64_t>(bank[3])<<24u)|
-      ((static_cast<uint64_t>(bank[8])&UINT64_C(0x7F))<<32u)|
-      ((static_cast<uint64_t>(bank[9])&UINT64_C(0x7F))<<40u);
+      ((static_cast<uint64_t>(bank[8])&UINT64_C(0x7F))<<32u);
   const uint64_t raw_seed2=
       static_cast<uint64_t>(bank[4])|
       (static_cast<uint64_t>(bank[5])<<8u)|
       (static_cast<uint64_t>(bank[6])<<16u)|
       (static_cast<uint64_t>(bank[7])<<24u)|
-      ((static_cast<uint64_t>(bank[10])&UINT64_C(0x7F))<<32u)|
-      ((static_cast<uint64_t>(bank[11])&UINT64_C(0x7F))<<40u);
+      ((static_cast<uint64_t>(bank[10])&UINT64_C(0x7F))<<32u);
   const Status seed_status=key2_.set_raw_seeds(raw_seed1,raw_seed2);
   if(seed_status!=Status::Ok)return seed_status;
  }

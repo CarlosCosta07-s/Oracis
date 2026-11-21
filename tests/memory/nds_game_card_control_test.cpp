@@ -50,8 +50,8 @@ int main(){
  if(card.key2_initialized())return fail("KEY2 stream was not clear after cartridge reset");
  bus_write_u32(NdsGameCardControl::SeedAddress,static_cast<uint32_t>(arm9_raw_seed0));
  bus_write_u32(NdsGameCardControl::SeedAddress+4u,static_cast<uint32_t>(arm9_raw_seed1));
- bus_write_u16(NdsGameCardControl::SeedAddress+8u,static_cast<uint16_t>(arm9_raw_seed0>>32u));
- bus_write_u16(NdsGameCardControl::SeedAddress+10u,static_cast<uint16_t>(arm9_raw_seed1>>32u));
+ bus_write_u16(NdsGameCardControl::SeedAddress+8u,static_cast<uint16_t>(0xFF00u|(arm9_raw_seed0>>32u)));
+ bus_write_u16(NdsGameCardControl::SeedAddress+10u,static_cast<uint16_t>(0xFF00u|(arm9_raw_seed1>>32u)));
  if(card.key2_initialized()||card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
      NdsGameCardControl::RomCtrlKey2SeedApplyMask)!=Status::Ok||
     !card.key2_initialized()||card.key2_state1()!=UINT64_C(0x46836A2C48)||
@@ -65,8 +65,8 @@ int main(){
  constexpr uint64_t arm7_raw_seed1=UINT64_C(0x23456789AB);
  bus_write_u32(NdsGameCardControl::SeedAddress,static_cast<uint32_t>(arm7_raw_seed0));
  bus_write_u32(NdsGameCardControl::SeedAddress+4u,static_cast<uint32_t>(arm7_raw_seed1));
- bus_write_u16(NdsGameCardControl::SeedAddress+8u,static_cast<uint16_t>(arm7_raw_seed0>>32u));
- bus_write_u16(NdsGameCardControl::SeedAddress+10u,static_cast<uint16_t>(arm7_raw_seed1>>32u));
+ bus_write_u16(NdsGameCardControl::SeedAddress+8u,static_cast<uint16_t>(0xFF00u|(arm7_raw_seed0>>32u)));
+ bus_write_u16(NdsGameCardControl::SeedAddress+10u,static_cast<uint16_t>(0xFF00u|(arm7_raw_seed1>>32u)));
  if(card.write(NDS_ARM7,NdsGameCardControl::RomControlAddress,4u,
        NdsGameCardControl::RomCtrlKey2SeedApplyMask)!=Status::Ok||
     card.key2_state1()!=UINT64_C(0x2C8F351624)||
