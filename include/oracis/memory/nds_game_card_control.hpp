@@ -27,7 +27,9 @@ public:
  static constexpr uint32_t RomCtrlResetReleaseMask=UINT32_C(1)<<29u;
  static constexpr uint32_t RomCtrlWriteMask=UINT32_C(1)<<30u;
  static constexpr uint32_t RomCtrlStartBusyMask=UINT32_C(1)<<31u;
+ static constexpr uint32_t AuxSpiSlotModeMask=UINT32_C(1)<<13u;
  static constexpr uint32_t AuxSpiIrqEnableMask=UINT32_C(1)<<14u;
+ static constexpr uint32_t AuxSpiSlotEnableMask=UINT32_C(1)<<15u;
  explicit NdsGameCardControl(NdsInterruptControl &irq) noexcept:interrupts_(irq){}
  NdsGameCardControl(const NdsGameCardControl&)=delete;
  NdsGameCardControl& operator=(const NdsGameCardControl&)=delete;

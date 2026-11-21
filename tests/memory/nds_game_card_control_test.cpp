@@ -32,7 +32,12 @@ int main(){
  auto word=[&](uint32_t o){return uint32_t(image[o])|(uint32_t(image[o+1u])<<8u)|(uint32_t(image[o+2u])<<16u)|(uint32_t(image[o+3u])<<24u);};
  write_b7(0x20u);
  const uint32_t small=NdsGameCardControl::RomCtrlResetReleaseMask|(7u<<NdsGameCardControl::RomCtrlBlockSizeShift);
- if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,small|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok||!card.busy())return fail("B7 transaction failed to start");
+ if(card.read(NDS_ARM9,NdsGameCardControl::SeedAddress,4u).status!=Status::PermissionDenied)return fail("seed registers were not write-only");
+ if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,small|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::PermissionDenied||card.busy())return fail("Game Card started while the slot was disabled");
+ bus_write_u16(NdsGameCardControl::AuxSpiControlAddress,uint16_t(NdsGameCardControl::AuxSpiIrqEnableMask|NdsGameCardControl::AuxSpiSlotEnableMask|NdsGameCardControl::AuxSpiSlotModeMask));
+ if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,small|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::PermissionDenied||card.busy())return fail("parallel ROM read started in SPI mode");
+ bus_write_u16(NdsGameCardControl::AuxSpiControlAddress,uint16_t(NdsGameCardControl::AuxSpiIrqEnableMask|NdsGameCardControl::AuxSpiSlotEnableMask));
+ if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,small|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok||!card.busy())return fail("B7 transaction failed to start after slot enable");
  if(bus_read_u32(NdsGameCardControl::RomControlAddress)&NdsGameCardControl::RomCtrlDrqMask)return fail("early DRQ");
  card.advance_bus_cycles(39u);
  if(bus_read_u32(NdsGameCardControl::RomControlAddress)&NdsGameCardControl::RomCtrlDrqMask)return fail("first word latency wrong");
@@ -42,18 +47,18 @@ int main(){
     ((bus_read_u32(NdsGameCardControl::RomControlAddress)&(NdsGameCardControl::RomCtrlStartBusyMask|NdsGameCardControl::RomCtrlDrqMask))!=0u)||
     !(bus_read_u32(NdsInterruptControl::IfAddress)&imask))return fail("one-word read or completion IRQ failed");
  if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)return fail("clear irq failed");
- write_b7(0x100u);
+ write_b7(0x200u);
  const uint32_t normal=NdsGameCardControl::RomCtrlResetReleaseMask|(1u<<NdsGameCardControl::RomCtrlBlockSizeShift);
  if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,normal|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok)return fail("block read start failed");
  card.advance_bus_cycles(40u);
- for(uint32_t n=0;n<128u;++n){if(n&&!(bus_read_u32(NdsGameCardControl::RomControlAddress)&NdsGameCardControl::RomCtrlDrqMask))return fail("DRQ not ready for word");if(bus_read_u32(NdsGameCardControl::DataAddress)!=word(0x100u+n*4u))return fail("block word mismatch");if(n<127u)card.advance_bus_cycles(20u);}
+ for(uint32_t n=0;n<128u;++n){if(n&&!(bus_read_u32(NdsGameCardControl::RomControlAddress)&NdsGameCardControl::RomCtrlDrqMask))return fail("DRQ not ready for word");if(bus_read_u32(NdsGameCardControl::DataAddress)!=word(0x200u+n*4u))return fail("block word mismatch");if(n<127u)card.advance_bus_cycles(20u);}
  if(card.busy()||!(bus_read_u32(NdsInterruptControl::IfAddress)&imask))return fail("128 word transfer incomplete");
  if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)return fail("second irq clear failed");
  /* ARM9 Game Card DMA timing 5 streams a 0x200-byte block, one DRQ word per request. */
  if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)return fail("clear card IRQ before DMA failed");
  constexpr uint32_t dma0=NdsDmaControl::FirstRegisterAddress,dma1=dma0+12u;
  constexpr uint32_t arm9_dma_destination=0x02000000u;
- write_b7(0x80u);
+ write_b7(0x000u);
  bus_write_u32(dma0,NdsGameCardControl::DataAddress);
  bus_write_u32(dma0+4u,arm9_dma_destination);
  bus_write_u32(dma0+8u,1u|(2u<<NdsDmaControl::SourceControlShift)|(5u<<27u)|
@@ -64,7 +69,7 @@ int main(){
      return fail("ARM9 DMA card command failed");
  card.advance_bus_cycles(40u+127u*20u);
  for(uint32_t index=0u;index<128u;++index){
-     if(memory.read(NDS_ARM9,arm9_dma_destination+index*4u,4u).value!=word(0x80u+index*4u))
+     if(memory.read(NDS_ARM9,arm9_dma_destination+index*4u,4u).value!=word(index*4u))
          return fail("ARM9 Game Card DMA block word mismatch");
  }
  if(card.busy()||

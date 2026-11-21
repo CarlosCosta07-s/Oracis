@@ -16,6 +16,8 @@ uint32_t NdsGameCardControl::read_rom_control() const noexcept{uint32_t v=rom_co
 Status NdsGameCardControl::start_transfer(NdsCpu cpu) noexcept{
  if(!installed_)return Status::Unmapped;if(!valid_cpu(cpu))return Status::InvalidCpu;
  if(busy_||!reset_released_||!image_)return Status::PermissionDenied;
+ if((aux_spi_control_&AuxSpiSlotEnableMask)==0u ||
+    (aux_spi_control_&AuxSpiSlotModeMask)!=0u)return Status::PermissionDenied;
  if((rom_control_&(RomCtrlKey2DataMask|RomCtrlKey2CommandMask|RomCtrlWriteMask))!=0u)return Status::PermissionDenied;
  if(command_[0]!=kReadCommand)return Status::PermissionDenied;
  const uint32_t size=block_bytes((rom_control_>>RomCtrlBlockSizeShift)&kBlockMask);
@@ -58,19 +60,19 @@ void NdsGameCardControl::advance_bus_cycles(uint64_t cycles) noexcept{
 }
 ReadResult NdsGameCardControl::read(NdsCpu cpu,uint32_t a,uint32_t w) noexcept{
  if(!installed_)return{Status::Unmapped,0u};if(!valid_cpu(cpu))return{Status::InvalidCpu,0u};
- if(a==AuxSpiControlAddress){if(w==2u||w==4u)return{Status::Ok,aux_spi_control_};return{Status::InvalidWidth,0u};}
+ if(a==AuxSpiControlAddress){if(w!=2u)return{Status::InvalidWidth,0u};return{Status::Ok,aux_spi_control_};}
  if(a==RomControlAddress){if(w!=4u)return{Status::InvalidWidth,0u};return{Status::Ok,read_rom_control()};}
  if(command_address(a))return{Status::PermissionDenied,0u};
- if(seed_address(a)){const uint32_t o=a-SeedAddress;if((w!=2u&&w!=4u)||(w==4u&&(o&3u))||(w==2u&&(o&1u))||o+w>SeedBytes)return{Status::InvalidWidth,0u};uint32_t v=0u;for(uint32_t i=0;i<w;++i)v|=uint32_t(seed_registers_[o+i])<<(i*8u);return{Status::Ok,v};}
+ if(seed_address(a)){const uint32_t o=a-SeedAddress;const bool low=o<8u&&w==4u&&(o&3u)==0u;const bool high=o>=8u&&w==2u&&(o&1u)==0u;if(!low&&!high)return{Status::InvalidWidth,0u};return{Status::PermissionDenied,0u};}
  if(a==DataAddress){if(w!=4u)return{Status::InvalidWidth,0u};return read_data(cpu);}
  return{Status::Unmapped,0u};
 }
 Status NdsGameCardControl::write(NdsCpu cpu,uint32_t a,uint32_t w,uint32_t v) noexcept{
  if(!installed_)return Status::Unmapped;if(!valid_cpu(cpu))return Status::InvalidCpu;
- if(a==AuxSpiControlAddress){if(w!=2u&&w!=4u)return Status::InvalidWidth;aux_spi_control_=uint16_t(v);return Status::Ok;}
+ if(a==AuxSpiControlAddress){if(w!=2u)return Status::InvalidWidth;aux_spi_control_=uint16_t(v)&UINT16_C(0xE07F);return Status::Ok;}
  if(a==RomControlAddress){if(w!=4u)return Status::InvalidWidth;return write_rom_control(cpu,v);}
  if(command_address(a)){if(busy_)return Status::PermissionDenied;const uint32_t o=a-CommandAddress;if((w!=1u&&w!=2u&&w!=4u)||o+w>CommandBytes)return Status::InvalidWidth;for(uint32_t i=0;i<w;++i)command_[o+i]=uint8_t(v>>(i*8u));return Status::Ok;}
- if(seed_address(a)){if(busy_)return Status::PermissionDenied;const uint32_t o=a-SeedAddress;if((w!=2u&&w!=4u)||(w==4u&&(o&3u))||(w==2u&&(o&1u))||o+w>SeedBytes)return Status::InvalidWidth;for(uint32_t i=0;i<w;++i)seed_registers_[o+i]=uint8_t(v>>(i*8u));return Status::Ok;}
+ if(seed_address(a)){if(busy_)return Status::PermissionDenied;const uint32_t o=a-SeedAddress;const bool low=o<8u&&w==4u&&(o&3u)==0u;const bool high=o>=8u&&w==2u&&(o&1u)==0u;if(!low&&!high)return Status::InvalidWidth;for(uint32_t i=0;i<w;++i)seed_registers_[o+i]=uint8_t(v>>(i*8u));return Status::Ok;}
  if(a==DataAddress)return w==4u?Status::PermissionDenied:Status::InvalidWidth;
  return Status::Unmapped;
 }
