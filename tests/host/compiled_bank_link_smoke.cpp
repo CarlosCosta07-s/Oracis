@@ -14,6 +14,10 @@ constexpr uint32_t kArm7MarkerAddress = UINT32_C(0x02002004);
 constexpr uint32_t kArm9Marker = UINT32_C(0xA9A90001);
 constexpr uint32_t kArm7Marker = UINT32_C(0xA7A70001);
 
+void registration_collision_entry(void)
+{
+}
+
 int fail(const char *message)
 {
     std::fprintf(stderr, "compiled_bank_link_smoke: %s\n", message);
@@ -28,11 +32,36 @@ int main()
         return fail("host runtime initialization failed");
     }
 
+    /*
+     * Force ARM7 registration to fail after ARM9 succeeds. The host must roll
+     * back the newly registered ARM9 table and leave the existing ARM7 bank
+     * untouched; a retry must then register both compiled banks normally.
+     */
+    const NdsDispatchEntry arm7_name_collision[] = {
+        {UINT32_C(0x02380000), 0u, &registration_collision_entry, nullptr}
+    };
+    if (oracis_static_dispatch_register_bank(
+            NDS_ARM7, arm7_name_collision, 1u,
+            "pokemon-platinum-usa-rev1-arm7") !=
+            ORACIS_DISPATCH_REGISTER_OK) {
+        (void)oracis_host_runtime_shutdown();
+        return fail("could not install ARM7 bank-name collision fixture");
+    }
+
     if (oracis_host_runtime_register_compiled_banks() !=
+            ORACIS_HOST_RUNTIME_BANK_REGISTRATION_FAILED ||
+        oracis_host_runtime_has_program_banks() != 0) {
+        (void)oracis_host_runtime_shutdown();
+        return fail("failed ARM7 registration did not roll back the ARM9 bank");
+    }
+
+    if (oracis_static_dispatch_unregister_bank(
+            NDS_ARM7, arm7_name_collision, 1u) == 0 ||
+        oracis_host_runtime_register_compiled_banks() !=
             ORACIS_HOST_RUNTIME_OK ||
         oracis_host_runtime_has_program_banks() != 1) {
         (void)oracis_host_runtime_shutdown();
-        return fail("compiled ARM9/ARM7 tables were not registered");
+        return fail("compiled ARM9/ARM7 registration did not recover after rollback");
     }
 
     if (oracis_host_runtime_program_loaded() != 0 ||
@@ -107,6 +136,6 @@ int main()
         return fail("compiled bank tables were not unregistered at shutdown");
     }
 
-    std::puts("optional compiled bank link/load/preflight/dual-core execution smoke test passed");
+    std::puts("optional compiled bank rollback/link/load/preflight/dual-core execution smoke test passed");
     return 0;
 }
