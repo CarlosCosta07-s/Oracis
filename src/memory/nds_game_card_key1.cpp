@@ -211,6 +211,102 @@ Status NdsGameCardKey1::decrypt_command(
     return Status::Ok;
 }
 
+Status NdsGameCardKey1::decode_command(
+    const uint8_t *wire_bytes, uint32_t size,
+    uint32_t expected_counter20, uint16_t expected_random_i,
+    uint16_t expected_random_j,
+    NdsGameCardKey1Command &decoded) const noexcept
+{
+    if (wire_bytes == nullptr) return Status::InvalidRegion;
+    if (size != BlockBytes) return Status::InvalidWidth;
+    if (!initialized_) return Status::PermissionDenied;
+    if (expected_counter20 > UINT32_C(0x000FFFFF) ||
+        expected_random_i > UINT16_C(0x0FFF) ||
+        expected_random_j > UINT16_C(0x0FFF)) {
+        return Status::InvalidRegion;
+    }
+
+    uint8_t plain[BlockBytes]{};
+    for (uint32_t index = 0u; index < BlockBytes; ++index) {
+        plain[index] = wire_bytes[index];
+    }
+    const Status cipher_status = decrypt_command(plain, size);
+    if (cipher_status != Status::Ok) return cipher_status;
+
+    const uint8_t opcode = static_cast<uint8_t>(plain[0] >> 4u);
+    const uint16_t parameter16 = static_cast<uint16_t>(
+        (static_cast<uint16_t>(plain[0] & UINT8_C(0x0F)) << 12u) |
+        (static_cast<uint16_t>(plain[1]) << 4u) |
+        (static_cast<uint16_t>(plain[2]) >> 4u));
+    const uint32_t following24 =
+        (static_cast<uint32_t>(plain[2] & UINT8_C(0x0F)) << 20u) |
+        (static_cast<uint32_t>(plain[3]) << 12u) |
+        (static_cast<uint32_t>(plain[4]) << 4u) |
+        (static_cast<uint32_t>(plain[5]) >> 4u);
+    const uint32_t counter20 =
+        (static_cast<uint32_t>(plain[5] & UINT8_C(0x0F)) << 16u) |
+        (static_cast<uint32_t>(plain[6]) << 8u) |
+        static_cast<uint32_t>(plain[7]);
+
+    if (counter20 != expected_counter20) return Status::PermissionDenied;
+
+    NdsGameCardKey1Command candidate{};
+    candidate.opcode = opcode;
+    candidate.parameter16 = parameter16;
+    candidate.counter20 = counter20;
+
+    switch (opcode) {
+    case 0x04u:
+        candidate.kind = NdsGameCardKey1CommandKind::ActivateKey2;
+        candidate.key2_seed24 = following24;
+        break;
+    case 0x01u:
+        candidate.kind = NdsGameCardKey1CommandKind::ReadChipId;
+        candidate.random_i = static_cast<uint16_t>(following24 >> 12u);
+        candidate.random_j = static_cast<uint16_t>(following24 & UINT32_C(0x0FFF));
+        if (candidate.random_i != expected_random_i ||
+            candidate.random_j != expected_random_j) {
+            return Status::PermissionDenied;
+        }
+        break;
+    case 0x02u:
+        candidate.kind = NdsGameCardKey1CommandKind::ReadSecureAreaBlock;
+        candidate.secure_area_block = parameter16;
+        candidate.random_i = static_cast<uint16_t>(following24 >> 12u);
+        candidate.random_j = static_cast<uint16_t>(following24 & UINT32_C(0x0FFF));
+        if (candidate.secure_area_block < 4u ||
+            candidate.secure_area_block > 7u ||
+            candidate.random_i != expected_random_i ||
+            candidate.random_j != expected_random_j) {
+            return Status::PermissionDenied;
+        }
+        break;
+    case 0x06u:
+        candidate.kind = NdsGameCardKey1CommandKind::DisableKey2;
+        candidate.random_i = static_cast<uint16_t>(following24 >> 12u);
+        candidate.random_j = static_cast<uint16_t>(following24 & UINT32_C(0x0FFF));
+        if (candidate.random_i != expected_random_i ||
+            candidate.random_j != expected_random_j) {
+            return Status::PermissionDenied;
+        }
+        break;
+    case 0x0Au:
+        candidate.kind = NdsGameCardKey1CommandKind::EnterMainDataMode;
+        candidate.random_i = static_cast<uint16_t>(following24 >> 12u);
+        candidate.random_j = static_cast<uint16_t>(following24 & UINT32_C(0x0FFF));
+        if (candidate.random_i != expected_random_i ||
+            candidate.random_j != expected_random_j) {
+            return Status::PermissionDenied;
+        }
+        break;
+    default:
+        return Status::PermissionDenied;
+    }
+
+    decoded = candidate;
+    return Status::Ok;
+}
+
 Status NdsGameCardKey1::decrypt_block(
     uint8_t *bytes, uint32_t size) const noexcept
 {
