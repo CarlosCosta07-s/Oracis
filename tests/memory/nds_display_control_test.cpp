@@ -86,7 +86,7 @@ int main()
             NDS_ARM9, engine_a_master_bright, 2u,
             UINT16_C(0x4008)) != Status::Ok ||
         display.apply_master_brightness(0u, UINT16_C(0x0010)) !=
-            UINT16_C(0x0018) ||
+            UINT16_C(0x4218) ||
         display.write(
             NDS_ARM9, engine_a_master_bright, 2u,
             UINT16_C(0x8008)) != Status::Ok ||
