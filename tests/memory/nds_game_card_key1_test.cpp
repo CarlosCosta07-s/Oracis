@@ -161,6 +161,11 @@ int main()
         }
     }
 
+    if (key1.decode_command(nullptr, NdsGameCardKey1::BlockBytes,
+            UINT32_C(0x00054322), UINT16_C(0x0ABC), UINT16_C(0x0123),
+            decoded) != Status::InvalidRegion) {
+        return fail("KEY1 command decoder accepted a null command buffer");
+    }
     constexpr uint16_t protocol_i = UINT16_C(0x0ABC);
     constexpr uint16_t protocol_j = UINT16_C(0x0123);
     constexpr uint32_t activation_counter = UINT32_C(0x54321);
@@ -235,6 +240,26 @@ int main()
             first_command_counter + 5u, protocol_i, protocol_j, decoded) !=
             Status::PermissionDenied) {
         return fail("KEY1 accepted a secure-area block outside 0004h..0007h");
+    }
+
+    auto unknown_command = make_key1_command(
+        0x03u, 0u, 0u, first_command_counter + 6u);
+    if (key1.encrypt_command(unknown_command.data(),
+            static_cast<uint32_t>(unknown_command.size())) != Status::Ok ||
+        key1.decode_command(unknown_command.data(),
+            static_cast<uint32_t>(unknown_command.size()),
+            first_command_counter + 6u, protocol_i, protocol_j, decoded) !=
+            Status::PermissionDenied) {
+        return fail("KEY1 accepted an unsupported encrypted command opcode");
+    }
+    if (key1.decode_command(unknown_command.data(), 7u,
+            first_command_counter + 6u, protocol_i, protocol_j, decoded) !=
+            Status::InvalidWidth ||
+        key1.decode_command(unknown_command.data(),
+            static_cast<uint32_t>(unknown_command.size()),
+            UINT32_C(0x00100000), protocol_i, protocol_j, decoded) !=
+            Status::InvalidRegion) {
+        return fail("KEY1 command decoder accepted an invalid size or counter");
     }
 
     std::puts("NDS KEY1 table loading, code levels, block vectors and command byte order passed");
