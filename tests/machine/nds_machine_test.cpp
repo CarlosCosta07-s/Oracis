@@ -65,6 +65,7 @@ bool execute_test_slice(
 }
 
 struct InterruptWaitFixture {
+    NdsCpu wait_cpu = NDS_ARM9;
     uint32_t swi_imm = 0u;
     uint32_t clear_old_flags = 1u;
     uint32_t wait_mask = 0u;
@@ -83,7 +84,7 @@ bool execute_interrupt_wait_slice(
     }
 
     ++fixture->calls[static_cast<unsigned>(cpu)];
-    if (cpu == NDS_ARM9 && !fixture->requested) {
+    if (cpu == fixture->wait_cpu && !fixture->requested) {
         state->R[0] = fixture->clear_old_flags;
         state->R[1] = fixture->wait_mask;
         runtime_swi(fixture->swi_imm);
