@@ -245,12 +245,13 @@ Status NdsGeometryEngine::install() noexcept
     current_vertex_color_ = UINT16_C(0x7FFF);
     current_texture_s_ = 0;
     current_texture_t_ = 0;
-    vertex_ram_ = {};
-    vertex_count_ = 0u;
-    vertex_ram_overflow_ = false;
-    polygon_ram_ = {};
-    polygon_count_ = 0u;
-    polygon_ram_overflow_ = false;
+    buffers_ = {};
+    build_buffer_index_ = 0u;
+    render_buffer_index_ = 1u;
+    swap_waiting_vblank_ = false;
+    swap_lockup_ = false;
+    swap_buffer_clear_cycles_ = 0u;
+    swap_parameters_ = 0u;
     pending_polygon_attributes_ = 0u;
     active_polygon_attributes_ = 0u;
     primitive_mode_ = 0u;
@@ -269,7 +270,7 @@ Status NdsGeometryEngine::install() noexcept
 
 bool NdsGeometryEngine::busy() const noexcept
 {
-    return fifo_count_ != 0u || active_command_valid_;
+    return fifo_count_ != 0u || active_command_valid_ || swap_lockup_;
 }
 
 bool NdsGeometryEngine::fifo_push(
@@ -440,8 +441,9 @@ ReadResult NdsGeometryEngine::read(
     }
     if (address == RamCountAddress) {
         if (width != 4u) return {Status::InvalidWidth, 0u};
-        const uint32_t vertices = vertex_count_ & UINT32_C(0x1FFF);
-        const uint32_t polygons = polygon_count_ & UINT32_C(0x0FFF);
+        const auto &buffer = buffers_[build_buffer_index_];
+        const uint32_t vertices = buffer.vertex_count & UINT32_C(0x1FFF);
+        const uint32_t polygons = buffer.polygon_count & UINT32_C(0x0FFF);
         return {Status::Ok, (vertices << 16u) | polygons};
     }
     if (address >= ClipMatrixBase &&
@@ -591,6 +593,14 @@ bool NdsGeometryEngine::begin_next_command() noexcept
     active_cycles_remaining_ =
         command_cycles(active_command_, matrix_mode_);
     active_command_valid_ = true;
+    if (active_command_ == 0x50u) {
+        /* SwapBuffers halts GX processing until the next VBlank edge. */
+        swap_waiting_vblank_ = true;
+        active_cycles_remaining_ = 0u;
+        if (vertex_list_open_) {
+            swap_lockup_ = true;
+        }
+    }
     matrix_stack_busy_ =
         active_command_ >= 0x11u && active_command_ <= 0x14u;
     update_fifo_irq();
@@ -608,10 +618,59 @@ void NdsGeometryEngine::complete_active_command() noexcept
     update_fifo_irq();
 }
 
+void NdsGeometryEngine::reset_build_buffer() noexcept
+{
+    buffers_[build_buffer_index_] = {};
+}
+
+void NdsGeometryEngine::notify_vblank() noexcept
+{
+    if (!installed_ || !active_command_valid_ ||
+        active_command_ != 0x50u || !swap_waiting_vblank_) {
+        return;
+    }
+
+    if (vertex_list_open_) {
+        swap_lockup_ = true;
+        swap_waiting_vblank_ = false;
+        return;
+    }
+
+    const uint8_t old_build = build_buffer_index_;
+    build_buffer_index_ = render_buffer_index_;
+    render_buffer_index_ = old_build;
+    swap_parameters_ =
+        static_cast<uint8_t>(active_parameters_[0] & UINT32_C(3));
+    swap_buffer_clear_cycles_ = 10u;
+    swap_waiting_vblank_ = false;
+    active_cycles_remaining_ = 392u;
+}
+
 void NdsGeometryEngine::advance_bus_cycles(uint64_t cycles) noexcept
 {
-    if (!installed_) return;
+    if (!installed_ || swap_lockup_) return;
     while (cycles != 0u) {
+        if (swap_waiting_vblank_) break;
+        if (active_command_valid_ && active_command_ == 0x50u) {
+            const uint64_t step = std::min<uint64_t>(
+                cycles, active_cycles_remaining_);
+            cycles -= step;
+            active_cycles_remaining_ = static_cast<uint16_t>(
+                active_cycles_remaining_ - step);
+            if (swap_buffer_clear_cycles_ != 0u) {
+                const uint64_t clear_step = std::min<uint64_t>(
+                    step, swap_buffer_clear_cycles_);
+                swap_buffer_clear_cycles_ = static_cast<uint16_t>(
+                    swap_buffer_clear_cycles_ - clear_step);
+                if (swap_buffer_clear_cycles_ == 0u) {
+                    reset_build_buffer();
+                }
+            }
+            if (active_cycles_remaining_ == 0u) {
+                complete_active_command();
+            }
+            continue;
+        }
         if (!active_command_valid_) {
             if (!begin_next_command()) break;
         }
@@ -933,8 +992,9 @@ void NdsGeometryEngine::execute_vertex_command() noexcept
 
 void NdsGeometryEngine::submit_vertex() noexcept
 {
-    if (vertex_count_ >= VertexRamCapacity) {
-        vertex_ram_overflow_ = true;
+    auto &buffer = buffers_[build_buffer_index_];
+    if (buffer.vertex_count >= VertexRamCapacity) {
+        buffer.vertex_overflow = true;
         return;
     }
 
@@ -972,8 +1032,8 @@ void NdsGeometryEngine::submit_vertex() noexcept
         vertex.clip_position[row] = std::bit_cast<int32_t>(shifted);
     }
 
-    const uint32_t stored_index = vertex_count_;
-    vertex_ram_[vertex_count_++] = vertex;
+    const uint32_t stored_index = buffer.vertex_count;
+    buffer.vertices[buffer.vertex_count++] = vertex;
     append_vertex_to_list(stored_index);
 }
 
@@ -1002,8 +1062,9 @@ void NdsGeometryEngine::emit_polygon(
     const uint32_t *indices, uint8_t count) noexcept
 {
     if (indices == nullptr || (count != 3u && count != 4u)) return;
-    if (polygon_count_ >= PolygonRamCapacity) {
-        polygon_ram_overflow_ = true;
+    auto &buffer = buffers_[build_buffer_index_];
+    if (buffer.polygon_count >= PolygonRamCapacity) {
+        buffer.polygon_overflow = true;
         return;
     }
 
@@ -1013,7 +1074,7 @@ void NdsGeometryEngine::emit_polygon(
     }
     polygon.attributes = active_polygon_attributes_;
     polygon.vertex_count = count;
-    polygon_ram_[polygon_count_++] = polygon;
+    buffer.polygons[buffer.polygon_count++] = polygon;
 }
 
 void NdsGeometryEngine::append_vertex_to_list(

@@ -1,9 +1,9 @@
 /*
  * Nintendo DS Geometry Engine command FIFO and matrix command processor.
  *
- * This first hardware slice implements command intake, FIFO status/IRQ,
- * command timing, the matrix command family, and transformed vertex capture.
- * Polygon clipping/assembly and rasterization remain separate subsystems.
+ * Implements command intake, FIFO status/IRQ, matrix commands, vertex
+ * capture, polygon assembly, and the dual Geometry/Rendering RAM handoff.
+ * Clipping, rasterization and the 48-line output cache remain separate.
  */
 #ifndef ORACIS_MEMORY_NDS_GEOMETRY_ENGINE_HPP
 #define ORACIS_MEMORY_NDS_GEOMETRY_ENGINE_HPP
@@ -49,6 +49,15 @@ public:
         uint8_t vertex_count = 0u;
     };
 
+    struct GeometryBuffer {
+        std::array<Vertex, VertexRamCapacity> vertices{};
+        uint32_t vertex_count = 0u;
+        bool vertex_overflow = false;
+        std::array<Polygon, PolygonRamCapacity> polygons{};
+        uint32_t polygon_count = 0u;
+        bool polygon_overflow = false;
+    };
+
     explicit NdsGeometryEngine(NdsInterruptControl &interrupts) noexcept
         : interrupts_(interrupts) {}
     NdsGeometryEngine(const NdsGeometryEngine &) = delete;
@@ -67,21 +76,55 @@ public:
     /* Advance the command processor in the common 33.51 MHz bus-clock domain. */
     void advance_bus_cycles(uint64_t cycles) noexcept;
 
+    /* Notify the command processor when the display enters scanline 192. */
+    void notify_vblank() noexcept;
+
     /* Reassert level-sensitive GX FIFO IRQ after software writes IF. */
     void refresh_fifo_irq() noexcept;
 
     uint32_t fifo_entries() const noexcept { return fifo_count_; }
-    uint32_t vertex_count() const noexcept { return vertex_count_; }
-    bool vertex_ram_overflow() const noexcept { return vertex_ram_overflow_; }
-    uint32_t polygon_count() const noexcept { return polygon_count_; }
-    bool polygon_ram_overflow() const noexcept { return polygon_ram_overflow_; }
+    uint32_t vertex_count() const noexcept {
+        return buffers_[build_buffer_index_].vertex_count;
+    }
+    bool vertex_ram_overflow() const noexcept {
+        return buffers_[build_buffer_index_].vertex_overflow;
+    }
+    uint32_t polygon_count() const noexcept {
+        return buffers_[build_buffer_index_].polygon_count;
+    }
+    bool polygon_ram_overflow() const noexcept {
+        return buffers_[build_buffer_index_].polygon_overflow;
+    }
+    uint32_t render_vertex_count() const noexcept {
+        return buffers_[render_buffer_index_].vertex_count;
+    }
+    uint32_t render_polygon_count() const noexcept {
+        return buffers_[render_buffer_index_].polygon_count;
+    }
+    const Vertex *render_vertex_at(uint32_t index) const noexcept {
+        const auto &buffer = buffers_[render_buffer_index_];
+        return index < buffer.vertex_count ? &buffer.vertices[index] : nullptr;
+    }
+    const Polygon *render_polygon_at(uint32_t index) const noexcept {
+        const auto &buffer = buffers_[render_buffer_index_];
+        return index < buffer.polygon_count ? &buffer.polygons[index] : nullptr;
+    }
+    bool swap_waiting_for_vblank() const noexcept {
+        return swap_waiting_vblank_;
+    }
+    bool swap_lockup() const noexcept { return swap_lockup_; }
+    uint8_t build_buffer_index() const noexcept { return build_buffer_index_; }
+    uint8_t render_buffer_index() const noexcept { return render_buffer_index_; }
+    uint8_t swap_parameters() const noexcept { return swap_parameters_; }
     bool vertex_list_open() const noexcept { return vertex_list_open_; }
     uint8_t primitive_mode() const noexcept { return primitive_mode_; }
     const Polygon *polygon_at(uint32_t index) const noexcept {
-        return index < polygon_count_ ? &polygon_ram_[index] : nullptr;
+        const auto &buffer = buffers_[build_buffer_index_];
+        return index < buffer.polygon_count ? &buffer.polygons[index] : nullptr;
     }
     const Vertex *vertex_at(uint32_t index) const noexcept {
-        return index < vertex_count_ ? &vertex_ram_[index] : nullptr;
+        const auto &buffer = buffers_[build_buffer_index_];
+        return index < buffer.vertex_count ? &buffer.vertices[index] : nullptr;
     }
     bool busy() const noexcept;
     bool matrix_stack_error() const noexcept { return matrix_stack_error_; }
@@ -147,6 +190,7 @@ private:
     void end_vertex_list() noexcept;
     void append_vertex_to_list(uint32_t vertex_index) noexcept;
     void emit_polygon(const uint32_t *indices, uint8_t count) noexcept;
+    void reset_build_buffer() noexcept;
     void set_current_matrix(const Matrix &matrix) noexcept;
     void multiply_current_matrix(const Matrix &matrix,
                                  bool position_only = false) noexcept;
@@ -195,12 +239,13 @@ private:
     uint16_t current_vertex_color_ = UINT16_C(0x7FFF);
     int16_t current_texture_s_ = 0;
     int16_t current_texture_t_ = 0;
-    std::array<Vertex, VertexRamCapacity> vertex_ram_{};
-    uint32_t vertex_count_ = 0u;
-    bool vertex_ram_overflow_ = false;
-    std::array<Polygon, PolygonRamCapacity> polygon_ram_{};
-    uint32_t polygon_count_ = 0u;
-    bool polygon_ram_overflow_ = false;
+    std::array<GeometryBuffer, 2> buffers_{};
+    uint8_t build_buffer_index_ = 0u;
+    uint8_t render_buffer_index_ = 1u;
+    bool swap_waiting_vblank_ = false;
+    bool swap_lockup_ = false;
+    uint16_t swap_buffer_clear_cycles_ = 0u;
+    uint8_t swap_parameters_ = 0u;
     uint32_t pending_polygon_attributes_ = 0u;
     uint32_t active_polygon_attributes_ = 0u;
     uint8_t primitive_mode_ = 0u;
