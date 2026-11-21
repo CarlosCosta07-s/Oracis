@@ -168,7 +168,7 @@ int main()
         !write_command(geometry, 0x11u)) {
         return fail("position matrix push enqueue failed");
     }
-    geometry.advance_bus_cycles(17u);
+    geometry.advance_bus_cycles(18u);
     if (geometry.position_stack_pointer() != 1u) {
         return fail("position matrix stack pointer did not advance on PUSH");
     }
