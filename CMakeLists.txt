@@ -104,6 +104,7 @@ add_library(oracis_memory STATIC
     src/memory/nds_interrupt_control.cpp
     src/memory/nds_ipc_control.cpp
     src/memory/nds_game_card_control.cpp
+    src/memory/nds_game_card_key1.cpp
     src/memory/nds_dma_control.cpp
     src/memory/nds_timer_control.cpp
     src/memory/nds_keypad_control.cpp
@@ -313,6 +314,12 @@ if(BUILD_TESTING)
     )
     target_link_libraries(oracis_nds_ipc_control_test PRIVATE oracis_memory)
     add_test(NAME oracis_nds_ipc_control_test COMMAND oracis_nds_ipc_control_test)
+
+    add_executable(oracis_nds_game_card_key1_test
+        tests/memory/nds_game_card_key1_test.cpp
+    )
+    target_link_libraries(oracis_nds_game_card_key1_test PRIVATE oracis_memory)
+    add_test(NAME oracis_nds_game_card_key1_test COMMAND oracis_nds_game_card_key1_test)
 
     add_executable(oracis_nds_game_card_control_test
         tests/memory/nds_game_card_control_test.cpp
