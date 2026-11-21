@@ -1,6 +1,6 @@
 # Exceções ARM — entrada e retorno no runtime Oracis
 
-**Estado:** primitivas implementadas e testadas isoladamente; ainda não ligadas ao scheduler, à linha de interrupções ou à execução dos bancos.
+**Estado:** entrada/retorno de exceção integrados ao runtime de bancos. `runtime_tick` consulta IRQ na fronteira de instrução; `runtime_irq` usa o PC seguinte fornecido pelo código gerado, deriva LR_irq = PC + 4 e despacha o vetor dentro da fatia ativa. A entrega no limite do round usa o mesmo callback de máquina; executores alternativos ainda podem fornecer um LR explícito.
 
 ## 1. Responsabilidade do chamador
 
@@ -69,11 +69,11 @@ Código: `src/runtime/arm_exception_ops.cpp`. Teste: `tests/abi/arm_exception_op
 
 ## 6. Próxima integração
 
-1. O scheduler deve gerar o return link correto para cada fronteira de instrução.
-2. O controlador IRQ/FIQ deve consultar I/F e a prioridade/estado de interrupção.
-3. Os caminhos SWI e undefined devem chamar a mesma primitiva, mas com links derivados da instrução atual.
-4. A seleção de vetores ARM9 via CP15 Control.V está implementada; completar os demais registradores CP15/MPU/cache/TCM e manter a base baixa da ARM7.
-5. O código de exceção recompilado deve ser resolvido pelo dispatch estático; miss continua sendo falha explícita.
+1. Validar o PC seguinte emitido pelo NDSRecomp em ARM e Thumb contra traces de instrução reais; a ABI `runtime_irq(return_pc)` aplica LR_irq = `return_pc + 4`.
+2. Completar prioridade/latência de IRQ e FIQ somente com eventos DS modelados; a linha IRQ atual respeita IME, IE, IF e CPSR.I.
+3. Integrar exceções SWI/undefined emitidas pelo código gerado sem inventar um LR genérico.
+4. Completar os registradores CP15/MPU/cache/TCM; ARM9 V e vetor baixo fixo do ARM7 já são usados na entrada IRQ.
+5. Manter misses de dispatch de vetores fail-closed até que os bancos de BIOS necessários estejam disponíveis.
 
 ## Referência arquitetural
 
