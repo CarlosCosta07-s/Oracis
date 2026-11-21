@@ -950,6 +950,22 @@ int main(){
      card.key2_bytes_processed()!=expected_automatic_new_key2.bytes_processed())
    return fail("invalid KEY2 command consumed the persistent stream");
 
+  /* KEY2 B7 is restricted to the main data area at 8000h and above. */
+  std::array<uint8_t,8> below_window_b7_plain{{
+      UINT8_C(0xB7),0u,0u,UINT8_C(0x7E),0u,0u,0u,0u}};
+  auto below_window_b7_wire=below_window_b7_plain;
+  NdsGameCardKey2 below_window_reference=expected_automatic_new_key2;
+  if(below_window_reference.apply_keystream(
+         below_window_b7_wire.data(),8u)!=Status::Ok)
+   return fail("could not encrypt below-window KEY2 B7 probe");
+  write_key1_command(below_window_b7_wire);
+  if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+      invalid_key2_control|NdsGameCardControl::RomCtrlStartBusyMask)!=
+          Status::PermissionDenied||
+     card.busy()||
+     card.key2_bytes_processed()!=expected_automatic_new_key2.bytes_processed())
+   return fail("KEY2 B7 accepted a protected address or consumed the stream");
+
   std::array<uint8_t,8> new_key2_b7_plain{{
       UINT8_C(0xB7),UINT8_C(0x00),UINT8_C(0x00),UINT8_C(0x8E),
       UINT8_C(0x00),UINT8_C(0x00),UINT8_C(0x00),UINT8_C(0x00)}};
