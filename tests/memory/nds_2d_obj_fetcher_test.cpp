@@ -668,6 +668,31 @@ int main()
         return fail("Vertically clipped OBJ did not consume its two-cycle clipping overhead");
     }
 
+    /* Engine B has an independent copy of the same OBJ cycle budget. */
+    for (unsigned object = 0u; object < 128u; ++object) {
+        if (!write_oam(
+                memory, 1u, object,
+                UINT16_C(0x0200), 0u, 0u)) {
+            return fail("Engine B OBJ budget fixture could not disable OAM");
+        }
+    }
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::EngineBBase, 4u,
+            (UINT32_C(1) << 12u) |
+                (UINT32_C(1) << 23u)) != Status::Ok ||
+        !write_oam(
+            memory, 1u, 0u,
+            UINT16_C(100), 0u, 0u)) {
+        return fail("Engine B OBJ budget setup failed");
+    }
+    result = fetcher.render_scanline(1u, display, 100u, line);
+    if (result.status != Nds2dObjFetchStatus::Ok ||
+        result.cycles_available != UINT16_C(1530) ||
+        result.cycles_used != UINT16_C(8) ||
+        result.first_unrendered_object != UINT8_C(0xFF)) {
+        return fail("Engine B did not use its independent 1530-cycle OBJ budget");
+    }
+
     std::puts("NDS Engine A/B tiled/bitmap OBJ, affine transforms, alpha, mapping, priority and OBJ-window tests passed");
     return 0;
 }
