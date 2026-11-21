@@ -79,6 +79,27 @@ int main(){
     card.key2_state2()!=UINT64_C(0x506CECF09D))
      return fail("ARM9 KEY2 seed bank was overwritten by ARM7 writes");
 
+ /* The raw 90 chip ID is not guessed from the .nds image; configuration is required. */
+ write_card_command(NdsGameCardControl::ChipIdReadCommand,0u);
+ if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+     small|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::PermissionDenied||card.busy())
+     return fail("90 chip ID command started without configured physical metadata");
+ constexpr uint32_t synthetic_chip_id=UINT32_C(0x800000C2);
+ if(card.set_chip_id(synthetic_chip_id)!=Status::Ok||!card.chip_id_configured()||
+    card.chip_id()!=synthetic_chip_id)
+     return fail("synthetic chip ID configuration failed");
+ if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+     small|NdsGameCardControl::RomCtrlStartBusyMask)!=Status::Ok)
+     return fail("90 chip ID command did not start after explicit configuration");
+ if(card.set_chip_id(UINT32_C(0x12345678))!=Status::PermissionDenied)
+     return fail("chip ID was mutable during an active card transaction");
+ card.advance_bus_cycles(40u);
+ if(bus_read_u32(NdsGameCardControl::DataAddress)!=synthetic_chip_id||card.busy()||
+    (bus_read_u32(NdsInterruptControl::IfAddress)&imask)==0u)
+     return fail("90 chip ID did not return the configured raw value");
+ if(irq.write(NDS_ARM9,NdsInterruptControl::IfAddress,4u,imask)!=Status::Ok)
+     return fail("could not clear 90 chip ID IRQ");
+
  /* Reset-time 9F dummy command returns an 8 KiB high-Z stream (read as FF). */
  write_card_command(NdsGameCardControl::DummyCommand,0u);
  const uint32_t dummy_control=NdsGameCardControl::RomCtrlResetReleaseMask|

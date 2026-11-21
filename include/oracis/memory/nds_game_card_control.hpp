@@ -20,6 +20,7 @@ public:
  static constexpr uint32_t GameCardTransferIrqMask=UINT32_C(1)<<19u;
  static constexpr uint8_t DummyCommand=UINT8_C(0x9F);
  static constexpr uint8_t HeaderReadCommand=UINT8_C(0x00);
+ static constexpr uint8_t ChipIdReadCommand=UINT8_C(0x90);
  static constexpr uint8_t RomReadCommand=UINT8_C(0xB7);
  static constexpr uint32_t RomCtrlKey2DataMask=UINT32_C(1)<<13u;
  static constexpr uint32_t RomCtrlKey2SeedApplyMask=UINT32_C(1)<<15u;
@@ -40,6 +41,8 @@ public:
  Status install() noexcept;
  /* Image bytes remain caller-owned and must outlive the mount. */
  Status mount_image(const uint8_t *bytes,uint32_t size) noexcept;
+ /* Chip ID is cartridge metadata not present in every .nds dump; caller must supply it. */
+ Status set_chip_id(uint32_t chip_id) noexcept;
  void unmount_image() noexcept;
  ReadResult read(NdsCpu cpu,uint32_t address,uint32_t width) noexcept;
  Status write(NdsCpu cpu,uint32_t address,uint32_t width,uint32_t value) noexcept;
@@ -49,6 +52,8 @@ public:
  void reset_transfer() noexcept;
  bool installed() const noexcept{return installed_;}
  bool key2_initialized() const noexcept{return key2_.initialized();}
+ bool chip_id_configured() const noexcept{return chip_id_configured_;}
+ uint32_t chip_id() const noexcept{return chip_id_;}
  uint64_t key2_state1() const noexcept{return key2_.state1();}
  uint64_t key2_state2() const noexcept{return key2_.state2();}
  uint64_t key2_bytes_processed() const noexcept{return key2_.bytes_processed();}
@@ -81,6 +86,9 @@ private:
  uint64_t cycles_until_data_=0u;
  uint32_t cycles_per_byte_=5u;
  NdsCpu owner_cpu_=NDS_ARM9;
+ uint32_t chip_id_=0u;
+ bool chip_id_configured_=false;
+ bool chip_id_data_=false;
  bool reset_released_=false,busy_=false,data_ready_=false,dummy_data_=false,wrap_read_window_=false,installed_=false;
 };
 }
