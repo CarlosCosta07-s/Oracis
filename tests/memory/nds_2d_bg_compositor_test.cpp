@@ -364,7 +364,11 @@ int main()
             UINT16_C(0x0104)) != Status::Ok ||
         display.write(
             NDS_ARM9, NdsDisplayControl::EngineABase + 10u, 2u,
-            UINT16_C(0x0209)) != Status::Ok) {
+            UINT16_C(0x0209)) != Status::Ok ||
+        /* No second target: verify direct BG0 3D composition first. */
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EngineABase + 0x50u, 2u,
+            UINT16_C(0x0001)) != Status::Ok) {
         return fail("BG0 3D source selection fixture setup failed");
     }
     preserved = line;
@@ -453,11 +457,14 @@ int main()
         return fail("BG0 3D alpha diagnostic mode restore failed");
     }
 
-    /* Partial 3D alpha is not allowed to use the ordinary BLDALPHA factors. */
+    /*
+     * BG0's nonzero 3D alpha requires the special blend path even when
+     * BLDCNT selects None. Until coefficients are verified, fail closed.
+     */
     three_d_line[255].alpha5 = UINT8_C(15);
     if (display.write(
             NDS_ARM9, NdsDisplayControl::EngineABase + 0x50u, 2u,
-            UINT16_C(0x0241)) != Status::Ok ||
+            UINT16_C(0x0201)) != Status::Ok ||
         display.write(
             NDS_ARM9, NdsDisplayControl::EngineABase + 0x52u, 2u,
             UINT16_C(0x0808)) != Status::Ok) {

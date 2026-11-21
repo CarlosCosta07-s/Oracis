@@ -294,33 +294,24 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
             }
         }
 
-        NdsDisplayControl::WindowBlendState pixel_effects = effects;
-        if (top.is_three_d) {
-            const uint16_t effect_mode = static_cast<uint16_t>(
-                (pixel_effects.bldcnt >> 6u) & UINT16_C(3));
-            const bool bg0_first_target =
-                (pixel_effects.bldcnt & UINT16_C(1)) != 0u;
-            if (effect_mode == 1u && bg0_first_target) {
-                const uint16_t second_target_mask = static_cast<uint16_t>(
-                    (pixel_effects.bldcnt >> 8u) & UINT16_C(0x003F));
-                const uint8_t second_target_bit = static_cast<uint8_t>(
-                    UINT8_C(1) << static_cast<unsigned>(effect_second.layer));
-                const bool eligible_second = has_effect_second &&
-                    (second_target_mask & second_target_bit) != 0u;
-                if (window.color_effects_enabled &&
-                    eligible_second &&
-                    top.three_d_alpha5 != 0u &&
-                    top.three_d_alpha5 < 31u) {
-                    return {Nds2dComposeStatus::UnsupportedThreeDAlphaBlend};
-                }
-
-                /*
-                 * BG0's 3D alpha is not BLDALPHA. Until its exact coefficient
-                 * conversion is verified, never silently use BLDALPHA for a
-                 * 3D first target. Opaque 3D pixels therefore remain opaque.
-                 */
-                pixel_effects.bldcnt = static_cast<uint16_t>(
-                    pixel_effects.bldcnt & ~UINT16_C(1));
+        if (top.is_three_d &&
+            window.color_effects_enabled &&
+            (effects.bldcnt & UINT16_C(0x0001)) != 0u) {
+            /*
+             * BG0 3D has a hardware-special alpha path: a selected second
+             * target immediately behind it can trigger blending even when
+             * BLDCNT selects None or brightness. The exact 5-bit-to-EVA/EVB
+             * conversion is not sufficiently specified, so do not substitute
+             * BLDALPHA or silently output an incorrect colour.
+             */
+            const uint16_t second_target_mask = static_cast<uint16_t>(
+                (effects.bldcnt >> 8u) & UINT16_C(0x003F));
+            const uint8_t second_target_bit = static_cast<uint8_t>(
+                UINT8_C(1) << static_cast<unsigned>(effect_second.layer));
+            const bool eligible_second = has_effect_second &&
+                (second_target_mask & second_target_bit) != 0u;
+            if (eligible_second && top.three_d_alpha5 != 0u) {
+                return {Nds2dComposeStatus::UnsupportedThreeDAlphaBlend};
             }
         }
 
@@ -332,7 +323,7 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
                 effect_second.layer,
                 has_effect_second,
                 window.color_effects_enabled,
-                pixel_effects,
+                effects,
                 top.force_alpha,
                 top.bitmap_alpha_eva),
             top.layer,

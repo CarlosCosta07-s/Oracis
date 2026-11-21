@@ -86,8 +86,9 @@ public:
      * succeed. When Engine A selects 3D for enabled BG0 (DISPCNT bit 3), the
      * caller must supply that rendered 3D scanline. BG0HOFS is applied across
      * the 512-pixel horizontal wrap region; alpha zero is transparent.
-     * Partial-alpha 3D first-target blending currently fails closed because
-     * the exact hardware coefficient path is not yet verified.
+     * When the selected immediate second target requires BG0 3D alpha
+     * blending, the compositor fails closed because the exact 5-bit alpha
+     * coefficient conversion is not sufficiently specified.
      */
     Nds2dComposeResult render_scanline(
         unsigned engine_index,
