@@ -881,6 +881,26 @@ int main(){
   /* KEY2 main-data B7 decrypts the command and continues the same stream
    * through ROM data, including gap2 between 200h-byte blocks. */
   constexpr uint32_t key2_b7_size=UINT32_C(0x400);
+  /* Unsupported commands must not consume the live KEY2 stream. */
+  std::array<uint8_t,8> invalid_key2_plain{{
+      UINT8_C(0xB9),0u,0u,0u,0u,0u,0u,0u}};
+  auto invalid_key2_wire=invalid_key2_plain;
+  NdsGameCardKey2 invalid_key2_reference=expected_automatic_new_key2;
+  if(invalid_key2_reference.apply_keystream(invalid_key2_wire.data(),8u)!=Status::Ok)
+   return fail("could not encrypt invalid KEY2 command probe");
+  write_key1_command(invalid_key2_wire);
+  const uint32_t invalid_key2_control=no_reply_control|
+      (UINT32_C(2)<<NdsGameCardControl::RomCtrlBlockSizeShift)|
+      (UINT32_C(0x18)<<NdsGameCardControl::RomCtrlKey1Gap2Shift)|
+      NdsGameCardControl::RomCtrlKey2DataMask|
+      NdsGameCardControl::RomCtrlKey2CommandMask;
+  if(card.write(NDS_ARM9,NdsGameCardControl::RomControlAddress,4u,
+      invalid_key2_control|NdsGameCardControl::RomCtrlStartBusyMask)!=
+          Status::PermissionDenied||
+     card.busy()||
+     card.key2_bytes_processed()!=expected_automatic_new_key2.bytes_processed())
+   return fail("invalid KEY2 command consumed the persistent stream");
+
   std::array<uint8_t,8> new_key2_b7_plain{{
       UINT8_C(0xB7),UINT8_C(0x00),UINT8_C(0x00),UINT8_C(0x8E),
       UINT8_C(0x00),UINT8_C(0x00),UINT8_C(0x00),UINT8_C(0x00)}};
