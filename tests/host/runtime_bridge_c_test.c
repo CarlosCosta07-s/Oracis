@@ -436,15 +436,25 @@ int main(void)
         return 1;
     }
 
-    if (oracis_host_runtime_run_round(1u, NULL, NULL) !=
-            ORACIS_HOST_RUNTIME_OK ||
+    const int irq_round_status =
+        oracis_host_runtime_run_round(1u, NULL, NULL);
+    const uint64_t irq_round_bus_cycles =
+        oracis_host_runtime_global_bus_cycles();
+    if (irq_round_status != ORACIS_HOST_RUNTIME_OK ||
         g_arm9_bank_calls != 2u ||
         g_arm7_bank_calls != 2u ||
         g_arm9_irq_handler_ok != 1 ||
         g_arm7_irq_handler_ok != 1 ||
-        oracis_host_runtime_global_bus_cycles() != UINT64_C(1)) {
+        irq_round_bus_cycles != UINT64_C(1)) {
         oracis_static_dispatch_clear();
-        fprintf(stderr, "C host bridge failed to execute synchronized ARM9/ARM7 banks\n");
+        fprintf(stderr,
+            "C host bridge IRQ round mismatch: status=%d "
+            "ARM9 calls=%u IRQ=%d triggered=%d; "
+            "ARM7 calls=%u IRQ=%d triggered=%d; cycles=%llu\n",
+            irq_round_status,
+            g_arm9_bank_calls, g_arm9_irq_handler_ok, g_arm9_irq_triggered,
+            g_arm7_bank_calls, g_arm7_irq_handler_ok, g_arm7_irq_triggered,
+            (unsigned long long)irq_round_bus_cycles);
         return 1;
     }
 
