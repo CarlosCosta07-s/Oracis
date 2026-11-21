@@ -110,59 +110,6 @@ static bool mount_game_card_file(const char *path)
     FILE *file = fopen(path, "rb");
     if (file == NULL) {
         SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
-            "Could not open NDS ARM7 BIOS '%s'.", path);
-        return false;
-    }
-    if (fseek(file, 0L, SEEK_END) != 0) {
-        (void)fclose(file);
-        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
-            "Could not determine NDS ARM7 BIOS size for '%s'.", path);
-        return false;
-    }
-    const long file_size = ftell(file);
-    if (file_size != 0x4000L || fseek(file, 0L, SEEK_SET) != 0) {
-        (void)fclose(file);
-        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
-            "NDS ARM7 BIOS '%s' must be exactly 16384 bytes.", path);
-        return false;
-    }
-
-    uint8_t *bytes = (uint8_t *)malloc(0x4000u);
-    if (bytes == NULL) {
-        (void)fclose(file);
-        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
-            "Could not allocate memory for NDS ARM7 BIOS '%s'.", path);
-        return false;
-    }
-    const size_t read_count = fread(bytes, 1u, 0x4000u, file);
-    const bool read_ok = read_count == 0x4000u && ferror(file) == 0;
-    const int close_status = fclose(file);
-    if (!read_ok || close_status != 0) {
-        free(bytes);
-        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
-            "Could not read the complete NDS ARM7 BIOS '%s'.", path);
-        return false;
-    }
-
-    const int status = oracis_host_runtime_load_game_card_arm7_bios(
-        bytes, 0x4000u);
-    free(bytes);
-    if (status != ORACIS_HOST_RUNTIME_OK) {
-        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
-            "Could not initialize the Game Card KEY1 table (bridge=%d).",
-            status);
-        return false;
-    }
-    SDL_Log("Copied the KEY1 table from user-supplied ARM7 BIOS '%s' and "
-            "initialized it using the mounted Game Code. The KEY1 command "
-            "handshake is not enabled yet.", path);
-    return true;
-}
-
-{
-    FILE *file = fopen(path, "rb");
-    if (file == NULL) {
-        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
             "Could not open Game Card image '%s'.", path);
         return false;
     }
@@ -222,12 +169,67 @@ static bool mount_game_card_file(const char *path)
     }
 
     SDL_Log("Mounted local Game Card image '%s' (%zu bytes). "
-            "Only unencrypted B7 reads are currently supported.",
+            "KEY1 setup requires an optional user-supplied ARM7 BIOS; "
+            "the KEY1/KEY2 command handshake is not complete.",
             path, image_size);
     return true;
 }
 
-static bool load_arm7_bios_file(const char *path)static uint8_t expand_rgb555_channel(uint16_t channel)
+static bool load_arm7_bios_file(const char *path)
+{
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not open NDS ARM7 BIOS '%s'.", path);
+        return false;
+    }
+    if (fseek(file, 0L, SEEK_END) != 0) {
+        (void)fclose(file);
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not determine NDS ARM7 BIOS size for '%s'.", path);
+        return false;
+    }
+    const long file_size = ftell(file);
+    if (file_size != 0x4000L || fseek(file, 0L, SEEK_SET) != 0) {
+        (void)fclose(file);
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "NDS ARM7 BIOS '%s' must be exactly 16384 bytes.", path);
+        return false;
+    }
+
+    uint8_t *bytes = (uint8_t *)malloc(0x4000u);
+    if (bytes == NULL) {
+        (void)fclose(file);
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not allocate memory for NDS ARM7 BIOS '%s'.", path);
+        return false;
+    }
+    const size_t read_count = fread(bytes, 1u, 0x4000u, file);
+    const bool read_ok = read_count == 0x4000u && ferror(file) == 0;
+    const int close_status = fclose(file);
+    if (!read_ok || close_status != 0) {
+        free(bytes);
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not read the complete NDS ARM7 BIOS '%s'.", path);
+        return false;
+    }
+
+    const int status = oracis_host_runtime_load_game_card_arm7_bios(
+        bytes, 0x4000u);
+    free(bytes);
+    if (status != ORACIS_HOST_RUNTIME_OK) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not initialize the Game Card KEY1 table (bridge=%d).",
+            status);
+        return false;
+    }
+    SDL_Log("Copied the KEY1 table from user-supplied ARM7 BIOS '%s' and "
+            "initialized it using the mounted Game Code. The KEY1 command "
+            "handshake is not enabled yet.", path);
+    return true;
+}
+
+static uint8_t expand_rgb555_channel(uint16_t channel)
 {
     return (uint8_t)((channel << 3u) | (channel >> 2u));
 }
