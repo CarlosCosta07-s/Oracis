@@ -2312,13 +2312,38 @@ int main()
     bus_write_u16(oracis::memory::NdsIpcControl::SyncAddress, 0u);
 
     /*
-     * IntrWait clears a stale IF bit, sleeps this CPU without stalling the
-     * shared bus clock, and resumes on a fresh Timer 0 overflow.
+     * The BIOS keeps completed interrupt flags in a per-CPU shadow word:
+     * ARM9 DTCM+0x3FF8, ARM7 private WRAM+0xFFF8. Configure the ARM9 DTCM
+     * window as retail BIOS startup does before exercising its SWIs.
+     */
+    constexpr uint32_t arm9_irq_check_flags_address = UINT32_C(0x00803FF8);
+    constexpr uint32_t arm7_irq_check_flags_address = UINT32_C(0x0380FFF8);
+    constexpr uint32_t dtcm_base = UINT32_C(0x00800000);
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 could not be selected to configure BIOS DTCM");
+    }
+    runtime_coproc_write(
+        15u, 0u, 9u, 1u, 0u,
+        dtcm_base | oracis::memory::NdsArm9Tcm::DtcmResetRegionControl);
+    runtime_coproc_write(
+        15u, 0u, 1u, 0u, 0u,
+        oracis::memory::NdsArm9Tcm::RequiredControlOnesMask |
+            oracis::memory::NdsArm9Tcm::AlternateVectorSelectMask |
+            oracis::memory::NdsArm9Tcm::DtcmEnableMask);
+    if (machine.guest_memory().write(
+            NDS_ARM9, arm9_irq_check_flags_address, 4u, 0u) !=
+            oracis::memory::Status::Ok ||
+        machine.guest_memory().write(
+            NDS_ARM7, arm7_irq_check_flags_address, 4u, 0u) !=
+            oracis::memory::Status::Ok) {
+        return fail("BIOS interrupt check words are not backed by ARM9 DTCM/ARM7 WRAM");
+    }
+
+    /*
+     * IntrWait clears a stale BIOS check flag, sleeps this CPU without
+     * stalling the shared bus clock, then resumes after a fresh Timer 0 IRQ.
      */
     constexpr uint32_t intrwait_timer_irq = UINT32_C(1) << 3u;
-    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
-        return fail("ARM9 could not be selected for IntrWait test");
-    }
     arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
     arm9->R[15] = UINT32_C(0x02007000);
     if (machine.timer_control().write(
@@ -2339,9 +2364,10 @@ int main()
         machine.interrupt_control().write(
             NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 0u) !=
             oracis::memory::Status::Ok ||
-        !machine.interrupt_control().request_irq(
-            NDS_ARM9, intrwait_timer_irq)) {
-        return fail("IntrWait test could not arm Timer 0 or seed stale IF");
+        machine.guest_memory().write(
+            NDS_ARM9, arm9_irq_check_flags_address, 4u,
+            intrwait_timer_irq) != oracis::memory::Status::Ok) {
+        return fail("IntrWait test could not arm Timer 0 or seed BIOS shadow flags");
     }
 
     InterruptWaitFixture intrwait_fixture{};
@@ -2358,20 +2384,36 @@ int main()
         (machine.interrupt_control().read(
             NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value &
             intrwait_timer_irq) == 0u ||
+        (machine.guest_memory().read(
+            NDS_ARM9, arm9_irq_check_flags_address, 4u).value &
+            intrwait_timer_irq) != 0u ||
         (arm9->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_IRQ ||
         arm9->banked_spsr[ARM_BANK_IRQ] != ORACIS_ARM_MODE_SYSTEM ||
         arm9->R[14] != UINT32_C(0x02007004) ||
         arm9->R[15] != UINT32_C(0xFFFF0018) ||
         machine.global_bus_cycles() != 12u) {
-        return fail("IntrWait did not clear stale IF and resume on Timer 0 IRQ");
+        return fail("IntrWait did not discard stale BIOS flags and enter the new Timer 0 IRQ");
     }
 
-    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
-        return fail("ARM9 could not be selected after IntrWait IRQ");
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9) ||
+        machine.guest_memory().write(
+            NDS_ARM9, arm9_irq_check_flags_address, 4u,
+            intrwait_timer_irq) != oracis::memory::Status::Ok ||
+        machine.interrupt_control().write(
+            NDS_ARM9, NdsInterruptControl::IfAddress, 4u,
+            intrwait_timer_irq) != oracis::memory::Status::Ok) {
+        return fail("IntrWait test could not emulate BIOS IRQ handler acknowledgement");
     }
     runtime_exception_return(UINT32_C(0x02007000));
-    machine.interrupt_control().write(
-        NDS_ARM9, NdsInterruptControl::IfAddress, 4u, intrwait_timer_irq);
+    if (machine.cpu_is_halted(NDS_ARM9) ||
+        (machine.guest_memory().read(
+            NDS_ARM9, arm9_irq_check_flags_address, 4u).value &
+            intrwait_timer_irq) != 0u ||
+        (machine.interrupt_control().read(
+            NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value &
+            intrwait_timer_irq) != 0u) {
+        return fail("IntrWait did not consume the BIOS IRQ check flag after handler return");
+    }
     machine.interrupt_control().write(
         NDS_ARM9, NdsInterruptControl::IeAddress, 4u, 0u);
     machine.interrupt_control().write(
@@ -2380,12 +2422,13 @@ int main()
         NDS_ARM9, NdsTimerControl::Timer0CounterAddress + 2u, 2u, 0u);
 
     /*
-     * IntrWait with clear_old_flags=0 must preserve and return immediately
-     * for an IF flag that is already active before the SWI.
+     * IntrWait with r0=0 returns immediately for an already recorded BIOS
+     * flag and consumes that selected bit without requiring an IF request.
      */
-    if (!machine.interrupt_control().request_irq(
-            NDS_ARM9, intrwait_timer_irq)) {
-        return fail("IntrWait KEEP test could not seed existing IF");
+    if (!machine.guest_memory().write(
+            NDS_ARM9, arm9_irq_check_flags_address, 4u,
+            intrwait_timer_irq) == oracis::memory::Status::Ok) {
+        return fail("IntrWait KEEP test could not seed BIOS shadow flags");
     }
     arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
     arm9->R[15] = UINT32_C(0x02007004);
@@ -2399,19 +2442,70 @@ int main()
         !intrwait_keep_fixture.requested ||
         intrwait_keep_fixture.calls[0] != 1u ||
         machine.cpu_is_halted(NDS_ARM9) ||
+        (machine.guest_memory().read(
+            NDS_ARM9, arm9_irq_check_flags_address, 4u).value &
+            intrwait_timer_irq) != 0u ||
         (machine.interrupt_control().read(
             NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value &
-            intrwait_timer_irq) == 0u ||
+            intrwait_timer_irq) != 0u ||
+        (machine.interrupt_control().read(
+            NDS_ARM9, NdsInterruptControl::ImeAddress, 4u).value &
+            1u) == 0u ||
         (arm9->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_SYSTEM ||
         machine.global_bus_cycles() != 13u) {
-        return fail("IntrWait KEEP did not preserve an already pending IF flag");
+        return fail("IntrWait KEEP did not consume and return for an old BIOS flag");
     }
     machine.interrupt_control().write(
-        NDS_ARM9, NdsInterruptControl::IfAddress, 4u, intrwait_timer_irq);
+        NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 0u);
 
     /*
-     * VBlankIntrWait discards a stale VBlank flag, then waits for the actual
-     * display controller line-192 edge rather than a fabricated IF request.
+     * ARM7 uses its fixed WRAM check word at 0x0380FFF8. Exercise the same
+     * immediate-return path on its Thumb core to verify the second address.
+     */
+    constexpr uint32_t arm7_intrwait_irq = UINT32_C(1) << 16u;
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM7) ||
+        machine.guest_memory().write(
+            NDS_ARM7, arm7_irq_check_flags_address, 4u,
+            arm7_intrwait_irq) != oracis::memory::Status::Ok ||
+        machine.interrupt_control().write(
+            NDS_ARM7, NdsInterruptControl::IfAddress, 4u, UINT32_MAX) !=
+            oracis::memory::Status::Ok ||
+        machine.interrupt_control().write(
+            NDS_ARM7, NdsInterruptControl::IeAddress, 4u, 0u) !=
+            oracis::memory::Status::Ok ||
+        machine.interrupt_control().write(
+            NDS_ARM7, NdsInterruptControl::ImeAddress, 4u, 0u) !=
+            oracis::memory::Status::Ok) {
+        return fail("ARM7 IntrWait test could not seed its BIOS WRAM flags");
+    }
+    arm7->cpsr = ORACIS_ARM_MODE_SYSTEM | CPSR_T_BIT;
+    arm7->R[15] = UINT32_C(0x02381002);
+    InterruptWaitFixture arm7_intrwait_fixture{};
+    arm7_intrwait_fixture.wait_cpu = NDS_ARM7;
+    arm7_intrwait_fixture.swi_imm = UINT32_C(0x04);
+    arm7_intrwait_fixture.clear_old_flags = 0u;
+    arm7_intrwait_fixture.wait_mask = arm7_intrwait_irq;
+    if (machine.run_dual_core_round(
+            1u, &execute_interrupt_wait_slice, nullptr,
+            &arm7_intrwait_fixture) != NdsMachineStatus::Ok ||
+        !arm7_intrwait_fixture.requested ||
+        arm7_intrwait_fixture.calls[0] != 1u ||
+        arm7_intrwait_fixture.calls[1] != 1u ||
+        machine.cpu_is_halted(NDS_ARM7) ||
+        (machine.guest_memory().read(
+            NDS_ARM7, arm7_irq_check_flags_address, 4u).value &
+            arm7_intrwait_irq) != 0u ||
+        (arm7->cpsr & (ORACIS_ARM_MODE_MASK | CPSR_T_BIT)) !=
+            (ORACIS_ARM_MODE_SYSTEM | CPSR_T_BIT) ||
+        machine.global_bus_cycles() != 14u) {
+        return fail("ARM7 IntrWait did not consume its WRAM BIOS check flag");
+    }
+    machine.interrupt_control().write(
+        NDS_ARM7, NdsInterruptControl::ImeAddress, 4u, 0u);
+
+    /*
+     * VBlankIntrWait discards a stale BIOS flag and waits for the actual
+     * display controller line-192 edge, then consumes the handler's BIOS flag.
      */
     constexpr uint32_t vblank_irq = UINT32_C(1);
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9) ||
@@ -2430,8 +2524,10 @@ int main()
         machine.interrupt_control().write(
             NDS_ARM9, NdsInterruptControl::ImeAddress, 4u, 0u) !=
             oracis::memory::Status::Ok ||
-        !machine.interrupt_control().request_irq(NDS_ARM9, vblank_irq)) {
-        return fail("VBlankIntrWait test could not arm DISPSTAT or seed stale IF");
+        machine.guest_memory().write(
+            NDS_ARM9, arm9_irq_check_flags_address, 4u,
+            vblank_irq) != oracis::memory::Status::Ok) {
+        return fail("VBlankIntrWait test could not arm DISPSTAT or seed BIOS flags");
     }
 
     arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
@@ -2453,6 +2549,9 @@ int main()
         (machine.interrupt_control().read(
             NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value &
             vblank_irq) == 0u ||
+        (machine.guest_memory().read(
+            NDS_ARM9, arm9_irq_check_flags_address, 4u).value &
+            vblank_irq) != 0u ||
         machine.cpu_is_halted(NDS_ARM9) ||
         (arm9->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_IRQ ||
         arm9->banked_spsr[ARM_BANK_IRQ] != ORACIS_ARM_MODE_SYSTEM ||
@@ -2461,12 +2560,25 @@ int main()
         return fail("VBlankIntrWait did not resume on the real line-192 edge");
     }
 
-    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
-        return fail("ARM9 could not be selected after VBlankIntrWait IRQ");
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9) ||
+        machine.guest_memory().write(
+            NDS_ARM9, arm9_irq_check_flags_address, 4u,
+            vblank_irq) != oracis::memory::Status::Ok ||
+        machine.interrupt_control().write(
+            NDS_ARM9, NdsInterruptControl::IfAddress, 4u,
+            vblank_irq) != oracis::memory::Status::Ok) {
+        return fail("VBlankIntrWait test could not emulate BIOS IRQ acknowledgement");
     }
     runtime_exception_return(UINT32_C(0x02007008));
-    machine.interrupt_control().write(
-        NDS_ARM9, NdsInterruptControl::IfAddress, 4u, vblank_irq);
+    if (machine.cpu_is_halted(NDS_ARM9) ||
+        (machine.guest_memory().read(
+            NDS_ARM9, arm9_irq_check_flags_address, 4u).value &
+            vblank_irq) != 0u ||
+        (machine.interrupt_control().read(
+            NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value &
+            vblank_irq) != 0u) {
+        return fail("VBlankIntrWait did not return after BIOS flag acknowledgement");
+    }
     machine.interrupt_control().write(
         NDS_ARM9, NdsInterruptControl::IeAddress, 4u, 0u);
     machine.interrupt_control().write(
