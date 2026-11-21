@@ -656,6 +656,36 @@ int main()
         return fail("SWAP_BUFFERS did not complete after 392 post-VBlank cycles");
     }
 
+    /*
+     * Issuing SWAP_BUFFERS before END_VTXS is a documented Geometry Engine
+     * lockup. It must not exchange the build/render RAM or continue commands.
+     */
+    NdsGeometryEngine locked_geometry(interrupts);
+    if (locked_geometry.install() != Status::Ok ||
+        !write_command(locked_geometry, 0x40u, UINT32_C(2))) {
+        return fail("open-list swap lockup fixture setup failed");
+    }
+    locked_geometry.advance_bus_cycles(1u);
+    if (!locked_geometry.vertex_list_open() ||
+        !write_command(locked_geometry, 0x50u, UINT32_C(0))) {
+        return fail("open-list swap lockup command enqueue failed");
+    }
+    locked_geometry.advance_bus_cycles(1u);
+    if (!locked_geometry.swap_lockup() ||
+        !locked_geometry.swap_waiting_for_vblank() ||
+        !locked_geometry.busy() ||
+        locked_geometry.build_buffer_index() != 0u ||
+        locked_geometry.render_buffer_index() != 1u) {
+        return fail("SWAP_BUFFERS inside an open vertex list did not lock up safely");
+    }
+    locked_geometry.notify_vblank();
+    if (!locked_geometry.swap_lockup() ||
+        locked_geometry.swap_waiting_for_vblank() ||
+        locked_geometry.build_buffer_index() != 0u ||
+        locked_geometry.render_buffer_index() != 1u) {
+        return fail("VBlank incorrectly recovered or swapped a locked Geometry Engine");
+    }
+
     std::puts("NDS Geometry Engine FIFO, GXSTAT and matrix-command tests passed");
     return 0;
 }
