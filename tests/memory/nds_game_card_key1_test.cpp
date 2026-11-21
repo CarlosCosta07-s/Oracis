@@ -111,5 +111,13 @@ int main()
     }
 
     std::puts("NDS KEY1 table loading, keycode levels and 64-bit cipher vectors passed");
+    key1.reset();
+    if (!key1.table_loaded() || key1.initialized() || key1.id_code() != 0u ||
+        key1.level() != 0u || key1.modulo_bytes() != 0u ||
+        key1.initialize(UINT32_C(0x45555043), 2u, 8u) != Status::Ok ||
+        !key1.initialized()) {
+        return fail("KEY1 reset did not preserve the base table for a fresh cartridge");
+    }
+
     return 0;
 }
