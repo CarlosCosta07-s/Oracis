@@ -248,6 +248,10 @@ private:
         uint32_t wait_mask) noexcept;
     NdsMachineStatus resume_interrupt_wait(
         NdsCpu cpu, uint32_t return_pc) noexcept;
+    NdsMachineStatus read_bios_interrupt_flags(
+        NdsCpu cpu, uint32_t &flags) const noexcept;
+    NdsMachineStatus write_bios_interrupt_flags(
+        NdsCpu cpu, uint32_t flags) noexcept;
     static int runtime_power_handler(
         void *context, NdsCpu cpu,
         uint32_t operation, uint32_t value);
