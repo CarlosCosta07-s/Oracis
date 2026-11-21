@@ -328,6 +328,22 @@ int main(void)
         return 1;
     }
 
+    /*
+     * The public C ABI must reject duplicate table identity regardless of
+     * the caller-provided bank name or length. The later preflight also checks
+     * that neither rejected registration created a duplicate candidate.
+     */
+    if (oracis_static_dispatch_register_bank(
+            NDS_ARM9, arm9_table, 3u, "host-c-test-arm9-alias") !=
+            ORACIS_DISPATCH_REGISTER_DUPLICATE_BANK_TABLE ||
+        oracis_static_dispatch_register_bank(
+            NDS_ARM9, arm9_table, 2u, "host-c-test-arm9-short-alias") !=
+            ORACIS_DISPATCH_REGISTER_DUPLICATE_BANK_TABLE) {
+        oracis_static_dispatch_clear();
+        fprintf(stderr, "C ABI accepted a duplicate static dispatch table\\n");
+        return 1;
+    }
+
     if (oracis_host_runtime_program_loaded() != 0 ||
         oracis_host_runtime_run_round(1u, NULL, NULL) !=
             ORACIS_HOST_RUNTIME_NO_PROGRAM_LOADED ||
