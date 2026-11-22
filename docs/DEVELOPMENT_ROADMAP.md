@@ -77,3 +77,8 @@ O NDSRecomp fixado gerou 78 funções ARM9 e 957 ARM7 (8 Thumb) em bancos C/disp
 
 
 Não anunciar compatibilidade, desempenho ou conclusão de subsistemas sem testes reproduzíveis.
+
+
+## Atualização 2026-11-22 — amostragem inicial de texturas 3D
+
+A camada de textura agora possui uma interface de amostragem independente (`Nds3dTextureSampler`) e leituras internas validadas na `NdsVramControl`. O Geometry Engine decodifica o comando `PLTT_BASE` (0x2B) e preserva seus 13 bits por polígono junto de `TEXIMAGE_PARAM`. Os slots de imagem 3D (A-D, MST=3, OFS 0-3) e os slots de paleta (E para 0-3; F/G para 0, 1, 4 ou 5) são resolvidos pelo mapa de VRAM; ausência ou colisão retorna diagnóstico fail-closed. O sampler implementa lookup nearest-texel para A3I5, 2bpp, 4bpp, 8bpp, A5I3 e Direct RGB555, com alpha, unidades de PLTT_BASE, clamp/repeat/repeat+flip. O formato comprimido 4x4 ainda retorna `UnsupportedFormat`; não há interpolação de atributos, correção de perspectiva, cache, rasterização nem saída de fragmentos. Os testes usam apenas dados sintéticos e não comprovam boot ou compatibilidade jogável. Consulte [NDS_3D_TEXTURE_PIPELINE.md](NDS_3D_TEXTURE_PIPELINE.md).
