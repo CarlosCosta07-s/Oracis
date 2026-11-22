@@ -41,6 +41,7 @@ bool write_halfword(
 struct Capture {
     uint32_t count = 0u;
     bool center_seen = false;
+    bool transparent_center_seen = false;
     oracis::memory::Nds3dFragment center{};
 };
 
@@ -51,8 +52,12 @@ void capture_fragment(
     auto *capture = static_cast<Capture *>(context);
     ++capture->count;
     if (fragment.x == 127u && fragment.y == 96u) {
-        capture->center_seen = true;
-        capture->center = fragment;
+        if (fragment.alpha6 == 0u) {
+            capture->transparent_center_seen = true;
+        } else if (!capture->center_seen) {
+            capture->center_seen = true;
+            capture->center = fragment;
+        }
     }
 }
 
@@ -151,9 +156,42 @@ int main()
         geometry.advance_bus_cycles(8u);
     }
 
-    if (geometry.polygon_count() != 1u ||
+    if (geometry.polygon_count() != 1u) {
+        return fail("opaque triangle was not assembled");
+    }
+
+    /*
+     * A zero polygon alpha is a valid transparent fragment, not wireframe.
+     * Emit an overlapping copy to verify that the rasterizer preserves that
+     * alpha for the downstream depth/translucency stage.
+     */
+    if (!write_command(geometry, 0x29u,
+            (UINT32_C(0) << 16u) | (UINT32_C(1) << 7u))) {
+        return fail("transparent POLYGON_ATTR enqueue failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    if (!write_command(geometry, 0x40u, 0u)) {
+        return fail("transparent BEGIN_VTXS enqueue failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    for (unsigned index = 0u; index < positions.size(); ++index) {
+        if (!write_command(geometry, 0x22u, texture_s[index])) {
+            return fail("transparent TEXCOORD enqueue failed");
+        }
+        geometry.advance_bus_cycles(1u);
+        if (!write_command(geometry, 0x20u, UINT32_C(0x7FFF))) {
+            return fail("transparent COLOR enqueue failed");
+        }
+        geometry.advance_bus_cycles(1u);
+        if (!write_command(geometry, 0x24u, positions[index])) {
+            return fail("transparent VTX_10 enqueue failed");
+        }
+        geometry.advance_bus_cycles(8u);
+    }
+
+    if (geometry.polygon_count() != 2u ||
         !write_command(geometry, 0x50u, 0u)) {
-        return fail("triangle was not assembled or SWAP_BUFFERS enqueue failed");
+        return fail("opaque/transparent triangles or SWAP_BUFFERS enqueue failed");
     }
     geometry.advance_bus_cycles(1u);
     if (!geometry.swap_waiting_for_vblank()) {
@@ -161,8 +199,8 @@ int main()
     }
     geometry.notify_vblank();
     geometry.advance_bus_cycles(392u);
-    if (geometry.render_polygon_count() != 1u ||
-        geometry.render_vertex_count() != 3u) {
+    if (geometry.render_polygon_count() != 2u ||
+        geometry.render_vertex_count() != 6u) {
         return fail("SWAP_BUFFERS did not publish the render buffer");
     }
 
@@ -180,6 +218,7 @@ int main()
         capture.center.green6 != 0u ||
         capture.center.blue6 != 63u ||
         capture.center.alpha6 != 63u ||
+        !capture.transparent_center_seen ||
         capture.center.depth24 < UINT32_C(0x7FFFF0) ||
         capture.center.depth24 > UINT32_C(0x800010)) {
         return fail("perspective texture sample or RGB6/A6 modulation was incorrect");
