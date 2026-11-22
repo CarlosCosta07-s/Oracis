@@ -1307,6 +1307,17 @@ int main()
     }
 
     /*
+     * SWAP_BUFFERS applies its option bits to the next build buffer. Prepare
+     * an empty manual-sort buffer before submitting the A3I5 polygon.
+     */
+    if (!write_command(geometry, 0x50u, UINT32_C(1))) {
+        return fail("A3I5 manual-sort preparation swap enqueue failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    geometry.notify_vblank();
+    geometry.advance_bus_cycles(392u);
+
+    /*
      * A3I5 can make a POLYGON_ATTR alpha-31 polygon translucent after
      * modulation. Such pixels must not be tagged by Edge Marking.
      */
