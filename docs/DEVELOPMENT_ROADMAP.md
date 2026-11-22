@@ -113,7 +113,7 @@ Referência: [GBATEK — SWAP_BUFFERS e profundidade](https://mgba-emu.github.io
 
 Foi acrescentado `Nds3dColorBuffer`, um buffer de staging de software 256×192 com RGB6, alpha5, polygon ID e fog-enable. A rotina de composição aplica a equação DS por canal `(source × (alpha + 1) + destination × (31 − alpha)) / 32`, usa `max(sourceAlpha, destinationAlpha)` e respeita os três desvios documentados: blending desabilitado, fragmento opaco e destino com alpha zero. Fragmentos com alpha final zero não alteram a cor.
 
-A nova API `render_scanline_composited` encadeia o alpha test (alpha final maior que a referência), teste de profundidade e composição. A rejeição no alpha test ocorre antes da atualização de profundidade. Os parâmetros de `DISP3DCNT` e `ALPHA_TEST_REF` ainda são fornecidos à API; sua integração MMIO não foi feita. Por segurança, o consumidor só aceita `SWAP_BUFFERS.Bit0=1` (ordem manual) e retorna `TranslucentSortingNotSupported` para auto-sort; a ordenação Y automática ainda não existe. O buffer 256×192 é uma superfície provisória do software, não o cache hardware de 48 linhas.
+A nova API `render_scanline_composited` encadeia o alpha test (alpha final maior que a referência), teste de profundidade e composição. A rejeição no alpha test ocorre antes da atualização de profundidade. Os parâmetros de `DISP3DCNT` e `ALPHA_TEST_REF` ainda são fornecidos à API; sua integração MMIO não foi feita. Com `SWAP_BUFFERS.Bit0=0`, o consumidor permite renderizar buffers compostos somente por polígonos sólidos (alpha 31); polígonos com alpha 1–30 continuam retornando `TranslucentSortingNotSupported` até a implementação da ordenação Y automática. O buffer 256×192 é uma superfície provisória do software, não o cache hardware de 48 linhas.
 
 O teste `oracis_nds_3d_color_buffer_test` cobre a fórmula, alpha máximo, blending desativado, rear-plane transparente e descarte alpha-zero. A integração do rasterizador cobre auto-sort fail-closed, alpha-test antes do depth write e composição de scanline W-buffer em modo manual. A CI #1056 passou nos quatro jobs: Desktop Linux, ARM runtime, Android ARM64 e NDSRecomp estático. Desktop e ARM runtime executaram 53/53 CTests. Isso ainda não comprova a saída 3D completa, integração BG0, apresentação de quadro ou boot de jogo.
 
@@ -197,3 +197,8 @@ finalize the FIFO low-water measurement, and a jump directly to line 214 cannot
 restart pre-render. Natural 262-to-0 frame wrap remains the separate frame
 boundary. The machine regression covers both cases; CI run #1112 passed all
 four jobs (Desktop Linux, ARM runtime, Android ARM64 and pinned NDSRecomp).
+
+
+## Atualização 2026-11-22 — composição de polígonos sólidos em auto-sort
+
+O rasterizador não bloqueia mais todo o modo automático de `SWAP_BUFFERS`: quando o buffer submetido contém apenas polígonos sólidos (alpha 31), o teste de profundidade é suficiente e a composição segue normalmente. Polígonos com alpha 1–30 continuam falhando fechados porque a ordenação Y de translúcidos ainda não foi implementada. Alpha zero continua identificado como wireframe não suportado. A regressão cobre os dois lados dessa fronteira. A CI da revisão está em execução; não há alegação de conformidade visual ou boot de jogo.
