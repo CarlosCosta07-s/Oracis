@@ -98,6 +98,7 @@ add_library(oracis_memory STATIC
     src/memory/nds_display_control.cpp
     src/memory/nds_geometry_engine.cpp
     src/memory/nds_3d_texture_sampler.cpp
+    src/memory/nds_3d_rasterizer.cpp
     src/memory/nds_2d_effects.cpp
     src/memory/nds_2d_bg_fetcher.cpp
     src/memory/nds_2d_affine_bg_fetcher.cpp
@@ -291,6 +292,15 @@ if(BUILD_TESTING)
     add_test(
         NAME oracis_nds_3d_texture_sampler_test
         COMMAND oracis_nds_3d_texture_sampler_test
+    )
+
+    add_executable(oracis_nds_3d_rasterizer_test
+        tests/memory/nds_3d_rasterizer_test.cpp
+    )
+    target_link_libraries(oracis_nds_3d_rasterizer_test PRIVATE oracis_memory)
+    add_test(
+        NAME oracis_nds_3d_rasterizer_test
+        COMMAND oracis_nds_3d_rasterizer_test
     )
 
     add_executable(oracis_nds_2d_effects_test
