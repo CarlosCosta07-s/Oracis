@@ -24,7 +24,9 @@ enum class Nds3dRasterStatus : uint8_t {
     InvalidGeometry,
     TextureFailure,
     UnsupportedPolygonMode,
-    WireframeNotSupported
+    WireframeNotSupported,
+    TranslucentSortingNotSupported,
+    InvalidAlphaTestReference
 };
 
 /*
@@ -39,6 +41,7 @@ struct Nds3dFragment {
     uint8_t green6 = 0u;
     uint8_t blue6 = 0u;
     uint8_t alpha6 = 0u;
+    uint8_t alpha5 = 0u;
     uint32_t depth24 = UINT32_C(0xFFFFFF);
     uint8_t polygon_id = 0u;
     bool fog_enabled = false;
@@ -76,6 +79,46 @@ private:
     std::array<uint32_t, ScreenWidth * ScreenHeight> depths_{};
 };
 
+struct Nds3dColorPixel {
+    uint8_t red6 = 0u;
+    uint8_t green6 = 0u;
+    uint8_t blue6 = 0u;
+    uint8_t alpha5 = 0u;
+    uint8_t polygon_id = 0u;
+    bool fog_enabled = false;
+};
+
+/*
+ * Host-side 256x192 color staging buffer for the DS 3D output.
+ * Implements the DS polygon/framebuffer alpha equation. Polygon sorting and
+ * the hardware's 48-line cache remain separate stages.
+ */
+class Nds3dColorBuffer final {
+public:
+    static constexpr uint32_t ScreenWidth = 256u;
+    static constexpr uint32_t ScreenHeight = 192u;
+
+    Nds3dColorBuffer() noexcept { clear(); }
+    Nds3dColorBuffer(const Nds3dColorBuffer &) = delete;
+    Nds3dColorBuffer &operator=(const Nds3dColorBuffer &) = delete;
+
+    void clear(
+        uint8_t red6 = 0u,
+        uint8_t green6 = 0u,
+        uint8_t blue6 = 0u,
+        uint8_t alpha5 = 0u,
+        uint8_t polygon_id = 0u,
+        bool fog_enabled = false) noexcept;
+    bool blend_fragment(
+        const Nds3dFragment &fragment,
+        bool alpha_blending_enabled) noexcept;
+    const Nds3dColorPixel *pixel_at(
+        uint8_t x, uint8_t y) const noexcept;
+
+private:
+    std::array<Nds3dColorPixel, ScreenWidth * ScreenHeight> pixels_{};
+};
+
 class Nds3dRasterizer final {
 public:
     static constexpr uint32_t ScreenWidth = 256u;
@@ -109,6 +152,19 @@ public:
         Nds3dDepthBuffer &depth_buffer,
         Nds3dFragmentCallback callback,
         void *context) const noexcept;
+
+    /*
+     * Composite one scanline into color/depth staging buffers.
+     * Fails closed unless the render buffer requests manual translucent
+     * sorting; automatic Y-sorting is not implemented yet.
+     */
+    Nds3dRasterStatus render_scanline_composited(
+        uint16_t scanline,
+        Nds3dDepthBuffer &depth_buffer,
+        Nds3dColorBuffer &color_buffer,
+        bool alpha_blending_enabled,
+        bool alpha_test_enabled,
+        uint8_t alpha_test_reference) const noexcept;
 
 private:
     const NdsGeometryEngine &geometry_;

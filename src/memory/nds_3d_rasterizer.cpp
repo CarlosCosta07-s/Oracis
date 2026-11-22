@@ -218,6 +218,7 @@ void shade_fragment(
         fragment.green6 = vertex_g;
         fragment.blue6 = vertex_b;
         fragment.alpha6 = vertex_a;
+        fragment.alpha5 = polygon_alpha;
         fragment.textured = false;
         return;
     }
@@ -240,6 +241,7 @@ void shade_fragment(
         fragment.green6 = modulate(texture_g, vertex_g);
         fragment.blue6 = modulate(texture_b, vertex_b);
         fragment.alpha6 = modulate(texture_a, vertex_a);
+        fragment.alpha5 = static_cast<uint8_t>(fragment.alpha6 >> 1u);
     } else {
         const auto decal = [texture_a](
             uint8_t texture_channel, uint8_t vertex_channel) noexcept {
@@ -254,6 +256,7 @@ void shade_fragment(
         fragment.green6 = decal(texture_g, vertex_g);
         fragment.blue6 = decal(texture_b, vertex_b);
         fragment.alpha6 = vertex_a;
+        fragment.alpha5 = polygon_alpha;
     }
     fragment.textured = true;
 }
@@ -415,6 +418,14 @@ struct DepthTestedCallbackContext {
     void *callback_context = nullptr;
 };
 
+struct CompositedScanlineContext {
+    Nds3dDepthBuffer *depth_buffer = nullptr;
+    Nds3dColorBuffer *color_buffer = nullptr;
+    bool alpha_blending_enabled = false;
+    bool alpha_test_enabled = false;
+    uint8_t alpha_test_reference = 0u;
+};
+
 void forward_depth_passed_fragment(
     void *opaque,
     const Nds3dFragment &fragment) noexcept
@@ -427,7 +438,106 @@ void forward_depth_passed_fragment(
     }
 }
 
+void composite_depth_passed_fragment(
+    void *opaque,
+    const Nds3dFragment &fragment) noexcept
+{
+    auto *context = static_cast<CompositedScanlineContext *>(opaque);
+    if (context == nullptr || context->depth_buffer == nullptr ||
+        context->color_buffer == nullptr) {
+        return;
+    }
+
+    if (context->alpha_test_enabled) {
+        if (fragment.alpha5 <= context->alpha_test_reference) return;
+    } else if (fragment.alpha5 == 0u) {
+        return;
+    }
+
+    if (context->depth_buffer->test_and_update(fragment)) {
+        static_cast<void>(context->color_buffer->blend_fragment(
+            fragment, context->alpha_blending_enabled));
+    }
+}
+
 } // namespace
+
+void Nds3dColorBuffer::clear(
+    uint8_t red6,
+    uint8_t green6,
+    uint8_t blue6,
+    uint8_t alpha5,
+    uint8_t polygon_id,
+    bool fog_enabled) noexcept
+{
+    const Nds3dColorPixel initial{
+        static_cast<uint8_t>(std::min<uint8_t>(red6, 63u)),
+        static_cast<uint8_t>(std::min<uint8_t>(green6, 63u)),
+        static_cast<uint8_t>(std::min<uint8_t>(blue6, 63u)),
+        static_cast<uint8_t>(std::min<uint8_t>(alpha5, 31u)),
+        polygon_id,
+        fog_enabled
+    };
+    pixels_.fill(initial);
+}
+
+bool Nds3dColorBuffer::blend_fragment(
+    const Nds3dFragment &fragment,
+    bool alpha_blending_enabled) noexcept
+{
+    if (fragment.y >= ScreenHeight ||
+        fragment.alpha6 == 0u ||
+        fragment.alpha5 == 0u ||
+        fragment.red6 > 63u ||
+        fragment.green6 > 63u ||
+        fragment.blue6 > 63u ||
+        fragment.alpha5 > 31u) {
+        return false;
+    }
+
+    const std::size_t index =
+        static_cast<std::size_t>(fragment.y) * ScreenWidth + fragment.x;
+    Nds3dColorPixel &destination = pixels_[index];
+
+    const uint32_t source_alpha = fragment.alpha5;
+    const bool bypass_blending =
+        !alpha_blending_enabled ||
+        source_alpha == 31u ||
+        destination.alpha5 == 0u;
+
+    if (bypass_blending) {
+        destination.red6 = fragment.red6;
+        destination.green6 = fragment.green6;
+        destination.blue6 = fragment.blue6;
+    } else {
+        const uint32_t source_weight = source_alpha + 1u;
+        const uint32_t destination_weight = 31u - source_alpha;
+        const auto blend_channel = [source_weight, destination_weight](
+            uint8_t source, uint8_t old) noexcept {
+            return static_cast<uint8_t>(
+                (static_cast<uint32_t>(source) * source_weight +
+                 static_cast<uint32_t>(old) * destination_weight) / 32u);
+        };
+        destination.red6 = blend_channel(fragment.red6, destination.red6);
+        destination.green6 = blend_channel(fragment.green6, destination.green6);
+        destination.blue6 = blend_channel(fragment.blue6, destination.blue6);
+    }
+
+    destination.alpha5 = static_cast<uint8_t>(
+        std::max<uint32_t>(source_alpha, destination.alpha5));
+    destination.polygon_id = fragment.polygon_id;
+    destination.fog_enabled = fragment.fog_enabled;
+    return true;
+}
+
+const Nds3dColorPixel *Nds3dColorBuffer::pixel_at(
+    uint8_t x, uint8_t y) const noexcept
+{
+    if (y >= ScreenHeight) return nullptr;
+    const std::size_t index =
+        static_cast<std::size_t>(y) * ScreenWidth + x;
+    return &pixels_[index];
+}
 
 void Nds3dDepthBuffer::clear(uint32_t depth) noexcept
 {
@@ -492,6 +602,32 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_depth_tested(
     };
     return render_scanline(
         scanline, forward_depth_passed_fragment, &callback_context);
+}
+
+Nds3dRasterStatus Nds3dRasterizer::render_scanline_composited(
+    uint16_t scanline,
+    Nds3dDepthBuffer &depth_buffer,
+    Nds3dColorBuffer &color_buffer,
+    bool alpha_blending_enabled,
+    bool alpha_test_enabled,
+    uint8_t alpha_test_reference) const noexcept
+{
+    if (alpha_test_reference > 31u) {
+        return Nds3dRasterStatus::InvalidAlphaTestReference;
+    }
+    if ((geometry_.render_swap_parameters() & UINT8_C(1)) == 0u) {
+        return Nds3dRasterStatus::TranslucentSortingNotSupported;
+    }
+
+    CompositedScanlineContext context{
+        &depth_buffer,
+        &color_buffer,
+        alpha_blending_enabled,
+        alpha_test_enabled,
+        alpha_test_reference
+    };
+    return render_scanline(
+        scanline, composite_depth_passed_fragment, &context);
 }
 
 Nds3dRasterStatus Nds3dRasterizer::render_scanline(

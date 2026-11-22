@@ -236,7 +236,7 @@ int main()
     }
 
     if (geometry.polygon_count() != 3u ||
-        !write_command(geometry, 0x50u, UINT32_C(2))) {
+        !write_command(geometry, 0x50u, UINT32_C(3))) {
         return fail("three triangles or SWAP_BUFFERS enqueue failed");
     }
     geometry.advance_bus_cycles(1u);
@@ -248,7 +248,7 @@ int main()
     if (geometry.render_polygon_count() != 3u ||
         geometry.render_vertex_count() != 9u ||
         geometry.render_swap_parameters() != 0u ||
-        geometry.swap_parameters() != 2u) {
+        geometry.swap_parameters() != 3u) {
         return fail("SWAP_BUFFERS did not preserve render-buffer mode separately from next-build mode");
     }
 
@@ -262,6 +262,23 @@ int main()
         !capture.decal_transparent_texel_center_seen ||
         capture.transparent_modulate_texel_center_seen) {
         return fail("scanline rasterizer emitted a transparent texel or missed the opaque fragment");
+    }
+
+    /*
+     * The first render buffer uses automatic translucent sorting. Until that
+     * sort exists, the color compositor must fail closed without changing
+     * color or depth.
+     */
+    Nds3dDepthBuffer auto_sort_depth{};
+    Nds3dColorBuffer auto_sort_color{};
+    if (rasterizer.render_scanline_composited(
+            96u, auto_sort_depth, auto_sort_color,
+            true, false, 0u) !=
+            Nds3dRasterStatus::TranslucentSortingNotSupported ||
+        auto_sort_depth.depth_at(127u, 96u) !=
+            Nds3dDepthBuffer::MaximumDepth ||
+        auto_sort_color.pixel_at(127u, 96u)->alpha5 != 0u) {
+        return fail("automatic translucent sorting did not fail closed");
     }
 
     if (!capture.center.textured ||
@@ -336,17 +353,40 @@ int main()
         return fail("W-buffer mode was not retained with the second render buffer");
     }
 
+    Nds3dDepthBuffer alpha_test_depth{};
+    Nds3dColorBuffer alpha_test_color{};
+    if (rasterizer.render_scanline_composited(
+            96u, alpha_test_depth, alpha_test_color,
+            true, true, 31u) != Nds3dRasterStatus::Ok ||
+        alpha_test_depth.depth_at(127u, 96u) !=
+            Nds3dDepthBuffer::MaximumDepth ||
+        alpha_test_color.pixel_at(127u, 96u)->alpha5 != 0u) {
+        return fail("alpha-test rejection updated color or depth");
+    }
+
     Nds3dDepthBuffer depth{};
+    Nds3dColorBuffer color{};
+    if (rasterizer.render_scanline_composited(
+            96u, depth, color, true, true, 30u) !=
+            Nds3dRasterStatus::Ok) {
+        return fail("manual-order composited scanline returned an error");
+    }
+    const Nds3dColorPixel *center_pixel = color.pixel_at(127u, 96u);
+    if (center_pixel == nullptr ||
+        center_pixel->blue6 != 63u ||
+        center_pixel->alpha5 != 31u ||
+        center_pixel->polygon_id != 4u) {
+        return fail("opaque W-buffer fragment was not composited into RGB6/A5");
+    }
     Capture w_capture{};
-    if (rasterizer.render_scanline_depth_tested(
-            96u, depth, capture_fragment, &w_capture) !=
-            Nds3dRasterStatus::Ok ||
+    if (rasterizer.render_scanline(
+            96u, capture_fragment, &w_capture) != Nds3dRasterStatus::Ok ||
         !w_capture.w_buffer_center_seen ||
         !w_capture.w_buffer_center.w_buffer ||
         w_capture.w_buffer_center.depth24 == 0u ||
         w_capture.w_buffer_center.depth24 >= UINT32_C(0x7FFFF0) ||
         depth.depth_at(127u, 96u) != w_capture.w_buffer_center.depth24) {
-        return fail("W-buffer perspective depth or depth-tested callback was incorrect");
+        return fail("W-buffer perspective depth was not retained after composition");
     }
 
     /*
