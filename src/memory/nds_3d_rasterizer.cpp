@@ -557,6 +557,25 @@ const Nds3dColorPixel *Nds3dColorBuffer::pixel_at(
     return &pixels_[index];
 }
 
+bool Nds3dColorBuffer::copy_bg0_scanline(
+    uint16_t scanline, Nds3dBg0Scanline &output) const noexcept
+{
+    if (scanline >= ScreenHeight) return false;
+    for (uint32_t x = 0u; x < ScreenWidth; ++x) {
+        const Nds3dColorPixel &pixel = pixels_[
+            static_cast<std::size_t>(scanline) * ScreenWidth + x];
+        const uint16_t red5 = static_cast<uint16_t>(pixel.red6 >> 1u);
+        const uint16_t green5 = static_cast<uint16_t>(pixel.green6 >> 1u);
+        const uint16_t blue5 = static_cast<uint16_t>(pixel.blue6 >> 1u);
+        output[x] = {
+            static_cast<uint16_t>(
+                red5 | (green5 << 5u) | (blue5 << 10u)),
+            pixel.alpha5
+        };
+    }
+    return true;
+}
+
 void Nds3dDepthBuffer::clear(uint32_t depth) noexcept
 {
     depths_.fill(std::min(depth, MaximumDepth));
@@ -768,6 +787,42 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_composited(
         display_control.three_d_alpha_blending_enabled(),
         display_control.three_d_alpha_test_enabled(),
         display_control.three_d_alpha_test_reference());
+}
+
+Nds3dRasterStatus Nds3dRasterizer::render_scanline_to_cache(
+    uint16_t scanline,
+    Nds3dDepthBuffer &depth_buffer,
+    Nds3dColorBuffer &color_buffer,
+    Nds3dScanlineCache &cache,
+    const NdsDisplayControl &display_control) const noexcept
+{
+    if (scanline >= ScreenHeight) return Nds3dRasterStatus::InvalidScanline;
+
+    const Nds3dScanlineCacheStatus available = cache.can_enqueue(scanline);
+    if (available == Nds3dScanlineCacheStatus::Full) {
+        return Nds3dRasterStatus::ScanlineCacheFull;
+    }
+    if (available != Nds3dScanlineCacheStatus::Ok) {
+        return Nds3dRasterStatus::ScanlineCacheOutOfOrder;
+    }
+
+    const Nds3dRasterStatus rendered =
+        render_scanline_composited(
+            scanline, depth_buffer, color_buffer, display_control);
+    if (rendered != Nds3dRasterStatus::Ok) return rendered;
+
+    Nds3dBg0Scanline line{};
+    if (!color_buffer.copy_bg0_scanline(scanline, line)) {
+        return Nds3dRasterStatus::InvalidScanline;
+    }
+    const Nds3dScanlineCacheStatus queued = cache.enqueue(scanline, line);
+    if (queued == Nds3dScanlineCacheStatus::Full) {
+        return Nds3dRasterStatus::ScanlineCacheFull;
+    }
+    if (queued != Nds3dScanlineCacheStatus::Ok) {
+        return Nds3dRasterStatus::ScanlineCacheInvalid;
+    }
+    return Nds3dRasterStatus::Ok;
 }
 
 Nds3dRasterStatus Nds3dRasterizer::render_scanline_composited(

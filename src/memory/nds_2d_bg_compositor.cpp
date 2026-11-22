@@ -352,3 +352,50 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
 }
 
 } // namespace oracis::memory
+
+Nds2dComposeResult Nds2dBgCompositor::render_scanline(
+    unsigned engine_index,
+    const NdsDisplayControl &display,
+    uint16_t scanline,
+    std::array<Nds2dCompositedPixel, 256> &output,
+    Nds3dScanlineCache &three_d_cache) const noexcept
+{
+    if (engine_index > 1u) return {Nds2dComposeStatus::InvalidEngine};
+    if (scanline >= NdsDisplayControl::VisibleScanlines) {
+        return {Nds2dComposeStatus::InvalidScanline};
+    }
+    if (!display.installed()) {
+        return {Nds2dComposeStatus::DisplayNotInstalled};
+    }
+
+    const uint32_t dispcnt = display.dispcnt(engine_index);
+    const bool bg0_uses_three_d = engine_index == 0u &&
+        (dispcnt & (UINT32_C(1) << 3u)) != 0u &&
+        (dispcnt & (UINT32_C(1) << 8u)) != 0u;
+    if (!bg0_uses_three_d) {
+        return render_scanline(
+            engine_index, display, scanline, output,
+            static_cast<const Nds3dBg0Scanline *>(nullptr));
+    }
+
+    const Nds3dBg0Scanline *cached_line = nullptr;
+    if (three_d_cache.peek(scanline, &cached_line) !=
+            Nds3dScanlineCacheStatus::Ok ||
+        cached_line == nullptr) {
+        return {Nds2dComposeStatus::ThreeDSourceUnavailable};
+    }
+
+    std::array<Nds2dCompositedPixel, 256> next_line{};
+    const Nds2dComposeResult composed = render_scanline(
+        engine_index, display, scanline, next_line, cached_line);
+    if (composed.status != Nds2dComposeStatus::Ok) return composed;
+
+    if (three_d_cache.consume(scanline) !=
+        Nds3dScanlineCacheStatus::Ok) {
+        return {Nds2dComposeStatus::ThreeDSourceUnavailable};
+    }
+    output = next_line;
+    return composed;
+}
+
+} // namespace oracis::memory

@@ -15,6 +15,7 @@
 #include "oracis/memory/nds_2d_bg_fetcher.hpp"
 #include "oracis/memory/nds_2d_effects.hpp"
 #include "oracis/memory/nds_2d_obj_fetcher.hpp"
+#include "oracis/memory/nds_3d_scanline_cache.hpp"
 #include "oracis/memory/nds_vram_control.hpp"
 
 namespace oracis::memory {
@@ -48,18 +49,6 @@ struct Nds2dCompositedPixel {
     bool top_layer_is_3d = false;
     uint8_t top_3d_alpha5 = 0u;
 };
-
-/*
- * One pixel supplied by the DS 3D renderer for Engine A's BG0 input.
- * RGB is RGB555; alpha is the native 5-bit 3D alpha value. Alpha zero is
- * transparent at the 2D-engine boundary.
- */
-struct Nds3dBg0Pixel {
-    uint16_t rgb555 = 0u;
-    uint8_t alpha5 = 0u;
-};
-
-using Nds3dBg0Scanline = std::array<Nds3dBg0Pixel, 256>;
 
 struct Nds2dComposeResult {
     Nds2dComposeStatus status = Nds2dComposeStatus::Ok;
@@ -96,6 +85,13 @@ public:
         uint16_t scanline,
         std::array<Nds2dCompositedPixel, 256> &output,
         const Nds3dBg0Scanline *three_d_bg0 = nullptr) const noexcept;
+
+    Nds2dComposeResult render_scanline(
+        unsigned engine_index,
+        const NdsDisplayControl &display,
+        uint16_t scanline,
+        std::array<Nds2dCompositedPixel, 256> &output,
+        Nds3dScanlineCache &three_d_cache) const noexcept;
 
 private:
     GuestMemory &memory_;

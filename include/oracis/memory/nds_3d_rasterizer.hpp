@@ -13,6 +13,7 @@
 #include <cstdint>
 
 #include "oracis/memory/nds_3d_texture_sampler.hpp"
+#include "oracis/memory/nds_3d_scanline_cache.hpp"
 #include "oracis/memory/nds_geometry_engine.hpp"
 
 namespace oracis::memory {
@@ -29,7 +30,10 @@ enum class Nds3dRasterStatus : uint8_t {
     WireframeNotSupported,
     TranslucentSortingNotSupported,
     InvalidAlphaTestReference,
-    DisplayControlUnavailable
+    DisplayControlUnavailable,
+    ScanlineCacheFull,
+    ScanlineCacheOutOfOrder,
+    ScanlineCacheInvalid
 };
 
 /*
@@ -120,6 +124,8 @@ public:
         bool alpha_blending_enabled) noexcept;
     const Nds3dColorPixel *pixel_at(
         uint8_t x, uint8_t y) const noexcept;
+    bool copy_bg0_scanline(
+        uint16_t scanline, Nds3dBg0Scanline &output) const noexcept;
 
 private:
     std::array<Nds3dColorPixel, ScreenWidth * ScreenHeight> pixels_{};
@@ -188,6 +194,13 @@ public:
         uint16_t scanline,
         Nds3dDepthBuffer &depth_buffer,
         Nds3dColorBuffer &color_buffer,
+        const NdsDisplayControl &display_control) const noexcept;
+
+    Nds3dRasterStatus render_scanline_to_cache(
+        uint16_t scanline,
+        Nds3dDepthBuffer &depth_buffer,
+        Nds3dColorBuffer &color_buffer,
+        Nds3dScanlineCache &cache,
         const NdsDisplayControl &display_control) const noexcept;
 
 private:

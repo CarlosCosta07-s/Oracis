@@ -392,6 +392,31 @@ int main()
         return fail("BG0 3D transparency, priority or pixel metadata failed");
     }
 
+    Nds3dScanlineCache three_d_cache;
+    if (three_d_cache.reset() != Nds3dScanlineCacheStatus::Ok ||
+        three_d_cache.enqueue(0u, three_d_line) !=
+            Nds3dScanlineCacheStatus::Ok) {
+        return fail("BG0 48-line FIFO fixture setup failed");
+    }
+    result = compositor.render_scanline(
+        0u, display, 0u, line, three_d_cache);
+    if (result.status != Nds2dComposeStatus::Ok ||
+        three_d_cache.queued_lines() != 0u ||
+        line[0].top_layer != Nds2dLayer::Bg0 ||
+        !line[0].top_layer_is_3d ||
+        line[0].rgb555 != UINT16_C(0x001F)) {
+        return fail("BG0 compositor did not consume the cached 3D scanline");
+    }
+    preserved = line;
+    result = compositor.render_scanline(
+        0u, display, 0u, line, three_d_cache);
+    if (result.status != Nds2dComposeStatus::ThreeDSourceUnavailable ||
+        three_d_cache.queued_lines() != 0u ||
+        line[0].rgb555 != preserved[0].rgb555 ||
+        line[0].top_layer != preserved[0].top_layer) {
+        return fail("BG0 FIFO underflow changed the caller's scanline");
+    }
+
     /* BG0 3D uses 9-bit horizontal wrapping: pixels 256..511 are transparent. */
     if (display.write(
             NDS_ARM9, NdsDisplayControl::EngineABase + 0x10u, 2u,
@@ -477,6 +502,19 @@ int main()
         line[0].rgb555 != preserved[0].rgb555 ||
         line[0].top_layer != preserved[0].top_layer) {
         return fail("unsupported BG0 3D alpha blend did not fail closed");
+    }
+    if (three_d_cache.reset() != Nds3dScanlineCacheStatus::Ok ||
+        three_d_cache.enqueue(0u, three_d_line) !=
+            Nds3dScanlineCacheStatus::Ok) {
+        return fail("BG0 cache alpha-failure fixture setup failed");
+    }
+    result = compositor.render_scanline(
+        0u, display, 0u, line, three_d_cache);
+    if (result.status != Nds2dComposeStatus::UnsupportedThreeDAlphaBlend ||
+        three_d_cache.queued_lines() != 1u ||
+        line[0].rgb555 != preserved[0].rgb555 ||
+        line[0].top_layer != preserved[0].top_layer) {
+        return fail("failed BG0 composition consumed the pending 3D line");
     }
 
     /* Restore 2D mode for the remaining palette/error-path fixtures. */

@@ -550,6 +550,31 @@ int main()
         center_pixel->polygon_id != 4u) {
         return fail("opaque W-buffer fragment was not composited into RGB6/A5");
     }
+
+    Nds3dDepthBuffer cached_depth{};
+    Nds3dColorBuffer cached_color{};
+    Nds3dScanlineCache scanline_cache;
+    if (rasterizer.initialize_rear_plane(
+            cached_color, cached_depth, display) != Nds3dRasterStatus::Ok ||
+        scanline_cache.reset(96u) != Nds3dScanlineCacheStatus::Ok ||
+        rasterizer.render_scanline_to_cache(
+            96u, cached_depth, cached_color, scanline_cache, display) !=
+            Nds3dRasterStatus::Ok ||
+        scanline_cache.queued_lines() != 1u) {
+        return fail("rasterizer could not enqueue a rendered BG0 scanline");
+    }
+    const Nds3dBg0Scanline *cached_line = nullptr;
+    if (scanline_cache.peek(96u, &cached_line) !=
+            Nds3dScanlineCacheStatus::Ok ||
+        cached_line == nullptr ||
+        (*cached_line)[127u].rgb555 != UINT16_C(0x7C00) ||
+        (*cached_line)[127u].alpha5 != 31u ||
+        (*cached_line)[0u].rgb555 != static_cast<uint16_t>(
+            UINT16_C(31) | (UINT16_C(16) << 5u) |
+                (UINT16_C(4) << 10u)) ||
+        (*cached_line)[0u].alpha5 != 12u) {
+        return fail("RGB6 staging did not convert to BG0 RGB555/alpha5");
+    }
     Capture w_capture{};
     if (rasterizer.render_scanline(
             96u, capture_fragment, &w_capture) != Nds3dRasterStatus::Ok ||
