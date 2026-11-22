@@ -334,6 +334,7 @@ private:
     memory::Nds3dScanlineCache three_d_scanline_cache_;
     uint16_t next_three_d_producer_scanline_ = 0u;
     bool three_d_scanline_sequence_initialized_ = false;
+    bool three_d_edge_marking_pipeline_active_ = false;
     memory::NdsTimerControl timer_control_;
     memory::NdsKeypadControl keypad_control_;
     memory::NdsSystemClock system_clock_;

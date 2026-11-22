@@ -3228,7 +3228,11 @@ int main()
     if (successor.display_control().write(
             NDS_ARM9, NdsDisplayControl::EngineABase +
                 NdsDisplayControl::DispcntOffset, 4u,
-            UINT32_C(0x00000108)) != oracis::memory::Status::Ok) {
+            UINT32_C(0x00000108)) != oracis::memory::Status::Ok ||
+        successor.display_control().write(
+            NDS_ARM9, NdsDisplayControl::Disp3dControlAddress, 2u,
+            NdsDisplayControl::Disp3dEdgeMarkingEnable) !=
+            oracis::memory::Status::Ok) {
         return fail("scheduled 3D BG0 scanline test could not enable BG0-3D");
     }
     constexpr uint64_t synthetic_frame_bus_cycles =
@@ -3241,7 +3245,7 @@ int main()
         successor.three_d_scanline_cache().queued_lines() !=
             oracis::memory::Nds3dScanlineCache::Capacity ||
         successor.three_d_scanline_cache().next_consumer_scanline() != 0u ||
-        successor.three_d_scanline_cache().next_producer_scanline() != 48u) {
+        successor.three_d_scanline_cache().next_producer_scanline() != 49u) {
         return fail("line-214 pre-render did not leave 48 BG0 lines ready at frame wrap");
     }
     if (successor.three_d_scanline_cache().consume(0u) !=
@@ -3255,7 +3259,7 @@ int main()
         successor.three_d_scanline_cache().queued_lines() !=
             oracis::memory::Nds3dScanlineCache::Capacity ||
         successor.three_d_scanline_cache().next_consumer_scanline() != 1u ||
-        successor.three_d_scanline_cache().next_producer_scanline() != 49u) {
+        successor.three_d_scanline_cache().next_producer_scanline() != 50u) {
         return fail("VCOUNT line boundary did not refill the rolling 48-line BG0 FIFO");
     }
 
@@ -3283,7 +3287,7 @@ int main()
         successor.three_d_scanline_cache().queued_lines() !=
             oracis::memory::Nds3dScanlineCache::Capacity ||
         successor.three_d_scanline_cache().next_consumer_scanline() != 0u ||
-        successor.three_d_scanline_cache().next_producer_scanline() != 48u) {
+        successor.three_d_scanline_cache().next_producer_scanline() != 49u) {
         return fail("scanline-214 pre-render did not prime the next BG0 frame");
     }
     /*

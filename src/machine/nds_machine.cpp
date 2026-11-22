@@ -143,6 +143,8 @@ memory::Nds3dRasterStatus NdsMachine::reset_3d_bg0_scanline_sequence(
         return rear_plane;
     }
     next_three_d_producer_scanline_ = first_scanline;
+    three_d_edge_marking_pipeline_active_ =
+        first_scanline == 0u && display_control_.three_d_edge_marking_enabled();
     three_d_scanline_sequence_initialized_ = true;
     return Nds3dRasterStatus::Ok;
 }
@@ -164,9 +166,24 @@ memory::Nds3dRasterStatus NdsMachine::fill_3d_bg0_lookahead(
         scanline + LookaheadLines - 1u < memory::Nds3dRasterizer::ScreenHeight
             ? scanline + LookaheadLines - 1u
             : memory::Nds3dRasterizer::ScreenHeight - 1u);
-    while (next_three_d_producer_scanline_ <= last_required) {
+    uint16_t last_render_required = last_required;
+    if (three_d_edge_marking_pipeline_active_ &&
+        last_render_required < memory::Nds3dRasterizer::ScreenHeight) {
+        ++last_render_required;
+    }
+    while (next_three_d_producer_scanline_ <= last_render_required) {
+        const uint16_t output_scanline = three_d_edge_marking_pipeline_active_
+            ? (next_three_d_producer_scanline_ == 0u
+                ? 0u
+                : (next_three_d_producer_scanline_ >=
+                        memory::Nds3dRasterizer::ScreenHeight
+                    ? static_cast<uint16_t>(
+                        memory::Nds3dRasterizer::ScreenHeight - 1u)
+                    : static_cast<uint16_t>(
+                        next_three_d_producer_scanline_ - 1u)))
+            : next_three_d_producer_scanline_;
         const auto available = three_d_scanline_cache_.can_enqueue(
-            next_three_d_producer_scanline_);
+            output_scanline);
         if (available == memory::Nds3dScanlineCacheStatus::Full) {
             return Nds3dRasterStatus::Ok;
         }
@@ -176,7 +193,8 @@ memory::Nds3dRasterStatus NdsMachine::fill_3d_bg0_lookahead(
         const Nds3dRasterStatus rendered =
             three_d_rasterizer_.render_scanline_to_cache(
                 next_three_d_producer_scanline_, three_d_depth_buffer_,
-                three_d_color_buffer_, three_d_scanline_cache_, display_control_);
+                three_d_color_buffer_, three_d_scanline_cache_, display_control_,
+                three_d_edge_marking_pipeline_active_);
         if (rendered != Nds3dRasterStatus::Ok) return rendered;
         ++next_three_d_producer_scanline_;
     }

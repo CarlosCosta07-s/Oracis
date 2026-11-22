@@ -346,6 +346,107 @@ int main()
         return fail("perspective sample, modulation discard or decal vertex-color fallback was incorrect");
     }
 
+    /* Enable edge marking and verify real perimeter candidates are tagged. */
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::Disp3dControlAddress, 2u,
+            display.three_d_control_register() |
+                NdsDisplayControl::Disp3dEdgeMarkingEnable) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EdgeColorAddress, 2u,
+            UINT16_C(0x03E0)) != Status::Ok) {
+        return fail("edge-marking control or edge-color setup failed");
+    }
+    Nds3dDepthBuffer edge_depth{};
+    Nds3dColorBuffer edge_color{};
+    for (uint16_t y = 95u; y <= 97u; ++y) {
+        if (rasterizer.render_scanline_composited(
+                y, edge_depth, edge_color, display) != Nds3dRasterStatus::Ok) {
+            return fail("edge candidate scanline composition failed");
+        }
+    }
+    uint32_t edge_candidate_count = 0u;
+    for (uint32_t x = 0u; x < Nds3dRasterizer::ScreenWidth; ++x) {
+        const Nds3dColorPixel *pixel = edge_color.pixel_at(
+            static_cast<uint8_t>(x), 96u);
+        if (pixel != nullptr && pixel->edge_candidate) ++edge_candidate_count;
+    }
+    const Nds3dColorPixel *triangle_center = edge_color.pixel_at(127u, 96u);
+    if (edge_candidate_count == 0u || triangle_center == nullptr ||
+        triangle_center->edge_candidate) {
+        return fail("polygon perimeter candidates were missing or marked across the interior");
+    }
+    if (!edge_color.apply_edge_marking_scanline(
+            96u, edge_depth, display.three_d_edge_color_table(),
+            0u, Nds3dDepthBuffer::MaximumDepth)) {
+        return fail("edge-marking final pass rejected a valid scanline");
+    }
+    bool edge_color_applied = false;
+    for (uint32_t x = 0u; x < Nds3dRasterizer::ScreenWidth; ++x) {
+        const Nds3dColorPixel *pixel = edge_color.pixel_at(
+            static_cast<uint8_t>(x), 96u);
+        if (pixel != nullptr && pixel->green6 == 63u &&
+            pixel->red6 == 0u && pixel->blue6 == 0u &&
+            !pixel->edge_candidate) {
+            edge_color_applied = true;
+            break;
+        }
+    }
+    if (!edge_color_applied) {
+        return fail("edge-marking did not replace an exposed perimeter pixel with EDGE_COLOR");
+    }
+
+    /* Equal depth must suppress an edge even when the neighbor ID differs. */
+    Nds3dColorBuffer edge_rule_color{};
+    Nds3dDepthBuffer edge_rule_depth{};
+    edge_rule_color.clear(0u, 0u, 0u, 31u, 0u, false);
+    edge_rule_depth.clear(200u);
+    Nds3dColorPixel candidate_pixel{};
+    candidate_pixel.alpha5 = 31u;
+    candidate_pixel.polygon_id = 9u;
+    candidate_pixel.edge_candidate = true;
+    candidate_pixel.edge_polygon_id = 9u;
+    Nds3dColorPixel different_neighbor{};
+    different_neighbor.alpha5 = 31u;
+    different_neighbor.polygon_id = 10u;
+    if (!edge_rule_color.write_pixel(20u, 20u, candidate_pixel) ||
+        !edge_rule_color.write_pixel(21u, 20u, different_neighbor) ||
+        !edge_rule_depth.write_depth(20u, 20u, 100u) ||
+        !edge_rule_depth.write_depth(21u, 20u, 100u) ||
+        !edge_rule_color.apply_edge_marking_scanline(
+            20u, edge_rule_depth, display.three_d_edge_color_table(),
+            0u, Nds3dDepthBuffer::MaximumDepth) ||
+        edge_rule_color.pixel_at(20u, 20u)->green6 != 0u) {
+        return fail("edge marking ignored the strict nearer-than depth comparison");
+    }
+
+    /* A candidate touching the left border compares against CLEAR_COLOR ID. */
+    candidate_pixel.edge_candidate = true;
+    if (!edge_rule_color.write_pixel(0u, 21u, candidate_pixel) ||
+        !edge_rule_depth.write_depth(0u, 21u, 100u) ||
+        !edge_rule_color.apply_edge_marking_scanline(
+            21u, edge_rule_depth, display.three_d_edge_color_table(),
+            0u, Nds3dDepthBuffer::MaximumDepth) ||
+        edge_rule_color.pixel_at(0u, 21u)->green6 != 63u) {
+        return fail("screen-border edge marking did not use rear-plane polygon ID/depth");
+    }
+
+    /* Cached output waits for the next row before exposing the previous one. */
+    Nds3dScanlineCache edge_cache{};
+    Nds3dDepthBuffer edge_cache_depth{};
+    Nds3dColorBuffer edge_cache_color{};
+    if (edge_cache.reset(0u) != Nds3dScanlineCacheStatus::Ok ||
+        rasterizer.initialize_rear_plane(
+            edge_cache_color, edge_cache_depth, display) != Nds3dRasterStatus::Ok ||
+        rasterizer.render_scanline_to_cache(
+            0u, edge_cache_depth, edge_cache_color, edge_cache, display, true) !=
+            Nds3dRasterStatus::Ok || edge_cache.queued_lines() != 0u ||
+        rasterizer.render_scanline_to_cache(
+            1u, edge_cache_depth, edge_cache_color, edge_cache, display, true) !=
+            Nds3dRasterStatus::Ok || edge_cache.queued_lines() != 1u ||
+        edge_cache.next_producer_scanline() != 1u) {
+        return fail("edge-marking one-line lookahead exposed an unfinished scanline");
+    }
+
     if (rasterizer.render_scanline(
             192u, capture_fragment, &capture) !=
             Nds3dRasterStatus::InvalidScanline ||

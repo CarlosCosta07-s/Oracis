@@ -59,6 +59,7 @@ struct Nds3dFragment {
     bool translucent = false;
     bool translucent_depth_write = false;
     bool w_buffer = false;
+    bool edge_candidate = false;
 };
 
 using Nds3dFragmentCallback = void (*)(
@@ -97,6 +98,8 @@ struct Nds3dColorPixel {
     uint8_t alpha5 = 0u;
     uint8_t polygon_id = 0u;
     bool fog_enabled = false;
+    bool edge_candidate = false;
+    uint8_t edge_polygon_id = 0u;
 };
 
 /*
@@ -129,6 +132,12 @@ public:
         uint16_t scanline,
         const Nds3dDepthBuffer &depth_buffer,
         const NdsDisplayControl &display_control) noexcept;
+    bool apply_edge_marking_scanline(
+        uint16_t scanline,
+        const Nds3dDepthBuffer &depth_buffer,
+        const std::array<uint16_t, 8> &edge_colors,
+        uint8_t rear_plane_polygon_id,
+        uint32_t rear_plane_depth) noexcept;
     const Nds3dColorPixel *pixel_at(
         uint8_t x, uint8_t y) const noexcept;
     bool copy_bg0_scanline(
@@ -206,7 +215,9 @@ public:
         const NdsDisplayControl &display_control) const noexcept;
 
     /*
-     * Render one line and enqueue RGB555/alpha5 for Engine A BG0. The caller
+     * Render one line and enqueue RGB555/alpha5 for Engine A BG0. With
+     * edge-marking lookahead enabled, calls 0..191 queue the preceding line;
+     * call 192 flushes line 191 against the rear-plane border. The caller
      * initializes the rear-plane once per frame and resets the FIFO before
      * pre-rendering; cache capacity/order errors are reported explicitly.
      */
@@ -215,7 +226,8 @@ public:
         Nds3dDepthBuffer &depth_buffer,
         Nds3dColorBuffer &color_buffer,
         Nds3dScanlineCache &cache,
-        const NdsDisplayControl &display_control) const noexcept;
+        const NdsDisplayControl &display_control,
+        bool edge_marking_pipeline = false) const noexcept;
 
 private:
     Nds3dRasterStatus render_scanline_impl(
@@ -223,7 +235,8 @@ private:
         Nds3dFragmentCallback callback,
         void *context,
         const std::array<uint16_t, 32> *toon_table,
-        bool highlight_shading) const noexcept;
+        bool highlight_shading,
+        bool edge_marking_enabled) const noexcept;
     Nds3dRasterStatus render_scanline_composited_impl(
         uint16_t scanline,
         Nds3dDepthBuffer &depth_buffer,
@@ -232,7 +245,8 @@ private:
         bool alpha_test_enabled,
         uint8_t alpha_test_reference,
         const std::array<uint16_t, 32> *toon_table,
-        bool highlight_shading) const noexcept;
+        bool highlight_shading,
+        bool edge_marking_enabled) const noexcept;
 
     const NdsGeometryEngine &geometry_;
     const Nds3dTextureSampler &textures_;

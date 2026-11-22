@@ -247,3 +247,10 @@ nem boot/frame real de Pokémon Platinum.
 `NdsDisplayControl` agora modela os oito registradores write-only `EDGE_COLOR` em `0x04000330..0x0400033F`, com cores RGB555 e seleção por grupo de oito IDs (`polygon_id >> 3`). `DISP3DCNT.Bit5` também tem constante e accessor próprios. A regressão verifica armazenamento/máscara, alinhamento, larguras inválidas, leitura bloqueada e acesso ARM9.
 
 Esta etapa implementa somente o estado de hardware: o contorno ainda não é aplicado aos pixels. O Edge Marking exige preservar candidatos de borda e concluir a comparação de ID/profundidade com os vizinhos ortogonais após a composição dos polígonos; o fluxo atual envia scanlines para uma FIFO de 48 linhas. O pós-passe será integrado sem alterar prematuramente as linhas já enfileiradas. Não há alegação de conformidade visual ou boot de jogo.
+
+
+## Atualização 2026-11-22 — Edge Marking no passe de composição
+
+Os polígonos opacos agora sinalizam pixels candidatos junto ao perímetro externo (sem marcar as diagonais internas da triangulação em leque). Após rasterizar a linha seguinte, o pós-passe avalia os vizinhos ortogonais: a cor `EDGE_COLOR[polygon_id >> 3]` só substitui o RGB do candidato quando existe ao menos um vizinho com ID diferente e profundidade estritamente maior. Nos limites da tela, o vizinho externo usa ID de `CLEAR_COLOR` e profundidade de `CLEAR_DEPTH`.
+
+O caminho da FIFO BG0 segura uma linha até a próxima ficar pronta; scanline 192 é o flush final para a linha 191. A aplicação de fog ocorre depois da substituição da cor de borda. A cobertura geométrica usa uma aproximação determinística baseada na interseção da borda com o footprint do pixel; ainda precisa de comparação com capturas físicas, sobretudo para arestas inferior/direita omitidas pelo hardware, wireframe, antialias e polígonos translúcidos. A CI desta revisão ainda precisa confirmar as quatro plataformas. Não há boot ou quadro real de Pokémon Platinum comprovado.

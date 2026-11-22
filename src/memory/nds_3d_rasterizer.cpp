@@ -54,6 +54,26 @@ bool edge_contains(
     return value > 0 || (value == 0 && top_left_edge(a, b));
 }
 
+/*
+ * Edge marking flags the pixel footprint crossed by a polygon perimeter
+ * segment. edge_function uses doubled sample coordinates, so the L1
+ * half-pixel support radius is |dx| + |dy| in this integer domain.
+ */
+bool pixel_touches_edge_band(
+    int64_t value,
+    const NdsGeometryEngine::Vertex &a,
+    const NdsGeometryEngine::Vertex &b) noexcept
+{
+    const int64_t dx = static_cast<int64_t>(b.screen_position[0]) -
+        a.screen_position[0];
+    const int64_t dy = static_cast<int64_t>(b.screen_position[1]) -
+        a.screen_position[1];
+    const int64_t absolute_value = value < 0 ? -value : value;
+    const int64_t threshold = (dx < 0 ? -dx : dx) +
+        (dy < 0 ? -dy : dy);
+    return absolute_value <= threshold;
+}
+
 uint8_t expand_five_to_six(uint32_t value) noexcept
 {
     const uint32_t channel = value & UINT32_C(0x1F);
@@ -331,6 +351,10 @@ Nds3dRasterStatus rasterize_triangle_scanline(
     bool w_buffer,
     const std::array<uint16_t, 32> *toon_table,
     bool highlight_shading,
+    bool edge_marking_enabled,
+    bool edge_ab,
+    bool edge_bc,
+    bool edge_ca,
     Nds3dFragmentCallback callback,
     void *context) noexcept
 {
@@ -360,6 +384,7 @@ Nds3dRasterStatus rasterize_triangle_scanline(
     if (area == 0) return Nds3dRasterStatus::Ok;
     if (area < 0) {
         std::swap(b, c);
+        std::swap(edge_ab, edge_ca);
         area = -area;
     }
 
@@ -452,6 +477,11 @@ Nds3dRasterStatus rasterize_triangle_scanline(
         fragment.fog_enabled = polygon.fog_enabled;
         fragment.depth_equal = polygon.depth_equal;
         fragment.translucent = polygon.alpha < 31u;
+        fragment.edge_candidate = edge_marking_enabled &&
+            polygon.alpha == 31u && (
+                (edge_bc && pixel_touches_edge_band(weights[0], *b, *c)) ||
+                (edge_ca && pixel_touches_edge_band(weights[1], *c, *a)) ||
+                (edge_ab && pixel_touches_edge_band(weights[2], *a, *b)));
         fragment.translucent_depth_write =
             polygon.translucent_depth_write;
         shade_fragment(
@@ -609,6 +639,10 @@ bool Nds3dColorBuffer::blend_fragment(
     destination.alpha5 = static_cast<uint8_t>(
         std::max<uint32_t>(source_alpha, destination.alpha5));
     destination.polygon_id = fragment.polygon_id;
+    if (!fragment.translucent) {
+        destination.edge_candidate = fragment.edge_candidate;
+        destination.edge_polygon_id = fragment.polygon_id;
+    }
     destination.fog_enabled = fragment.translucent
         ? (destination.fog_enabled && fragment.fog_enabled)
         : fragment.fog_enabled;
@@ -661,6 +695,72 @@ bool Nds3dColorBuffer::apply_fog_scanline(
             pixel.blue6 = blend(fog_blue, pixel.blue6);
         }
         pixel.alpha5 = blend(fog_alpha, pixel.alpha5);
+    }
+    return true;
+}
+
+bool Nds3dColorBuffer::apply_edge_marking_scanline(
+    uint16_t scanline,
+    const Nds3dDepthBuffer &depth_buffer,
+    const std::array<uint16_t, 8> &edge_colors,
+    uint8_t rear_plane_polygon_id,
+    uint32_t rear_plane_depth) noexcept
+{
+    if (scanline >= ScreenHeight ||
+        rear_plane_polygon_id > 63u ||
+        rear_plane_depth > Nds3dDepthBuffer::MaximumDepth) {
+        return false;
+    }
+
+    const auto edge_visible = [](
+        uint8_t edge_id, uint32_t edge_depth,
+        uint8_t neighbor_id, uint32_t neighbor_depth) noexcept {
+        return edge_id != neighbor_id && edge_depth < neighbor_depth;
+    };
+
+    for (uint32_t x = 0u; x < ScreenWidth; ++x) {
+        Nds3dColorPixel &pixel = pixels_[
+            static_cast<std::size_t>(scanline) * ScreenWidth + x];
+        if (!pixel.edge_candidate) continue;
+
+        const uint8_t edge_id = pixel.edge_polygon_id;
+        const uint32_t edge_depth = depth_buffer.depth_at(
+            static_cast<uint8_t>(x), static_cast<uint8_t>(scanline));
+        bool draw_edge = false;
+        const auto test_neighbor = [&](int32_t neighbor_x,
+                                       int32_t neighbor_y) noexcept {
+            if (draw_edge) return;
+            if (neighbor_x < 0 ||
+                neighbor_x >= static_cast<int32_t>(ScreenWidth) ||
+                neighbor_y < 0 ||
+                neighbor_y >= static_cast<int32_t>(ScreenHeight)) {
+                draw_edge = edge_visible(
+                    edge_id, edge_depth,
+                    rear_plane_polygon_id, rear_plane_depth);
+                return;
+            }
+            const Nds3dColorPixel &neighbor = pixels_[
+                static_cast<std::size_t>(neighbor_y) * ScreenWidth +
+                static_cast<uint32_t>(neighbor_x)];
+            const uint32_t neighbor_depth = depth_buffer.depth_at(
+                static_cast<uint8_t>(neighbor_x),
+                static_cast<uint8_t>(neighbor_y));
+            draw_edge = edge_visible(
+                edge_id, edge_depth, neighbor.polygon_id, neighbor_depth);
+        };
+
+        test_neighbor(static_cast<int32_t>(x) - 1, scanline);
+        test_neighbor(static_cast<int32_t>(x) + 1, scanline);
+        test_neighbor(x, static_cast<int32_t>(scanline) - 1);
+        test_neighbor(x, static_cast<int32_t>(scanline) + 1);
+
+        if (draw_edge) {
+            const uint16_t color = edge_colors[edge_id >> 3u];
+            pixel.red6 = expand_five_to_six(color);
+            pixel.green6 = expand_five_to_six(color >> 5u);
+            pixel.blue6 = expand_five_to_six(color >> 10u);
+        }
+        pixel.edge_candidate = false;
     }
     return true;
 }
@@ -905,7 +1005,8 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_composited(
         display_control.three_d_alpha_test_enabled(),
         display_control.three_d_alpha_test_reference(),
         &display_control.three_d_toon_table(),
-        display_control.three_d_highlight_shading_enabled());
+        display_control.three_d_highlight_shading_enabled(),
+        display_control.three_d_edge_marking_enabled());
     if (status != Nds3dRasterStatus::Ok) return status;
     return color_buffer.apply_fog_scanline(
             scanline, depth_buffer, display_control)
@@ -918,11 +1019,64 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_to_cache(
     Nds3dDepthBuffer &depth_buffer,
     Nds3dColorBuffer &color_buffer,
     Nds3dScanlineCache &cache,
-    const NdsDisplayControl &display_control) const noexcept
+    const NdsDisplayControl &display_control,
+    bool edge_marking_pipeline) const noexcept
 {
-    if (scanline >= ScreenHeight) return Nds3dRasterStatus::InvalidScanline;
+    if (!display_control.installed()) {
+        return Nds3dRasterStatus::DisplayControlUnavailable;
+    }
 
-    const Nds3dScanlineCacheStatus available = cache.can_enqueue(scanline);
+    if (!edge_marking_pipeline) {
+        if (scanline >= ScreenHeight) {
+            return Nds3dRasterStatus::InvalidScanline;
+        }
+        const Nds3dScanlineCacheStatus available =
+            cache.can_enqueue(scanline);
+        if (available == Nds3dScanlineCacheStatus::Full) {
+            return Nds3dRasterStatus::ScanlineCacheFull;
+        }
+        if (available != Nds3dScanlineCacheStatus::Ok) {
+            return Nds3dRasterStatus::ScanlineCacheOutOfOrder;
+        }
+
+        const Nds3dRasterStatus rendered =
+            render_scanline_composited_impl(
+                scanline, depth_buffer, color_buffer,
+                display_control.three_d_alpha_blending_enabled(),
+                display_control.three_d_alpha_test_enabled(),
+                display_control.three_d_alpha_test_reference(),
+                &display_control.three_d_toon_table(),
+                display_control.three_d_highlight_shading_enabled(), false);
+        if (rendered != Nds3dRasterStatus::Ok) return rendered;
+        if (!color_buffer.apply_fog_scanline(
+                scanline, depth_buffer, display_control)) {
+            return Nds3dRasterStatus::InvalidScanline;
+        }
+
+        Nds3dBg0Scanline line{};
+        if (!color_buffer.copy_bg0_scanline(scanline, line)) {
+            return Nds3dRasterStatus::InvalidScanline;
+        }
+        const Nds3dScanlineCacheStatus queued = cache.enqueue(scanline, line);
+        if (queued == Nds3dScanlineCacheStatus::Full) {
+            return Nds3dRasterStatus::ScanlineCacheFull;
+        }
+        if (queued != Nds3dScanlineCacheStatus::Ok) {
+            return Nds3dRasterStatus::ScanlineCacheInvalid;
+        }
+        return Nds3dRasterStatus::Ok;
+    }
+
+    if (scanline > ScreenHeight) {
+        return Nds3dRasterStatus::InvalidScanline;
+    }
+    const uint16_t output_scanline = scanline == 0u
+        ? 0u
+        : (scanline == ScreenHeight
+            ? static_cast<uint16_t>(ScreenHeight - 1u)
+            : static_cast<uint16_t>(scanline - 1u));
+    const Nds3dScanlineCacheStatus available =
+        cache.can_enqueue(output_scanline);
     if (available == Nds3dScanlineCacheStatus::Full) {
         return Nds3dRasterStatus::ScanlineCacheFull;
     }
@@ -930,16 +1084,41 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_to_cache(
         return Nds3dRasterStatus::ScanlineCacheOutOfOrder;
     }
 
-    const Nds3dRasterStatus rendered =
-        render_scanline_composited(
-            scanline, depth_buffer, color_buffer, display_control);
-    if (rendered != Nds3dRasterStatus::Ok) return rendered;
+    if (scanline < ScreenHeight) {
+        const Nds3dRasterStatus rendered =
+            render_scanline_composited_impl(
+                scanline, depth_buffer, color_buffer,
+                display_control.three_d_alpha_blending_enabled(),
+                display_control.three_d_alpha_test_enabled(),
+                display_control.three_d_alpha_test_reference(),
+                &display_control.three_d_toon_table(),
+                display_control.three_d_highlight_shading_enabled(), true);
+        if (rendered != Nds3dRasterStatus::Ok) return rendered;
+        /* The first line is a top-neighbor prerequisite, not a queued line. */
+        if (scanline == 0u) return Nds3dRasterStatus::Ok;
+    }
 
-    Nds3dBg0Scanline line{};
-    if (!color_buffer.copy_bg0_scanline(scanline, line)) {
+    const uint32_t rear_plane_depth =
+        display_control.three_d_clear_depth_expanded24();
+    const uint8_t rear_plane_polygon_id = static_cast<uint8_t>(
+        (display_control.three_d_clear_color() >> 24u) & UINT32_C(0x3F));
+    if (!color_buffer.apply_edge_marking_scanline(
+            output_scanline, depth_buffer,
+            display_control.three_d_edge_color_table(),
+            rear_plane_polygon_id, rear_plane_depth)) {
         return Nds3dRasterStatus::InvalidScanline;
     }
-    const Nds3dScanlineCacheStatus queued = cache.enqueue(scanline, line);
+    if (!color_buffer.apply_fog_scanline(
+            output_scanline, depth_buffer, display_control)) {
+        return Nds3dRasterStatus::InvalidScanline;
+    }
+
+    Nds3dBg0Scanline line{};
+    if (!color_buffer.copy_bg0_scanline(output_scanline, line)) {
+        return Nds3dRasterStatus::InvalidScanline;
+    }
+    const Nds3dScanlineCacheStatus queued =
+        cache.enqueue(output_scanline, line);
     if (queued == Nds3dScanlineCacheStatus::Full) {
         return Nds3dRasterStatus::ScanlineCacheFull;
     }
@@ -959,7 +1138,7 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_composited(
 {
     return render_scanline_composited_impl(
         scanline, depth_buffer, color_buffer, alpha_blending_enabled,
-        alpha_test_enabled, alpha_test_reference, nullptr, false);
+        alpha_test_enabled, alpha_test_reference, nullptr, false, false);
 }
 
 Nds3dRasterStatus Nds3dRasterizer::render_scanline_composited_impl(
@@ -970,7 +1149,8 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_composited_impl(
     bool alpha_test_enabled,
     uint8_t alpha_test_reference,
     const std::array<uint16_t, 32> *toon_table,
-    bool highlight_shading) const noexcept
+    bool highlight_shading,
+    bool edge_marking_enabled) const noexcept
 {
     if (alpha_test_reference > 31u) {
         return Nds3dRasterStatus::InvalidAlphaTestReference;
@@ -1005,7 +1185,7 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_composited_impl(
     };
     return render_scanline_impl(
         scanline, composite_depth_passed_fragment, &context,
-        toon_table, highlight_shading);
+        toon_table, highlight_shading, edge_marking_enabled);
 }
 
 Nds3dRasterStatus Nds3dRasterizer::render_scanline(
@@ -1014,7 +1194,7 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline(
     void *context) const noexcept
 {
     return render_scanline_impl(
-        scanline, callback, context, nullptr, false);
+        scanline, callback, context, nullptr, false, false);
 }
 
 Nds3dRasterStatus Nds3dRasterizer::render_scanline_impl(
@@ -1022,7 +1202,8 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_impl(
     Nds3dFragmentCallback callback,
     void *context,
     const std::array<uint16_t, 32> *toon_table,
-    bool highlight_shading) const noexcept
+    bool highlight_shading,
+    bool edge_marking_enabled) const noexcept
 {
     if (scanline >= ScreenHeight) {
         return Nds3dRasterStatus::InvalidScanline;
@@ -1060,10 +1241,15 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_impl(
                 return Nds3dRasterStatus::InvalidGeometry;
             }
 
+            const bool edge_ab = triangle == 1u;
+            const bool edge_bc = true;
+            const bool edge_ca =
+                triangle + 1u == static_cast<uint8_t>(polygon->vertex_count - 1u);
             const Nds3dRasterStatus result =
                 rasterize_triangle_scanline(
                     *first, *second, *third, *polygon, textures_,
                     scanline, w_buffer, toon_table, highlight_shading,
+                    edge_marking_enabled, edge_ab, edge_bc, edge_ca,
                     callback, context);
             if (result != Nds3dRasterStatus::Ok) return result;
         }
