@@ -84,6 +84,41 @@ int main()
         return fail("DISP3DCNT accepted read-only or reserved status bits");
     }
 
+    display.report_3d_color_buffer_underflow();
+    display.report_3d_polygon_vertex_ram_overflow();
+    if (display.read(
+            NDS_ARM9, NdsDisplayControl::Disp3dControlAddress, 2u).value !=
+            (NdsDisplayControl::Disp3dControlWritableMask |
+             NdsDisplayControl::Disp3dStatusMask)) {
+        return fail("DISP3DCNT did not expose latched 3D status flags");
+    }
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::Disp3dControlAddress, 2u,
+            NdsDisplayControl::Disp3dControlWritableMask) != Status::Ok ||
+        display.three_d_control_register() !=
+            (NdsDisplayControl::Disp3dControlWritableMask |
+             NdsDisplayControl::Disp3dStatusMask)) {
+        return fail("DISP3DCNT status flags cleared without write-one acknowledgement");
+    }
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::Disp3dControlAddress, 2u,
+            NdsDisplayControl::Disp3dControlWritableMask |
+                NdsDisplayControl::Disp3dColorBufferUnderflowStatus) !=
+                Status::Ok ||
+        display.three_d_control_register() !=
+            (NdsDisplayControl::Disp3dControlWritableMask |
+             NdsDisplayControl::Disp3dPolygonVertexRamOverflowStatus)) {
+        return fail("DISP3DCNT underflow acknowledgement changed unrelated status");
+    }
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::Disp3dControlAddress, 2u,
+            NdsDisplayControl::Disp3dControlWritableMask |
+                NdsDisplayControl::Disp3dStatusMask) != Status::Ok ||
+        display.three_d_control_register() !=
+            NdsDisplayControl::Disp3dControlWritableMask) {
+        return fail("DISP3DCNT did not clear both acknowledged status flags");
+    }
+
     constexpr uint32_t clear_color = UINT32_C(0x2A11C521);
     if (display.write(
             NDS_ARM9, NdsDisplayControl::ClearColorAddress,
