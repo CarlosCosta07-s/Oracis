@@ -27,6 +27,68 @@ int32_t low_signed_word(uint64_t value) noexcept
     return std::bit_cast<int32_t>(static_cast<uint32_t>(value));
 }
 
+/* Computes floor(magnitude * numerator / denominator) without overflowing. */
+uint64_t multiply_divide_fraction(
+    uint64_t magnitude, uint64_t numerator, uint64_t denominator) noexcept
+{
+    if (denominator == 0u || numerator == 0u || magnitude == 0u) return 0u;
+    if (numerator >= denominator) return magnitude;
+
+    uint64_t quotient = 0u;
+    uint64_t remainder = 0u;
+    for (int bit = 63; bit >= 0; --bit) {
+        quotient <<= 1u;
+        remainder <<= 1u;
+        if (((magnitude >> static_cast<unsigned>(bit)) & 1u) != 0u) {
+            remainder += numerator;
+        }
+        while (remainder >= denominator) {
+            remainder -= denominator;
+            ++quotient;
+        }
+    }
+    return quotient;
+}
+
+uint64_t absolute_value(int64_t value) noexcept
+{
+    return value < 0
+        ? static_cast<uint64_t>(-value)
+        : static_cast<uint64_t>(value);
+}
+
+int32_t interpolate_i32(
+    int32_t from, int32_t to,
+    uint64_t numerator, uint64_t denominator) noexcept
+{
+    const int64_t delta =
+        static_cast<int64_t>(to) - static_cast<int64_t>(from);
+    const int64_t adjustment = static_cast<int64_t>(
+        multiply_divide_fraction(
+            absolute_value(delta), numerator, denominator));
+    const int64_t value = static_cast<int64_t>(from) +
+        (delta < 0 ? -adjustment : adjustment);
+    return static_cast<int32_t>(std::clamp<int64_t>(
+        value, std::numeric_limits<int32_t>::min(),
+        std::numeric_limits<int32_t>::max()));
+}
+
+int16_t interpolate_i16(
+    int16_t from, int16_t to,
+    uint64_t numerator, uint64_t denominator) noexcept
+{
+    const int64_t delta =
+        static_cast<int64_t>(to) - static_cast<int64_t>(from);
+    const int64_t adjustment = static_cast<int64_t>(
+        multiply_divide_fraction(
+            absolute_value(delta), numerator, denominator));
+    const int64_t value = static_cast<int64_t>(from) +
+        (delta < 0 ? -adjustment : adjustment);
+    return static_cast<int16_t>(std::clamp<int64_t>(
+        value, std::numeric_limits<int16_t>::min(),
+        std::numeric_limits<int16_t>::max()));
+}
+
 } // namespace
 
 bool NdsGeometryEngine::valid_cpu(NdsCpu cpu) noexcept
@@ -267,9 +329,6 @@ Status NdsGeometryEngine::install() noexcept
     vertex_list_vertex_count_ = 0u;
     primitive_vertices_ = {};
     primitive_vertex_count_ = 0u;
-    quad_strip_pending_top_ = 0u;
-    quad_strip_previous_top_ = 0u;
-    quad_strip_previous_bottom_ = 0u;
     completed_commands_ = 0u;
     installed_ = true;
     update_fifo_irq();
@@ -1057,12 +1116,6 @@ void NdsGeometryEngine::execute_vertex_command() noexcept
 
 void NdsGeometryEngine::submit_vertex() noexcept
 {
-    auto &buffer = buffers_[build_buffer_index_];
-    if (buffer.vertex_count >= VertexRamCapacity) {
-        buffer.vertex_overflow = true;
-        return;
-    }
-
     Vertex vertex{};
     vertex.source_position = current_vertex_position_;
     vertex.normal = current_vertex_normal_;
@@ -1098,11 +1151,8 @@ void NdsGeometryEngine::submit_vertex() noexcept
         vertex.clip_position[column] = std::bit_cast<int32_t>(shifted);
     }
 
-    calculate_screen_position(vertex);
-
-    const uint32_t stored_index = buffer.vertex_count;
-    buffer.vertices[buffer.vertex_count++] = vertex;
-    append_vertex_to_list(stored_index);
+    /* Hold submitted vertices in the primitive cache until a polygon exists. */
+    append_vertex_to_list(vertex);
 }
 
 void NdsGeometryEngine::calculate_screen_position(
@@ -1145,6 +1195,145 @@ void NdsGeometryEngine::calculate_screen_position(
     vertex.screen_position_valid = true;
 }
 
+int64_t NdsGeometryEngine::clip_distance(
+    const Vertex &vertex, uint8_t plane) noexcept
+{
+    const int64_t x = vertex.clip_position[0];
+    const int64_t y = vertex.clip_position[1];
+    const int64_t z = vertex.clip_position[2];
+    const int64_t w = vertex.clip_position[3];
+
+    switch (plane) {
+    case 0u: return x + w; /* left */
+    case 1u: return w - x; /* right */
+    case 2u: return y + w; /* bottom */
+    case 3u: return w - y; /* top */
+    case 4u: return z + w; /* near */
+    case 5u: return w - z; /* far */
+    default: return -1;
+    }
+}
+
+NdsGeometryEngine::Vertex NdsGeometryEngine::interpolate_vertex(
+    const Vertex &from, const Vertex &to,
+    int64_t from_distance, int64_t to_distance) noexcept
+{
+    const uint64_t numerator = absolute_value(from_distance);
+    const uint64_t denominator = absolute_value(from_distance - to_distance);
+    if (denominator == 0u) return from;
+
+    Vertex result{};
+    for (unsigned component = 0u; component < 4u; ++component) {
+        result.clip_position[component] = interpolate_i32(
+            from.clip_position[component], to.clip_position[component],
+            numerator, denominator);
+    }
+    for (unsigned component = 0u; component < 3u; ++component) {
+        result.source_position[component] = interpolate_i32(
+            from.source_position[component], to.source_position[component],
+            numerator, denominator);
+        result.normal[component] = interpolate_i32(
+            from.normal[component], to.normal[component],
+            numerator, denominator);
+    }
+    result.texture_s = interpolate_i16(
+        from.texture_s, to.texture_s, numerator, denominator);
+    result.texture_t = interpolate_i16(
+        from.texture_t, to.texture_t, numerator, denominator);
+
+    const auto interpolate_color = [numerator, denominator](
+        uint16_t from_color, uint16_t to_color, unsigned shift) noexcept {
+        const int64_t a = (from_color >> shift) & UINT16_C(0x1F);
+        const int64_t b = (to_color >> shift) & UINT16_C(0x1F);
+        const int64_t delta = b - a;
+        const int64_t adjustment = static_cast<int64_t>(
+            multiply_divide_fraction(
+                absolute_value(delta), numerator, denominator));
+        return static_cast<uint16_t>(std::clamp<int64_t>(
+            a + (delta < 0 ? -adjustment : adjustment), 0, 31));
+    };
+    const uint16_t red = interpolate_color(
+        from.color_rgb555, to.color_rgb555, 0u);
+    const uint16_t green = interpolate_color(
+        from.color_rgb555, to.color_rgb555, 5u);
+    const uint16_t blue = interpolate_color(
+        from.color_rgb555, to.color_rgb555, 10u);
+    result.color_rgb555 = static_cast<uint16_t>(
+        red | (green << 5u) | (blue << 10u));
+    return result;
+}
+
+bool NdsGeometryEngine::clip_polygon(
+    const Vertex *vertices, uint8_t count,
+    std::array<Vertex, MaxClippedPolygonVertices> &clipped,
+    uint8_t &clipped_count) const noexcept
+{
+    clipped = {};
+    clipped_count = 0u;
+    if (vertices == nullptr || count < 3u || count > 4u) return false;
+
+    std::array<Vertex, MaxClippedPolygonVertices> source{};
+    std::array<Vertex, MaxClippedPolygonVertices> destination{};
+    for (uint8_t index = 0u; index < count; ++index) {
+        source[index] = vertices[index];
+    }
+
+    uint8_t current_count = count;
+    for (uint8_t plane = 0u; plane < 6u; ++plane) {
+        if (current_count == 0u) break;
+        uint8_t next_count = 0u;
+
+        const auto append = [&destination, &next_count](
+            const Vertex &vertex) noexcept {
+            if (next_count >= MaxClippedPolygonVertices) return false;
+            destination[next_count++] = vertex;
+            return true;
+        };
+
+        Vertex previous = source[current_count - 1u];
+        int64_t previous_distance = clip_distance(previous, plane);
+        bool previous_inside = previous_distance >= 0;
+
+        for (uint8_t index = 0u; index < current_count; ++index) {
+            const Vertex &current = source[index];
+            const int64_t current_distance = clip_distance(current, plane);
+            const bool current_inside = current_distance >= 0;
+
+            if (current_inside) {
+                if (!previous_inside &&
+                    !append(interpolate_vertex(
+                        previous, current,
+                        previous_distance, current_distance))) {
+                    return false;
+                }
+                if (!append(current)) return false;
+            } else if (previous_inside) {
+                if (!append(interpolate_vertex(
+                        previous, current,
+                        previous_distance, current_distance))) {
+                    return false;
+                }
+            }
+
+            previous = current;
+            previous_distance = current_distance;
+            previous_inside = current_inside;
+        }
+
+        source.swap(destination);
+        destination = {};
+        current_count = next_count;
+    }
+
+    if (current_count < 3u) return true;
+    for (uint8_t index = 0u; index < current_count; ++index) {
+        calculate_screen_position(source[index]);
+        clipped[index] = source[index];
+    }
+    clipped_count = current_count;
+    return true;
+}
+
 void NdsGeometryEngine::begin_vertex_list(uint32_t parameter) noexcept
 {
     if (has_incomplete_primitive()) {
@@ -1156,9 +1345,6 @@ void NdsGeometryEngine::begin_vertex_list(uint32_t parameter) noexcept
     vertex_list_vertex_count_ = 0u;
     primitive_vertex_count_ = 0u;
     primitive_vertices_ = {};
-    quad_strip_pending_top_ = 0u;
-    quad_strip_previous_top_ = 0u;
-    quad_strip_previous_bottom_ = 0u;
 }
 
 void NdsGeometryEngine::end_vertex_list() noexcept
@@ -1175,13 +1361,12 @@ bool NdsGeometryEngine::has_incomplete_primitive() const noexcept
     if (!vertex_list_open_ || vertex_list_vertex_count_ == 0u) return false;
 
     switch (primitive_mode_) {
-    case 0u: /* Separate triangles: 3 vertices per polygon. */
+    case 0u:
+    case 1u:
         return primitive_vertex_count_ != 0u;
-    case 1u: /* Separate quads: 4 vertices per polygon. */
-        return primitive_vertex_count_ != 0u;
-    case 2u: /* Triangle strips: the first polygon needs 3 vertices. */
+    case 2u:
         return vertex_list_vertex_count_ < 3u;
-    case 3u: /* Quad strips: 4 vertices, then complete pairs. */
+    case 3u:
         return vertex_list_vertex_count_ < 4u ||
             (vertex_list_vertex_count_ & 1u) != 0u;
     default:
@@ -1190,32 +1375,46 @@ bool NdsGeometryEngine::has_incomplete_primitive() const noexcept
 }
 
 void NdsGeometryEngine::emit_polygon(
-    const uint32_t *indices, uint8_t count) noexcept
+    const Vertex *vertices, uint8_t count) noexcept
 {
-    if (indices == nullptr || (count != 3u && count != 4u)) return;
+    if (vertices == nullptr || (count != 3u && count != 4u)) return;
     auto &buffer = buffers_[build_buffer_index_];
+
+    std::array<Vertex, MaxClippedPolygonVertices> clipped{};
+    uint8_t clipped_count = 0u;
+    if (!clip_polygon(vertices, count, clipped, clipped_count)) {
+        buffer.vertex_overflow = true;
+        return;
+    }
+    if (clipped_count < 3u) return;
+
     if (buffer.polygon_count >= PolygonRamCapacity) {
         buffer.polygon_overflow = true;
         return;
     }
+    if (clipped_count > VertexRamCapacity - buffer.vertex_count) {
+        buffer.vertex_overflow = true;
+        return;
+    }
 
     Polygon polygon{};
-    for (uint8_t index = 0u; index < count; ++index) {
-        polygon.vertex_indices[index] = indices[index];
-    }
     polygon.attributes = active_polygon_attributes_;
-    polygon.vertex_count = count;
+    polygon.vertex_count = clipped_count;
+    const uint32_t base_vertex = buffer.vertex_count;
+    for (uint8_t index = 0u; index < clipped_count; ++index) {
+        polygon.vertex_indices[index] = base_vertex + index;
+        buffer.vertices[buffer.vertex_count++] = clipped[index];
+    }
     buffer.polygons[buffer.polygon_count++] = polygon;
 }
 
-void NdsGeometryEngine::append_vertex_to_list(
-    uint32_t vertex_index) noexcept
+void NdsGeometryEngine::append_vertex_to_list(const Vertex &vertex) noexcept
 {
     if (!vertex_list_open_) return;
 
     const uint32_t ordinal = vertex_list_vertex_count_++;
     if (primitive_mode_ == 0u || primitive_mode_ == 1u) {
-        primitive_vertices_[primitive_vertex_count_++] = vertex_index;
+        primitive_vertices_[primitive_vertex_count_++] = vertex;
         const uint8_t required = primitive_mode_ == 0u ? 3u : 4u;
         if (primitive_vertex_count_ == required) {
             emit_polygon(primitive_vertices_.data(), required);
@@ -1226,53 +1425,51 @@ void NdsGeometryEngine::append_vertex_to_list(
 
     if (primitive_mode_ == 2u) {
         if (ordinal < 2u) {
-            primitive_vertices_[ordinal] = vertex_index;
+            primitive_vertices_[ordinal] = vertex;
             return;
         }
+
+        Vertex triangle[3] = {};
         if (ordinal == 2u) {
-            const uint32_t triangle[3] = {
-                primitive_vertices_[0], primitive_vertices_[1], vertex_index
-            };
-            emit_polygon(triangle, 3u);
+            triangle[0] = primitive_vertices_[0];
+            triangle[1] = primitive_vertices_[1];
         } else if ((ordinal & 1u) != 0u) {
-            const uint32_t triangle[3] = {
-                primitive_vertices_[1], primitive_vertices_[0], vertex_index
-            };
-            emit_polygon(triangle, 3u);
+            triangle[0] = primitive_vertices_[1];
+            triangle[1] = primitive_vertices_[0];
         } else {
-            const uint32_t triangle[3] = {
-                primitive_vertices_[0], primitive_vertices_[1], vertex_index
-            };
-            emit_polygon(triangle, 3u);
+            triangle[0] = primitive_vertices_[0];
+            triangle[1] = primitive_vertices_[1];
         }
+        triangle[2] = vertex;
+        emit_polygon(triangle, 3u);
         primitive_vertices_[0] = primitive_vertices_[1];
-        primitive_vertices_[1] = vertex_index;
+        primitive_vertices_[1] = vertex;
         return;
     }
 
     /* Quad strip sequence: top0,bottom0,top1,bottom1,top2,bottom2... */
     if (ordinal == 0u) {
-        quad_strip_previous_top_ = vertex_index;
+        primitive_vertices_[0] = vertex;
         return;
     }
     if (ordinal == 1u) {
-        quad_strip_previous_bottom_ = vertex_index;
+        primitive_vertices_[1] = vertex;
         return;
     }
     if ((ordinal & 1u) == 0u) {
-        quad_strip_pending_top_ = vertex_index;
+        primitive_vertices_[2] = vertex;
         return;
     }
 
-    const uint32_t quad[4] = {
-        quad_strip_previous_top_,
-        quad_strip_previous_bottom_,
-        vertex_index,
-        quad_strip_pending_top_
+    const Vertex quad[4] = {
+        primitive_vertices_[0],
+        primitive_vertices_[1],
+        vertex,
+        primitive_vertices_[2]
     };
     emit_polygon(quad, 4u);
-    quad_strip_previous_top_ = quad_strip_pending_top_;
-    quad_strip_previous_bottom_ = vertex_index;
+    primitive_vertices_[0] = primitive_vertices_[2];
+    primitive_vertices_[1] = vertex;
 }
 
 void NdsGeometryEngine::execute_active_command() noexcept

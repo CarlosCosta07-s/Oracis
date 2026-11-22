@@ -31,6 +31,7 @@ public:
     static constexpr uint32_t CommandPipeCapacity = 4u;
     static constexpr uint32_t VertexRamCapacity = 6144u;
     static constexpr uint32_t PolygonRamCapacity = 2048u;
+    static constexpr uint32_t MaxClippedPolygonVertices = 10u;
     static constexpr uint32_t GxFifoIrqMask = UINT32_C(1) << 21u;
 
     using Matrix = std::array<int32_t, 16>;
@@ -47,7 +48,7 @@ public:
     };
 
     struct Polygon {
-        std::array<uint32_t, 4> vertex_indices{};
+        std::array<uint32_t, MaxClippedPolygonVertices> vertex_indices{};
         uint32_t attributes = 0u;
         uint8_t vertex_count = 0u;
     };
@@ -128,6 +129,9 @@ public:
     bool incomplete_polygon_list() const noexcept {
         return has_incomplete_primitive();
     }
+    uint32_t vertex_list_vertex_count() const noexcept {
+        return vertex_list_vertex_count_;
+    }
     uint8_t primitive_mode() const noexcept { return primitive_mode_; }
     const Polygon *polygon_at(uint32_t index) const noexcept {
         const auto &buffer = buffers_[build_buffer_index_];
@@ -205,8 +209,16 @@ private:
     void begin_vertex_list(uint32_t parameter) noexcept;
     void end_vertex_list() noexcept;
     bool has_incomplete_primitive() const noexcept;
-    void append_vertex_to_list(uint32_t vertex_index) noexcept;
-    void emit_polygon(const uint32_t *indices, uint8_t count) noexcept;
+    void append_vertex_to_list(const Vertex &vertex) noexcept;
+    void emit_polygon(const Vertex *vertices, uint8_t count) noexcept;
+    static int64_t clip_distance(const Vertex &vertex, uint8_t plane) noexcept;
+    static Vertex interpolate_vertex(
+        const Vertex &from, const Vertex &to,
+        int64_t from_distance, int64_t to_distance) noexcept;
+    bool clip_polygon(
+        const Vertex *vertices, uint8_t count,
+        std::array<Vertex, MaxClippedPolygonVertices> &clipped,
+        uint8_t &clipped_count) const noexcept;
     void reset_build_buffer() noexcept;
     void set_current_matrix(const Matrix &matrix) noexcept;
     void multiply_current_matrix(const Matrix &matrix,
@@ -276,11 +288,8 @@ private:
     bool vertex_list_open_ = false;
     bool incomplete_polygon_list_ = false;
     uint32_t vertex_list_vertex_count_ = 0u;
-    std::array<uint32_t, 4> primitive_vertices_{};
+    std::array<Vertex, 4> primitive_vertices_{};
     uint8_t primitive_vertex_count_ = 0u;
-    uint32_t quad_strip_pending_top_ = 0u;
-    uint32_t quad_strip_previous_top_ = 0u;
-    uint32_t quad_strip_previous_bottom_ = 0u;
 
     uint64_t completed_commands_ = 0u;
     bool installed_ = false;

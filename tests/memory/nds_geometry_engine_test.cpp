@@ -9,6 +9,7 @@
 #include <bit>
 #include <cstdint>
 #include <cstdio>
+#include <memory>
 
 namespace {
 
@@ -404,8 +405,32 @@ int main()
         return fail("VTX_16 parameter enqueue failed");
     }
     geometry.advance_bus_cycles(9u);
-    if (geometry.vertex_count() != 1u) {
-        return fail("VTX_16 did not append one transformed vertex");
+    if (geometry.vertex_count() != 0u ||
+        geometry.vertex_list_vertex_count() != 1u) {
+        return fail("VTX_16 was stored before a complete polygon existed");
+    }
+
+    const uint32_t vtx10 =
+        UINT32_C(0x040) |
+        (UINT32_C(0x3FF) << 10u) |
+        (UINT32_C(0x020) << 20u);
+    if (!write_command(geometry, 0x24u, vtx10)) {
+        return fail("VTX_10 command enqueue failed");
+    }
+    geometry.advance_bus_cycles(8u);
+    if (geometry.vertex_list_vertex_count() != 2u ||
+        geometry.vertex_count() != 0u) {
+        return fail("VTX_10 was committed before its triangle was complete");
+    }
+
+    if (!write_command(
+            geometry, 0x25u,
+            (UINT32_C(0x4000) << 16u) | UINT32_C(0xE000))) {
+        return fail("VTX_XY command enqueue failed");
+    }
+    geometry.advance_bus_cycles(8u);
+    if (geometry.vertex_count() != 3u || geometry.polygon_count() != 1u) {
+        return fail("third VTX command did not commit the first triangle");
     }
     const NdsGeometryEngine::Vertex *vertex = geometry.vertex_at(0u);
     if (vertex == nullptr ||
@@ -417,32 +442,15 @@ int main()
         vertex->normal !=
             std::array<int32_t, 3>{INT32_C(8), -INT32_C(8), INT32_C(2048)} ||
         vertex->color_rgb555 != UINT16_C(0x4210) ||
-        vertex->texture_s != INT16_C(16) ||
-        vertex->texture_t != INT16_C(-16)) {
-        return fail("VTX_16 transform or retained vertex attributes were incorrect");
+        vertex->texture_s != INT16_C(16) || vertex->texture_t != INT16_C(-16)) {
+        return fail("first polygon did not preserve VTX_16 attributes");
     }
-
-    const uint32_t vtx10 =
-        UINT32_C(0x040) |
-        (UINT32_C(0x3FF) << 10u) |
-        (UINT32_C(0x020) << 20u);
-    if (!write_command(geometry, 0x24u, vtx10)) {
-        return fail("VTX_10 command enqueue failed");
-    }
-    geometry.advance_bus_cycles(8u);
     vertex = geometry.vertex_at(1u);
     if (vertex == nullptr ||
         vertex->source_position !=
             std::array<int32_t, 3>{INT32_C(4096), -INT32_C(64), INT32_C(2048)}) {
         return fail("VTX_10 signed 10-bit and six-fraction decode was incorrect");
     }
-
-    if (!write_command(
-            geometry, 0x25u,
-            (UINT32_C(0x4000) << 16u) | UINT32_C(0xE000))) {
-        return fail("VTX_XY command enqueue failed");
-    }
-    geometry.advance_bus_cycles(8u);
     vertex = geometry.vertex_at(2u);
     if (vertex == nullptr ||
         vertex->source_position !=
@@ -456,7 +464,7 @@ int main()
         return fail("VTX_XZ command enqueue failed");
     }
     geometry.advance_bus_cycles(8u);
-    vertex = geometry.vertex_at(3u);
+    vertex = geometry.vertex_at(5u);
     if (vertex == nullptr ||
         vertex->source_position !=
             std::array<int32_t, 3>{INT32_C(2048), INT32_C(16384), -INT32_C(4096)}) {
@@ -469,7 +477,7 @@ int main()
         return fail("VTX_YZ command enqueue failed");
     }
     geometry.advance_bus_cycles(8u);
-    vertex = geometry.vertex_at(4u);
+    vertex = geometry.vertex_at(8u);
     if (vertex == nullptr ||
         vertex->source_position !=
             std::array<int32_t, 3>{INT32_C(2048), -INT32_C(4096), INT32_C(4096)}) {
@@ -484,7 +492,7 @@ int main()
         return fail("VTX_DIFF command enqueue failed");
     }
     geometry.advance_bus_cycles(8u);
-    vertex = geometry.vertex_at(5u);
+    vertex = geometry.vertex_at(11u);
     if (vertex == nullptr ||
         vertex->source_position !=
             std::array<int32_t, 3>{INT32_C(2040), -INT32_C(4080), INT32_C(4072)} ||
@@ -495,7 +503,7 @@ int main()
     }
     const ReadResult ram_count = geometry.read(
         NDS_ARM9, NdsGeometryEngine::RamCountAddress, 4u);
-    if (!ram_count || ((ram_count.value >> 16u) & UINT32_C(0x1FFF)) != 6u ||
+    if (!ram_count || ((ram_count.value >> 16u) & UINT32_C(0x1FFF)) != 12u ||
         (ram_count.value & UINT32_C(0x0FFF)) != 4u) {
         return fail("RAM_COUNT did not report stored vertex count");
     }
@@ -513,10 +521,12 @@ int main()
     if (strip_first == nullptr || strip_second == nullptr ||
         strip_first->vertex_count != 3u ||
         strip_first->vertex_indices !=
-            std::array<uint32_t, 4>{0u, 1u, 2u, 0u} ||
+            std::array<uint32_t, NdsGeometryEngine::MaxClippedPolygonVertices>{
+                0u, 1u, 2u, 0u, 0u, 0u, 0u, 0u, 0u, 0u} ||
         strip_first->attributes != UINT32_C(0x2A7F1234) ||
         strip_second->vertex_indices !=
-            std::array<uint32_t, 4>{2u, 1u, 3u, 0u}) {
+            std::array<uint32_t, NdsGeometryEngine::MaxClippedPolygonVertices>{
+                3u, 4u, 5u, 0u, 0u, 0u, 0u, 0u, 0u, 0u}) {
         return fail("triangle-strip alternating winding or polygon attributes failed");
     }
     const ReadResult ram_counts_after_strip = geometry.read(
@@ -552,9 +562,11 @@ int main()
     }
     geometry.advance_bus_cycles(1u);
     const NdsGeometryEngine::Polygon *quad = geometry.polygon_at(4u);
-    if (geometry.polygon_count() != 5u || quad == nullptr ||
-        quad->vertex_count != 4u ||
-        quad->vertex_indices != std::array<uint32_t, 4>{6u, 7u, 8u, 9u} ||
+    if (geometry.polygon_count() != 5u || geometry.vertex_count() != 16u ||
+        quad == nullptr || quad->vertex_count != 4u ||
+        quad->vertex_indices !=
+            std::array<uint32_t, NdsGeometryEngine::MaxClippedPolygonVertices>{
+                12u, 13u, 14u, 15u, 0u, 0u, 0u, 0u, 0u, 0u} ||
         quad->attributes != UINT32_C(0x12345678)) {
         return fail("separate quadrilateral or deferred polygon attributes failed");
     }
@@ -582,10 +594,13 @@ int main()
     const NdsGeometryEngine::Polygon *quad_strip_second = geometry.polygon_at(6u);
     if (geometry.polygon_count() != 7u ||
         quad_strip_first == nullptr || quad_strip_second == nullptr ||
+        geometry.vertex_count() != 24u ||
         quad_strip_first->vertex_indices !=
-            std::array<uint32_t, 4>{10u, 11u, 13u, 12u} ||
+            std::array<uint32_t, NdsGeometryEngine::MaxClippedPolygonVertices>{
+                16u, 17u, 18u, 19u, 0u, 0u, 0u, 0u, 0u, 0u} ||
         quad_strip_second->vertex_indices !=
-            std::array<uint32_t, 4>{12u, 13u, 15u, 14u}) {
+            std::array<uint32_t, NdsGeometryEngine::MaxClippedPolygonVertices>{
+                20u, 21u, 22u, 23u, 0u, 0u, 0u, 0u, 0u, 0u}) {
         return fail("quad-strip shared-edge assembly failed");
     }
 
@@ -602,16 +617,16 @@ int main()
     }
     transform_geometry.advance_bus_cycles(20u);
     constexpr std::array<uint32_t, 3> world_translation = {
-        UINT32_C(0x00004000), UINT32_C(0xFFFFE000), UINT32_C(0x00001000)
+        UINT32_C(0x00000400), UINT32_C(0xFFFFFE00), UINT32_C(0x00000100)
     };
     if (!write_parameters(
             transform_geometry, 0x1Cu, world_translation.data(), 3u)) {
         return fail("world translation command enqueue failed");
     }
     transform_geometry.advance_bus_cycles(22u);
-    if (transform_geometry.position_matrix()[12] != INT32_C(16384) ||
-        transform_geometry.position_matrix()[13] != -INT32_C(8192) ||
-        transform_geometry.position_matrix()[14] != INT32_C(4096)) {
+    if (transform_geometry.position_matrix()[12] != INT32_C(1024) ||
+        transform_geometry.position_matrix()[13] != -INT32_C(512) ||
+        transform_geometry.position_matrix()[14] != INT32_C(256)) {
         return fail("MTX_TRANS did not place translation in the final matrix row");
     }
     if (!write_command(transform_geometry, 0x40u, UINT32_C(0))) {
@@ -619,9 +634,9 @@ int main()
     }
     transform_geometry.advance_bus_cycles(1u);
     const std::array<std::array<uint32_t, 3>, 3> triangle_positions = {{
-        {{UINT32_C(0x1000), UINT32_C(0x2000), UINT32_C(0x3000)}},
+        {{UINT32_C(0x0400), UINT32_C(0x0800), UINT32_C(0x0C00)}},
         {{UINT32_C(0x0000), UINT32_C(0x0000), UINT32_C(0x0000)}},
-        {{UINT32_C(0x1000), UINT32_C(0x0000), UINT32_C(0x1000)}}
+        {{UINT32_C(0x0400), UINT32_C(0x0000), UINT32_C(0x0400)}}
     }};
     for (const auto &position : triangle_positions) {
         const uint32_t xy = (position[1] << 16u) | position[0];
@@ -638,7 +653,7 @@ int main()
         translated_vertex == nullptr ||
         translated_vertex->clip_position !=
             std::array<int32_t, 4>{
-                INT32_C(20480), 0, INT32_C(16384), INT32_C(4096)}) {
+                INT32_C(2048), INT32_C(1536), INT32_C(3328), INT32_C(4096)}) {
         return fail("row-vector ClipMatrix transform did not apply translation to XYZ");
     }
 
@@ -707,19 +722,116 @@ int main()
         !write_command(outside_viewport_geometry, 0x23u, UINT32_C(0)) ||
         !write_command(
             outside_viewport_geometry, 0x23u,
-            (UINT32_C(0) << 16u) | UINT32_C(0)) ||
+            (UINT32_C(0) << 16u) | UINT32_C(0x0000)) ||
         !write_command(outside_viewport_geometry, 0x23u, UINT32_C(0)) ||
         !write_command(
             outside_viewport_geometry, 0x23u,
-            (UINT32_C(0) << 16u) | UINT32_C(0x1000)) ||
+            (UINT32_C(0) << 16u) | UINT32_C(0x0800)) ||
         !write_command(outside_viewport_geometry, 0x23u, UINT32_C(0))) {
         return fail("outside-viewport VTX_16 enqueue failed");
     }
     outside_viewport_geometry.advance_bus_cycles(27u);
-    const NdsGeometryEngine::Vertex *outside_vertex =
-        outside_viewport_geometry.vertex_at(0u);
-    if (outside_vertex == nullptr || outside_vertex->screen_position_valid) {
-        return fail("out-of-volume vertex received a pre-clipping screen coordinate");
+    const NdsGeometryEngine::Polygon *right_clipped =
+        outside_viewport_geometry.polygon_at(0u);
+    if (outside_viewport_geometry.vertex_count() != 4u ||
+        outside_viewport_geometry.polygon_count() != 1u ||
+        right_clipped == nullptr || right_clipped->vertex_count != 4u) {
+        return fail("right-plane clipping did not turn a triangle into a quad");
+    }
+    bool found_right_intersection = false;
+    for (uint8_t index = 0u; index < right_clipped->vertex_count; ++index) {
+        const auto *clipped_vertex =
+            outside_viewport_geometry.vertex_at(right_clipped->vertex_indices[index]);
+        if (clipped_vertex == nullptr || !clipped_vertex->screen_position_valid ||
+            clipped_vertex->clip_position[0] > clipped_vertex->clip_position[3]) {
+            return fail("clipped right-plane vertex was outside or lacked screen coordinates");
+        }
+        if (clipped_vertex->clip_position[0] ==
+            clipped_vertex->clip_position[3]) {
+            found_right_intersection = true;
+        }
+    }
+    if (!found_right_intersection) {
+        return fail("right-plane clipping did not generate an intersection vertex");
+    }
+
+    /* Exercise left, right, bottom, top, near and far intersections. */
+    const std::array<std::array<int32_t, 3>, 6> outside_points = {{
+        {{-INT32_C(8192), 0, 0}},
+        {{INT32_C(8192), 0, 0}},
+        {{0, -INT32_C(8192), 0}},
+        {{0, INT32_C(8192), 0}},
+        {{0, 0, -INT32_C(8192)}},
+        {{0, 0, INT32_C(8192)}}
+    }};
+    for (const auto &outside_point : outside_points) {
+        auto clip_engine = std::make_unique<NdsGeometryEngine>(interrupts);
+        if (clip_engine->install() != Status::Ok ||
+            !write_command(*clip_engine, 0x40u, UINT32_C(0))) {
+            return fail("six-plane clipping fixture setup failed");
+        }
+        clip_engine->advance_bus_cycles(1u);
+        const std::array<std::array<int32_t, 3>, 3> points = {{
+            outside_point,
+            {{-INT32_C(2048), -INT32_C(2048), 0}},
+            {{INT32_C(2048), INT32_C(2048), 0}}
+        }};
+        for (const auto &point : points) {
+            const uint32_t xy =
+                (static_cast<uint32_t>(static_cast<uint16_t>(point[1])) << 16u) |
+                static_cast<uint16_t>(point[0]);
+            if (!write_command(*clip_engine, 0x23u, xy) ||
+                !write_command(
+                    *clip_engine, 0x23u,
+                    static_cast<uint16_t>(point[2]))) {
+                return fail("six-plane clipping VTX_16 enqueue failed");
+            }
+        }
+        clip_engine->advance_bus_cycles(27u);
+        const auto *polygon = clip_engine->polygon_at(0u);
+        if (clip_engine->polygon_count() != 1u ||
+            clip_engine->vertex_count() != 4u ||
+            polygon == nullptr || polygon->vertex_count != 4u) {
+            return fail("one of the six clip planes failed to emit a clipped quad");
+        }
+        for (uint8_t index = 0u; index < polygon->vertex_count; ++index) {
+            const auto *clipped_vertex =
+                clip_engine->vertex_at(polygon->vertex_indices[index]);
+            if (clipped_vertex == nullptr ||
+                !clipped_vertex->screen_position_valid) {
+                return fail("six-plane clipping emitted an invalid screen vertex");
+            }
+            const int64_t x = clipped_vertex->clip_position[0];
+            const int64_t y = clipped_vertex->clip_position[1];
+            const int64_t z = clipped_vertex->clip_position[2];
+            const int64_t w = clipped_vertex->clip_position[3];
+            if (x < -w || x > w || y < -w || y > w ||
+                z < -w || z > w || w <= 0) {
+                return fail("six-plane clipper left an output vertex outside the volume");
+            }
+        }
+    }
+
+    auto fully_outside_engine =
+        std::make_unique<NdsGeometryEngine>(interrupts);
+    if (fully_outside_engine->install() != Status::Ok ||
+        !write_command(*fully_outside_engine, 0x40u, UINT32_C(0))) {
+        return fail("fully-outside clipping fixture setup failed");
+    }
+    fully_outside_engine->advance_bus_cycles(1u);
+    const std::array<uint32_t, 3> outside_x = {
+        UINT32_C(0x2000), UINT32_C(0x3000), UINT32_C(0x4000)
+    };
+    for (const uint32_t x : outside_x) {
+        if (!write_command(*fully_outside_engine, 0x23u, x) ||
+            !write_command(*fully_outside_engine, 0x23u, UINT32_C(0))) {
+            return fail("fully-outside VTX_16 enqueue failed");
+        }
+    }
+    fully_outside_engine->advance_bus_cycles(27u);
+    if (fully_outside_engine->polygon_count() != 0u ||
+        fully_outside_engine->vertex_count() != 0u) {
+        return fail("fully outside polygon was retained in Vertex/Polygon RAM");
     }
 
     /*
@@ -782,11 +894,11 @@ int main()
         geometry.swap_parameters() != 3u ||
         geometry.vertex_count() != 0u ||
         geometry.polygon_count() != 0u ||
-        geometry.render_vertex_count() != 16u ||
+        geometry.render_vertex_count() != 24u ||
         geometry.render_polygon_count() != 7u ||
         geometry.render_vertex_at(0u) == nullptr ||
         geometry.render_polygon_at(0u) == nullptr ||
-        geometry.render_vertex_at(15u) == nullptr ||
+        geometry.render_vertex_at(23u) == nullptr ||
         geometry.render_polygon_at(6u) == nullptr) {
         return fail("VBlank did not exchange render and build Geometry RAM");
     }
@@ -808,9 +920,9 @@ int main()
             NdsClockStatus::Ok ||
         clock.global_bus_cycles() != UINT64_C(409352) ||
         geometry.busy() ||
-        geometry.render_vertex_count() != 16u ||
+        geometry.render_vertex_count() != 24u ||
         geometry.render_polygon_count() != 7u ||
-        geometry.render_vertex_at(15u) == nullptr ||
+        geometry.render_vertex_at(23u) == nullptr ||
         geometry.render_polygon_at(6u) == nullptr) {
         return fail("SWAP_BUFFERS did not complete after 392 post-VBlank cycles");
     }
@@ -833,7 +945,8 @@ int main()
         return fail("incomplete-triangle VTX_16 fixture enqueue failed");
     }
     locked_geometry.advance_bus_cycles(18u);
-    if (locked_geometry.vertex_count() != 2u ||
+    if (locked_geometry.vertex_count() != 0u ||
+        locked_geometry.vertex_list_vertex_count() != 2u ||
         locked_geometry.polygon_count() != 0u ||
         !locked_geometry.incomplete_polygon_list()) {
         return fail("two-vertex triangle was not recorded as an incomplete polygon");
