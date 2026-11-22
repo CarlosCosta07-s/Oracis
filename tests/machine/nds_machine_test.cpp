@@ -3259,17 +3259,32 @@ int main()
         return fail("VCOUNT line boundary did not refill the rolling 48-line BG0 FIFO");
     }
 
-    /* Complete the remaining visible frame and enter the next pre-render. */
-    constexpr uint64_t lines_until_next_prerender =
-        static_cast<uint64_t>(214u - 1u) *
+    /* Finish the displayed frame; RDLINES_COUNT latches at VBlank line 192. */
+    constexpr uint64_t lines_until_vblank =
+        static_cast<uint64_t>(192u - 1u) *
         NdsDisplayControl::CyclesPerScanline;
     if (successor.report_idle_bus_cycles(
-            NDS_ARM9, lines_until_next_prerender) != NdsMachineStatus::Ok ||
+            NDS_ARM9, lines_until_vblank) != NdsMachineStatus::Ok ||
         successor.report_idle_bus_cycles(
-            NDS_ARM7, lines_until_next_prerender) != NdsMachineStatus::Ok ||
+            NDS_ARM7, lines_until_vblank) != NdsMachineStatus::Ok ||
         successor.display_control().read(
             NDS_ARM9, NdsDisplayControl::RenderedLineCountAddress, 1u).value != 45u) {
-        return fail("RDLINES_COUNT did not report the previous-frame FIFO low-water mark");
+        return fail("RDLINES_COUNT did not report the previous-frame FIFO low-water at VBlank");
+    }
+
+    /* The following scanline 214 starts the next frame's 48-line pre-render. */
+    constexpr uint64_t vblank_lines_until_prerender =
+        static_cast<uint64_t>(214u - 192u) *
+        NdsDisplayControl::CyclesPerScanline;
+    if (successor.report_idle_bus_cycles(
+            NDS_ARM9, vblank_lines_until_prerender) != NdsMachineStatus::Ok ||
+        successor.report_idle_bus_cycles(
+            NDS_ARM7, vblank_lines_until_prerender) != NdsMachineStatus::Ok ||
+        successor.three_d_scanline_cache().queued_lines() !=
+            oracis::memory::Nds3dScanlineCache::Capacity ||
+        successor.three_d_scanline_cache().next_consumer_scanline() != 0u ||
+        successor.three_d_scanline_cache().next_producer_scanline() != 48u) {
+        return fail("scanline-214 pre-render did not prime the next BG0 frame");
     }
     /*
      * Drive real Geometry Engine polygon RAM exhaustion through the machine's
