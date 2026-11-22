@@ -1,9 +1,10 @@
 /*
- * Nintendo DS 2D display-engine registers and scanline status.
+ * Nintendo DS display-engine registers and scanline status.
  *
  * Configuration registers belong to Engines A/B. DISPSTAT/VCOUNT are the
  * shared Engine-A-port status registers visible to both NDS processors.
- * Rendering and PPU fetches remain separate components.
+ * This device also exposes ARM9 3D display-control and alpha-test registers;
+ * geometry rendering and PPU fetches remain separate components.
  */
 #ifndef ORACIS_MEMORY_NDS_DISPLAY_CONTROL_HPP
 #define ORACIS_MEMORY_NDS_DISPLAY_CONTROL_HPP
@@ -25,6 +26,11 @@ public:
     static constexpr uint32_t DispcntOffset = UINT32_C(0x0000);
     static constexpr uint32_t DispstatAddress = UINT32_C(0x04000004);
     static constexpr uint32_t VcountAddress = UINT32_C(0x04000006);
+    static constexpr uint32_t Disp3dControlAddress = UINT32_C(0x04000060);
+    static constexpr uint32_t AlphaTestReferenceAddress = UINT32_C(0x04000340);
+    static constexpr uint16_t Disp3dAlphaTestEnable = UINT16_C(1u << 2u);
+    static constexpr uint16_t Disp3dAlphaBlendEnable = UINT16_C(1u << 3u);
+    static constexpr uint16_t Disp3dControlWritableMask = UINT16_C(0x4FFF);
     static constexpr uint32_t BgControlOffset = UINT32_C(0x0008);
     static constexpr uint32_t BgScrollOffset = UINT32_C(0x0010);
     static constexpr uint32_t BgAffineOffset = UINT32_C(0x0020);
@@ -137,6 +143,18 @@ public:
     }
     bool installed() const noexcept { return installed_; }
     uint32_t dispcnt(unsigned engine_index) const noexcept;
+    uint16_t three_d_control_register() const noexcept {
+        return three_d_control_;
+    }
+    uint8_t three_d_alpha_test_reference() const noexcept {
+        return alpha_test_reference_;
+    }
+    bool three_d_alpha_test_enabled() const noexcept {
+        return (three_d_control_ & Disp3dAlphaTestEnable) != 0u;
+    }
+    bool three_d_alpha_blending_enabled() const noexcept {
+        return (three_d_control_ & Disp3dAlphaBlendEnable) != 0u;
+    }
     uint16_t master_brightness(unsigned engine_index) const noexcept;
     uint16_t apply_master_brightness(
         unsigned engine_index, uint16_t rgb555) const noexcept;
@@ -192,6 +210,8 @@ private:
     NdsDmaControl *dma_ = nullptr;
     std::array<EngineState, 2> engines_{};
     std::array<CpuStatus, 2> cpu_status_{};
+    uint16_t three_d_control_ = 0u;
+    uint8_t alpha_test_reference_ = 0u;
     std::array<bool, 2> hblank_irq_fired_{};
     std::array<uint32_t, MainMemoryDisplayFifoCapacityWords>
         main_memory_display_fifo_{};

@@ -323,6 +323,8 @@ Status NdsDisplayControl::install() noexcept
 
     engines_ = {};
     cpu_status_ = {};
+    three_d_control_ = 0u;
+    alpha_test_reference_ = 0u;
     reset_timing();
     installed_ = true;
     return Status::Ok;
@@ -331,6 +333,20 @@ Status NdsDisplayControl::install() noexcept
 ReadResult NdsDisplayControl::read(
     NdsCpu cpu, uint32_t address, uint32_t width) const noexcept
 {
+    if (address == Disp3dControlAddress ||
+        address == AlphaTestReferenceAddress) {
+        if (!installed_) return {Status::Unmapped, 0u};
+        if (!valid_cpu(cpu)) return {Status::InvalidCpu, 0u};
+        if (cpu != NDS_ARM9) return {Status::Unmapped, 0u};
+        if (address == Disp3dControlAddress) {
+            if (width != 2u) return {Status::InvalidWidth, 0u};
+            /* Underflow/overflow status flags are not produced yet. */
+            return {Status::Ok, three_d_control_};
+        }
+        if (width != 1u) return {Status::InvalidWidth, 0u};
+        return {Status::PermissionDenied, 0u}; /* Write-only register. */
+    }
+
     if (address == MainMemoryDisplayFifoAddress) {
         if (!installed_) return {Status::Unmapped, 0u};
         if (!valid_cpu(cpu)) return {Status::InvalidCpu, 0u};
@@ -445,6 +461,27 @@ Status NdsDisplayControl::write(
     uint32_t width,
     uint32_t value) noexcept
 {
+    if (address == Disp3dControlAddress ||
+        address == AlphaTestReferenceAddress) {
+        if (!installed_) return Status::Unmapped;
+        if (!valid_cpu(cpu)) return Status::InvalidCpu;
+        if (cpu != NDS_ARM9) return Status::Unmapped;
+        if (address == Disp3dControlAddress) {
+            if (width != 2u) return Status::InvalidWidth;
+            /*
+             * Bits 12/13 are read-only status flags. Their underflow/overflow
+             * producers are not connected yet, so they currently read zero.
+             */
+            three_d_control_ = static_cast<uint16_t>(
+                value & Disp3dControlWritableMask);
+            return Status::Ok;
+        }
+        if (width != 1u) return Status::InvalidWidth;
+        alpha_test_reference_ = static_cast<uint8_t>(
+            value & UINT32_C(0x1F));
+        return Status::Ok;
+    }
+
     if (address == MainMemoryDisplayFifoAddress) {
         if (!installed_) return Status::Unmapped;
         if (!valid_cpu(cpu)) return Status::InvalidCpu;

@@ -30,6 +30,60 @@ int main()
         return fail("display register device initialization failed");
     }
 
+    if (display.three_d_control_register() != 0u ||
+        display.three_d_alpha_test_reference() != 0u ||
+        display.three_d_alpha_test_enabled() ||
+        display.three_d_alpha_blending_enabled()) {
+        return fail("3D display-control registers did not reset to zero");
+    }
+
+    constexpr uint16_t alpha_test_and_blend = static_cast<uint16_t>(
+        NdsDisplayControl::Disp3dAlphaTestEnable |
+        NdsDisplayControl::Disp3dAlphaBlendEnable);
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::Disp3dControlAddress,
+            2u, alpha_test_and_blend) != Status::Ok ||
+        display.read(
+            NDS_ARM9, NdsDisplayControl::Disp3dControlAddress,
+            2u).value != alpha_test_and_blend ||
+        !display.three_d_alpha_test_enabled() ||
+        !display.three_d_alpha_blending_enabled()) {
+        return fail("DISP3DCNT alpha-test/blending bits were not retained");
+    }
+
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::AlphaTestReferenceAddress,
+            1u, UINT32_C(0xE7)) != Status::Ok ||
+        display.three_d_alpha_test_reference() != 7u ||
+        display.read(
+            NDS_ARM9, NdsDisplayControl::AlphaTestReferenceAddress,
+            1u).status != Status::PermissionDenied) {
+        return fail("ALPHA_TEST_REF did not mask to five write-only bits");
+    }
+
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::Disp3dControlAddress,
+            4u, alpha_test_and_blend) != Status::InvalidWidth ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::AlphaTestReferenceAddress,
+            2u, 7u) != Status::InvalidWidth ||
+        display.write(
+            NDS_ARM7, NdsDisplayControl::Disp3dControlAddress,
+            2u, alpha_test_and_blend) != Status::Unmapped ||
+        display.write(
+            NDS_ARM7, NdsDisplayControl::AlphaTestReferenceAddress,
+            1u, 7u) != Status::Unmapped) {
+        return fail("3D display-control MMIO access validation was incorrect");
+    }
+
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::Disp3dControlAddress,
+            2u, UINT32_C(0xFFFF)) != Status::Ok ||
+        display.three_d_control_register() !=
+            NdsDisplayControl::Disp3dControlWritableMask) {
+        return fail("DISP3DCNT accepted read-only or reserved status bits");
+    }
+
     constexpr uint32_t engine_a_dispcnt = UINT32_C(0x04000000);
     constexpr uint32_t engine_b_dispcnt = UINT32_C(0x04001000);
     constexpr uint32_t engine_a_bg0 = UINT32_C(0x04000008);
