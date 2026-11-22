@@ -25,6 +25,7 @@ public:
     static constexpr uint32_t CommandPortsEnd = UINT32_C(0x04000600);
     static constexpr uint32_t GxStatAddress = UINT32_C(0x04000600);
     static constexpr uint32_t RamCountAddress = UINT32_C(0x04000604);
+    static constexpr uint32_t OneDotDepthAddress = UINT32_C(0x04000610);
     static constexpr uint32_t ClipMatrixBase = UINT32_C(0x04000640);
     static constexpr uint32_t VectorMatrixBase = UINT32_C(0x04000680);
     static constexpr uint32_t CommandFifoCapacity = 256u;
@@ -51,9 +52,18 @@ public:
         std::array<uint32_t, MaxClippedPolygonVertices> vertex_indices{};
         uint32_t attributes = 0u;
         uint8_t vertex_count = 0u;
+        uint8_t light_enable_mask = 0u;
+        uint8_t polygon_mode = 0u;
+        uint8_t alpha = 0u;
+        uint8_t polygon_id = 0u;
+        bool translucent_depth_write = false;
+        bool depth_equal = false;
+        bool fog_enabled = false;
         bool front_facing = false;
         bool line_segment = false;
         bool far_plane_intersection = false;
+        bool zero_dot_polygon = false;
+        bool one_dot_depth_visible = true;
         bool render_enabled = false;
     };
 
@@ -287,6 +297,7 @@ private:
     bool swap_lockup_ = false;
     uint16_t swap_buffer_clear_cycles_ = 0u;
     uint8_t swap_parameters_ = 0u;
+    uint16_t one_dot_depth_ = 0u;
     uint32_t pending_polygon_attributes_ = 0u;
     uint32_t active_polygon_attributes_ = 0u;
     uint8_t primitive_mode_ = 0u;

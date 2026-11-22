@@ -321,6 +321,7 @@ Status NdsGeometryEngine::install() noexcept
     swap_lockup_ = false;
     swap_buffer_clear_cycles_ = 0u;
     swap_parameters_ = 0u;
+    one_dot_depth_ = 0u;
     pending_polygon_attributes_ = 0u;
     active_polygon_attributes_ = 0u;
     primitive_mode_ = 0u;
@@ -616,6 +617,13 @@ Status NdsGeometryEngine::write(
             texture_stack_pointer_ = 0u;
         }
         update_fifo_irq();
+        return Status::Ok;
+    }
+
+    if (address == OneDotDepthAddress) {
+        if (width != 2u) return Status::InvalidWidth;
+        /* This register is immediate and is not queued through GXFIFO. */
+        one_dot_depth_ = static_cast<uint16_t>(value & UINT32_C(0x7FFF));
         return Status::Ok;
     }
 
@@ -1409,24 +1417,68 @@ void NdsGeometryEngine::emit_polygon(
     polygon.attributes = active_polygon_attributes_;
     polygon.vertex_count = clipped_count;
     polygon.far_plane_intersection = far_plane_intersection;
+    polygon.light_enable_mask = static_cast<uint8_t>(
+        active_polygon_attributes_ & UINT32_C(0x0F));
+    polygon.polygon_mode = static_cast<uint8_t>(
+        (active_polygon_attributes_ >> 4u) & UINT32_C(3));
+    polygon.translucent_depth_write =
+        (active_polygon_attributes_ & (UINT32_C(1) << 11u)) != 0u;
+    polygon.depth_equal =
+        (active_polygon_attributes_ & (UINT32_C(1) << 14u)) != 0u;
+    polygon.fog_enabled =
+        (active_polygon_attributes_ & (UINT32_C(1) << 15u)) != 0u;
+    polygon.alpha = static_cast<uint8_t>(
+        (active_polygon_attributes_ >> 16u) & UINT32_C(0x1F));
+    polygon.polygon_id = static_cast<uint8_t>(
+        (active_polygon_attributes_ >> 24u) & UINT32_C(0x3F));
 
     /*
-     * The DS defines anti-clockwise projected winding as the front surface.
-     * The viewport has a lower-left origin, so a positive shoelace area is
-     * front-facing. Repeated vertices form line segments and bypass face
-     * visibility bits, as on hardware.
+     * Keep sub-pixel precision for front/back winding and the 0-dot bound.
+     * The renderer-facing screen_position remains integer pixels; this
+     * fixed 16.16 projection avoids collapsing small triangles to zero area
+     * before their face and one-dot metadata can be classified.
      */
+    const int64_t viewport_width =
+        static_cast<int64_t>(viewport_x2_) - viewport_x1_;
+    const int64_t viewport_height =
+        static_cast<int64_t>(viewport_y2_) - viewport_y1_;
+    const auto project_fixed = [this, viewport_width, viewport_height](
+        const Vertex &vertex) noexcept {
+        const int64_t x = vertex.clip_position[0];
+        const int64_t y = vertex.clip_position[1];
+        const int64_t w = vertex.clip_position[3];
+        if (w <= 0) return std::array<int64_t, 2>{};
+        const int64_t denominator = 2 * w;
+        const int64_t projected_x =
+            static_cast<int64_t>(viewport_x1_) * INT64_C(65536) +
+            ((x + w) * viewport_width * INT64_C(65536)) / denominator;
+        const int64_t projected_y =
+            static_cast<int64_t>(viewport_y1_) * INT64_C(65536) +
+            ((y + w) * viewport_height * INT64_C(65536)) / denominator;
+        return std::array<int64_t, 2>{projected_x, projected_y};
+    };
+
     int64_t signed_area_twice = 0;
+    int64_t minimum_x = std::numeric_limits<int64_t>::max();
+    int64_t minimum_y = std::numeric_limits<int64_t>::max();
+    int64_t maximum_x = std::numeric_limits<int64_t>::min();
+    int64_t maximum_y = std::numeric_limits<int64_t>::min();
+    std::array<std::array<int64_t, 2>, MaxClippedPolygonVertices>
+        projected_vertices{};
     for (uint8_t index = 0u; index < clipped_count; ++index) {
-        const Vertex &current = clipped[index];
-        const Vertex &next = clipped[(index + 1u) % clipped_count];
-        signed_area_twice +=
-            static_cast<int64_t>(current.screen_position[0]) *
-                next.screen_position[1] -
-            static_cast<int64_t>(next.screen_position[0]) *
-                current.screen_position[1];
+        projected_vertices[index] = project_fixed(clipped[index]);
+        const auto &current = projected_vertices[index];
+        const auto &next = projected_vertices[(index + 1u) % clipped_count];
+        signed_area_twice += current[0] * next[1] - next[0] * current[1];
+        minimum_x = std::min(minimum_x, current[0]);
+        minimum_y = std::min(minimum_y, current[1]);
+        maximum_x = std::max(maximum_x, current[0]);
+        maximum_y = std::max(maximum_y, current[1]);
     }
     polygon.front_facing = signed_area_twice > 0;
+    polygon.zero_dot_polygon =
+        (maximum_x - minimum_x) < INT64_C(65536) &&
+        (maximum_y - minimum_y) < INT64_C(65536);
 
     for (uint8_t left = 0u; left < clipped_count; ++left) {
         for (uint8_t right = left + 1u; right < clipped_count; ++right) {
@@ -1441,13 +1493,35 @@ void NdsGeometryEngine::emit_polygon(
     constexpr uint32_t kPolygonFrontSurface = UINT32_C(1) << 7u;
     constexpr uint32_t kPolygonFarPlaneIntersections =
         UINT32_C(1) << 12u;
+    constexpr uint32_t kPolygonOneDotDepthBypass = UINT32_C(1) << 13u;
     const bool face_visible = polygon.line_segment ||
         (polygon.front_facing
             ? (active_polygon_attributes_ & kPolygonFrontSurface) != 0u
             : (active_polygon_attributes_ & kPolygonBackSurface) != 0u);
     const bool far_plane_visible = !polygon.far_plane_intersection ||
         (active_polygon_attributes_ & kPolygonFarPlaneIntersections) != 0u;
-    polygon.render_enabled = face_visible && far_plane_visible;
+
+    /*
+     * DISP_1DOT_DEPTH uses unsigned W in 12.3 format. The clipped vertex
+     * matrix stores W in 20.12, so its register threshold is multiplied by
+     * 512. Any vertex at or in front of the boundary preserves the polygon.
+     * POLYGON_ATTR.Bit13 bypasses this filter for the current polygon.
+     */
+    polygon.one_dot_depth_visible = true;
+    if (polygon.zero_dot_polygon &&
+        (active_polygon_attributes_ & kPolygonOneDotDepthBypass) == 0u) {
+        const int64_t depth_limit =
+            static_cast<int64_t>(one_dot_depth_) * INT64_C(512);
+        polygon.one_dot_depth_visible = false;
+        for (uint8_t index = 0u; index < clipped_count; ++index) {
+            if (clipped[index].clip_position[3] <= depth_limit) {
+                polygon.one_dot_depth_visible = true;
+                break;
+            }
+        }
+    }
+    polygon.render_enabled = face_visible && far_plane_visible &&
+        polygon.one_dot_depth_visible;
 
     const uint32_t base_vertex = buffer.vertex_count;
     for (uint8_t index = 0u; index < clipped_count; ++index) {

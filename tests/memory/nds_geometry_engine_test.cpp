@@ -69,6 +69,22 @@ int main()
         return fail("CPU visibility or register width checks failed");
     }
 
+    /* DISP_1DOT_DEPTH is ARM9-only, write-only, and halfword-sized. */
+    if (geometry.write(
+            NDS_ARM9, NdsGeometryEngine::OneDotDepthAddress, 4u, 0u) !=
+            Status::InvalidWidth ||
+        geometry.write(
+            NDS_ARM9, NdsGeometryEngine::OneDotDepthAddress, 2u,
+            UINT32_C(0xFFFF)) != Status::Ok ||
+        geometry.read(
+            NDS_ARM9, NdsGeometryEngine::OneDotDepthAddress, 2u).status !=
+            Status::Unmapped ||
+        geometry.write(
+            NDS_ARM7, NdsGeometryEngine::OneDotDepthAddress, 2u,
+            UINT32_C(1)) != Status::Unmapped) {
+        return fail("DISP_1DOT_DEPTH CPU visibility, width or direction failed");
+    }
+
     /* An unpacked command occupies a code word followed by its parameters. */
     if (geometry.write(
             NDS_ARM9, NdsGeometryEngine::GxFifoBase, 4u,
@@ -922,6 +938,97 @@ int main()
     if (line_polygon == nullptr || !line_polygon->line_segment ||
         !line_polygon->render_enabled) {
         return fail("repeated-vertex line segment was incorrectly face-culled");
+    }
+
+    /* POLYGON_ATTR fields are retained as decoded polygon-side metadata. */
+    constexpr uint32_t kDecodedAttributes =
+        UINT32_C(0x05) | (UINT32_C(2) << 4u) |
+        (UINT32_C(1) << 6u) | (UINT32_C(1) << 7u) |
+        (UINT32_C(1) << 11u) | (UINT32_C(1) << 14u) |
+        (UINT32_C(1) << 15u) | (UINT32_C(17) << 16u) |
+        (UINT32_C(0x2A) << 24u);
+    NdsGeometryEngine decoded_attributes_geometry(interrupts);
+    if (!make_polygon(
+            decoded_attributes_geometry, kDecodedAttributes,
+            false, false, false)) {
+        return fail("decoded POLYGON_ATTR fixture setup failed");
+    }
+    const NdsGeometryEngine::Polygon *decoded_polygon =
+        decoded_attributes_geometry.polygon_at(0u);
+    if (decoded_polygon == nullptr ||
+        decoded_polygon->light_enable_mask != UINT8_C(0x05) ||
+        decoded_polygon->polygon_mode != 2u ||
+        !decoded_polygon->translucent_depth_write ||
+        !decoded_polygon->depth_equal || !decoded_polygon->fog_enabled ||
+        decoded_polygon->alpha != 17u || decoded_polygon->polygon_id != 0x2Au) {
+        return fail("POLYGON_ATTR decoded fields did not match the source word");
+    }
+
+    /* DISP_1DOT_DEPTH applies only to sub-pixel polygons smaller than 1x1. */
+    const auto make_one_dot_triangle = [&interrupts](
+        NdsGeometryEngine &engine, uint16_t depth, uint32_t attributes) noexcept {
+        if (engine.install() != Status::Ok ||
+            engine.write(
+                NDS_ARM9, NdsGeometryEngine::OneDotDepthAddress,
+                2u, depth) != Status::Ok ||
+            !write_command(engine, 0x29u, attributes) ||
+            !write_command(engine, 0x40u, UINT32_C(0))) {
+            return false;
+        }
+        engine.advance_bus_cycles(2u);
+        const std::array<std::array<int16_t, 3>, 3> points = {{
+            {{-INT16_C(1), -INT16_C(1), 0}},
+            {{INT16_C(1), -INT16_C(1), 0}},
+            {{0, INT16_C(1), 0}}
+        }};
+        for (const auto &point : points) {
+            const uint32_t xy =
+                (static_cast<uint32_t>(static_cast<uint16_t>(point[1])) << 16u) |
+                static_cast<uint16_t>(point[0]);
+            if (!write_command(engine, 0x23u, xy) ||
+                !write_command(
+                    engine, 0x23u, static_cast<uint16_t>(point[2]))) {
+                return false;
+            }
+        }
+        engine.advance_bus_cycles(27u);
+        return true;
+    };
+
+    constexpr uint32_t kBothFaces =
+        (UINT32_C(1) << 6u) | (UINT32_C(1) << 7u);
+    NdsGeometryEngine one_dot_hidden_geometry(interrupts);
+    if (!make_one_dot_triangle(
+            one_dot_hidden_geometry, UINT16_C(7), kBothFaces)) {
+        return fail("1-dot hidden triangle fixture setup failed");
+    }
+    const auto *one_dot_hidden = one_dot_hidden_geometry.polygon_at(0u);
+    if (one_dot_hidden == nullptr || !one_dot_hidden->zero_dot_polygon ||
+        one_dot_hidden->one_dot_depth_visible || one_dot_hidden->render_enabled) {
+        return fail("1-dot polygon beyond DISP_1DOT_DEPTH was not hidden");
+    }
+
+    NdsGeometryEngine one_dot_visible_geometry(interrupts);
+    if (!make_one_dot_triangle(
+            one_dot_visible_geometry, UINT16_C(8), kBothFaces)) {
+        return fail("1-dot visible triangle fixture setup failed");
+    }
+    const auto *one_dot_visible = one_dot_visible_geometry.polygon_at(0u);
+    if (one_dot_visible == nullptr || !one_dot_visible->zero_dot_polygon ||
+        !one_dot_visible->one_dot_depth_visible || !one_dot_visible->render_enabled) {
+        return fail("1-dot polygon at the DISP_1DOT_DEPTH boundary was hidden");
+    }
+
+    NdsGeometryEngine one_dot_bypass_geometry(interrupts);
+    if (!make_one_dot_triangle(
+            one_dot_bypass_geometry, UINT16_C(7),
+            kBothFaces | (UINT32_C(1) << 13u))) {
+        return fail("1-dot bypass triangle fixture setup failed");
+    }
+    const auto *one_dot_bypass = one_dot_bypass_geometry.polygon_at(0u);
+    if (one_dot_bypass == nullptr || !one_dot_bypass->zero_dot_polygon ||
+        !one_dot_bypass->one_dot_depth_visible || !one_dot_bypass->render_enabled) {
+        return fail("POLYGON_ATTR bit 13 did not bypass the 1-dot depth test");
     }
 
     /* POLYGON_ATTR bit 12 gates polygons which intersect the far clip plane. */
