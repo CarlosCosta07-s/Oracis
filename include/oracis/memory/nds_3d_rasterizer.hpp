@@ -64,7 +64,7 @@ public:
     static constexpr uint32_t DepthEqualTolerance = UINT32_C(0x200);
     static constexpr uint32_t WDepthEqualTolerance = UINT32_C(0x0FF);
 
-    Nds3dDepthBuffer() noexcept = default;
+    Nds3dDepthBuffer() noexcept { clear(); }
     Nds3dDepthBuffer(const Nds3dDepthBuffer &) = delete;
     Nds3dDepthBuffer &operator=(const Nds3dDepthBuffer &) = delete;
 

@@ -24,6 +24,10 @@ int main()
     fragment.alpha6 = 63u;
     fragment.depth24 = UINT32_C(0x00600000);
 
+    if (depth.depth_at(12u, 34u) != Nds3dDepthBuffer::MaximumDepth) {
+        return fail("new depth buffer was not initialized to the far-depth value");
+    }
+
     depth.clear();
     if (!depth.test_and_update(fragment) ||
         depth.depth_at(12u, 34u) != UINT32_C(0x00600000)) {
