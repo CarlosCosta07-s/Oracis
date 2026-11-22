@@ -29,8 +29,7 @@ enum class Nds3dRasterStatus : uint8_t {
     WireframeNotSupported,
     TranslucentSortingNotSupported,
     InvalidAlphaTestReference,
-    DisplayControlUnavailable,
-    RearPlaneBitmapNotSupported
+    DisplayControlUnavailable
 };
 
 /*

@@ -122,8 +122,19 @@ Referência de composição: [GBATEK — alpha blending, alpha test e DISP3DCNT]
 
 ## Atualização 2026-11-22 — rear-plane uniforme e validação multiplataforma
 
-`NdsDisplayControl` agora modela `CLEAR_COLOR` (32 bits), `CLEAR_DEPTH` (15 bits úteis) e `CLRIMAGE_OFFSET` (15 bits úteis) no MMIO ARM9, todos write-only. A inicialização uniforme usa RGB555 expandido a RGB6, alpha5, fog-enable e polygon ID6 de `CLEAR_COLOR`, além de depth15 expandido a depth24 por `raw × 0x200 + ((raw + 1) / 0x8000) × 0x1FF`. O teste cobre também o endpoint de profundidade máxima.
+`NdsDisplayControl` agora modela `CLEAR_COLOR` (32 bits), `CLEAR_DEPTH` (15 bits úteis) e `CLRIMAGE_OFFSET` (16 bits: dois offsets de 8 bits) no MMIO ARM9, todos write-only. A inicialização uniforme usa RGB555 expandido a RGB6, alpha5, fog-enable e polygon ID6 de `CLEAR_COLOR`, além de depth15 expandido a depth24 por `raw × 0x200 + ((raw + 1) / 0x8000) × 0x1FF`. O teste cobre também o endpoint de profundidade máxima.
 
 `Nds3dRasterizer::initialize_rear_plane` prepara os buffers de staging a partir desses valores. O modo bitmap de rear-plane (`DISP3DCNT.Bit14`) é fail-closed e não modifica os buffers, porque a leitura dos mapas de cor/profundidade nas Texture Slots 2/3 e o offset de imagem ainda não foram implementados. O armazenamento de saída continua sendo um staging buffer 256×192 do software, sem o cache de hardware de 48 linhas.
 
 A CI #1061 passou nos quatro jobs: Desktop Linux, ARM runtime, Android ARM64 e NDSRecomp estático. Desktop e ARM runtime executaram 53/53 CTests; o build/auditoria opcional local também passou. Isso valida os registradores e o rear-plane uniforme, mas não o rear-plane bitmap, o cache 48-line, composição BG0 ou a apresentação de um frame completo. Consulte [NDS_3D_TEXTURE_PIPELINE.md](NDS_3D_TEXTURE_PIPELINE.md).
+
+
+## Atualização 2026-11-22 — rear-plane bitmap nos slots 2/3
+
+O modo `DISP3DCNT.Bit14=1` deixou de ser recusado. A leitura halfword de um slot de textura foi exposta pelo `NdsVramControl` e encaminhada pelo `Nds3dTextureSampler`, preservando a validação de slot, alinhamento, limite de 128 KiB e alocação física única. O slot 2 fornece a imagem RGB555 com alpha binário em bit15; o slot 3 fornece depth15 com fog-enable em bit15. O polygon ID permanece extraído de `CLEAR_COLOR`.
+
+`initialize_rear_plane` agora amostra o bitmap 256×256 para preencher as 256×192 posições visíveis. `CLRIMAGE_OFFSET` preserva os 16 bits: byte baixo = deslocamento horizontal/coluna; byte alto = deslocamento vertical/linha. Os dois eixos envolvem em 256 e os pixels transparentes preservam RGB e alpha zero no buffer, conforme o formato de bitmap. Antes de alterar os buffers, o renderer verifica todos os halfwords visíveis dos dois slots; um slot ausente/ambíguo falha com `TextureFailure` sem limpar parcialmente a imagem.
+
+A regressão cria imagens artificiais nos slots 2/3 e testa alpha sólido/transparente, RGB555→RGB6, fog independente, valores de profundidade (inclusive 0x7FFF→0xFFFFFF), deslocamento horizontal e vertical, wrap da última linha visível e slot 3 temporariamente ausente. O teste do sampler cobre o acesso halfword aos slots 2/3 e limites. A CI #1067 passou nos quatro jobs: Desktop Linux, ARM runtime, Android ARM64 e NDSRecomp estático; Desktop e ARM executaram 53/53 CTests, e a verificação local opcional executou 1/1.
+
+Permanece pendente integrar a superfície 256×192 ao cache hardware de 48 linhas e ao caminho Engine A BG0; esta etapa não comprova quadro 3D completo nem boot de jogo. Consulte [NDS_3D_TEXTURE_PIPELINE.md](NDS_3D_TEXTURE_PIPELINE.md).

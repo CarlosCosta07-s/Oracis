@@ -1,9 +1,10 @@
 /*
  * Nintendo DS 3D texture texel sampler.
  *
- * This stage resolves integer texel coordinates and decodes the uncompressed
- * texture formats. Polygon interpolation, compressed 4x4 format, filtering,
- * texture caching and fragment composition remain separate stages.
+ * This stage resolves integer texel coordinates and decodes the supported
+ * DS texture formats, including 4x4-compressed blocks. Polygon interpolation,
+ * filtering, texture caching and fragment composition remain separate stages.
+ * The raw slot-halfword accessor also supplies the rear-plane bitmap path.
  */
 #ifndef ORACIS_MEMORY_NDS_3D_TEXTURE_SAMPLER_HPP
 #define ORACIS_MEMORY_NDS_3D_TEXTURE_SAMPLER_HPP
