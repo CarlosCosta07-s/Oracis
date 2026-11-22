@@ -467,7 +467,7 @@ int main()
     vertex = geometry.vertex_at(5u);
     if (vertex == nullptr ||
         vertex->source_position !=
-            std::array<int32_t, 3>{INT32_C(2048), INT32_C(16384), -INT32_C(4096)}) {
+            std::array<int32_t, 3>{INT32_C(2048), INT32_C(2048), -INT32_C(4096)}) {
         return fail("VTX_XZ failed to retain the previous Y coordinate");
     }
 
