@@ -1,6 +1,7 @@
 #include "oracis/memory/nds_3d_texture_sampler.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 
 namespace oracis::memory {
@@ -202,7 +203,12 @@ Nds3dTextureSample Nds3dTextureSampler::sample(
         const uint64_t metadata_offset =
             (image_slot == 2u ? UINT64_C(0x10000) : 0u) +
             (slot_offset / 2u) + block_index * 2u;
-        if (metadata_offset + 2u > NdsVramControl::BankSize) {
+        const uint64_t metadata_limit =
+            image_slot == 2u ? UINT64_C(0x20000) : UINT64_C(0x10000);
+        const uint64_t metadata_begin =
+            image_slot == 2u ? UINT64_C(0x10000) : UINT64_C(0);
+        if (metadata_offset < metadata_begin ||
+            metadata_offset + 2u > metadata_limit) {
             return failure(Nds3dTextureSampleStatus::InvalidParameters);
         }
         const ReadResult metadata_low = vram_.read_texture_slot_byte(
@@ -287,13 +293,16 @@ Nds3dTextureSample Nds3dTextureSampler::sample(
 
         const uint32_t weight0 =
             interpolation_mode == 1u
-                ? 1u
+                ? 4u
                 : (texel_index_2bpp == 2u ? 5u : 3u);
         const uint32_t weight1 = 8u - weight0;
         const uint16_t first = static_cast<uint16_t>(color0.value);
         const uint16_t second = static_cast<uint16_t>(color1.value);
         uint16_t blended = 0u;
-        for (uint32_t shift : {0u, 5u, 10u}) {
+        constexpr std::array<uint32_t, 3> channel_shifts{
+            0u, 5u, 10u
+        };
+        for (uint32_t shift : channel_shifts) {
             const uint32_t first_channel =
                 (static_cast<uint32_t>(first) >> shift) & UINT32_C(0x1F);
             const uint32_t second_channel =
