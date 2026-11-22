@@ -262,6 +262,40 @@ int main(void)
         return 1;
     }
 
+
+    /*
+     * The SDL desktop executable and Android shared Activity both call this
+     * same C scanline bridge. Exercise the complete 48-line BG0 3D lookahead
+     * through that ABI using a synthetic opaque rear-plane color.
+     */
+    bus_write_u32(UINT32_C(0x04000350), UINT32_C(0x001F001F));
+    bus_write_u32(
+        UINT32_C(0x04000000),
+        (UINT32_C(1) << 16u) | UINT32_C(0x00000108));
+    for (uint32_t line = 0u; line < 192u; ++line) {
+        if (oracis_host_runtime_render_scanline(
+                0u, line, main_scanline, 256u, &video_report) !=
+                ORACIS_HOST_RUNTIME_OK ||
+            video_report.status != 0u ||
+            video_report.three_d_raster_status != 0u ||
+            main_scanline[0] != UINT16_C(0x001F) ||
+            main_scanline[255] != UINT16_C(0x001F)) {
+            fprintf(stderr,
+                "C host bridge failed BG0 3D scanline %u "
+                "(status=%u raster=%u first=%04X last=%04X)\\n",
+                line, video_report.status, video_report.three_d_raster_status,
+                main_scanline[0], main_scanline[255]);
+            return 1;
+        }
+    }
+    if ((bus_read_u16(UINT32_C(0x04000060)) &
+            UINT16_C(1u << 12u)) != 0u) {
+        fprintf(stderr, "C host bridge raised BG0 3D underflow during a complete synthetic frame\\n");
+        return 1;
+    }
+    /* Leave later tests on the ordinary 2D compositor path. */
+    bus_write_u32(UINT32_C(0x04000000), UINT32_C(1) << 16u);
+
     /*
      * The generated-bank C bus must route GX command ports to the Geometry
      * Engine before the broader display-register device claims 0x0400xxxx.
