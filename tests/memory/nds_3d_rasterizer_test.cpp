@@ -729,6 +729,9 @@ int main()
             NDS_ARM9, NdsDisplayControl::FogDensityTableAddress, 4u,
             UINT32_C(0x7F7F7F00)) != Status::Ok ||
         display.write(
+            NDS_ARM9, NdsDisplayControl::FogOffsetAddress, 2u, 0u) !=
+            Status::Ok ||
+        display.write(
             NDS_ARM9, NdsDisplayControl::Disp3dControlAddress, 2u,
             NdsDisplayControl::Disp3dFogMasterEnable) != Status::Ok) {
         return fail("fog scanline fixture registers could not be configured");
