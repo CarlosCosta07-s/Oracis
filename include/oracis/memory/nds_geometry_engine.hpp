@@ -52,6 +52,7 @@ public:
         std::array<uint32_t, MaxClippedPolygonVertices> vertex_indices{};
         uint32_t attributes = 0u;
         uint32_t texture_parameters = 0u;
+        uint16_t texture_palette_base = 0u;
         uint8_t vertex_count = 0u;
         uint8_t light_enable_mask = 0u;
         uint8_t polygon_mode = 0u;
@@ -313,6 +314,7 @@ private:
     int16_t current_texture_s_ = 0;
     int16_t current_texture_t_ = 0;
     uint32_t current_texture_parameters_ = 0u;
+    uint16_t current_texture_palette_base_ = 0u;
     uint8_t texture_transform_mode_ = 0u;
     std::array<GeometryBuffer, 2> buffers_{};
     uint8_t build_buffer_index_ = 0u;
