@@ -706,6 +706,10 @@ extern "C" int oracis_host_runtime_render_scanline(
             static_cast<uint32_t>(result.object_fetch_status);
         report->object_index = result.object_index;
     }
+    if (result.status ==
+        oracis::memory::Nds2dComposeStatus::ThreeDSourceUnavailable) {
+        machine.display_control().report_3d_color_buffer_underflow();
+    }
     if (result.status != oracis::memory::Nds2dComposeStatus::Ok) {
         return ORACIS_HOST_RUNTIME_VIDEO_ERROR;
     }
