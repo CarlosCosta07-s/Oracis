@@ -98,3 +98,13 @@ rasterization. The callback does not claim to model the hardware's internal
 rendering latency, RDLINES_COUNT history, or DISP3DCNT underflow/overflow
 status. A host request can still initialize the pipeline when BG0-3D is enabled
 mid-frame.
+
+
+## DISP3DCNT sticky status
+
+`DISP3DCNT` now retains bits 12/13 as sticky status and applies the
+hardware write-one-to-clear acknowledgement rule. A host-side BG0 composition
+failure caused by a missing 3D scanline source sets the color-buffer underflow
+bit (12), which software can observe and acknowledge through MMIO. The polygon/
+vertex RAM overflow flag (13) has the same register semantics and a device-side
+report hook, but the Geometry Engine overflow producer is not connected yet.
