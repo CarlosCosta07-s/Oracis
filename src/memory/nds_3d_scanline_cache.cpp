@@ -12,6 +12,8 @@ Nds3dScanlineCacheStatus Nds3dScanlineCache::reset(
     count_ = 0u;
     next_producer_scanline_ = first_scanline;
     next_consumer_scanline_ = first_scanline;
+    minimum_queued_lines_ = Capacity;
+    low_water_tracking_ = false;
     return Nds3dScanlineCacheStatus::Ok;
 }
 
@@ -79,7 +81,25 @@ Nds3dScanlineCacheStatus Nds3dScanlineCache::consume(
     head_ = (head_ + 1u) % Capacity;
     --count_;
     ++next_consumer_scanline_;
+    if (low_water_tracking_ && count_ < minimum_queued_lines_) {
+        minimum_queued_lines_ = count_;
+    }
     return Nds3dScanlineCacheStatus::Ok;
+}
+
+void Nds3dScanlineCache::begin_low_water_tracking() noexcept
+{
+    minimum_queued_lines_ = count_;
+    low_water_tracking_ = true;
+}
+
+bool Nds3dScanlineCache::finish_low_water_tracking(
+    std::size_t &minimum_queued_lines) noexcept
+{
+    if (!low_water_tracking_) return false;
+    minimum_queued_lines = minimum_queued_lines_;
+    low_water_tracking_ = false;
+    return true;
 }
 
 } // namespace oracis::memory
