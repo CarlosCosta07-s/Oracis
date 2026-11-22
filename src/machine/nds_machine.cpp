@@ -36,7 +36,7 @@ NdsMachine::NdsMachine(memory::SharedWramMode initial_wram_mode) noexcept
     game_card_control_.attach_dma_control(dma_control_);
 }
 
-Nds3dRasterStatus NdsMachine::prepare_3d_bg0_scanline(
+memory::Nds3dRasterStatus NdsMachine::prepare_3d_bg0_scanline(
     uint16_t scanline) noexcept
 {
     using memory::Nds3dRasterStatus;
