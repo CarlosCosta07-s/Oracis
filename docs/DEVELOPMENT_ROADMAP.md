@@ -148,7 +148,7 @@ Foi criado `Nds3dScanlineCache`, um FIFO circular limitado a 48 scanlines BG0. A
 
 Os testes verificam capacidade 48, full/empty, wrap do anel, ordem do produtor/consumidor, reset, alpha inválido, conversão RGB6→RGB555, consumo BG0, underflow e retenção da linha diante de falha de composição. A CI #1070 passou nos quatro jobs: Desktop Linux e ARM runtime com 54/54 CTests, Android ARM64 e NDSRecomp estático; a checagem opcional de static-bank executou 1/1.
 
-A integração temporal ainda não está concluída: a fila não é alimentada automaticamente no início da renderização do VBlank, não está sincronizada ao consumo por VCOUNT/scanline e ainda não foi conectada ao `NdsMachine` nem aos caminhos de apresentação desktop/mobile. O próximo passo é implementar o agendamento do produtor e consumidor, além de linhas perdidas/atrasadas e `RDLINES_COUNT`. Esta etapa implementa a transferência 3D→2D, mas não comprova um quadro 3D completo nem boot de jogo. Consulte [NDS_3D_TEXTURE_PIPELINE.md](NDS_3D_TEXTURE_PIPELINE.md) e [NDS_2D_PIPELINE.md](NDS_2D_PIPELINE.md).
+A integração já está conectada à `NdsMachine` e à apresentação desktop. O relógio sincronizado agenda o primeiro lote de 48 linhas em scanline 214, durante VBlank, antes do início da saída no frame seguinte; cada limite de scanline visível repõe os slots liberados. A temporização ainda é por evento de scanline, não ciclo-a-ciclo, e não implementa ainda o comportamento completo de underflow/overflow, `RDLINES_COUNT` nem a apresentação Android. Não há comprovação de quadro de jogo ou boot. Consulte [NDS_3D_TEXTURE_PIPELINE.md](NDS_3D_TEXTURE_PIPELINE.md) e [NDS_2D_PIPELINE.md](NDS_2D_PIPELINE.md).
 
 
 ## Atualização 2026-11-22 — integração do BG0 3D à máquina e ao host
@@ -164,10 +164,11 @@ The 3D BG0 lookahead producer is now driven by the synchronized display clock.
 The display device reports completed scanline boundaries to its owning machine;
 the system clock splits elapsed bus time at those boundaries and advances the
 geometry engine before the display callback. This ensures the line-192 VBlank
-notification is delivered before the following frame's 262-to-0 producer reset.
-At natural frame wrap, 48 visible lines are queued; each later visible boundary
-refills free slots without writing into a full FIFO. The machine test exercises
-the initial frame prime and one rolling refill using synthetic bus time.
+notification is delivered before the scanline-214 producer start. The first 48
+visible lines are queued during VBlank, before the 262-to-0 frame wrap begins
+output at line zero. Each later visible boundary refills free slots without
+writing into a full FIFO. The machine test exercises VBlank pre-render and one
+rolling refill using synthetic bus time.
 
 Still outstanding: sub-scanline geometry/render timing, measured FIFO
 underflow behavior, RDLINES_COUNT semantics, Android BG0 presentation,

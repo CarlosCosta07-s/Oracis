@@ -68,7 +68,12 @@ void NdsMachine::on_display_scanline_boundary(
         (display_control_.dispcnt(0u) & UINT32_C(0x00000108)) ==
         UINT32_C(0x00000108);
 
-    if (natural_frame_wrap && current_scanline == 0u) {
+    /*
+     * GBATEK documents 3D rendering from scanline 214. The first 48 lines
+     * must be ready before scanline 262 wraps and output begins at line zero.
+     */
+    constexpr uint16_t ThreeDRenderStartScanline = 214u;
+    if (current_scanline == ThreeDRenderStartScanline) {
         if (!bg0_three_d_enabled) {
             three_d_scanline_sequence_initialized_ = false;
             return;
@@ -76,7 +81,14 @@ void NdsMachine::on_display_scanline_boundary(
         if (reset_3d_bg0_scanline_sequence(0u) ==
             memory::Nds3dRasterStatus::Ok) {
             static_cast<void>(fill_3d_bg0_lookahead(0u));
+        } else {
+            three_d_scanline_sequence_initialized_ = false;
         }
+        return;
+    }
+
+    if (natural_frame_wrap && current_scanline == 0u) {
+        /* Preserve the 48 lines prepared during the preceding VBlank. */
         return;
     }
 

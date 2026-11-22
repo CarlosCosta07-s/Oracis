@@ -89,8 +89,9 @@ render a lookahead batch. NdsDisplayControl can notify the owning machine at
 each synchronized scanline boundary. NdsSystemClock now advances the display
 and geometry devices in scanline-sized quanta, processing geometry time before
 the display boundary callback and releasing SWAP_BUFFERS at the line-192
-VBlank edge. At the natural 262-to-0 frame wrap, the machine initializes the
-rear plane and primes the first 48 lines; subsequent visible-line boundaries
+VBlank edge. The renderer starts at scanline 214: the machine initializes the
+rear plane and primes the first 48 lines during VBlank, before the 262-to-0
+frame wrap begins output at line zero. Subsequent visible-line boundaries
 refill available FIFO slots while a full FIFO applies back-pressure.
 
 This is event-synchronized at scanline granularity, not cycle-accurate polygon

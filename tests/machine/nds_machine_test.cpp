@@ -3224,7 +3224,7 @@ int main()
         return fail("machine ownership was not released after shutdown");
     }
 
-    /* The 3D lookahead is now driven by synchronized VCOUNT line boundaries. */
+    /* The 3D lookahead is primed during VBlank and consumed from line zero. */
     if (successor.display_control().write(
             NDS_ARM9, NdsDisplayControl::DispcntOffset, 4u,
             UINT32_C(0x00000108)) != oracis::memory::Status::Ok) {
@@ -3241,7 +3241,7 @@ int main()
             oracis::memory::Nds3dScanlineCache::Capacity ||
         successor.three_d_scanline_cache().next_consumer_scanline() != 0u ||
         successor.three_d_scanline_cache().next_producer_scanline() != 48u) {
-        return fail("natural frame wrap did not schedule the first 48 BG0 lines");
+        return fail("line-214 pre-render did not leave 48 BG0 lines ready at frame wrap");
     }
     if (successor.three_d_scanline_cache().consume(0u) !=
             oracis::memory::Nds3dScanlineCacheStatus::Ok ||
@@ -3309,7 +3309,7 @@ int main()
             NdsDisplayControl::Disp3dPolygonVertexRamOverflowStatus) == 0u ||
         !overflow_geometry.polygon_ram_overflow() ||
         overflow_geometry.polygon_count() !=
-            NdsGeometryEngine::PolygonRamCapacity) {
+            oracis::memory::NdsGeometryEngine::PolygonRamCapacity) {
         return fail("Geometry Engine polygon RAM overflow did not set DISP3DCNT bit 13");
     }
 
