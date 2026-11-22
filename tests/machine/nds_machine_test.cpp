@@ -3226,7 +3226,8 @@ int main()
 
     /* The 3D lookahead is primed during VBlank and consumed from line zero. */
     if (successor.display_control().write(
-            NDS_ARM9, NdsDisplayControl::DispcntOffset, 4u,
+            NDS_ARM9, NdsDisplayControl::EngineABase +
+                NdsDisplayControl::DispcntOffset, 4u,
             UINT32_C(0x00000108)) != oracis::memory::Status::Ok) {
         return fail("scheduled 3D BG0 scanline test could not enable BG0-3D");
     }
