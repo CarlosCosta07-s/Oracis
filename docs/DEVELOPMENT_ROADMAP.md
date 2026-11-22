@@ -91,7 +91,7 @@ O sampler inicial agora decodifica blocos comprimidos 4×4: 32 bits/16 texels po
 
 ## Atualização 2026-11-22 — descarte de transparência e teste de profundidade 3D
 
-A revisão do rasterizador alinhou `POLYGON_ATTR` à definição do hardware: alpha de polígono zero seleciona wireframe e permanece explicitamente não suportado nesta etapa; não é convertido em um fragmento interior transparente. Separadamente, texels com alpha efetivo zero são descartados antes da emissão de fragmentos. A regressão de integração cobre as duas regras com fixtures independentes, além de preservar a verificação anterior de interpolação perspectiva.
+A revisão do rasterizador alinhou `POLYGON_ATTR` à definição do hardware: alpha de polígono zero seleciona wireframe e permanece explicitamente não suportado nesta etapa; não é convertido em um fragmento interior transparente. Separadamente, o descarte é aplicado ao alpha final após o modo de textura: Modulation com texel alpha zero gera fragmento transparente e é descartado; Decal com texel alpha zero preserva a cor e o alpha do vértice. A regressão de integração cobre as duas rotas, além de wireframe e da interpolação perspectiva.
 
 Foi acrescentado `Nds3dDepthBuffer`, com armazenamento de profundidade 24-bit para 256×192 pixels, teste Less, Depth Equal com tolerância inclusiva ±0x200, gravação para pixels opacos e gravação de pixels translúcidos somente quando `POLYGON_ATTR.Bit11` permite. Fragmentos totalmente transparentes não passam nem atualizam profundidade. O novo teste cobre comparações, limite da tolerância, controle de depth-write e linhas inválidas. A etapa consome os fragmentos na ordem recebida e não implementa ordenação automática/manual nem composição de cor/alpha.
 

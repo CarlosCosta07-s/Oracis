@@ -42,8 +42,10 @@ struct Capture {
     uint32_t count = 0u;
     uint32_t center_fragment_count = 0u;
     bool center_seen = false;
-    bool transparent_texture_polygon_center_seen = false;
+    bool decal_transparent_texel_center_seen = false;
+    bool transparent_modulate_texel_center_seen = false;
     oracis::memory::Nds3dFragment center{};
+    oracis::memory::Nds3dFragment decal_center{};
 };
 
 void capture_fragment(
@@ -59,7 +61,11 @@ void capture_fragment(
             capture->center = fragment;
         }
         if (fragment.polygon_id == 2u) {
-            capture->transparent_texture_polygon_center_seen = true;
+            capture->decal_transparent_texel_center_seen = true;
+            capture->decal_center = fragment;
+        }
+        if (fragment.polygon_id == 3u) {
+            capture->transparent_modulate_texel_center_seen = true;
         }
     }
 }
@@ -166,13 +172,13 @@ int main()
     }
 
     /*
-     * Emit an overlapping polygon that samples texel 7, whose direct-color
-     * alpha bit is clear. It must be discarded before reaching the callback.
+     * Decal mode samples texel 7, whose direct-color alpha bit is clear.
+     * This uses the vertex RGB and alpha rather than discarding the texel.
      */
     if (!write_command(geometry, 0x29u,
             (UINT32_C(31) << 16u) | (UINT32_C(1) << 7u) |
-                (UINT32_C(2) << 24u))) {
-        return fail("transparent-texture POLYGON_ATTR enqueue failed");
+                (UINT32_C(1) << 4u) | (UINT32_C(2) << 24u))) {
+        return fail("decal POLYGON_ATTR enqueue failed");
     }
     geometry.advance_bus_cycles(1u);
     if (!write_command(geometry, 0x40u, 0u)) {
@@ -194,9 +200,38 @@ int main()
         geometry.advance_bus_cycles(8u);
     }
 
-    if (geometry.polygon_count() != 2u ||
+    /*
+     * A third overlapping polygon uses Modulation with the same transparent
+     * texel. Its final alpha is zero and it must not reach the callback.
+     */
+    if (!write_command(geometry, 0x29u,
+            (UINT32_C(31) << 16u) | (UINT32_C(1) << 7u) |
+                (UINT32_C(3) << 24u))) {
+        return fail("modulation POLYGON_ATTR enqueue failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    if (!write_command(geometry, 0x40u, 0u)) {
+        return fail("modulation BEGIN_VTXS enqueue failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    for (unsigned index = 0u; index < positions.size(); ++index) {
+        if (!write_command(geometry, 0x22u, UINT32_C(256))) {
+            return fail("modulation TEXCOORD enqueue failed");
+        }
+        geometry.advance_bus_cycles(1u);
+        if (!write_command(geometry, 0x20u, UINT32_C(0x7FFF))) {
+            return fail("modulation COLOR enqueue failed");
+        }
+        geometry.advance_bus_cycles(1u);
+        if (!write_command(geometry, 0x24u, positions[index])) {
+            return fail("modulation VTX_10 enqueue failed");
+        }
+        geometry.advance_bus_cycles(8u);
+    }
+
+    if (geometry.polygon_count() != 3u ||
         !write_command(geometry, 0x50u, 0u)) {
-        return fail("opaque/transparent triangles or SWAP_BUFFERS enqueue failed");
+        return fail("three triangles or SWAP_BUFFERS enqueue failed");
     }
     geometry.advance_bus_cycles(1u);
     if (!geometry.swap_waiting_for_vblank()) {
@@ -204,8 +239,8 @@ int main()
     }
     geometry.notify_vblank();
     geometry.advance_bus_cycles(392u);
-    if (geometry.render_polygon_count() != 2u ||
-        geometry.render_vertex_count() != 6u) {
+    if (geometry.render_polygon_count() != 3u ||
+        geometry.render_vertex_count() != 9u) {
         return fail("SWAP_BUFFERS did not publish the render buffer");
     }
 
@@ -215,8 +250,9 @@ int main()
     if (rasterizer.render_scanline(
             96u, capture_fragment, &capture) != Nds3dRasterStatus::Ok ||
         capture.count == 0u || !capture.center_seen ||
-        capture.center_fragment_count != 1u ||
-        capture.transparent_texture_polygon_center_seen) {
+        capture.center_fragment_count != 2u ||
+        !capture.decal_transparent_texel_center_seen ||
+        capture.transparent_modulate_texel_center_seen) {
         return fail("scanline rasterizer emitted a transparent texel or missed the opaque fragment");
     }
 
@@ -225,11 +261,17 @@ int main()
         capture.center.green6 != 0u ||
         capture.center.blue6 != 63u ||
         capture.center.alpha6 != 63u ||
+        !capture.decal_center.textured ||
+        capture.decal_center.red6 != 63u ||
+        capture.decal_center.green6 != 63u ||
+        capture.decal_center.blue6 != 63u ||
+        capture.decal_center.alpha6 != 63u ||
+        capture.decal_center.polygon_id != 2u ||
         capture.center.depth_equal ||
         capture.center.translucent_depth_write ||
         capture.center.depth24 < UINT32_C(0x7FFFF0) ||
         capture.center.depth24 > UINT32_C(0x800010)) {
-        return fail("perspective sample, RGB6/A6 modulation or transparent-texel rejection was incorrect");
+        return fail("perspective sample, modulation discard or decal vertex-color fallback was incorrect");
     }
 
     if (rasterizer.render_scanline(

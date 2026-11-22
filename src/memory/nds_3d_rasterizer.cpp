@@ -325,12 +325,6 @@ Nds3dRasterStatus rasterize_triangle_scanline(
             return Nds3dRasterStatus::TextureFailure;
         }
 
-        /*
-         * A texel whose effective alpha is zero produces no color, depth or
-         * fog fragment on the DS. Do not forward it to downstream stages.
-         */
-        if (texture.has_texture && texture.alpha == 0u) continue;
-
         const uint16_t red = interpolate_color_channel(
             weights, vertex_colors, 0u, area);
         const uint16_t green = interpolate_color_channel(
@@ -356,6 +350,11 @@ Nds3dRasterStatus rasterize_triangle_scanline(
             polygon.alpha,
             texture,
             fragment);
+        /*
+         * Discard on the final alpha, after texture-mode blending. In Decal
+         * mode, a zero-alpha texel selects the vertex color and vertex alpha;
+         * only the resulting fragment alpha determines transparency.
+         */
         if (fragment.alpha6 == 0u) continue;
         callback(context, fragment);
     }
