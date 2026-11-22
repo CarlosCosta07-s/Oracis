@@ -367,7 +367,7 @@ int main()
     const uint32_t outside_count = geometry.vertex_count();
     if (!write_command(
             geometry, 0x23u, (UINT32_C(0x2000) << 16u) | UINT32_C(0x1000)) ||
-        !write_command(geometry, 0x23u, UINT32_C(0x3000))) {
+        !write_command(geometry, 0x23u, UINT32_C(0x0C00))) {
         return fail("out-of-list vertex fixture enqueue failed");
     }
     geometry.advance_bus_cycles(9u);
