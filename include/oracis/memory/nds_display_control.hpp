@@ -37,6 +37,9 @@ public:
     static constexpr uint32_t ClearImageOffsetAddress = UINT32_C(0x04000356);
     static constexpr uint16_t Disp3dAlphaTestEnable = UINT16_C(1u << 2u);
     static constexpr uint16_t Disp3dAlphaBlendEnable = UINT16_C(1u << 3u);
+    static constexpr uint16_t Disp3dColorBufferUnderflowStatus = UINT16_C(1u << 12u);
+    static constexpr uint16_t Disp3dPolygonVertexRamOverflowStatus = UINT16_C(1u << 13u);
+    static constexpr uint16_t Disp3dStatusMask = UINT16_C(0x3000);
     static constexpr uint16_t Disp3dControlWritableMask = UINT16_C(0x4FFF);
     static constexpr uint32_t ClearColorWritableMask = UINT32_C(0x3F1FFFFF);
     static constexpr uint16_t ClearDepthWritableMask = UINT16_C(0x7FFF);
@@ -153,6 +156,12 @@ public:
         const uint32_t *words) noexcept;
     void clear_main_memory_display_fifo() noexcept;
 
+    void report_3d_color_buffer_underflow() noexcept {
+        three_d_control_ |= Disp3dColorBufferUnderflowStatus;
+    }
+    void report_3d_polygon_vertex_ram_overflow() noexcept {
+        three_d_control_ |= Disp3dPolygonVertexRamOverflowStatus;
+    }
     NdsInterruptControl &interrupt_control() const noexcept {
         return interrupts_;
     }
