@@ -203,3 +203,15 @@ válida ou uma imagem modificada chegue ao dispatcher fail-closed como
 `std::abort`. A checagem não substitui a validação em cada transferência:
 branches, chamadas e retornos continuam sujeitos à validação normal do
 registry.
+
+
+### Transferência ARM/Thumb por link slots
+
+`NdsLinkSlot.target_pc` carrega o estado de destino no bit 0 (Thumb=1,
+ARM=0). Enquanto o cache de link direto permanece desativado, os três helpers
+`runtime_link_call/branch/fallthrough` passam o alvo pelo caminho de exchange,
+que atualiza CPSR.T antes de consultar a tabela estática. O fallback não pode
+descartar o bit 0 e reutilizar acidentalmente o estado do chamador. A regressão
+usa slots sintéticos para as transições ARM→Thumb e Thumb→ARM em chamadas,
+branches e fallthrough. Nenhum ponteiro de função é cacheado; as verificações
+de identidade do dispatcher continuam sendo aplicadas em cada transferência.

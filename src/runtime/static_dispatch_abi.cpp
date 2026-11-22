@@ -193,6 +193,10 @@ extern "C" void runtime_dispatch_with_exchange(uint32_t target_pc)
  * Direct-link slots are an ABI optimization. Until Oracis adds a resolved
  * slot cache with generation/content guards, these entry points deliberately
  * remain unresolved and route through the ordinary static dispatcher.
+ *
+ * The ABI stores the target execution state in target_pc bit zero. Preserve
+ * that bit through the normal exchange path; stripping it before dispatch
+ * would incorrectly reuse the caller's CPSR.T state for ARM/Thumb transfers.
  */
 extern "C" void runtime_link_call(NdsLinkSlot *slot)
 {
@@ -202,7 +206,7 @@ extern "C" void runtime_link_call(NdsLinkSlot *slot)
                              ? oracis_active_cpu_state->cpsr : 0u,
                          0u, 0u, nullptr);
     }
-    runtime_dispatch(slot->target_pc & ~UINT32_C(1));
+    runtime_dispatch_with_exchange(slot->target_pc);
 }
 
 extern "C" void runtime_link_branch(NdsLinkSlot *slot)
@@ -213,7 +217,7 @@ extern "C" void runtime_link_branch(NdsLinkSlot *slot)
                              ? oracis_active_cpu_state->cpsr : 0u,
                          0u, 0u, nullptr);
     }
-    runtime_dispatch(slot->target_pc & ~UINT32_C(1));
+    runtime_dispatch_with_exchange(slot->target_pc);
 }
 
 extern "C" void runtime_link_fallthrough(NdsLinkSlot *slot)
@@ -224,7 +228,7 @@ extern "C" void runtime_link_fallthrough(NdsLinkSlot *slot)
                              ? oracis_active_cpu_state->cpsr : 0u,
                          0u, 0u, nullptr);
     }
-    runtime_dispatch(slot->target_pc & ~UINT32_C(1));
+    runtime_dispatch_with_exchange(slot->target_pc);
 }
 
 extern "C" int runtime_inline_leaf_admit(

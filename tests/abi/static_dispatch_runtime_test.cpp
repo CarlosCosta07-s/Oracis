@@ -104,21 +104,30 @@ int main()
     if (arm9_calls != 2u || (arm9.cpsr & CPSR_T_BIT) != 0u)
         return fail("ARM exchange did not clear CPSR.T and invoke ARM row");
 
-    /* Link slots currently remain unresolved and route through dispatch. */
+    /*
+     * Link slots encode the target ISA in target_pc bit zero. The unresolved
+     * fallback must preserve that state while using ordinary table lookup.
+     */
     NdsLinkSlot call_slot{};
-    call_slot.target_pc = 0x02000000u;
+    call_slot.target_pc = 0x02000021u;
     NdsLinkSlot branch_slot{};
     branch_slot.target_pc = 0x02000000u;
     NdsLinkSlot fallthrough_slot{};
-    fallthrough_slot.target_pc = 0x02000000u;
+    fallthrough_slot.target_pc = 0x02000021u;
 
     runtime_link_call(&call_slot);
-    runtime_link_branch(&branch_slot);
-    runtime_link_fallthrough(&fallthrough_slot);
-    if (arm9_calls != 5u) {
-        return fail("unresolved link slots did not use the normal dispatcher");
+    if (thumb_calls != 2u || (arm9.cpsr & CPSR_T_BIT) == 0u) {
+        return fail("Thumb link-call did not select Thumb state and row");
     }
-    if (runtime_inline_leaf_admit(&call_slot, arm9_body) != 0) {
+    runtime_link_branch(&branch_slot);
+    if (arm9_calls != 3u || (arm9.cpsr & CPSR_T_BIT) != 0u) {
+        return fail("ARM link-branch did not restore ARM state and row");
+    }
+    runtime_link_fallthrough(&fallthrough_slot);
+    if (thumb_calls != 3u || (arm9.cpsr & CPSR_T_BIT) == 0u) {
+        return fail("Thumb link-fallthrough did not select Thumb state and row");
+    }
+    if (runtime_inline_leaf_admit(&call_slot, thumb_body) != 0) {
         return fail("inline leaf was admitted without a resolved link cache");
     }
 
