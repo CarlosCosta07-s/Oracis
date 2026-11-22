@@ -34,6 +34,110 @@ NdsMachine::NdsMachine(memory::SharedWramMode initial_wram_mode) noexcept
     dma_control_.attach_display_control(display_control_);
     dma_control_.attach_game_card_control(game_card_control_);
     game_card_control_.attach_dma_control(dma_control_);
+    display_control_.set_scanline_observer(
+        this, &NdsMachine::display_scanline_observer);
+}
+
+void NdsMachine::display_scanline_observer(
+    void *context, uint16_t previous_scanline,
+    uint16_t current_scanline, bool natural_frame_wrap) noexcept
+{
+    auto *machine = static_cast<NdsMachine *>(context);
+    if (machine != nullptr) {
+        machine->on_display_scanline_boundary(
+            previous_scanline, current_scanline, natural_frame_wrap);
+    }
+}
+
+void NdsMachine::on_display_scanline_boundary(
+    uint16_t previous_scanline, uint16_t current_scanline,
+    bool natural_frame_wrap) noexcept
+{
+    static_cast<void>(previous_scanline);
+    const bool bg0_three_d_enabled =
+        (display_control_.dispcnt(0u) & UINT32_C(0x00000108)) ==
+        UINT32_C(0x00000108);
+
+    if (natural_frame_wrap && current_scanline == 0u) {
+        if (!bg0_three_d_enabled) {
+            three_d_scanline_sequence_initialized_ = false;
+            return;
+        }
+        if (reset_3d_bg0_scanline_sequence(0u) ==
+            memory::Nds3dRasterStatus::Ok) {
+            static_cast<void>(fill_3d_bg0_lookahead(0u));
+        }
+        return;
+    }
+
+    if (current_scanline >= memory::Nds3dRasterizer::ScreenHeight ||
+        !three_d_scanline_sequence_initialized_ ||
+        !bg0_three_d_enabled) {
+        return;
+    }
+
+    /* Refill only at real line boundaries; a full FIFO naturally back-pressures the producer. */
+    static_cast<void>(fill_3d_bg0_lookahead(current_scanline));
+}
+
+memory::Nds3dRasterStatus NdsMachine::reset_3d_bg0_scanline_sequence(
+    uint16_t first_scanline) noexcept
+{
+    using memory::Nds3dRasterStatus;
+    if (first_scanline >= memory::Nds3dRasterizer::ScreenHeight) {
+        return Nds3dRasterStatus::InvalidScanline;
+    }
+    if (three_d_scanline_cache_.reset(first_scanline) !=
+        memory::Nds3dScanlineCacheStatus::Ok) {
+        three_d_scanline_sequence_initialized_ = false;
+        return Nds3dRasterStatus::ScanlineCacheInvalid;
+    }
+    const Nds3dRasterStatus rear_plane =
+        three_d_rasterizer_.initialize_rear_plane(
+            three_d_color_buffer_, three_d_depth_buffer_, display_control_);
+    if (rear_plane != Nds3dRasterStatus::Ok) {
+        three_d_scanline_sequence_initialized_ = false;
+        return rear_plane;
+    }
+    next_three_d_producer_scanline_ = first_scanline;
+    three_d_scanline_sequence_initialized_ = true;
+    return Nds3dRasterStatus::Ok;
+}
+
+memory::Nds3dRasterStatus NdsMachine::fill_3d_bg0_lookahead(
+    uint16_t scanline) noexcept
+{
+    using memory::Nds3dRasterStatus;
+    if (scanline >= memory::Nds3dRasterizer::ScreenHeight) {
+        return Nds3dRasterStatus::InvalidScanline;
+    }
+    if (!three_d_scanline_sequence_initialized_) {
+        return Nds3dRasterStatus::ScanlineCacheInvalid;
+    }
+
+    constexpr uint16_t LookaheadLines =
+        static_cast<uint16_t>(memory::Nds3dScanlineCache::Capacity);
+    const uint16_t last_required = static_cast<uint16_t>(
+        scanline + LookaheadLines - 1u < memory::Nds3dRasterizer::ScreenHeight
+            ? scanline + LookaheadLines - 1u
+            : memory::Nds3dRasterizer::ScreenHeight - 1u);
+    while (next_three_d_producer_scanline_ <= last_required) {
+        const auto available = three_d_scanline_cache_.can_enqueue(
+            next_three_d_producer_scanline_);
+        if (available == memory::Nds3dScanlineCacheStatus::Full) {
+            return Nds3dRasterStatus::Ok;
+        }
+        if (available != memory::Nds3dScanlineCacheStatus::Ok) {
+            return Nds3dRasterStatus::ScanlineCacheInvalid;
+        }
+        const Nds3dRasterStatus rendered =
+            three_d_rasterizer_.render_scanline_to_cache(
+                next_three_d_producer_scanline_, three_d_depth_buffer_,
+                three_d_color_buffer_, three_d_scanline_cache_, display_control_);
+        if (rendered != Nds3dRasterStatus::Ok) return rendered;
+        ++next_three_d_producer_scanline_;
+    }
+    return Nds3dRasterStatus::Ok;
 }
 
 memory::Nds3dRasterStatus NdsMachine::prepare_3d_bg0_scanline(
@@ -44,40 +148,14 @@ memory::Nds3dRasterStatus NdsMachine::prepare_3d_bg0_scanline(
         return Nds3dRasterStatus::InvalidScanline;
     }
 
-    /* Rebuild after a new frame, a skipped scanline, or late BG0-3D enable. */
+    /* The host may first request 3D after the game enables BG0-3D mid-frame. */
     if (!three_d_scanline_sequence_initialized_ ||
         three_d_scanline_cache_.next_consumer_scanline() != scanline) {
-        if (three_d_scanline_cache_.reset(scanline) !=
-                memory::Nds3dScanlineCacheStatus::Ok) {
-            three_d_scanline_sequence_initialized_ = false;
-            return Nds3dRasterStatus::ScanlineCacheInvalid;
-        }
-        const Nds3dRasterStatus rear_plane =
-            three_d_rasterizer_.initialize_rear_plane(
-                three_d_color_buffer_, three_d_depth_buffer_, display_control_);
-        if (rear_plane != Nds3dRasterStatus::Ok) {
-            three_d_scanline_sequence_initialized_ = false;
-            return rear_plane;
-        }
-        next_three_d_producer_scanline_ = scanline;
-        three_d_scanline_sequence_initialized_ = true;
+        const Nds3dRasterStatus reset =
+            reset_3d_bg0_scanline_sequence(scanline);
+        if (reset != Nds3dRasterStatus::Ok) return reset;
     }
-
-    constexpr uint16_t LookaheadLines =
-        static_cast<uint16_t>(memory::Nds3dScanlineCache::Capacity);
-    const uint16_t last_required = static_cast<uint16_t>(
-        scanline + LookaheadLines - 1u < memory::Nds3dRasterizer::ScreenHeight
-            ? scanline + LookaheadLines - 1u
-            : memory::Nds3dRasterizer::ScreenHeight - 1u);
-    while (next_three_d_producer_scanline_ <= last_required) {
-        const Nds3dRasterStatus rendered =
-            three_d_rasterizer_.render_scanline_to_cache(
-                next_three_d_producer_scanline_, three_d_depth_buffer_,
-                three_d_color_buffer_, three_d_scanline_cache_, display_control_);
-        if (rendered != Nds3dRasterStatus::Ok) return rendered;
-        ++next_three_d_producer_scanline_;
-    }
-    return Nds3dRasterStatus::Ok;
+    return fill_3d_bg0_lookahead(scanline);
 }
 
 NdsMachine::~NdsMachine()
