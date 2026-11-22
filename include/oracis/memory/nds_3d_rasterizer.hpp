@@ -29,7 +29,8 @@ enum class Nds3dRasterStatus : uint8_t {
     WireframeNotSupported,
     TranslucentSortingNotSupported,
     InvalidAlphaTestReference,
-    DisplayControlUnavailable
+    DisplayControlUnavailable,
+    RearPlaneBitmapNotSupported
 };
 
 /*
@@ -168,6 +169,15 @@ public:
         bool alpha_blending_enabled,
         bool alpha_test_enabled,
         uint8_t alpha_test_reference) const noexcept;
+
+    /*
+     * Initialize the uniform rear-plane from CLEAR_COLOR and CLEAR_DEPTH.
+     * Bitmap mode (DISP3DCNT.Bit14) is rejected until slots 2/3 are supported.
+     */
+    Nds3dRasterStatus initialize_rear_plane(
+        Nds3dColorBuffer &color_buffer,
+        Nds3dDepthBuffer &depth_buffer,
+        const NdsDisplayControl &display_control) const noexcept;
 
     /*
      * Pull DISP3DCNT and ALPHA_TEST_REF directly from the display MMIO device.

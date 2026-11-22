@@ -605,6 +605,42 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_depth_tested(
         scanline, forward_depth_passed_fragment, &callback_context);
 }
 
+Nds3dRasterStatus Nds3dRasterizer::initialize_rear_plane(
+    Nds3dColorBuffer &color_buffer,
+    Nds3dDepthBuffer &depth_buffer,
+    const NdsDisplayControl &display_control) const noexcept
+{
+    if (!display_control.installed()) {
+        return Nds3dRasterStatus::DisplayControlUnavailable;
+    }
+    if (display_control.three_d_rear_plane_bitmap_enabled()) {
+        return Nds3dRasterStatus::RearPlaneBitmapNotSupported;
+    }
+
+    const uint32_t clear_color = display_control.three_d_clear_color();
+    const uint16_t red5 = static_cast<uint16_t>(clear_color & UINT32_C(0x1F));
+    const uint16_t green5 = static_cast<uint16_t>(
+        (clear_color >> 5u) & UINT32_C(0x1F));
+    const uint16_t blue5 = static_cast<uint16_t>(
+        (clear_color >> 10u) & UINT32_C(0x1F));
+    const uint8_t fog = static_cast<uint8_t>(
+        (clear_color >> 15u) & UINT32_C(1));
+    const uint8_t alpha5 = static_cast<uint8_t>(
+        (clear_color >> 16u) & UINT32_C(0x1F));
+    const uint8_t polygon_id = static_cast<uint8_t>(
+        (clear_color >> 24u) & UINT32_C(0x3F));
+
+    color_buffer.clear(
+        expand_five_to_six(red5),
+        expand_five_to_six(green5),
+        expand_five_to_six(blue5),
+        alpha5,
+        polygon_id,
+        fog != 0u);
+    depth_buffer.clear(display_control.three_d_clear_depth_expanded24());
+    return Nds3dRasterStatus::Ok;
+}
+
 Nds3dRasterStatus Nds3dRasterizer::render_scanline_composited(
     uint16_t scanline,
     Nds3dDepthBuffer &depth_buffer,

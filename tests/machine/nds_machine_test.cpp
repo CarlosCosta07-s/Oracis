@@ -1075,12 +1075,23 @@ int main()
         expected_3d_control);
     bus_write_u8(
         NdsDisplayControl::AlphaTestReferenceAddress, UINT8_C(29));
+    bus_write_u32(
+        NdsDisplayControl::ClearColorAddress, UINT32_C(0x2A11C521));
+    bus_write_u16(
+        NdsDisplayControl::ClearDepthAddress, UINT16_C(0x1234));
+    bus_write_u16(
+        NdsDisplayControl::ClearImageOffsetAddress, UINT16_C(0x5678));
     if (bus_read_u16(NdsDisplayControl::Disp3dControlAddress) !=
             expected_3d_control ||
         machine.display_control().three_d_alpha_test_reference() != 29u ||
         !machine.display_control().three_d_alpha_test_enabled() ||
-        !machine.display_control().three_d_alpha_blending_enabled()) {
-        return fail("3D DISP3DCNT/ALPHA_TEST_REF bus bridge failed");
+        !machine.display_control().three_d_alpha_blending_enabled() ||
+        machine.display_control().three_d_clear_color() !=
+            UINT32_C(0x2A11C521) ||
+        machine.display_control().three_d_clear_depth() != UINT16_C(0x1234) ||
+        machine.display_control().three_d_clear_image_offset() !=
+            UINT16_C(0x5678)) {
+        return fail("3D control/alpha/rear-plane clear registers bus bridge failed");
     }
     if (bus_read_u32(engine_a_dispcnt) != UINT32_C(0x00010013) ||
         bus_read_u32(engine_b_dispcnt) != UINT32_C(0x80000021) ||

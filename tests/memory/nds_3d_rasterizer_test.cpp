@@ -383,8 +383,66 @@ int main()
             1u, UINT32_C(30)) != Status::Ok) {
         return fail("ALPHA_TEST_REF update failed");
     }
+
+    constexpr uint32_t rear_clear_color =
+        (UINT32_C(31) << 0u) |
+        (UINT32_C(16) << 5u) |
+        (UINT32_C(4) << 10u) |
+        (UINT32_C(1) << 15u) |
+        (UINT32_C(12) << 16u) |
+        (UINT32_C(37) << 24u);
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::ClearColorAddress, 4u,
+            rear_clear_color) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::ClearDepthAddress, 2u,
+            UINT16_C(0x4000)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::ClearImageOffsetAddress, 2u,
+            UINT16_C(0x1234)) != Status::Ok ||
+        display.three_d_clear_depth_expanded24() != UINT32_C(0x800000)) {
+        return fail("rear-plane clear register setup or depth expansion failed");
+    }
+
     Nds3dDepthBuffer depth{};
     Nds3dColorBuffer color{};
+    if (rasterizer.initialize_rear_plane(
+            color, depth, display) != Nds3dRasterStatus::Ok) {
+        return fail("uniform rear-plane initialization failed");
+    }
+    const Nds3dColorPixel *rear_pixel = color.pixel_at(0u, 0u);
+    if (rear_pixel == nullptr ||
+        rear_pixel->red6 != 63u ||
+        rear_pixel->green6 != 33u ||
+        rear_pixel->blue6 != 9u ||
+        rear_pixel->alpha5 != 12u ||
+        rear_pixel->polygon_id != 37u ||
+        !rear_pixel->fog_enabled ||
+        depth.depth_at(0u, 0u) != UINT32_C(0x800000)) {
+        return fail("CLEAR_COLOR RGB6/A5/fog/ID or CLEAR_DEPTH expansion was incorrect");
+    }
+
+    /* Bitmap rear-plane mode needs texture slots 2/3 and must fail closed. */
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::Disp3dControlAddress, 2u,
+            static_cast<uint32_t>(
+                NdsDisplayControl::Disp3dAlphaTestEnable |
+                NdsDisplayControl::Disp3dAlphaBlendEnable |
+                (UINT16_C(1u) << 14u))) != Status::Ok ||
+        rasterizer.initialize_rear_plane(
+            color, depth, display) !=
+            Nds3dRasterStatus::RearPlaneBitmapNotSupported ||
+        color.pixel_at(0u, 0u)->polygon_id != 37u ||
+        depth.depth_at(0u, 0u) != UINT32_C(0x800000)) {
+        return fail("bitmap rear-plane mode was not explicitly rejected without mutating buffers");
+    }
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::Disp3dControlAddress, 2u,
+            static_cast<uint32_t>(
+                NdsDisplayControl::Disp3dAlphaTestEnable |
+                NdsDisplayControl::Disp3dAlphaBlendEnable)) != Status::Ok) {
+        return fail("uniform rear-plane mode restore failed");
+    }
     if (rasterizer.render_scanline_composited(
             96u, depth, color, display) != Nds3dRasterStatus::Ok) {
         return fail("manual-order MMIO-composited scanline returned an error");
