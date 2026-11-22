@@ -149,3 +149,10 @@ Foi criado `Nds3dScanlineCache`, um FIFO circular limitado a 48 scanlines BG0. A
 Os testes verificam capacidade 48, full/empty, wrap do anel, ordem do produtor/consumidor, reset, alpha inválido, conversão RGB6→RGB555, consumo BG0, underflow e retenção da linha diante de falha de composição. A CI #1070 passou nos quatro jobs: Desktop Linux e ARM runtime com 54/54 CTests, Android ARM64 e NDSRecomp estático; a checagem opcional de static-bank executou 1/1.
 
 A integração temporal ainda não está concluída: a fila não é alimentada automaticamente no início da renderização do VBlank, não está sincronizada ao consumo por VCOUNT/scanline e ainda não foi conectada ao `NdsMachine` nem aos caminhos de apresentação desktop/mobile. O próximo passo é implementar o agendamento do produtor e consumidor, além de linhas perdidas/atrasadas e `RDLINES_COUNT`. Esta etapa implementa a transferência 3D→2D, mas não comprova um quadro 3D completo nem boot de jogo. Consulte [NDS_3D_TEXTURE_PIPELINE.md](NDS_3D_TEXTURE_PIPELINE.md) e [NDS_2D_PIPELINE.md](NDS_2D_PIPELINE.md).
+
+
+## Atualização 2026-11-22 — integração do BG0 3D à máquina e ao host
+
+A `NdsMachine` agora possui o sampler de texturas, rasterizador, buffers de cor/profundidade e FIFO BG0 de 48 linhas. Quando Engine A está no modo gráfico e BG0 está habilitado como 3D, o host desktop prepara uma janela progressiva de até 48 scanlines e usa a sobrecarga cache-aware do compositor 2D. A janela avança conforme o host solicita cada linha; saltos ou ativação tardia do BG0 3D reinicializam a fila e o rear-plane. A regressão de máquina cobre preenchimento inicial, avanço da janela e recuperação após linha perdida.
+
+Este marco integra produção e consumo de linhas ao caminho de apresentação desktop, mas **não** implementa ainda o agendamento do produtor pelo VBlank/VCOUNT, temporização ciclo-a-ciclo, status de FIFO/RDLINES_COUNT ou apresentação Android. O preenchimento é acionado pela solicitação de scanline do host e deve ser tratado como lookahead funcional, não como precisão de hardware.
