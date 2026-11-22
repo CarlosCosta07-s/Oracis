@@ -3,8 +3,9 @@
  *
  * Consumes the Geometry Engine's render buffer, samples captured texture
  * state, composes fragments into RGB6/A5 staging and exports BG0 RGB555/
- * alpha5 scanlines to the bounded 48-line FIFO. Automatic translucent
- * sorting, toon/shadow modes, fog blending and cycle scheduling remain open.
+ * alpha5 scanlines to the bounded 48-line FIFO. MMIO-controlled fog is
+ * applied after scanline composition. Translucent Y-sort, toon/shadow,
+ * wireframe/edge marking and cycle-accurate scheduling remain open.
  */
 #ifndef ORACIS_MEMORY_NDS_3D_RASTERIZER_HPP
 #define ORACIS_MEMORY_NDS_3D_RASTERIZER_HPP
