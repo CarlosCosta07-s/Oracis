@@ -508,9 +508,6 @@ Nds3dRasterStatus rasterize_triangle_scanline(
         fragment.polygon_mode = polygon.polygon_mode;
         fragment.fog_enabled = polygon.fog_enabled;
         fragment.depth_equal = polygon.depth_equal;
-        fragment.translucent = !wireframe && polygon.alpha < 31u;
-        fragment.edge_candidate = edge_marking_enabled &&
-            (wireframe || polygon.alpha == 31u) && perimeter_pixel;
         fragment.translucent_depth_write =
             polygon.translucent_depth_write;
         shade_fragment(
@@ -526,6 +523,14 @@ Nds3dRasterStatus rasterize_triangle_scanline(
             fragment.alpha6 = 63u;
             fragment.alpha5 = 31u;
         }
+        /*
+         * Classification must use the final fragment alpha: A3I5/A5I3 and
+         * direct-color textures can make a nominally opaque polygon
+         * translucent after texture-mode blending.
+         */
+        fragment.translucent = !wireframe && fragment.alpha5 < 31u;
+        fragment.edge_candidate = edge_marking_enabled &&
+            (wireframe || fragment.alpha5 == 31u) && perimeter_pixel;
         /*
          * Discard on the final alpha, after texture-mode blending. In Decal
          * mode, a zero-alpha texel selects the vertex color and vertex alpha;

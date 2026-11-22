@@ -1300,6 +1300,82 @@ int main()
         }
     }
 
+    /*
+     * A3I5 can make a POLYGON_ATTR alpha-31 polygon translucent after
+     * modulation. Such pixels must not be tagged by Edge Marking.
+     */
+    if (vram.write(
+            NDS_ARM9, NdsVramControl::VramCntAAddress, 1u,
+            UINT32_C(0x80)) != Status::Ok ||
+        vram.write(
+            NDS_ARM9, NdsVramControl::VramCntEAddress, 1u,
+            UINT32_C(0x80)) != Status::Ok ||
+        !write_halfword(memory, UINT32_C(0x06800000), UINT16_C(0xA1A1)) ||
+        !write_halfword(memory, UINT32_C(0x06800002), UINT16_C(0xA1A1)) ||
+        !write_halfword(memory, UINT32_C(0x06800004), UINT16_C(0xA1A1)) ||
+        !write_halfword(memory, UINT32_C(0x06800006), UINT16_C(0xA1A1)) ||
+        !write_halfword(memory, UINT32_C(0x06880002), UINT16_C(0x03E0)) ||
+        vram.write(
+            NDS_ARM9, NdsVramControl::VramCntAAddress, 1u,
+            UINT32_C(0x83)) != Status::Ok ||
+        vram.write(
+            NDS_ARM9, NdsVramControl::VramCntEAddress, 1u,
+            UINT32_C(0x83)) != Status::Ok) {
+        return fail("A3I5 translucent texture setup failed");
+    }
+
+    if (!write_command(geometry, 0x29u,
+            (UINT32_C(31) << 16u) | (UINT32_C(1) << 7u) |
+                (UINT32_C(6) << 24u)) ||
+        !write_command(geometry, 0x2Au,
+            (UINT32_C(1) << 26u)) ||
+        !write_command(geometry, 0x2Bu, 0u) ||
+        !write_command(geometry, 0x40u, 0u)) {
+        return fail("A3I5 opaque-attribute polygon setup failed");
+    }
+    geometry.advance_bus_cycles(4u);
+    for (uint32_t position : positions) {
+        if (!write_command(geometry, 0x22u, 0u) ||
+            !write_command(geometry, 0x20u, UINT32_C(0x7FFF)) ||
+            !write_command(geometry, 0x24u, position)) {
+            return fail("A3I5 textured triangle vertex enqueue failed");
+        }
+        geometry.advance_bus_cycles(10u);
+    }
+    if (geometry.polygon_count() != 1u ||
+        !write_command(geometry, 0x50u, UINT32_C(1))) {
+        return fail("A3I5 textured triangle or manual swap failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    geometry.notify_vblank();
+    geometry.advance_bus_cycles(392u);
+
+    Capture a3i5_capture{};
+    if (rasterizer.render_scanline(
+            96u, capture_fragment, &a3i5_capture) != Nds3dRasterStatus::Ok ||
+        !a3i5_capture.center_seen ||
+        a3i5_capture.center.alpha5 >= 31u ||
+        !a3i5_capture.center.translucent ||
+        a3i5_capture.center.edge_candidate) {
+        return fail("A3I5 final alpha was not classified as translucent");
+    }
+
+    Nds3dDepthBuffer a3i5_depth{};
+    Nds3dColorBuffer a3i5_color{};
+    a3i5_depth.clear();
+    a3i5_color.clear(0u, 0u, 0u, 31u, 0u, false);
+    if (rasterizer.render_scanline_composited(
+            96u, a3i5_depth, a3i5_color, display) != Nds3dRasterStatus::Ok) {
+        return fail("A3I5 composited scanline failed");
+    }
+    for (uint32_t x = 0u; x < Nds3dRasterizer::ScreenWidth; ++x) {
+        const auto *pixel = a3i5_color.pixel_at(
+            static_cast<uint8_t>(x), 96u);
+        if (pixel != nullptr && pixel->edge_candidate) {
+            return fail("translucent A3I5 texels were incorrectly Edge Marked");
+        }
+    }
+
     std::puts("NDS 3D rasterizer tests passed");
     return 0;
 }
