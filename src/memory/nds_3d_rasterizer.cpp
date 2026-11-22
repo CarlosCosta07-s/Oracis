@@ -74,6 +74,15 @@ bool pixel_touches_edge_band(
     return absolute_value <= threshold;
 }
 
+bool is_translucent_polygon(
+    const NdsGeometryEngine::Polygon &polygon) noexcept
+{
+    const uint32_t texture_format =
+        (polygon.texture_parameters >> 26u) & UINT32_C(7);
+    return (polygon.alpha > 0u && polygon.alpha < 31u) ||
+        texture_format == 1u || texture_format == 6u;
+}
+
 uint8_t expand_five_to_six(uint32_t value) noexcept
 {
     const uint32_t channel = value & UINT32_C(0x1F);
@@ -1277,19 +1286,54 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_composited_impl(
     if (has_shadow_polygons && shadow_stencil == nullptr) {
         return Nds3dRasterStatus::ShadowStencilUnavailable;
     }
-    if ((geometry_.render_swap_parameters() & UINT8_C(1)) == 0u) {
+    const uint32_t polygon_count = geometry_.render_polygon_count();
+    if (polygon_count > NdsGeometryEngine::PolygonRamCapacity) {
+        return Nds3dRasterStatus::InvalidGeometry;
+    }
+
+    std::array<uint32_t, NdsGeometryEngine::PolygonRamCapacity> manual_order{};
+    const uint32_t *polygon_order = nullptr;
+    const bool manual_translucent_order =
+        (geometry_.render_swap_parameters() & UINT8_C(1)) != 0u;
+    if (manual_translucent_order) {
         /*
-         * SWAP_BUFFERS bit 0 selects Y-sorting for translucent polygons.
-         * Solid polygons (alpha 31) do not need that ordering: the depth
-         * buffer resolves their visibility. Keep rejecting alpha 1..30 until
-         * the DS-specific translucent sort is implemented.
+         * The DS always renders opaque polygons first. In manual mode the
+         * caller controls only the relative order within the translucent
+         * group; preserve that submission order exactly (including Shadow
+         * mask/render pairs). A3I5 and A5I3 textures belong to this group
+         * even when POLYGON_ATTR alpha is 31.
          */
-        for (uint32_t index = 0u;
-             index < geometry_.render_polygon_count(); ++index) {
+        uint32_t opaque_count = 0u;
+        uint32_t translucent_count = 0u;
+        for (uint32_t index = 0u; index < polygon_count; ++index) {
             const NdsGeometryEngine::Polygon *polygon =
                 geometry_.render_polygon_at(index);
             if (polygon == nullptr) return Nds3dRasterStatus::InvalidGeometry;
-            if (polygon->alpha > 0u && polygon->alpha < 31u) {
+            if (!is_translucent_polygon(*polygon)) {
+                manual_order[opaque_count++] = index;
+            }
+        }
+        translucent_count = opaque_count;
+        for (uint32_t index = 0u; index < polygon_count; ++index) {
+            const NdsGeometryEngine::Polygon *polygon =
+                geometry_.render_polygon_at(index);
+            if (polygon == nullptr) return Nds3dRasterStatus::InvalidGeometry;
+            if (is_translucent_polygon(*polygon)) {
+                manual_order[translucent_count++] = index;
+            }
+        }
+        if (translucent_count != polygon_count) {
+            return Nds3dRasterStatus::InvalidGeometry;
+        }
+        polygon_order = manual_order.data();
+    } else {
+        /* Automatic DS Y-sort has its own ordering rule. Do not replace it
+         * with submission order or a guessed depth sort. */
+        for (uint32_t index = 0u; index < polygon_count; ++index) {
+            const NdsGeometryEngine::Polygon *polygon =
+                geometry_.render_polygon_at(index);
+            if (polygon == nullptr) return Nds3dRasterStatus::InvalidGeometry;
+            if (is_translucent_polygon(*polygon)) {
                 return Nds3dRasterStatus::TranslucentSortingNotSupported;
             }
         }
@@ -1305,7 +1349,7 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_composited_impl(
     };
     return render_scanline_impl(
         scanline, composite_depth_passed_fragment, &context,
-        toon_table, highlight_shading, edge_marking_enabled);
+        toon_table, highlight_shading, edge_marking_enabled, polygon_order);
 }
 
 Nds3dRasterStatus Nds3dRasterizer::render_scanline(
@@ -1314,7 +1358,7 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline(
     void *context) const noexcept
 {
     return render_scanline_impl(
-        scanline, callback, context, nullptr, false, false);
+        scanline, callback, context, nullptr, false, false, nullptr);
 }
 
 Nds3dRasterStatus Nds3dRasterizer::render_scanline_impl(
@@ -1323,7 +1367,8 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_impl(
     void *context,
     const std::array<uint16_t, 32> *toon_table,
     bool highlight_shading,
-    bool edge_marking_enabled) const noexcept
+    bool edge_marking_enabled,
+    const uint32_t *polygon_order) const noexcept
 {
     if (scanline >= ScreenHeight) {
         return Nds3dRasterStatus::InvalidScanline;
@@ -1334,8 +1379,13 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_impl(
     const uint32_t polygon_count = geometry_.render_polygon_count();
     const bool w_buffer = geometry_.render_uses_w_buffer();
 
-    for (uint32_t polygon_index = 0u;
-         polygon_index < polygon_count; ++polygon_index) {
+    for (uint32_t polygon_sequence = 0u;
+         polygon_sequence < polygon_count; ++polygon_sequence) {
+        const uint32_t polygon_index = polygon_order == nullptr
+            ? polygon_sequence : polygon_order[polygon_sequence];
+        if (polygon_index >= polygon_count) {
+            return Nds3dRasterStatus::InvalidGeometry;
+        }
         const NdsGeometryEngine::Polygon *polygon =
             geometry_.render_polygon_at(polygon_index);
         if (polygon == nullptr) return Nds3dRasterStatus::InvalidGeometry;

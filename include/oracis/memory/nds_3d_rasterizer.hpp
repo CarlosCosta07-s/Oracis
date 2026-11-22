@@ -4,9 +4,9 @@
  * Consumes the Geometry Engine's render buffer, samples captured texture
  * state, composes fragments into RGB6/A5 staging and exports BG0 RGB555/
  * alpha5 scanlines to the bounded 48-line FIFO. MMIO-controlled fog is
- * applied after scanline composition. Toon/highlight and two-pass Shadow
- * polygons are supported; translucent Y-sort, wireframe and cycle-accurate
- * scheduling remain open.
+ * applied after scanline composition. Toon/highlight, two-pass Shadow and
+ * manual opaque-first/translucent ordering are supported; automatic Y-sort,
+ * wireframe and cycle-accurate scheduling remain open.
  */
 #ifndef ORACIS_MEMORY_NDS_3D_RASTERIZER_HPP
 #define ORACIS_MEMORY_NDS_3D_RASTERIZER_HPP
@@ -248,8 +248,9 @@ public:
         Nds3dShadowStencilBuffer &shadow_stencil) const noexcept;
 
     /*
-     * Render one line and enqueue RGB555/alpha5 for Engine A BG0. With
-     * edge-marking lookahead enabled, calls 0..191 queue the preceding line;
+     * Render one line and enqueue RGB555/alpha5 for Engine A BG0. Manual
+     * translucent composition preserves submission order after opaque
+     * polygons. With edge-marking lookahead enabled, calls 0..191 queue the preceding line;
      * call 192 flushes line 191 against the rear-plane border. The caller
      * initializes the rear-plane once per frame and resets the FIFO before
      * pre-rendering; cache capacity/order errors are reported explicitly.
@@ -270,7 +271,8 @@ private:
         void *context,
         const std::array<uint16_t, 32> *toon_table,
         bool highlight_shading,
-        bool edge_marking_enabled) const noexcept;
+        bool edge_marking_enabled,
+        const uint32_t *polygon_order) const noexcept;
     Nds3dRasterStatus render_scanline_composited_impl(
         uint16_t scanline,
         Nds3dDepthBuffer &depth_buffer,
