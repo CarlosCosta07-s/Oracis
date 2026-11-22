@@ -348,9 +348,9 @@ int main()
     geometry.notify_vblank();
     geometry.advance_bus_cycles(392u);
     if (geometry.render_polygon_count() != 1u ||
-        geometry.render_swap_parameters() != 2u ||
+        geometry.render_swap_parameters() != 3u ||
         geometry.swap_parameters() != 0u) {
-        return fail("W-buffer mode was not retained with the second render buffer");
+        return fail("W-buffer/manual-sort mode was not retained with the second render buffer");
     }
 
     Nds3dDepthBuffer alpha_test_depth{};
