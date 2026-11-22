@@ -1183,11 +1183,16 @@ void NdsGeometryEngine::execute_vertex_command() noexcept
             sign_extend(parameter >> 20u, 10u) * 8
         };
         /* NORMAL is a row vector multiplied by the Directional Matrix. */
+        /*
+         * Texture generation consumes the incoming NORMAL vector before
+         * Directional Matrix transformation. Lighting consumes the
+         * transformed vector, so keep the two data paths independent.
+         */
+        if (texture_transform_mode_ == 2u) {
+            transform_texture_coordinates_from_matrix(source_normal);
+        }
         current_vertex_normal_ = transform_direction(source_normal);
         calculate_lighting();
-        if (texture_transform_mode_ == 2u) {
-            transform_texture_coordinates_from_matrix(current_vertex_normal_);
-        }
         return;
     }
 
