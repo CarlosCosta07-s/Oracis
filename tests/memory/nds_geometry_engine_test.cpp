@@ -1207,14 +1207,15 @@ int main()
      * Lighting commands update material/light state, and NORMAL latches the
      * resulting RGB555 vertex color. Near-unit 1.9 vectors avoid overflow.
      */
-    NdsGeometryEngine lighting_geometry(interrupts);
-    if (lighting_geometry.install() != Status::Ok) {
+    auto lighting_geometry =
+        std::make_unique<NdsGeometryEngine>(interrupts);
+    if (lighting_geometry->install() != Status::Ok) {
         return fail("lighting Geometry Engine installation failed");
     }
     const auto run_lighting_command = [&lighting_geometry](
         uint8_t command, uint32_t parameter, uint32_t cycles) noexcept {
-        if (!write_command(lighting_geometry, command, parameter)) return false;
-        lighting_geometry.advance_bus_cycles(cycles);
+        if (!write_command(*lighting_geometry, command, parameter)) return false;
+        lighting_geometry->advance_bus_cycles(cycles);
         return true;
     };
     const uint32_t diffuse_ambient =
@@ -1253,33 +1254,34 @@ int main()
         }
     }
     const NdsGeometryEngine::Vertex *lit_vertex =
-        lighting_geometry.vertex_at(0u);
+        lighting_geometry->vertex_at(0u);
     const uint16_t expected_lit_color = static_cast<uint16_t>(
         UINT16_C(30) | (UINT16_C(31) << 5u) | (UINT16_C(5) << 10u));
-    if (lighting_geometry.vertex_count() != 3u ||
+    if (lighting_geometry->vertex_count() != 3u ||
         lit_vertex == nullptr || lit_vertex->color_rgb555 != expected_lit_color ||
         lit_vertex->normal != std::array<int32_t, 3>{0, 0, 4088}) {
         return fail("NORMAL did not combine diffuse, ambient and emission colors");
     }
 
     /* The 128-entry shininess table attenuates specular reflection. */
-    NdsGeometryEngine shininess_geometry(interrupts);
-    if (shininess_geometry.install() != Status::Ok) {
+    auto shininess_geometry =
+        std::make_unique<NdsGeometryEngine>(interrupts);
+    if (shininess_geometry->install() != Status::Ok) {
         return fail("shininess Geometry Engine installation failed");
     }
     const auto run_shininess_command = [&shininess_geometry](
         uint8_t command, uint32_t parameter, uint32_t cycles) noexcept {
-        if (!write_command(shininess_geometry, command, parameter)) return false;
-        shininess_geometry.advance_bus_cycles(cycles);
+        if (!write_command(*shininess_geometry, command, parameter)) return false;
+        shininess_geometry->advance_bus_cycles(cycles);
         return true;
     };
     const uint32_t shininess_word = UINT32_C(0x80808080);
     for (unsigned index = 0u; index < 32u; ++index) {
-        if (!write_command(shininess_geometry, 0x34u, shininess_word)) {
+        if (!write_command(*shininess_geometry, 0x34u, shininess_word)) {
             return fail("SHININESS table word enqueue failed");
         }
     }
-    shininess_geometry.advance_bus_cycles(32u);
+    shininess_geometry->advance_bus_cycles(32u);
     const uint32_t specular_material =
         UINT32_C(31) | (UINT32_C(1) << 15u);
     if (!run_shininess_command(0x31u, specular_material, 4u) ||
@@ -1296,7 +1298,7 @@ int main()
         }
     }
     const NdsGeometryEngine::Vertex *specular_vertex =
-        shininess_geometry.vertex_at(0u);
+        shininess_geometry->vertex_at(0u);
     if (specular_vertex == nullptr ||
         specular_vertex->color_rgb555 != UINT16_C(15)) {
         return fail("SHININESS table did not scale the specular vertex color");
