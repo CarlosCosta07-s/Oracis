@@ -44,18 +44,24 @@ int main()
         return fail("temporary LCDC bank allocation failed");
     }
 
-    /* Slot-0 texture fixtures: A3I5, direct-color and packed 2bpp. */
+    /* Slot-0 texture fixtures: indexed, translucent and direct-color formats. */
     if (!write_halfword(memory, UINT32_C(0x06800080), UINT16_C(0x00E1)) ||
         !write_halfword(memory, UINT32_C(0x06800100), UINT16_C(0x801F)) ||
         !write_halfword(memory, UINT32_C(0x06800102), UINT16_C(0x001F)) ||
         !write_halfword(memory, UINT32_C(0x0680010E), UINT16_C(0x83E0)) ||
-        !write_halfword(memory, UINT32_C(0x06800180), UINT16_C(0x0002))) {
+        !write_halfword(memory, UINT32_C(0x06800180), UINT16_C(0x0002)) ||
+        !write_halfword(memory, UINT32_C(0x06800200), UINT16_C(0x0003)) ||
+        !write_halfword(memory, UINT32_C(0x06800280), UINT16_C(0x0004)) ||
+        !write_halfword(memory, UINT32_C(0x06800300), UINT16_C(0x00FB))) {
         return fail("synthetic texture data could not be written");
     }
 
     /* Palette values are RGB555: index 1 green, index 2 blue. */
     if (!write_halfword(memory, UINT32_C(0x06880022), UINT16_C(0x03E0)) ||
-        !write_halfword(memory, UINT32_C(0x0688000C), UINT16_C(0x7C00))) {
+        !write_halfword(memory, UINT32_C(0x0688000C), UINT16_C(0x7C00)) ||
+        !write_halfword(memory, UINT32_C(0x06880036), UINT16_C(0x03FF)) ||
+        !write_halfword(memory, UINT32_C(0x06880048), UINT16_C(0x7FE0)) ||
+        !write_halfword(memory, UINT32_C(0x06890006), UINT16_C(0x4210))) {
         return fail("synthetic texture palette could not be written");
     }
 
@@ -64,6 +70,9 @@ int main()
             Status::Ok ||
         vram.write(
             NDS_ARM9, NdsVramControl::VramCntEAddress, 1u, UINT32_C(0x83)) !=
+            Status::Ok ||
+        vram.write(
+            NDS_ARM9, NdsVramControl::VramCntFAddress, 1u, UINT32_C(0x93)) !=
             Status::Ok) {
         return fail("texture image/palette allocation failed");
     }
@@ -98,6 +107,36 @@ int main()
     if (color_zero.status != Nds3dTextureSampleStatus::Ok ||
         !color_zero.transparent || color_zero.alpha != 0u) {
         return fail("transparent palette color-zero handling failed");
+    }
+
+    /* 4bpp uses the low nibble for the first texel. */
+    const uint32_t palette4bpp =
+        (UINT32_C(3) << 26u) | UINT32_C(0x40);
+    const Nds3dTextureSample palette4bpp_sample =
+        sampler.sample(palette4bpp, UINT32_C(3), 0, 0);
+    if (palette4bpp_sample.status != Nds3dTextureSampleStatus::Ok ||
+        palette4bpp_sample.color_rgb555 != UINT16_C(0x03FF)) {
+        return fail("4bpp nibble ordering or palette lookup failed");
+    }
+
+    /* 8bpp indexes a 256-entry palette using 16-byte PLTT_BASE units. */
+    const uint32_t palette8bpp =
+        (UINT32_C(4) << 26u) | UINT32_C(0x50);
+    const Nds3dTextureSample palette8bpp_sample =
+        sampler.sample(palette8bpp, UINT32_C(4), 0, 0);
+    if (palette8bpp_sample.status != Nds3dTextureSampleStatus::Ok ||
+        palette8bpp_sample.color_rgb555 != UINT16_C(0x7FE0)) {
+        return fail("8bpp palette index lookup failed");
+    }
+
+    /* A5I3 uses a five-bit per-texel alpha and can read palette slot 4. */
+    const uint32_t a5i3 = (UINT32_C(6) << 26u) | UINT32_C(0x60);
+    const Nds3dTextureSample a5i3_sample =
+        sampler.sample(a5i3, UINT32_C(0x1000), 0, 0);
+    if (a5i3_sample.status != Nds3dTextureSampleStatus::Ok ||
+        a5i3_sample.color_rgb555 != UINT16_C(0x4210) ||
+        a5i3_sample.alpha != 31u) {
+        return fail("A5I3 alpha or F-bank palette slot mapping failed");
     }
 
     /* Direct texture: bit 15 supplies per-texel alpha. */
