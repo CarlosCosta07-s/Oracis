@@ -77,9 +77,11 @@ bool pixel_touches_edge_band(
 bool is_translucent_polygon(
     const NdsGeometryEngine::Polygon &polygon) noexcept
 {
+    /* Wireframe polygons emit opaque edge pixels, not translucent fills. */
+    if (polygon.alpha == 0u) return false;
     const uint32_t texture_format =
         (polygon.texture_parameters >> 26u) & UINT32_C(7);
-    return (polygon.alpha > 0u && polygon.alpha < 31u) ||
+    return polygon.alpha < 31u ||
         texture_format == 1u || texture_format == 6u;
 }
 
@@ -375,9 +377,10 @@ Nds3dRasterStatus rasterize_triangle_scanline(
         third.clip_position[3] <= 0) {
         return Nds3dRasterStatus::InvalidGeometry;
     }
-    if (polygon.line_segment || polygon.alpha == 0u) {
+    if (polygon.line_segment) {
         return Nds3dRasterStatus::WireframeNotSupported;
     }
+    const bool wireframe = polygon.alpha == 0u;
     if (polygon.polygon_mode > 3u ||
         (polygon.polygon_mode == 2u && toon_table == nullptr)) {
         return Nds3dRasterStatus::UnsupportedPolygonMode;
@@ -449,6 +452,17 @@ Nds3dRasterStatus rasterize_triangle_scanline(
             continue;
         }
 
+        /*
+         * Alpha zero is the DS wireframe mode. Keep only covered pixel
+         * centers in the perimeter band of actual polygon edges; the fan
+         * diagonals are excluded by edge_bc/edge_ca/edge_ab.
+         */
+        const bool perimeter_pixel =
+            (edge_bc && pixel_touches_edge_band(weights[0], *b, *c)) ||
+            (edge_ca && pixel_touches_edge_band(weights[1], *c, *a)) ||
+            (edge_ab && pixel_touches_edge_band(weights[2], *a, *b));
+        if (wireframe && !perimeter_pixel) continue;
+
         int16_t texture_s = 0;
         int16_t texture_t = 0;
         if (!perspective_texture_coordinates(
@@ -492,24 +506,26 @@ Nds3dRasterStatus rasterize_triangle_scanline(
         fragment.polygon_mode = polygon.polygon_mode;
         fragment.fog_enabled = polygon.fog_enabled;
         fragment.depth_equal = polygon.depth_equal;
-        fragment.translucent = polygon.alpha < 31u;
+        fragment.translucent = !wireframe && polygon.alpha < 31u;
         fragment.edge_candidate = edge_marking_enabled &&
-            polygon.alpha == 31u && (
-                (edge_bc && pixel_touches_edge_band(weights[0], *b, *c)) ||
-                (edge_ca && pixel_touches_edge_band(weights[1], *c, *a)) ||
-                (edge_ab && pixel_touches_edge_band(weights[2], *a, *b)));
+            (wireframe || polygon.alpha == 31u) && perimeter_pixel;
         fragment.translucent_depth_write =
             polygon.translucent_depth_write;
         shade_fragment(
             polygon.polygon_mode,
             interpolated_color,
-            polygon.alpha,
+            wireframe ? UINT8_C(31) : polygon.alpha,
             texture,
             toon_table,
             highlight_shading,
             fragment);
+        if (wireframe) {
+            /* Wireframe edge pixels use the fixed opaque alpha value. */
+            fragment.alpha6 = 63u;
+            fragment.alpha5 = 31u;
+        }
         /*
-         * Discard on the final alpha, after texture-mode blending. In Decal
+         * Discard on the final alpha, after texture-mode blending, In Decal
          * mode, a zero-alpha texel selects the vertex color and vertex alpha;
          * only the resulting fragment alpha determines transparency.
          */

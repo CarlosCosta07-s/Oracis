@@ -72,7 +72,11 @@ The initial `Nds3dRasterizer` stage:
 - samples the polygon's captured texture state and emits RGB6/A6 fragments plus normalized depth, polygon ID and fog-enable metadata;
 - implements polygon texture modes 0 (modulation), 1 (decal) and 2
   (toon/highlight), using the 32-entry TOON_TABLE selected by the integrated
-  display-control path.
+  display-control path;
+- renders alpha-zero wireframe polygons as opaque perimeter pixels, using the
+  actual clipped polygon perimeter and excluding fan-triangulation diagonals.
+  The current coverage approximation filters pixel centers already covered
+  by the triangle rasterizer; it is not a cycle- or pixel-exact hardware model.
 
 Polygon mode 2 now performs Toon or Highlight shading. The vertex color's
 five-bit red component selects one of 32 RGB555 entries in the write-only
@@ -93,7 +97,7 @@ manual polygon order, translucent alpha 1..30, ID 0 Back=Render/Front=Hide
 mask polygons, followed by ID 1..63 Back=Render/Front=Render polygons. The
 machine clears the stencil at the start of a new 3D scanline sequence and
 keeps it across all scanlines of that frame. The direct compositor overload
-without a stencil buffer fails closed for Shadow mode. Fragments with final alpha zero are discarded after
+without a stencil buffer fails closed for Shadow mode. Alpha-zero wireframe polygons emit only perimeter-band pixels and force their output alpha to 31; the optional alpha test runs on that fixed alpha, while their interiors remain transparent. The current wireframe coverage uses covered pixel centers and is an approximation pending hardware captures. Separate line-segment primitives remain unsupported. Fragments with final alpha zero are discarded after
 texture-mode blending; a zero-alpha texel in Decal mode still resolves to the
 vertex color and vertex alpha. `Nds3dDepthBuffer` is a separate 256×192, 24-bit depth stage, initialized to the far-depth value (`0xFFFFFF`) on construction; callers may override it with `clear(depth)` when a rear-plane clear value is supplied. It implements the normal Less comparison, Depth Equal with the documented inclusive ±0x200 tolerance, unconditional depth writes for opaque fragments and optional writes for translucent fragments controlled by `POLYGON_ATTR.Bit11`. Fully transparent fragments are rejected. The Geometry Engine now stores the two `SWAP_BUFFERS` option bits with the buffer being handed to the renderer, so a newly issued swap cannot retroactively change the depth mode of the frame already submitted. The rasterizer reads the render buffer's own bit 1 and emits either normalized Z depth or perspective-correct W depth. `render_scanline_depth_tested` connects fragment generation to depth rejection before forwarding surviving pixels. Depth Equal uses ±0x200 in Z mode and ±0xFF in W mode; the Z tolerance is documented by GBATEK, while the W-mode margin is a community reverse-engineered observation and remains a hardware-conformance target. The depth stage consumes opaque polygons first, followed by translucent polygons in their original submission order when manual SWAP_BUFFERS ordering is selected; opaque-only frames retain original order. Automatic Y-sort is still not implemented. `Nds3dColorBuffer` now applies the DS polygon/framebuffer blend equation in RGB6/A5:
 `(source * (alpha + 1) + destination * (31 - alpha)) / 32`.

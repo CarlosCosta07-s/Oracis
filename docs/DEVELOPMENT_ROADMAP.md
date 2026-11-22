@@ -268,3 +268,21 @@ O stencil é mantido por pixel durante o quadro e reinicializado no início de u
 Quando SWAP_BUFFERS.Bit0=1, o rasterizador mantém a ordem relativa original dos polígonos opacos e os processa primeiro; depois processa os translúcidos na ordem relativa em que foram submetidos. A classificação inclui POLYGON_ATTR alpha 1–30 e formatos de textura A3I5/A5I3. Isso mantém a sequência manual dos volumes Shadow (máscara antes do passe de desenho) e garante que os alvos opacos já estejam no framebuffer antes dos polígonos translúcidos. A regressão envia uma sequência intencionalmente intercalada (translúcido vermelho, opaco azul, translúcido verde) e verifica a mistura final na ordem manual.
 
 O modo automático (SWAP_BUFFERS.Bit0=0) continua fail-closed quando há polígonos translúcidos; a regra exata de Y-sort ainda não está implementada e não foi substituída por ordenação por profundidade ou ordem de submissão. A comparação com hardware físico continua pendente. Não há boot/frame real de Pokémon Platinum comprovado.
+
+
+## Atualização 2026-11-22 — wireframe de polígonos
+
+O modo `POLYGON_ATTR.alpha = 0` agora rasteriza a faixa de perímetro dos
+polígonos em vez de rejeitá-los. O interior não produz fragmentos; as arestas
+externas emitem a cor interpolada do polígono com alpha fixo 31. A classificação
+de ordenação trata wireframes como opacos, inclusive no modo automático, e o
+teste alpha continua sendo aplicado antes do depth write. A triangulação em
+leque não desenha suas diagonais internas. O Edge Marking pode receber as
+arestas do wireframe como candidatos opacos.
+
+A cobertura atual é uma aproximação determinística sobre centros de pixels já
+cobertos pelo rasterizador de triângulos. Ela não é uma declaração de
+conformidade visual com o hardware físico. Primitivas separadas marcadas como
+`line_segment` continuam sem suporte e falham explicitamente. A regressão
+sintética cobre o interior transparente, pixels de borda alpha 31, ordenação
+automática e descarte por `ALPHA_TEST_REF = 31`.

@@ -1192,6 +1192,99 @@ int main()
         return fail("manual mode did not group opaque first and preserve translucent order");
     }
 
+    /*
+     * Alpha-zero polygons are opaque wireframes: only the perimeter band is
+     * emitted, with fixed alpha 31. Prepare an automatic-sort render buffer
+     * so this also proves that wireframes are not treated as translucent.
+     */
+    if (!write_command(geometry, 0x50u, 0u)) {
+        return fail("empty swap for automatic wireframe mode failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    geometry.notify_vblank();
+    geometry.advance_bus_cycles(392u);
+
+    if (!write_command(geometry, 0x29u,
+            (UINT32_C(5) << 24u) | (UINT32_C(1) << 7u)) ||
+        !write_command(geometry, 0x2Au, 0u)) {
+        return fail("wireframe polygon/texture state enqueue failed");
+    }
+    geometry.advance_bus_cycles(2u);
+    if (!write_command(geometry, 0x40u, 0u)) {
+        return fail("wireframe BEGIN_VTXS enqueue failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    for (uint32_t position : positions) {
+        if (!write_command(geometry, 0x20u, UINT32_C(0x001F))) {
+            return fail("wireframe COLOR enqueue failed");
+        }
+        geometry.advance_bus_cycles(1u);
+        if (!write_command(geometry, 0x24u, position)) {
+            return fail("wireframe VTX_10 enqueue failed");
+        }
+        geometry.advance_bus_cycles(8u);
+    }
+    if (geometry.polygon_count() != 1u ||
+        !write_command(geometry, 0x50u, 0u)) {
+        return fail("wireframe polygon assembly or automatic SWAP_BUFFERS failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    geometry.notify_vblank();
+    geometry.advance_bus_cycles(392u);
+    if (geometry.render_polygon_count() != 1u ||
+        geometry.render_swap_parameters() != 0u) {
+        return fail("wireframe frame did not retain automatic-sort settings");
+    }
+
+    Nds3dDepthBuffer wireframe_depth{};
+    Nds3dColorBuffer wireframe_color{};
+    wireframe_depth.clear();
+    wireframe_color.clear(0u, 0u, 0u, 31u, 0u, false);
+    if (rasterizer.render_scanline_composited(
+            96u, wireframe_depth, wireframe_color, display) !=
+            Nds3dRasterStatus::Ok) {
+        return fail("automatic-sort wireframe composition failed");
+    }
+    uint32_t wireframe_pixels = 0u;
+    for (uint32_t x = 0u; x < Nds3dRasterizer::ScreenWidth; ++x) {
+        const auto *pixel = wireframe_color.pixel_at(
+            static_cast<uint8_t>(x), 96u);
+        if (pixel != nullptr && pixel->polygon_id == 5u) {
+            ++wireframe_pixels;
+            if (pixel->alpha5 != 31u || pixel->red6 == 0u) {
+                return fail("wireframe perimeter pixel was not emitted as opaque vertex color");
+            }
+        }
+    }
+    const auto *wireframe_center = wireframe_color.pixel_at(127u, 96u);
+    if (wireframe_pixels == 0u || wireframe_center == nullptr ||
+        wireframe_center->polygon_id == 5u ||
+        wireframe_depth.depth_at(127u, 96u) !=
+            Nds3dDepthBuffer::MaximumDepth) {
+        return fail("wireframe filled its interior or failed to rasterize its perimeter");
+    }
+
+    /* Alpha-test threshold 31 must discard fixed-alpha wireframe edges. */
+    Nds3dDepthBuffer wireframe_alpha_depth{};
+    Nds3dColorBuffer wireframe_alpha_color{};
+    wireframe_alpha_depth.clear();
+    wireframe_alpha_color.clear(0u, 0u, 0u, 31u, 0u, false);
+    if (rasterizer.render_scanline_composited(
+            96u, wireframe_alpha_depth, wireframe_alpha_color,
+            true, true, 31u) != Nds3dRasterStatus::Ok) {
+        return fail("wireframe alpha-test composition failed");
+    }
+    for (uint32_t x = 0u; x < Nds3dRasterizer::ScreenWidth; ++x) {
+        const auto *pixel = wireframe_alpha_color.pixel_at(
+            static_cast<uint8_t>(x), 96u);
+        if (pixel == nullptr || pixel->polygon_id != 0u ||
+            wireframe_alpha_depth.depth_at(
+                static_cast<uint8_t>(x), 96u) !=
+                Nds3dDepthBuffer::MaximumDepth) {
+            return fail("alpha test did not discard opaque wireframe edge pixels");
+        }
+    }
+
     std::puts("NDS 3D rasterizer tests passed");
     return 0;
 }
