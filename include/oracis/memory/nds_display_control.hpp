@@ -34,6 +34,7 @@ public:
     static constexpr uint32_t AlphaTestReferenceAddress = UINT32_C(0x04000340);
     static constexpr uint32_t ClearColorAddress = UINT32_C(0x04000350);
     static constexpr uint32_t ClearDepthAddress = UINT32_C(0x04000354);
+    static constexpr uint32_t RenderedLineCountAddress = UINT32_C(0x04000320);
     static constexpr uint32_t ClearImageOffsetAddress = UINT32_C(0x04000356);
     static constexpr uint16_t Disp3dAlphaTestEnable = UINT16_C(1u << 2u);
     static constexpr uint16_t Disp3dAlphaBlendEnable = UINT16_C(1u << 3u);
@@ -162,6 +163,13 @@ public:
     void report_3d_polygon_vertex_ram_overflow() noexcept {
         three_d_control_ |= Disp3dPolygonVertexRamOverflowStatus;
     }
+    /* Previous-frame BG0 3D queue low-water count, hardware register range 0..46. */
+    void set_three_d_rendered_line_count(uint8_t value) noexcept {
+        rendered_line_count_ = value > 46u ? 46u : value;
+    }
+    uint8_t three_d_rendered_line_count() const noexcept {
+        return rendered_line_count_;
+    }
     NdsInterruptControl &interrupt_control() const noexcept {
         return interrupts_;
     }
@@ -248,6 +256,7 @@ private:
     uint32_t clear_color_ = 0u;
     uint16_t clear_depth_ = 0u;
     uint16_t clear_image_offset_ = 0u;
+    uint8_t rendered_line_count_ = 0u;
     std::array<bool, 2> hblank_irq_fired_{};
     std::array<uint32_t, MainMemoryDisplayFifoCapacityWords>
         main_memory_display_fifo_{};
