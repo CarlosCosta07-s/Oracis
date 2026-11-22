@@ -519,7 +519,7 @@ int main()
         bitmap_xy_wrap == nullptr ||
         bitmap_xy_wrap->red6 != 63u ||
         bitmap_xy_wrap->blue6 != 63u ||
-        !bitmap_xy_wrap->fog_enabled ||
+        bitmap_xy_wrap->fog_enabled ||
         depth.depth_at(136u, 6u) != UINT32_C(0x00000200) ||
         bitmap_bottom_wrap == nullptr ||
         bitmap_bottom_wrap->green6 != 63u ||
