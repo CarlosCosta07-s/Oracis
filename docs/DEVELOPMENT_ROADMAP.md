@@ -286,3 +286,14 @@ conformidade visual com o hardware físico. Primitivas separadas marcadas como
 `line_segment` continuam sem suporte e falham explicitamente. A regressão
 sintética cobre o interior transparente, pixels de borda alpha 31, ordenação
 automática e descarte por `ALPHA_TEST_REF = 31`.
+
+
+## Atualização 2026-11-22 — alpha final de A5I3 e Direct Color
+
+A regressão integrada do rasterizador agora cobre os três caminhos de alpha
+derivado da textura: A5I3 com alpha parcial continua translúcido mesmo quando
+POLYGON_ATTR.alpha é 31 e não gera candidatos de Edge Marking; Direct Color
+com o bit 15 definido continua opaco e pode gerar candidatos no perímetro;
+com o bit 15 limpo, o fragmento totalmente transparente é descartado antes
+da entrega ao compositor. Os casos usam triângulos sintéticos submetidos pelo
+Geometry Engine e SWAP_BUFFERS manual, sem ROM ou dados extraídos de jogo.

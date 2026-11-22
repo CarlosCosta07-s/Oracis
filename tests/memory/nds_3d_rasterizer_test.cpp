@@ -61,7 +61,13 @@ struct Capture {
     bool w_buffer_center_seen = false;
     bool all_fragments_opaque = true;
     bool a3i5_center_seen = false;
+    bool a5i3_center_seen = false;
+    bool a5i3_edge_candidate_seen = false;
+    bool direct_color_center_seen = false;
+    bool direct_color_opaque_edge_candidate_seen = false;
     oracis::memory::Nds3dFragment a3i5_center{};
+    oracis::memory::Nds3dFragment a5i3_center{};
+    oracis::memory::Nds3dFragment direct_color_center{};
     oracis::memory::Nds3dFragment center{};
     oracis::memory::Nds3dFragment decal_center{};
     oracis::memory::Nds3dFragment w_buffer_center{};
@@ -82,6 +88,23 @@ void capture_fragment(
         if (fragment.polygon_id == 6u) {
             capture->a3i5_center_seen = true;
             capture->a3i5_center = fragment;
+        }
+        if (fragment.polygon_id == 7u) {
+            if (fragment.x == 127u && fragment.y == 96u) {
+                capture->a5i3_center_seen = true;
+                capture->a5i3_center = fragment;
+            }
+            capture->a5i3_edge_candidate_seen =
+                capture->a5i3_edge_candidate_seen || fragment.edge_candidate;
+        }
+        if (fragment.polygon_id == 8u) {
+            if (fragment.x == 127u && fragment.y == 96u) {
+                capture->direct_color_center_seen = true;
+                capture->direct_color_center = fragment;
+            }
+            capture->direct_color_opaque_edge_candidate_seen =
+                capture->direct_color_opaque_edge_candidate_seen ||
+                fragment.edge_candidate;
         }
         if (fragment.polygon_id == 1u && !capture->center_seen) {
             capture->center_seen = true;
@@ -1391,6 +1414,168 @@ int main()
         if (pixel != nullptr && pixel->edge_candidate) {
             return fail("translucent A3I5 texels were incorrectly Edge Marked");
         }
+    }
+
+
+    /*
+     * A5I3 carries five bits of texel alpha. A partially transparent texel
+     * must remain translucent even when POLYGON_ATTR.alpha is fully opaque.
+     */
+    if (vram.write(
+            NDS_ARM9, NdsVramControl::VramCntAAddress, 1u,
+            UINT32_C(0x80)) != Status::Ok ||
+        vram.write(
+            NDS_ARM9, NdsVramControl::VramCntEAddress, 1u,
+            UINT32_C(0x80)) != Status::Ok ||
+        !write_halfword(memory, UINT32_C(0x06800000), UINT16_C(0x5151)) ||
+        !write_halfword(memory, UINT32_C(0x06880002), UINT16_C(0x03E0)) ||
+        vram.write(
+            NDS_ARM9, NdsVramControl::VramCntAAddress, 1u,
+            UINT32_C(0x83)) != Status::Ok ||
+        vram.write(
+            NDS_ARM9, NdsVramControl::VramCntEAddress, 1u,
+            UINT32_C(0x83)) != Status::Ok) {
+        return fail("A5I3 translucent texture setup failed");
+    }
+
+    if (!write_command(geometry, 0x29u,
+            (UINT32_C(31) << 16u) | (UINT32_C(1) << 7u) |
+                (UINT32_C(7) << 24u)) ||
+        !write_command(geometry, 0x2Au, UINT32_C(6) << 26u) ||
+        !write_command(geometry, 0x2Bu, 0u) ||
+        !write_command(geometry, 0x40u, 0u)) {
+        return fail("A5I3 opaque-attribute polygon setup failed");
+    }
+    geometry.advance_bus_cycles(4u);
+    for (uint32_t position : positions) {
+        if (!write_command(geometry, 0x22u, 0u) ||
+            !write_command(geometry, 0x20u, UINT32_C(0x7FFF)) ||
+            !write_command(geometry, 0x24u, position)) {
+            return fail("A5I3 textured triangle vertex enqueue failed");
+        }
+        geometry.advance_bus_cycles(10u);
+    }
+    if (geometry.polygon_count() != 1u ||
+        !write_command(geometry, 0x50u, UINT32_C(1))) {
+        return fail("A5I3 textured triangle or manual swap failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    geometry.notify_vblank();
+    geometry.advance_bus_cycles(392u);
+
+    Capture a5i3_capture{};
+    if (rasterizer.render_scanline(
+            96u, capture_fragment, &a5i3_capture) != Nds3dRasterStatus::Ok ||
+        !a5i3_capture.a5i3_center_seen ||
+        a5i3_capture.a5i3_center.alpha5 == 0u ||
+        a5i3_capture.a5i3_center.alpha5 >= 31u ||
+        !a5i3_capture.a5i3_center.translucent ||
+        a5i3_capture.a5i3_center.edge_candidate ||
+        a5i3_capture.a5i3_edge_candidate_seen) {
+        return fail("A5I3 final alpha was not classified as translucent");
+    }
+
+    /*
+     * Direct Color has binary texel alpha: bit 15 set produces a solid
+     * fragment, which remains eligible for Edge Marking at polygon edges.
+     */
+    if (vram.write(
+            NDS_ARM9, NdsVramControl::VramCntAAddress, 1u,
+            UINT32_C(0x80)) != Status::Ok ||
+        vram.write(
+            NDS_ARM9, NdsVramControl::VramCntEAddress, 1u,
+            UINT32_C(0x80)) != Status::Ok ||
+        !write_halfword(memory, UINT32_C(0x06800000), UINT16_C(0x83E0)) ||
+        vram.write(
+            NDS_ARM9, NdsVramControl::VramCntAAddress, 1u,
+            UINT32_C(0x83)) != Status::Ok ||
+        vram.write(
+            NDS_ARM9, NdsVramControl::VramCntEAddress, 1u,
+            UINT32_C(0x83)) != Status::Ok) {
+        return fail("opaque Direct Color texture setup failed");
+    }
+
+    if (!write_command(geometry, 0x29u,
+            (UINT32_C(31) << 16u) | (UINT32_C(1) << 7u) |
+                (UINT32_C(8) << 24u)) ||
+        !write_command(geometry, 0x2Au, UINT32_C(7) << 26u) ||
+        !write_command(geometry, 0x2Bu, 0u) ||
+        !write_command(geometry, 0x40u, 0u)) {
+        return fail("opaque Direct Color polygon setup failed");
+    }
+    geometry.advance_bus_cycles(4u);
+    for (uint32_t position : positions) {
+        if (!write_command(geometry, 0x22u, 0u) ||
+            !write_command(geometry, 0x20u, UINT32_C(0x7FFF)) ||
+            !write_command(geometry, 0x24u, position)) {
+            return fail("opaque Direct Color triangle vertex enqueue failed");
+        }
+        geometry.advance_bus_cycles(10u);
+    }
+    if (geometry.polygon_count() != 1u ||
+        !write_command(geometry, 0x50u, UINT32_C(1))) {
+        return fail("opaque Direct Color triangle or manual swap failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    geometry.notify_vblank();
+    geometry.advance_bus_cycles(392u);
+
+    Capture direct_color_opaque_capture{};
+    if (rasterizer.render_scanline(
+            96u, capture_fragment, &direct_color_opaque_capture) !=
+            Nds3dRasterStatus::Ok ||
+        !direct_color_opaque_capture.direct_color_center_seen ||
+        direct_color_opaque_capture.direct_color_center.alpha5 != 31u ||
+        direct_color_opaque_capture.direct_color_center.translucent ||
+        !direct_color_opaque_capture.direct_color_opaque_edge_candidate_seen) {
+        return fail("opaque Direct Color alpha did not preserve edge candidates");
+    }
+
+    /*
+     * Clearing bit 15 makes the Direct Color texel fully transparent. It
+     * must be discarded before fragment delivery and Edge Marking.
+     */
+    if (vram.write(
+            NDS_ARM9, NdsVramControl::VramCntAAddress, 1u,
+            UINT32_C(0x80)) != Status::Ok ||
+        !write_halfword(memory, UINT32_C(0x06800000), UINT16_C(0x03E0)) ||
+        vram.write(
+            NDS_ARM9, NdsVramControl::VramCntAAddress, 1u,
+            UINT32_C(0x83)) != Status::Ok) {
+        return fail("transparent Direct Color texture setup failed");
+    }
+
+    if (!write_command(geometry, 0x29u,
+            (UINT32_C(31) << 16u) | (UINT32_C(1) << 7u) |
+                (UINT32_C(9) << 24u)) ||
+        !write_command(geometry, 0x2Au, UINT32_C(7) << 26u) ||
+        !write_command(geometry, 0x2Bu, 0u) ||
+        !write_command(geometry, 0x40u, 0u)) {
+        return fail("transparent Direct Color polygon setup failed");
+    }
+    geometry.advance_bus_cycles(4u);
+    for (uint32_t position : positions) {
+        if (!write_command(geometry, 0x22u, 0u) ||
+            !write_command(geometry, 0x20u, UINT32_C(0x7FFF)) ||
+            !write_command(geometry, 0x24u, position)) {
+            return fail("transparent Direct Color triangle vertex enqueue failed");
+        }
+        geometry.advance_bus_cycles(10u);
+    }
+    if (geometry.polygon_count() != 1u ||
+        !write_command(geometry, 0x50u, UINT32_C(1))) {
+        return fail("transparent Direct Color triangle or manual swap failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    geometry.notify_vblank();
+    geometry.advance_bus_cycles(392u);
+
+    Capture direct_color_transparent_capture{};
+    if (rasterizer.render_scanline(
+            96u, capture_fragment, &direct_color_transparent_capture) !=
+            Nds3dRasterStatus::Ok ||
+        direct_color_transparent_capture.count != 0u) {
+        return fail("transparent Direct Color texels reached fragment composition");
     }
 
     std::puts("NDS 3D rasterizer tests passed");
