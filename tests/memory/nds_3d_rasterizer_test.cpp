@@ -59,6 +59,7 @@ struct Capture {
     bool decal_transparent_texel_center_seen = false;
     bool transparent_modulate_texel_center_seen = false;
     bool w_buffer_center_seen = false;
+    bool all_fragments_opaque = true;
     oracis::memory::Nds3dFragment center{};
     oracis::memory::Nds3dFragment decal_center{};
     oracis::memory::Nds3dFragment w_buffer_center{};
@@ -70,6 +71,10 @@ void capture_fragment(
 {
     auto *capture = static_cast<Capture *>(context);
     ++capture->count;
+    if (fragment.alpha5 != 31u || fragment.alpha6 != 63u ||
+        fragment.translucent) {
+        capture->all_fragments_opaque = false;
+    }
     if (fragment.x == 127u && fragment.y == 96u) {
         ++capture->center_fragment_count;
         if (fragment.polygon_id == 1u && !capture->center_seen) {
@@ -690,9 +695,9 @@ int main()
     }
 
     /*
-     * POLYGON_ATTR alpha=0 selects wireframe mode. The current line/edge
-     * rasterizer is intentionally incomplete and must report this explicitly.
-     * The second SWAP selected Z for this third build buffer.
+     * POLYGON_ATTR alpha=0 selects wireframe mode. The perimeter emits
+     * opaque fragments while the interior remains transparent. The second
+     * SWAP selected Z for this third build buffer.
      */
     if (!write_command(geometry, 0x29u,
             (UINT32_C(1) << 7u) | (UINT32_C(3) << 24u))) {
@@ -727,12 +732,14 @@ int main()
     }
     geometry.notify_vblank();
     geometry.advance_bus_cycles(392u);
+    capture = Capture{};
     if (geometry.render_polygon_count() != 1u ||
         geometry.render_swap_parameters() != 0u ||
         rasterizer.render_scanline(
-            96u, capture_fragment, &capture) !=
-            Nds3dRasterStatus::WireframeNotSupported) {
-        return fail("POLYGON_ATTR alpha zero was not identified as wireframe");
+            96u, capture_fragment, &capture) != Nds3dRasterStatus::Ok ||
+        capture.count == 0u || capture.center_fragment_count != 0u ||
+        !capture.all_fragments_opaque) {
+        return fail("wireframe did not emit opaque perimeter fragments with a transparent interior");
     }
 
     /*
