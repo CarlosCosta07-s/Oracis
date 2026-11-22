@@ -217,6 +217,22 @@ public:
         const NdsDisplayControl &display_control) const noexcept;
 
 private:
+    Nds3dRasterStatus render_scanline_impl(
+        uint16_t scanline,
+        Nds3dFragmentCallback callback,
+        void *context,
+        const std::array<uint16_t, 32> *toon_table,
+        bool highlight_shading) const noexcept;
+    Nds3dRasterStatus render_scanline_composited_impl(
+        uint16_t scanline,
+        Nds3dDepthBuffer &depth_buffer,
+        Nds3dColorBuffer &color_buffer,
+        bool alpha_blending_enabled,
+        bool alpha_test_enabled,
+        uint8_t alpha_test_reference,
+        const std::array<uint16_t, 32> *toon_table,
+        bool highlight_shading) const noexcept;
+
     const NdsGeometryEngine &geometry_;
     const Nds3dTextureSampler &textures_;
 };

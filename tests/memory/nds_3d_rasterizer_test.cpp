@@ -808,6 +808,96 @@ int main()
         return fail("opaque replacement/translucent AND fog-flag semantics failed");
     }
 
+
+    /* TOON_TABLE MMIO and polygon-mode 2 Toon/Highlight composition. */
+    constexpr uint16_t toon_color = static_cast<uint16_t>(
+        UINT16_C(4) | (UINT16_C(12) << 5u) | (UINT16_C(20) << 10u));
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::ToonTableAddress + 20u, 2u,
+            toon_color) != Status::Ok ||
+        display.read(
+            NDS_ARM9, NdsDisplayControl::ToonTableAddress + 20u, 2u).status !=
+            Status::PermissionDenied ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::ToonTableAddress + 21u, 2u,
+            toon_color) != Status::InvalidWidth ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::ToonTableAddress + 20u, 4u,
+            toon_color) != Status::InvalidWidth ||
+        display.three_d_toon_color(10u) != toon_color) {
+        return fail("TOON_TABLE MMIO access, alignment or RGB555 mask failed");
+    }
+
+    if (!write_halfword(memory, UINT32_C(0x06800000), UINT16_C(0x801F)) ||
+        !write_command(geometry, 0x2Au, UINT32_C(7) << 26u) ||
+        !write_command(geometry, 0x29u,
+            (UINT32_C(31) << 16u) | (UINT32_C(1) << 7u) |
+                (UINT32_C(2) << 4u) | (UINT32_C(6) << 24u)) ||
+        !write_command(geometry, 0x40u, 0u)) {
+        return fail("toon polygon/texture setup failed");
+    }
+    geometry.advance_bus_cycles(3u);
+    const uint16_t toon_vertex_color = UINT16_C(10);
+    for (unsigned index = 0u; index < positions.size(); ++index) {
+        if (!write_command(geometry, 0x22u, 0u) ||
+            !write_command(geometry, 0x20u, toon_vertex_color) ||
+            !write_command(geometry, 0x24u, positions[index])) {
+            return fail("toon triangle parameter enqueue failed");
+        }
+        geometry.advance_bus_cycles(10u);
+    }
+    if (geometry.polygon_count() != 1u ||
+        !write_command(geometry, 0x50u, UINT32_C(1))) {
+        return fail("toon polygon or fifth SWAP_BUFFERS enqueue failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    if (!geometry.swap_waiting_for_vblank()) {
+        return fail("toon SWAP_BUFFERS did not wait for VBlank");
+    }
+    geometry.notify_vblank();
+    geometry.advance_bus_cycles(392u);
+
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::Disp3dControlAddress, 2u,
+            0u) != Status::Ok) {
+        return fail("Toon shading mode could not be selected");
+    }
+    Nds3dDepthBuffer toon_depth{};
+    Nds3dColorBuffer toon_output{};
+    if (rasterizer.render_scanline_composited(
+            96u, toon_depth, toon_output, display) != Nds3dRasterStatus::Ok) {
+        return fail("Toon shading scanline composition failed");
+    }
+    const Nds3dColorPixel *toon_pixel = toon_output.pixel_at(127u, 96u);
+    if (toon_pixel == nullptr ||
+        toon_pixel->red6 != 9u ||
+        toon_pixel->green6 != 0u ||
+        toon_pixel->blue6 != 0u ||
+        toon_pixel->alpha5 != 31u) {
+        return fail("Toon lookup or texture modulation produced the wrong RGB6 result");
+    }
+
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::Disp3dControlAddress, 2u,
+            NdsDisplayControl::Disp3dHighlightShading) != Status::Ok) {
+        return fail("Highlight shading mode could not be selected");
+    }
+    toon_depth.clear();
+    toon_output.clear();
+    if (rasterizer.render_scanline_composited(
+            96u, toon_depth, toon_output, display) != Nds3dRasterStatus::Ok) {
+        return fail("Highlight shading scanline composition failed");
+    }
+    const Nds3dColorPixel *highlight_pixel =
+        toon_output.pixel_at(127u, 96u);
+    if (highlight_pixel == nullptr ||
+        highlight_pixel->red6 != 18u ||
+        highlight_pixel->green6 != 25u ||
+        highlight_pixel->blue6 != 41u ||
+        highlight_pixel->alpha5 != 31u) {
+        return fail("Highlight additive shading produced the wrong RGB6 result");
+    }
+
     std::puts("NDS 3D rasterizer tests passed");
     return 0;
 }

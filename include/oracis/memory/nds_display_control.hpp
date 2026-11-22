@@ -41,6 +41,10 @@ public:
     static constexpr uint32_t FogDensityTableAddress = UINT32_C(0x04000360);
     static constexpr uint32_t FogDensityTableEntries = 32u;
     static constexpr uint32_t FogDensityTableBytes = FogDensityTableEntries;
+    static constexpr uint32_t ToonTableAddress = UINT32_C(0x04000380);
+    static constexpr uint32_t ToonTableEntries = 32u;
+    static constexpr uint32_t ToonTableBytes = ToonTableEntries * 2u;
+    static constexpr uint16_t Disp3dHighlightShading = UINT16_C(1u << 1u);
     static constexpr uint16_t Disp3dAlphaTestEnable = UINT16_C(1u << 2u);
     static constexpr uint16_t Disp3dAlphaBlendEnable = UINT16_C(1u << 3u);
     static constexpr uint16_t Disp3dFogAlphaOnly = UINT16_C(1u << 6u);
@@ -218,6 +222,14 @@ public:
     bool three_d_fog_enabled() const noexcept {
         return (three_d_control_ & Disp3dFogMasterEnable) != 0u;
     }
+    bool three_d_highlight_shading_enabled() const noexcept {
+        return (three_d_control_ & Disp3dHighlightShading) != 0u;
+    }
+    uint16_t three_d_toon_color(uint32_t index) const noexcept {
+        return index < ToonTableEntries ? toon_table_[index] : 0u;
+    }
+    const std::array<uint16_t, ToonTableEntries> &
+    three_d_toon_table() const noexcept { return toon_table_; }
     uint32_t three_d_clear_depth_expanded24() const noexcept;
     uint16_t master_brightness(unsigned engine_index) const noexcept;
     uint16_t apply_master_brightness(
@@ -282,6 +294,7 @@ private:
     uint32_t fog_color_ = 0u;
     uint16_t fog_offset_ = 0u;
     std::array<uint8_t, FogDensityTableEntries> fog_density_table_{};
+    std::array<uint16_t, ToonTableEntries> toon_table_{};
     uint8_t rendered_line_count_ = 0u;
     std::array<bool, 2> hblank_irq_fired_{};
     std::array<uint32_t, MainMemoryDisplayFifoCapacityWords>

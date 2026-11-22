@@ -243,6 +243,8 @@ void shade_fragment(
     uint16_t vertex_color,
     uint8_t polygon_alpha,
     const Nds3dTextureSample &texture,
+    const std::array<uint16_t, 32> *toon_table,
+    bool highlight_shading,
     Nds3dFragment &fragment) noexcept
 {
     const uint8_t vertex_r = expand_five_to_six(vertex_color);
@@ -250,11 +252,22 @@ void shade_fragment(
     const uint8_t vertex_b = expand_five_to_six(vertex_color >> 10u);
     const uint8_t vertex_a = expand_five_to_six(polygon_alpha);
 
+    uint8_t shading_r = vertex_r;
+    uint8_t shading_g = vertex_g;
+    uint8_t shading_b = vertex_b;
+    if (polygon_mode == 2u && toon_table != nullptr) {
+        const uint32_t index = vertex_color & UINT16_C(0x001F);
+        const uint16_t toon_color = (*toon_table)[index];
+        shading_r = expand_five_to_six(toon_color);
+        shading_g = expand_five_to_six(toon_color >> 5u);
+        shading_b = expand_five_to_six(toon_color >> 10u);
+    }
+
     if (texture.status == Nds3dTextureSampleStatus::NoTexture ||
         !texture.has_texture) {
-        fragment.red6 = vertex_r;
-        fragment.green6 = vertex_g;
-        fragment.blue6 = vertex_b;
+        fragment.red6 = shading_r;
+        fragment.green6 = shading_g;
+        fragment.blue6 = shading_b;
         fragment.alpha6 = vertex_a;
         fragment.alpha5 = polygon_alpha;
         fragment.textured = false;
@@ -268,16 +281,25 @@ void shade_fragment(
         texture.color_rgb555 >> 10u);
     const uint8_t texture_a = expand_five_to_six(texture.alpha);
 
-    if (polygon_mode == 0u) {
-        const auto modulate = [](
-            uint8_t texture_channel, uint8_t vertex_channel) noexcept {
-            return static_cast<uint8_t>(
-                ((static_cast<uint32_t>(texture_channel) + 1u) *
-                 (static_cast<uint32_t>(vertex_channel) + 1u) - 1u) / 64u);
-        };
-        fragment.red6 = modulate(texture_r, vertex_r);
-        fragment.green6 = modulate(texture_g, vertex_g);
-        fragment.blue6 = modulate(texture_b, vertex_b);
+    const auto modulate = [](
+        uint8_t texture_channel, uint8_t shading_channel) noexcept {
+        return static_cast<uint8_t>(
+            ((static_cast<uint32_t>(texture_channel) + 1u) *
+             (static_cast<uint32_t>(shading_channel) + 1u) - 1u) / 64u);
+    };
+
+    if (polygon_mode == 0u || polygon_mode == 2u) {
+        fragment.red6 = modulate(texture_r, shading_r);
+        fragment.green6 = modulate(texture_g, shading_g);
+        fragment.blue6 = modulate(texture_b, shading_b);
+        if (polygon_mode == 2u && highlight_shading) {
+            fragment.red6 = static_cast<uint8_t>(
+                std::min<uint32_t>(63u, fragment.red6 + shading_r));
+            fragment.green6 = static_cast<uint8_t>(
+                std::min<uint32_t>(63u, fragment.green6 + shading_g));
+            fragment.blue6 = static_cast<uint8_t>(
+                std::min<uint32_t>(63u, fragment.blue6 + shading_b));
+        }
         fragment.alpha6 = modulate(texture_a, vertex_a);
         fragment.alpha5 = static_cast<uint8_t>(fragment.alpha6 >> 1u);
     } else {
@@ -307,6 +329,8 @@ Nds3dRasterStatus rasterize_triangle_scanline(
     const Nds3dTextureSampler &textures,
     uint16_t scanline,
     bool w_buffer,
+    const std::array<uint16_t, 32> *toon_table,
+    bool highlight_shading,
     Nds3dFragmentCallback callback,
     void *context) noexcept
 {
@@ -321,7 +345,8 @@ Nds3dRasterStatus rasterize_triangle_scanline(
     if (polygon.line_segment || polygon.alpha == 0u) {
         return Nds3dRasterStatus::WireframeNotSupported;
     }
-    if (polygon.polygon_mode > 1u) {
+    if (polygon.polygon_mode > 2u ||
+        (polygon.polygon_mode == 2u && toon_table == nullptr)) {
         return Nds3dRasterStatus::UnsupportedPolygonMode;
     }
 
@@ -434,6 +459,8 @@ Nds3dRasterStatus rasterize_triangle_scanline(
             interpolated_color,
             polygon.alpha,
             texture,
+            toon_table,
+            highlight_shading,
             fragment);
         /*
          * Discard on the final alpha, after texture-mode blending. In Decal
@@ -870,13 +897,15 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_composited(
     if (!display_control.installed()) {
         return Nds3dRasterStatus::DisplayControlUnavailable;
     }
-    const Nds3dRasterStatus status = render_scanline_composited(
+    const Nds3dRasterStatus status = render_scanline_composited_impl(
         scanline,
         depth_buffer,
         color_buffer,
         display_control.three_d_alpha_blending_enabled(),
         display_control.three_d_alpha_test_enabled(),
-        display_control.three_d_alpha_test_reference());
+        display_control.three_d_alpha_test_reference(),
+        &display_control.three_d_toon_table(),
+        display_control.three_d_highlight_shading_enabled());
     if (status != Nds3dRasterStatus::Ok) return status;
     return color_buffer.apply_fog_scanline(
             scanline, depth_buffer, display_control)
@@ -928,6 +957,21 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_composited(
     bool alpha_test_enabled,
     uint8_t alpha_test_reference) const noexcept
 {
+    return render_scanline_composited_impl(
+        scanline, depth_buffer, color_buffer, alpha_blending_enabled,
+        alpha_test_enabled, alpha_test_reference, nullptr, false);
+}
+
+Nds3dRasterStatus Nds3dRasterizer::render_scanline_composited_impl(
+    uint16_t scanline,
+    Nds3dDepthBuffer &depth_buffer,
+    Nds3dColorBuffer &color_buffer,
+    bool alpha_blending_enabled,
+    bool alpha_test_enabled,
+    uint8_t alpha_test_reference,
+    const std::array<uint16_t, 32> *toon_table,
+    bool highlight_shading) const noexcept
+{
     if (alpha_test_reference > 31u) {
         return Nds3dRasterStatus::InvalidAlphaTestReference;
     }
@@ -959,14 +1003,26 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_composited(
         alpha_test_enabled,
         alpha_test_reference
     };
-    return render_scanline(
-        scanline, composite_depth_passed_fragment, &context);
+    return render_scanline_impl(
+        scanline, composite_depth_passed_fragment, &context,
+        toon_table, highlight_shading);
 }
 
 Nds3dRasterStatus Nds3dRasterizer::render_scanline(
     uint16_t scanline,
     Nds3dFragmentCallback callback,
     void *context) const noexcept
+{
+    return render_scanline_impl(
+        scanline, callback, context, nullptr, false);
+}
+
+Nds3dRasterStatus Nds3dRasterizer::render_scanline_impl(
+    uint16_t scanline,
+    Nds3dFragmentCallback callback,
+    void *context,
+    const std::array<uint16_t, 32> *toon_table,
+    bool highlight_shading) const noexcept
 {
     if (scanline >= ScreenHeight) {
         return Nds3dRasterStatus::InvalidScanline;
@@ -1007,7 +1063,8 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline(
             const Nds3dRasterStatus result =
                 rasterize_triangle_scanline(
                     *first, *second, *third, *polygon, textures_,
-                    scanline, w_buffer, callback, context);
+                    scanline, w_buffer, toon_table, highlight_shading,
+                    callback, context);
             if (result != Nds3dRasterStatus::Ok) return result;
         }
     }

@@ -338,6 +338,7 @@ Status NdsDisplayControl::install() noexcept
     fog_color_ = 0u;
     fog_offset_ = 0u;
     fog_density_table_ = {};
+    toon_table_ = {};
     rendered_line_count_ = 0u;
     reset_timing();
     installed_ = true;
@@ -353,6 +354,18 @@ ReadResult NdsDisplayControl::read(
         if (cpu != NDS_ARM9) return {Status::Unmapped, 0u};
         if (width != 1u) return {Status::InvalidWidth, 0u};
         return {Status::Ok, rendered_line_count_};
+    }
+
+    if (address >= ToonTableAddress &&
+        address < ToonTableAddress + ToonTableBytes) {
+        if (!installed_) return {Status::Unmapped, 0u};
+        if (!valid_cpu(cpu)) return {Status::InvalidCpu, 0u};
+        if (cpu != NDS_ARM9) return {Status::Unmapped, 0u};
+        const uint32_t offset = address - ToonTableAddress;
+        if (width != 2u || (offset & 1u) != 0u) {
+            return {Status::InvalidWidth, 0u};
+        }
+        return {Status::PermissionDenied, 0u};
     }
 
     if (address == FogColorAddress || address == FogOffsetAddress ||
@@ -521,6 +534,20 @@ Status NdsDisplayControl::write(
         if (!valid_cpu(cpu)) return Status::InvalidCpu;
         if (cpu != NDS_ARM9) return Status::Unmapped;
         return width == 1u ? Status::PermissionDenied : Status::InvalidWidth;
+    }
+
+    if (address >= ToonTableAddress &&
+        address < ToonTableAddress + ToonTableBytes) {
+        if (!installed_) return Status::Unmapped;
+        if (!valid_cpu(cpu)) return Status::InvalidCpu;
+        if (cpu != NDS_ARM9) return Status::Unmapped;
+        const uint32_t offset = address - ToonTableAddress;
+        if (width != 2u || (offset & 1u) != 0u) {
+            return Status::InvalidWidth;
+        }
+        toon_table_[offset / 2u] = static_cast<uint16_t>(
+            value & UINT32_C(0x7FFF));
+        return Status::Ok;
     }
 
     if (address == FogColorAddress || address == FogOffsetAddress ||
