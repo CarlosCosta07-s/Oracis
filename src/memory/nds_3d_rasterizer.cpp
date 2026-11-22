@@ -525,7 +525,7 @@ Nds3dRasterStatus rasterize_triangle_scanline(
             fragment.alpha5 = 31u;
         }
         /*
-         * Discard on the final alpha, after texture-mode blending, In Decal
+         * Discard on the final alpha, after texture-mode blending. In Decal
          * mode, a zero-alpha texel selects the vertex color and vertex alpha;
          * only the resulting fragment alpha determines transparency.
          */
