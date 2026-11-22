@@ -319,8 +319,12 @@ Status NdsGeometryEngine::install() noexcept
     material_emission_ = {};
     shininess_table_ = {};
     shininess_table_enabled_ = false;
+    raw_texture_s_ = 0;
+    raw_texture_t_ = 0;
     current_texture_s_ = 0;
     current_texture_t_ = 0;
+    current_texture_parameters_ = 0u;
+    texture_transform_mode_ = 0u;
     buffers_ = {};
     build_buffer_index_ = 0u;
     render_buffer_index_ = 1u;
@@ -1119,6 +1123,50 @@ void NdsGeometryEngine::calculate_lighting() noexcept
         result[0] | (result[1] << 5u) | (result[2] << 10u));
 }
 
+void NdsGeometryEngine::transform_texture_coordinates_from_texcoord() noexcept
+{
+    /*
+     * Mode 1 uses (S,T,1/16,1/16) as the row vector. TEXCOORD values
+     * are signed 1.11.4, while the texture matrix is signed 20.12.
+     */
+    const int64_t source_s =
+        static_cast<int64_t>(raw_texture_s_) * texture_matrix_[0] +
+        static_cast<int64_t>(raw_texture_t_) * texture_matrix_[4] +
+        texture_matrix_[8] + texture_matrix_[12];
+    const int64_t source_t =
+        static_cast<int64_t>(raw_texture_s_) * texture_matrix_[1] +
+        static_cast<int64_t>(raw_texture_t_) * texture_matrix_[5] +
+        texture_matrix_[9] + texture_matrix_[13];
+    current_texture_s_ = std::bit_cast<int16_t>(
+        static_cast<uint16_t>(source_s >> 12u));
+    current_texture_t_ = std::bit_cast<int16_t>(
+        static_cast<uint16_t>(source_t >> 12u));
+}
+
+void NdsGeometryEngine::transform_texture_coordinates_from_matrix(
+    const std::array<int32_t, 3> &source) noexcept
+{
+    /*
+     * Modes 2 and 3 replace the texture matrix's bottom row with the latest
+     * TEXCOORD pair. Vector and matrix values are 20.12 in this runtime;
+     * convert the 24-fractional-bit products back to 1.11.4 coordinates.
+     */
+    const int64_t transformed_s =
+        (static_cast<int64_t>(source[0]) * texture_matrix_[0] +
+         static_cast<int64_t>(source[1]) * texture_matrix_[4] +
+         static_cast<int64_t>(source[2]) * texture_matrix_[8]) >> 20u;
+    const int64_t transformed_t =
+        (static_cast<int64_t>(source[0]) * texture_matrix_[1] +
+         static_cast<int64_t>(source[1]) * texture_matrix_[5] +
+         static_cast<int64_t>(source[2]) * texture_matrix_[9]) >> 20u;
+    current_texture_s_ = std::bit_cast<int16_t>(
+        static_cast<uint16_t>(
+            static_cast<int64_t>(raw_texture_s_) + transformed_s));
+    current_texture_t_ = std::bit_cast<int16_t>(
+        static_cast<uint16_t>(
+            static_cast<int64_t>(raw_texture_t_) + transformed_t));
+}
+
 void NdsGeometryEngine::execute_vertex_command() noexcept
 {
     const uint32_t parameter = active_parameters_[0];
@@ -1137,14 +1185,22 @@ void NdsGeometryEngine::execute_vertex_command() noexcept
         /* NORMAL is a row vector multiplied by the Directional Matrix. */
         current_vertex_normal_ = transform_direction(source_normal);
         calculate_lighting();
+        if (texture_transform_mode_ == 2u) {
+            transform_texture_coordinates_from_matrix(current_vertex_normal_);
+        }
         return;
     }
 
     case 0x22u:
-        current_texture_s_ = static_cast<int16_t>(
+        raw_texture_s_ = static_cast<int16_t>(
             sign_extend(parameter, 16u));
-        current_texture_t_ = static_cast<int16_t>(
+        raw_texture_t_ = static_cast<int16_t>(
             sign_extend(parameter >> 16u, 16u));
+        current_texture_s_ = raw_texture_s_;
+        current_texture_t_ = raw_texture_t_;
+        if (texture_transform_mode_ == 1u) {
+            transform_texture_coordinates_from_texcoord();
+        }
         return;
 
     case 0x23u:
@@ -1200,6 +1256,9 @@ void NdsGeometryEngine::execute_vertex_command() noexcept
         return;
     }
 
+    if (texture_transform_mode_ == 3u) {
+        transform_texture_coordinates_from_matrix(current_vertex_position_);
+    }
     if (vertex_list_open_) {
         submit_vertex();
     }
@@ -1498,6 +1557,7 @@ void NdsGeometryEngine::emit_polygon(
 
     Polygon polygon{};
     polygon.attributes = active_polygon_attributes_;
+    polygon.texture_parameters = current_texture_parameters_;
     polygon.vertex_count = clipped_count;
     polygon.far_plane_intersection = far_plane_intersection;
     polygon.light_enable_mask = static_cast<uint8_t>(
@@ -1755,6 +1815,10 @@ void NdsGeometryEngine::execute_active_command() noexcept
                         active_parameters_[word] >> (byte * 8u));
             }
         }
+    } else if (active_command_ == 0x2Au) {
+        current_texture_parameters_ = active_parameters_[0];
+        texture_transform_mode_ = static_cast<uint8_t>(
+            (current_texture_parameters_ >> 30u) & UINT32_C(3));
     } else if (active_command_ == 0x40u) {
         begin_vertex_list(active_parameters_[0]);
     } else if (active_command_ == 0x41u) {

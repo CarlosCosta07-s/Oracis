@@ -51,6 +51,7 @@ public:
     struct Polygon {
         std::array<uint32_t, MaxClippedPolygonVertices> vertex_indices{};
         uint32_t attributes = 0u;
+        uint32_t texture_parameters = 0u;
         uint8_t vertex_count = 0u;
         uint8_t light_enable_mask = 0u;
         uint8_t polygon_mode = 0u;
@@ -227,6 +228,9 @@ private:
     std::array<int32_t, 3> transform_direction(
         const std::array<int32_t, 3> &vector) const noexcept;
     void calculate_lighting() noexcept;
+    void transform_texture_coordinates_from_matrix(
+        const std::array<int32_t, 3> &source) noexcept;
+    void transform_texture_coordinates_from_texcoord() noexcept;
     void submit_vertex() noexcept;
     void calculate_screen_position(Vertex &vertex) const noexcept;
     void begin_vertex_list(uint32_t parameter) noexcept;
@@ -304,8 +308,12 @@ private:
     std::array<uint8_t, 3> material_emission_{};
     std::array<uint8_t, 128> shininess_table_{};
     bool shininess_table_enabled_ = false;
+    int16_t raw_texture_s_ = 0;
+    int16_t raw_texture_t_ = 0;
     int16_t current_texture_s_ = 0;
     int16_t current_texture_t_ = 0;
+    uint32_t current_texture_parameters_ = 0u;
+    uint8_t texture_transform_mode_ = 0u;
     std::array<GeometryBuffer, 2> buffers_{};
     uint8_t build_buffer_index_ = 0u;
     uint8_t render_buffer_index_ = 1u;

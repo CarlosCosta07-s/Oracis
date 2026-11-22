@@ -1309,6 +1309,122 @@ int main()
         return fail("SHININESS table did not scale the specular vertex color");
     }
 
-    std::puts("NDS Geometry Engine FIFO, lighting, GXSTAT and matrix-command tests passed");
+    /*
+     * DS texgen modes transform at different command boundaries:
+     * mode 1 at TEXCOORD, mode 2 at NORMAL, and mode 3 at each VTX command.
+     */
+    const auto prepare_texgen = [](
+        NdsGeometryEngine &engine,
+        uint8_t mode,
+        const NdsGeometryEngine::Matrix &texture_matrix,
+        uint16_t source_s,
+        uint16_t source_t) noexcept {
+        if (engine.install() != Status::Ok ||
+            !write_command(engine, 0x10u, 3u)) {
+            return false;
+        }
+        engine.advance_bus_cycles(1u);
+        std::array<uint32_t, 16> matrix_words{};
+        for (unsigned index = 0u; index < matrix_words.size(); ++index) {
+            matrix_words[index] = std::bit_cast<uint32_t>(texture_matrix[index]);
+        }
+        if (!write_parameters(engine, 0x16u, matrix_words.data(), 16u)) {
+            return false;
+        }
+        engine.advance_bus_cycles(34u);
+        const uint32_t teximage_parameters =
+            (static_cast<uint32_t>(mode) << 30u) |
+            (UINT32_C(3) << 26u) | (UINT32_C(1) << 20u);
+        const uint32_t texcoord =
+            static_cast<uint32_t>(source_s) |
+            (static_cast<uint32_t>(source_t) << 16u);
+        if (!write_command(engine, 0x2Au, teximage_parameters)) return false;
+        engine.advance_bus_cycles(1u);
+        if (!write_command(engine, 0x22u, texcoord)) return false;
+        engine.advance_bus_cycles(1u);
+        if (!write_command(engine, 0x40u, 0u)) return false;
+        engine.advance_bus_cycles(1u);
+        return true;
+    };
+    const auto append_texgen_triangle = [](
+        NdsGeometryEngine &engine, bool send_normal) noexcept {
+        if (send_normal &&
+            !write_command(engine, 0x21u, UINT32_C(0x1FF) << 20u)) {
+            return false;
+        }
+        if (send_normal) engine.advance_bus_cycles(9u);
+        const std::array<uint32_t, 3> positions = {
+            (UINT32_C(0x3E0) << 10u) | UINT32_C(64),
+            (UINT32_C(0x3F0) << 10u) | UINT32_C(0x3F0),
+            (UINT32_C(16) << 10u) | UINT32_C(0x3F0)
+        };
+        for (const uint32_t position : positions) {
+            if (!write_command(engine, 0x24u, position)) return false;
+            engine.advance_bus_cycles(8u);
+        }
+        return true;
+    };
+
+    auto texcoord_matrix = NdsGeometryEngine::identity_matrix();
+    texcoord_matrix[0] = INT32_C(8192);
+    texcoord_matrix[5] = INT32_C(12288);
+    texcoord_matrix[8] = INT32_C(4096);
+    texcoord_matrix[13] = INT32_C(8192);
+    auto texgen_mode1 = std::make_unique<NdsGeometryEngine>(interrupts);
+    if (!prepare_texgen(
+            *texgen_mode1, 1u, texcoord_matrix,
+            UINT16_C(16), UINT16_C(32)) ||
+        !append_texgen_triangle(*texgen_mode1, false)) {
+        return fail("mode-1 texture-coordinate transform fixture failed");
+    }
+    const auto *mode1_vertex = texgen_mode1->vertex_at(0u);
+    const auto *mode1_polygon = texgen_mode1->polygon_at(0u);
+    if (mode1_vertex == nullptr || mode1_polygon == nullptr ||
+        mode1_vertex->texture_s != 33 || mode1_vertex->texture_t != 98 ||
+        mode1_polygon->texture_parameters !=
+            ((UINT32_C(1) << 30u) | (UINT32_C(3) << 26u) |
+             (UINT32_C(1) << 20u))) {
+        return fail("mode-1 TEXCOORD source did not use the texture matrix");
+    }
+
+    auto normal_matrix = NdsGeometryEngine::identity_matrix();
+    normal_matrix[8] = INT32_C(4096);
+    normal_matrix[9] = INT32_C(8192);
+    auto texgen_mode2 = std::make_unique<NdsGeometryEngine>(interrupts);
+    if (!prepare_texgen(
+            *texgen_mode2, 2u, normal_matrix,
+            UINT16_C(16), UINT16_C(32)) ||
+        !append_texgen_triangle(*texgen_mode2, true)) {
+        return fail("mode-2 normal-source texture transform fixture failed");
+    }
+    const auto *mode2_vertex = texgen_mode2->vertex_at(0u);
+    const auto *mode2_polygon = texgen_mode2->polygon_at(0u);
+    if (mode2_vertex == nullptr || mode2_polygon == nullptr ||
+        mode2_vertex->texture_s != 31 || mode2_vertex->texture_t != 63 ||
+        mode2_polygon->texture_parameters !=
+            ((UINT32_C(2) << 30u) | (UINT32_C(3) << 26u) |
+             (UINT32_C(1) << 20u))) {
+        return fail("mode-2 NORMAL source did not use the texture matrix");
+    }
+
+    auto vertex_matrix = NdsGeometryEngine::identity_matrix();
+    auto texgen_mode3 = std::make_unique<NdsGeometryEngine>(interrupts);
+    if (!prepare_texgen(
+            *texgen_mode3, 3u, vertex_matrix,
+            UINT16_C(16), UINT16_C(32)) ||
+        !append_texgen_triangle(*texgen_mode3, false)) {
+        return fail("mode-3 vertex-source texture transform fixture failed");
+    }
+    const auto *mode3_vertex = texgen_mode3->vertex_at(0u);
+    const auto *mode3_polygon = texgen_mode3->polygon_at(0u);
+    if (mode3_vertex == nullptr || mode3_polygon == nullptr ||
+        mode3_vertex->texture_s != 32 || mode3_vertex->texture_t != 24 ||
+        mode3_polygon->texture_parameters !=
+            ((UINT32_C(3) << 30u) | (UINT32_C(3) << 26u) |
+             (UINT32_C(1) << 20u))) {
+        return fail("mode-3 VTX source did not use the texture matrix");
+    }
+
+    std::puts("NDS Geometry Engine FIFO, texgen, lighting and matrix-command tests passed");
     return 0;
 }
