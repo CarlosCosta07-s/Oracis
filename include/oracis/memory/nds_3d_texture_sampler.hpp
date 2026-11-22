@@ -50,6 +50,9 @@ public:
         int16_t texture_s,
         int16_t texture_t) const noexcept;
 
+    ReadResult read_texture_slot_halfword(
+        uint8_t texture_slot, uint32_t byte_offset) const noexcept;
+
 private:
     struct TexelCoordinate {
         uint32_t x = 0u;

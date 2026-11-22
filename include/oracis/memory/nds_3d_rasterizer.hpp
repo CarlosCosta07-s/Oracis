@@ -76,6 +76,7 @@ public:
     Nds3dDepthBuffer &operator=(const Nds3dDepthBuffer &) = delete;
 
     void clear(uint32_t depth = MaximumDepth) noexcept;
+    bool write_depth(uint8_t x, uint8_t y, uint32_t depth) noexcept;
     bool test_and_update(const Nds3dFragment &fragment) noexcept;
     uint32_t depth_at(uint8_t x, uint8_t y) const noexcept;
 
@@ -113,6 +114,8 @@ public:
         uint8_t alpha5 = 0u,
         uint8_t polygon_id = 0u,
         bool fog_enabled = false) noexcept;
+    bool write_pixel(
+        uint8_t x, uint8_t y, const Nds3dColorPixel &pixel) noexcept;
     bool blend_fragment(
         const Nds3dFragment &fragment,
         bool alpha_blending_enabled) noexcept;

@@ -36,7 +36,7 @@ public:
     static constexpr uint16_t Disp3dControlWritableMask = UINT16_C(0x4FFF);
     static constexpr uint32_t ClearColorWritableMask = UINT32_C(0x3F1FFFFF);
     static constexpr uint16_t ClearDepthWritableMask = UINT16_C(0x7FFF);
-    static constexpr uint16_t ClearImageOffsetWritableMask = UINT16_C(0x7FFF);
+    static constexpr uint16_t ClearImageOffsetWritableMask = UINT16_C(0xFFFF);
     static constexpr uint32_t BgControlOffset = UINT32_C(0x0008);
     static constexpr uint32_t BgScrollOffset = UINT32_C(0x0010);
     static constexpr uint32_t BgAffineOffset = UINT32_C(0x0020);

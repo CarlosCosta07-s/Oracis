@@ -64,6 +64,8 @@ public:
      */
     ReadResult read_texture_slot_byte(
         uint8_t texture_slot, uint32_t byte_offset) const noexcept;
+    ReadResult read_texture_slot_halfword(
+        uint8_t texture_slot, uint32_t byte_offset) const noexcept;
     ReadResult read_texture_palette_halfword(
         uint32_t byte_address) const noexcept;
 

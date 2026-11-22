@@ -45,6 +45,9 @@ int main()
             NDS_ARM9, NdsVramControl::VramCntCAddress, 1u, UINT32_C(0x80)) !=
             Status::Ok ||
         vram.write(
+            NDS_ARM9, NdsVramControl::VramCntDAddress, 1u, UINT32_C(0x80)) !=
+            Status::Ok ||
+        vram.write(
             NDS_ARM9, NdsVramControl::VramCntEAddress, 1u, UINT32_C(0x80)) !=
             Status::Ok ||
         vram.write(
@@ -72,7 +75,8 @@ int main()
         !write_halfword(memory, UINT32_C(0x0680400E), UINT16_C(0x0000)) ||
         !write_halfword(memory, UINT32_C(0x06840000), UINT16_C(0x000E)) ||
         !write_halfword(memory, UINT32_C(0x06840002), UINT16_C(0x0000)) ||
-        !write_halfword(memory, UINT32_C(0x06830000), UINT16_C(0x4000))) {
+        !write_halfword(memory, UINT32_C(0x06830000), UINT16_C(0x4000)) ||
+        !write_halfword(memory, UINT32_C(0x06860000), UINT16_C(0xBEEF))) {
         return fail("synthetic texture data could not be written");
     }
 
@@ -103,6 +107,9 @@ int main()
             NDS_ARM9, NdsVramControl::VramCntCAddress, 1u, UINT32_C(0x93)) !=
             Status::Ok ||
         vram.write(
+            NDS_ARM9, NdsVramControl::VramCntDAddress, 1u, UINT32_C(0x9B)) !=
+            Status::Ok ||
+        vram.write(
             NDS_ARM9, NdsVramControl::VramCntEAddress, 1u, UINT32_C(0x83)) !=
             Status::Ok ||
         vram.write(
@@ -112,6 +119,24 @@ int main()
     }
 
     Nds3dTextureSampler sampler(vram);
+
+    const ReadResult slot2_word =
+        sampler.read_texture_slot_halfword(2u, 0u);
+    const ReadResult slot3_word =
+        sampler.read_texture_slot_halfword(3u, 0u);
+    if (slot2_word.status != Status::Ok ||
+        slot2_word.value != UINT16_C(0x000E) ||
+        slot3_word.status != Status::Ok ||
+        slot3_word.value != UINT16_C(0xBEEF) ||
+        sampler.read_texture_slot_halfword(2u, 1u).status !=
+            Status::InvalidRegion ||
+        sampler.read_texture_slot_halfword(
+            3u, NdsVramControl::BankSize - 1u).status !=
+            Status::InvalidRegion ||
+        sampler.read_texture_slot_halfword(
+            3u, NdsVramControl::BankSize - 2u).status != Status::Ok) {
+        return fail("texture-slot halfword reads or bounds validation failed");
+    }
 
     /* A3I5: index 1, alpha 7/7 -> expanded alpha 31/31. */
     const uint32_t a3i5 = (UINT32_C(1) << 26u) | UINT32_C(0x10);
@@ -303,6 +328,11 @@ int main()
         return fail("4x4 compressed mode-3 weighted colors failed");
     }
 
+    if (vram.write(
+            NDS_ARM9, NdsVramControl::VramCntDAddress, 1u, 0u) != Status::Ok ||
+        sampler.read_texture_slot_halfword(3u, 0u).status != Status::Unmapped) {
+        return fail("unallocated rear-plane/depth slot was sampled");
+    }
     if (vram.write(
             NDS_ARM9, NdsVramControl::VramCntAAddress, 1u, 0u) != Status::Ok) {
         return fail("texture bank disable failed");

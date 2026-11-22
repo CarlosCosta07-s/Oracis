@@ -463,6 +463,23 @@ void composite_depth_passed_fragment(
 
 } // namespace
 
+bool Nds3dColorBuffer::write_pixel(
+    uint8_t x,
+    uint8_t y,
+    const Nds3dColorPixel &pixel) noexcept
+{
+    if (y >= ScreenHeight ||
+        pixel.red6 > 63u || pixel.green6 > 63u ||
+        pixel.blue6 > 63u || pixel.alpha5 > 31u ||
+        pixel.polygon_id > 63u) {
+        return false;
+    }
+    const std::size_t index =
+        static_cast<std::size_t>(y) * ScreenWidth + x;
+    pixels_[index] = pixel;
+    return true;
+}
+
 void Nds3dColorBuffer::clear(
     uint8_t red6,
     uint8_t green6,
@@ -545,6 +562,16 @@ void Nds3dDepthBuffer::clear(uint32_t depth) noexcept
     depths_.fill(std::min(depth, MaximumDepth));
 }
 
+bool Nds3dDepthBuffer::write_depth(
+    uint8_t x, uint8_t y, uint32_t depth) noexcept
+{
+    if (y >= ScreenHeight || depth > MaximumDepth) return false;
+    const std::size_t index =
+        static_cast<std::size_t>(y) * ScreenWidth + x;
+    depths_[index] = depth;
+    return true;
+}
+
 bool Nds3dDepthBuffer::test_and_update(
     const Nds3dFragment &fragment) noexcept
 {
@@ -613,11 +640,98 @@ Nds3dRasterStatus Nds3dRasterizer::initialize_rear_plane(
     if (!display_control.installed()) {
         return Nds3dRasterStatus::DisplayControlUnavailable;
     }
-    if (display_control.three_d_rear_plane_bitmap_enabled()) {
-        return Nds3dRasterStatus::RearPlaneBitmapNotSupported;
-    }
-
     const uint32_t clear_color = display_control.three_d_clear_color();
+    const uint8_t polygon_id = static_cast<uint8_t>(
+        (clear_color >> 24u) & UINT32_C(0x3F));
+
+    if (display_control.three_d_rear_plane_bitmap_enabled()) {
+        constexpr uint32_t bitmap_bytes = NdsVramControl::BankSize;
+        const uint32_t row_offset =
+            display_control.three_d_clear_image_offset() & UINT16_C(0x00FF);
+        const uint32_t column_offset =
+            (display_control.three_d_clear_image_offset() >> 8u) &
+            UINT16_C(0x00FF);
+        constexpr std::array<uint8_t, 2> bitmap_slots{{2u, 3u}};
+
+        for (const uint8_t slot : bitmap_slots) {
+            const ReadResult first =
+                textures_.read_texture_slot_halfword(slot, 0u);
+            const ReadResult last =
+                textures_.read_texture_slot_halfword(
+                    slot, bitmap_bytes - UINT32_C(2));
+            if (first.status != Status::Ok || last.status != Status::Ok) {
+                return Nds3dRasterStatus::TextureFailure;
+            }
+        }
+
+        /* Preflight all visible reads before changing either staging buffer. */
+        for (uint32_t y = 0u; y < ScreenHeight; ++y) {
+            const uint32_t source_row = (row_offset + y) & UINT32_C(0xFF);
+            for (uint32_t x = 0u; x < ScreenWidth; ++x) {
+                const uint32_t source_column =
+                    (column_offset + x) & UINT32_C(0xFF);
+                const uint32_t byte_offset =
+                    ((source_row * UINT32_C(256)) + source_column) * 2u;
+                if (textures_.read_texture_slot_halfword(
+                        2u, byte_offset).status != Status::Ok ||
+                    textures_.read_texture_slot_halfword(
+                        3u, byte_offset).status != Status::Ok) {
+                    return Nds3dRasterStatus::TextureFailure;
+                }
+            }
+        }
+
+        for (uint32_t y = 0u; y < ScreenHeight; ++y) {
+            const uint32_t source_row = (row_offset + y) & UINT32_C(0xFF);
+            for (uint32_t x = 0u; x < ScreenWidth; ++x) {
+                const uint32_t source_column =
+                    (column_offset + x) & UINT32_C(0xFF);
+                const uint32_t byte_offset =
+                    ((source_row * UINT32_C(256)) + source_column) * 2u;
+                const ReadResult color_word =
+                    textures_.read_texture_slot_halfword(2u, byte_offset);
+                const ReadResult depth_word =
+                    textures_.read_texture_slot_halfword(3u, byte_offset);
+                if (color_word.status != Status::Ok ||
+                    depth_word.status != Status::Ok) {
+                    return Nds3dRasterStatus::TextureFailure;
+                }
+
+                const uint16_t color_raw = static_cast<uint16_t>(color_word.value);
+                const uint16_t depth_raw = static_cast<uint16_t>(depth_word.value);
+                const uint16_t red5 = color_raw & UINT16_C(0x001F);
+                const uint16_t green5 = static_cast<uint16_t>(
+                    (color_raw >> 5u) & UINT16_C(0x001F));
+                const uint16_t blue5 = static_cast<uint16_t>(
+                    (color_raw >> 10u) & UINT16_C(0x001F));
+                const uint8_t alpha5 =
+                    (color_raw & UINT16_C(0x8000)) != 0u ? 31u : 0u;
+                const uint16_t depth15 =
+                    static_cast<uint16_t>(depth_raw & UINT16_C(0x7FFF));
+                const uint32_t depth24 =
+                    static_cast<uint32_t>(depth15) * UINT32_C(0x200) +
+                    ((static_cast<uint32_t>(depth15) + 1u) /
+                        UINT32_C(0x8000)) * UINT32_C(0x1FF);
+                const Nds3dColorPixel pixel{
+                    expand_five_to_six(red5),
+                    expand_five_to_six(green5),
+                    expand_five_to_six(blue5),
+                    alpha5,
+                    polygon_id,
+                    (depth_raw & UINT16_C(0x8000)) != 0u
+                };
+                if (!color_buffer.write_pixel(
+                        static_cast<uint8_t>(x),
+                        static_cast<uint8_t>(y), pixel) ||
+                    !depth_buffer.write_depth(
+                        static_cast<uint8_t>(x),
+                        static_cast<uint8_t>(y), depth24)) {
+                    return Nds3dRasterStatus::InvalidGeometry;
+                }
+            }
+        }
+        return Nds3dRasterStatus::Ok;
+    }
     const uint16_t red5 = static_cast<uint16_t>(clear_color & UINT32_C(0x1F));
     const uint16_t green5 = static_cast<uint16_t>(
         (clear_color >> 5u) & UINT32_C(0x1F));

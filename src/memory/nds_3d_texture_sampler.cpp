@@ -73,6 +73,12 @@ ReadResult Nds3dTextureSampler::read_texture_byte(
     return vram_.read_texture_slot_byte(slot, offset);
 }
 
+ReadResult Nds3dTextureSampler::read_texture_slot_halfword(
+    uint8_t texture_slot, uint32_t byte_offset) const noexcept
+{
+    return vram_.read_texture_slot_halfword(texture_slot, byte_offset);
+}
+
 ReadResult Nds3dTextureSampler::read_texture_halfword(
     uint32_t byte_address) const noexcept
 {

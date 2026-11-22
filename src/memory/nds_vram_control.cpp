@@ -249,6 +249,34 @@ ReadResult NdsVramControl::read_texture_slot_byte(
     return memory_.read_device(static_cast<uint32_t>(address), 1u);
 }
 
+ReadResult NdsVramControl::read_texture_slot_halfword(
+    uint8_t texture_slot, uint32_t byte_offset) const noexcept
+{
+    if (texture_slot >= 4u ||
+        (byte_offset & UINT32_C(1)) != 0u ||
+        byte_offset > BankSize - UINT32_C(2)) {
+        return {Status::InvalidRegion, 0u};
+    }
+    int selected_bank = -1;
+    for (unsigned bank_index = 0u; bank_index < 4u; ++bank_index) {
+        const uint8_t control = controls_[bank_index];
+        const uint8_t offset = static_cast<uint8_t>(
+            (control >> 3u) & UINT8_C(3));
+        if (bank_mst_enabled(control, static_cast<uint8_t>(bank_index), 3u) &&
+            offset == texture_slot) {
+            if (selected_bank >= 0) return {Status::Overlap, 0u};
+            selected_bank = static_cast<int>(bank_index);
+        }
+    }
+    if (selected_bank < 0) return {Status::Unmapped, 0u};
+    const uint64_t address =
+        static_cast<uint64_t>(kVramBackingBase) +
+        kVramBanks[static_cast<unsigned>(selected_bank)].backing_offset +
+        byte_offset;
+    if (address > UINT32_MAX) return {Status::AddressOverflow, 0u};
+    return memory_.read_device(static_cast<uint32_t>(address), 2u);
+}
+
 ReadResult NdsVramControl::read_texture_palette_halfword(
     uint32_t byte_address) const noexcept
 {
