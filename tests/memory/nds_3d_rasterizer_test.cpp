@@ -5,6 +5,7 @@
 #include "oracis/memory/nds_interrupt_control.hpp"
 #include "oracis/memory/nds_vram_control.hpp"
 
+#include <array>
 #include <cstdint>
 #include <cstdio>
 
@@ -82,11 +83,35 @@ int main()
             NDS_ARM9, NdsVramControl::VramCntAAddress, 1u,
             UINT32_C(0x80)) != Status::Ok ||
         !write_halfword(memory, UINT32_C(0x06800000), UINT16_C(0xFC00)) ||
+        !write_halfword(memory, UINT32_C(0x06800006), UINT16_C(0xFC00)) ||
+        !write_halfword(memory, UINT32_C(0x0680000A), UINT16_C(0x801F)) ||
         vram.write(
             NDS_ARM9, NdsVramControl::VramCntAAddress, 1u,
             UINT32_C(0x83)) != Status::Ok) {
         return fail("direct-color texture setup failed");
     }
+
+    /*
+     * Make clip W depend on vertex Z while clip Z remains zero. The three
+     * vertices then have different W values, so affine and perspective-
+     * corrected texture interpolation select different direct-color texels.
+     */
+    if (!write_command(geometry, 0x10u, 0u)) {
+        return fail("projection matrix mode selection failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    constexpr std::array<uint32_t, 16> perspective_projection = {
+        UINT32_C(0x1000), 0u, 0u, 0u,
+        0u, UINT32_C(0x1000), 0u, 0u,
+        0u, 0u, 0u, UINT32_C(0x1000),
+        0u, 0u, 0u, 0u
+    };
+    for (uint32_t parameter : perspective_projection) {
+        if (!write_command(geometry, 0x16u, parameter)) {
+            return fail("perspective projection matrix parameter failed");
+        }
+    }
+    geometry.advance_bus_cycles(34u);
 
     /* One front-facing triangle, white vertex color, direct-color texture. */
     if (!write_command(geometry, 0x29u,
@@ -103,13 +128,16 @@ int main()
     }
     geometry.advance_bus_cycles(1u);
 
-    const uint32_t positions[3] = {
-        encode_vtx10(-64, -64, 0),
-        encode_vtx10(64, -64, 0),
-        encode_vtx10(0, 64, 0)
+    const std::array<uint32_t, 3> positions = {
+        encode_vtx10(-64, -64, 64),
+        encode_vtx10(128, -128, 128),
+        encode_vtx10(0, 256, 256)
     };
-    for (uint32_t position : positions) {
-        if (!write_command(geometry, 0x22u, 0u)) {
+    constexpr std::array<uint16_t, 3> texture_s{
+        0u, 64u, 128u
+    };
+    for (unsigned index = 0u; index < positions.size(); ++index) {
+        if (!write_command(geometry, 0x22u, texture_s[index])) {
             return fail("TEXCOORD enqueue failed");
         }
         geometry.advance_bus_cycles(1u);
@@ -117,7 +145,7 @@ int main()
             return fail("COLOR enqueue failed");
         }
         geometry.advance_bus_cycles(1u);
-        if (!write_command(geometry, 0x24u, position)) {
+        if (!write_command(geometry, 0x24u, positions[index])) {
             return fail("VTX_10 enqueue failed");
         }
         geometry.advance_bus_cycles(8u);
