@@ -60,6 +60,8 @@ struct Capture {
     bool transparent_modulate_texel_center_seen = false;
     bool w_buffer_center_seen = false;
     bool all_fragments_opaque = true;
+    bool a3i5_center_seen = false;
+    oracis::memory::Nds3dFragment a3i5_center{};
     oracis::memory::Nds3dFragment center{};
     oracis::memory::Nds3dFragment decal_center{};
     oracis::memory::Nds3dFragment w_buffer_center{};
@@ -77,6 +79,10 @@ void capture_fragment(
     }
     if (fragment.x == 127u && fragment.y == 96u) {
         ++capture->center_fragment_count;
+        if (fragment.polygon_id == 6u) {
+            capture->a3i5_center_seen = true;
+            capture->a3i5_center = fragment;
+        }
         if (fragment.polygon_id == 1u && !capture->center_seen) {
             capture->center_seen = true;
             capture->center = fragment;
@@ -1353,10 +1359,10 @@ int main()
     Capture a3i5_capture{};
     if (rasterizer.render_scanline(
             96u, capture_fragment, &a3i5_capture) != Nds3dRasterStatus::Ok ||
-        !a3i5_capture.center_seen ||
-        a3i5_capture.center.alpha5 >= 31u ||
-        !a3i5_capture.center.translucent ||
-        a3i5_capture.center.edge_candidate) {
+        !a3i5_capture.a3i5_center_seen ||
+        a3i5_capture.a3i5_center.alpha5 >= 31u ||
+        !a3i5_capture.a3i5_center.translucent ||
+        a3i5_capture.a3i5_center.edge_candidate) {
         return fail("A3I5 final alpha was not classified as translucent");
     }
 
