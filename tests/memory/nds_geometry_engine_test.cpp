@@ -1318,11 +1318,26 @@ int main()
         uint8_t mode,
         const NdsGeometryEngine::Matrix &texture_matrix,
         uint16_t source_s,
-        uint16_t source_t) noexcept {
-        if (engine.install() != Status::Ok ||
-            !write_command(engine, 0x10u, 3u)) {
-            return false;
+        uint16_t source_t,
+        const NdsGeometryEngine::Matrix *directional_matrix = nullptr) noexcept {
+        if (engine.install() != Status::Ok) return false;
+
+        if (directional_matrix != nullptr) {
+            if (!write_command(engine, 0x10u, 2u)) return false;
+            engine.advance_bus_cycles(1u);
+            std::array<uint32_t, 16> direction_words{};
+            for (unsigned index = 0u; index < direction_words.size(); ++index) {
+                direction_words[index] =
+                    std::bit_cast<uint32_t>((*directional_matrix)[index]);
+            }
+            if (!write_parameters(
+                    engine, 0x16u, direction_words.data(), 16u)) {
+                return false;
+            }
+            engine.advance_bus_cycles(34u);
         }
+
+        if (!write_command(engine, 0x10u, 3u)) return false;
         engine.advance_bus_cycles(1u);
         std::array<uint32_t, 16> matrix_words{};
         for (unsigned index = 0u; index < matrix_words.size(); ++index) {
@@ -1390,10 +1405,13 @@ int main()
     auto normal_matrix = NdsGeometryEngine::identity_matrix();
     normal_matrix[8] = INT32_C(4096);
     normal_matrix[9] = INT32_C(8192);
+    auto directional_matrix = NdsGeometryEngine::identity_matrix();
+    directional_matrix[0] = -INT32_C(4096);
+    directional_matrix[10] = -INT32_C(4096);
     auto texgen_mode2 = std::make_unique<NdsGeometryEngine>(interrupts);
     if (!prepare_texgen(
             *texgen_mode2, 2u, normal_matrix,
-            UINT16_C(16), UINT16_C(32)) ||
+            UINT16_C(16), UINT16_C(32), &directional_matrix) ||
         !append_texgen_triangle(*texgen_mode2, true)) {
         return fail("mode-2 normal-source texture transform fixture failed");
     }
@@ -1401,10 +1419,11 @@ int main()
     const auto *mode2_polygon = texgen_mode2->polygon_at(0u);
     if (mode2_vertex == nullptr || mode2_polygon == nullptr ||
         mode2_vertex->texture_s != 31 || mode2_vertex->texture_t != 63 ||
+        mode2_vertex->normal != std::array<int32_t, 3>{0, 0, -4088} ||
         mode2_polygon->texture_parameters !=
             ((UINT32_C(2) << 30u) | (UINT32_C(3) << 26u) |
              (UINT32_C(1) << 20u))) {
-        return fail("mode-2 NORMAL source did not use the texture matrix");
+        return fail("mode-2 NORMAL texgen used the directional normal instead of the input normal");
     }
 
     auto vertex_matrix = NdsGeometryEngine::identity_matrix();
