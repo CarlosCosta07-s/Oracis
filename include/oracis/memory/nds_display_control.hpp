@@ -31,6 +31,9 @@ public:
     static constexpr uint32_t DispstatAddress = UINT32_C(0x04000004);
     static constexpr uint32_t VcountAddress = UINT32_C(0x04000006);
     static constexpr uint32_t Disp3dControlAddress = UINT32_C(0x04000060);
+    static constexpr uint32_t EdgeColorAddress = UINT32_C(0x04000330);
+    static constexpr uint32_t EdgeColorEntries = 8u;
+    static constexpr uint32_t EdgeColorBytes = EdgeColorEntries * 2u;
     static constexpr uint32_t AlphaTestReferenceAddress = UINT32_C(0x04000340);
     static constexpr uint32_t ClearColorAddress = UINT32_C(0x04000350);
     static constexpr uint32_t ClearDepthAddress = UINT32_C(0x04000354);
@@ -45,6 +48,7 @@ public:
     static constexpr uint32_t ToonTableEntries = 32u;
     static constexpr uint32_t ToonTableBytes = ToonTableEntries * 2u;
     static constexpr uint16_t Disp3dHighlightShading = UINT16_C(1u << 1u);
+    static constexpr uint16_t Disp3dEdgeMarkingEnable = UINT16_C(1u << 5u);
     static constexpr uint16_t Disp3dAlphaTestEnable = UINT16_C(1u << 2u);
     static constexpr uint16_t Disp3dAlphaBlendEnable = UINT16_C(1u << 3u);
     static constexpr uint16_t Disp3dFogAlphaOnly = UINT16_C(1u << 6u);
@@ -225,6 +229,14 @@ public:
     bool three_d_highlight_shading_enabled() const noexcept {
         return (three_d_control_ & Disp3dHighlightShading) != 0u;
     }
+    bool three_d_edge_marking_enabled() const noexcept {
+        return (three_d_control_ & Disp3dEdgeMarkingEnable) != 0u;
+    }
+    uint16_t three_d_edge_color(uint32_t index) const noexcept {
+        return index < EdgeColorEntries ? edge_color_table_[index] : 0u;
+    }
+    const std::array<uint16_t, EdgeColorEntries> &
+    three_d_edge_color_table() const noexcept { return edge_color_table_; }
     uint16_t three_d_toon_color(uint32_t index) const noexcept {
         return index < ToonTableEntries ? toon_table_[index] : 0u;
     }
@@ -294,6 +306,7 @@ private:
     uint32_t fog_color_ = 0u;
     uint16_t fog_offset_ = 0u;
     std::array<uint8_t, FogDensityTableEntries> fog_density_table_{};
+    std::array<uint16_t, EdgeColorEntries> edge_color_table_{};
     std::array<uint16_t, ToonTableEntries> toon_table_{};
     uint8_t rendered_line_count_ = 0u;
     std::array<bool, 2> hblank_irq_fired_{};

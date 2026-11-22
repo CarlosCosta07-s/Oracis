@@ -240,3 +240,10 @@ saturação. CI #1123 passou nos quatro jobs: Desktop Linux 54/54, smoke
 static-bank 1/1, ARM runtime 54/54, Android ARM64 e NDSRecomp aprovados. São
 vetores sintéticos; ainda não houve comparação visual contra hardware físico
 nem boot/frame real de Pokémon Platinum.
+
+
+## Atualização 2026-11-22 — estado MMIO de Edge Marking
+
+`NdsDisplayControl` agora modela os oito registradores write-only `EDGE_COLOR` em `0x04000330..0x0400033F`, com cores RGB555 e seleção por grupo de oito IDs (`polygon_id >> 3`). `DISP3DCNT.Bit5` também tem constante e accessor próprios. A regressão verifica armazenamento/máscara, alinhamento, larguras inválidas, leitura bloqueada e acesso ARM9.
+
+Esta etapa implementa somente o estado de hardware: o contorno ainda não é aplicado aos pixels. O Edge Marking exige preservar candidatos de borda e concluir a comparação de ID/profundidade com os vizinhos ortogonais após a composição dos polígonos; o fluxo atual envia scanlines para uma FIFO de 48 linhas. O pós-passe será integrado sem alterar prematuramente as linhas já enfileiradas. Não há alegação de conformidade visual ou boot de jogo.

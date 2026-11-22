@@ -33,7 +33,10 @@ int main()
     if (display.three_d_control_register() != 0u ||
         display.three_d_alpha_test_reference() != 0u ||
         display.three_d_alpha_test_enabled() ||
-        display.three_d_alpha_blending_enabled()) {
+        display.three_d_alpha_blending_enabled() ||
+        display.three_d_edge_marking_enabled() ||
+        display.three_d_edge_color(0u) != 0u ||
+        display.three_d_edge_color_table()[7] != 0u) {
         return fail("3D display-control registers did not reset to zero");
     }
 
@@ -54,6 +57,31 @@ int main()
             1u, 12u) != Status::PermissionDenied) {
         return fail("RDLINES_COUNT access permissions or width were incorrect");
     }
+    /* EDGE_COLOR is an ARM9-only, write-only array of eight RGB555 colors. */
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::EdgeColorAddress + 6u,
+            2u, UINT32_C(0xFFFF)) != Status::Ok ||
+        display.three_d_edge_color(3u) != UINT16_C(0x7FFF) ||
+        display.three_d_edge_color_table()[3] != UINT16_C(0x7FFF) ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EdgeColorAddress + 14u,
+            2u, UINT32_C(0x4210)) != Status::Ok ||
+        display.three_d_edge_color(7u) != UINT16_C(0x4210) ||
+        display.read(
+            NDS_ARM9, NdsDisplayControl::EdgeColorAddress + 14u,
+            2u).status != Status::PermissionDenied ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EdgeColorAddress + 1u,
+            2u, UINT16_C(0x1234)) != Status::InvalidWidth ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EdgeColorAddress,
+            4u, UINT32_C(0x12345678)) != Status::InvalidWidth ||
+        display.write(
+            NDS_ARM7, NdsDisplayControl::EdgeColorAddress,
+            2u, UINT16_C(0x1234)) != Status::Unmapped) {
+        return fail("EDGE_COLOR RGB555 storage, alignment or access permissions failed");
+    }
+
     display.set_three_d_rendered_line_count(37u);
     if (display.read(
             NDS_ARM9, NdsDisplayControl::RenderedLineCountAddress,
@@ -68,7 +96,8 @@ int main()
 
     constexpr uint16_t alpha_test_and_blend = static_cast<uint16_t>(
         NdsDisplayControl::Disp3dAlphaTestEnable |
-        NdsDisplayControl::Disp3dAlphaBlendEnable);
+        NdsDisplayControl::Disp3dAlphaBlendEnable |
+        NdsDisplayControl::Disp3dEdgeMarkingEnable);
     if (display.write(
             NDS_ARM9, NdsDisplayControl::Disp3dControlAddress,
             2u, alpha_test_and_blend) != Status::Ok ||
@@ -76,7 +105,8 @@ int main()
             NDS_ARM9, NdsDisplayControl::Disp3dControlAddress,
             2u).value != alpha_test_and_blend ||
         !display.three_d_alpha_test_enabled() ||
-        !display.three_d_alpha_blending_enabled()) {
+        !display.three_d_alpha_blending_enabled() ||
+        !display.three_d_edge_marking_enabled()) {
         return fail("DISP3DCNT alpha-test/blending bits were not retained");
     }
 
