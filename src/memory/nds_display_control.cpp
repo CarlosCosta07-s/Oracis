@@ -353,7 +353,6 @@ ReadResult NdsDisplayControl::read(
         if (cpu != NDS_ARM9) return {Status::Unmapped, 0u};
         if (address == Disp3dControlAddress) {
             if (width != 2u) return {Status::InvalidWidth, 0u};
-            /* Underflow/overflow status flags are not produced yet. */
             return {Status::Ok, three_d_control_};
         }
         if (address == AlphaTestReferenceAddress) {
@@ -491,11 +490,14 @@ Status NdsDisplayControl::write(
         if (address == Disp3dControlAddress) {
             if (width != 2u) return Status::InvalidWidth;
             /*
-             * Bits 12/13 are read-only status flags. Their underflow/overflow
-             * producers are not connected yet, so they currently read zero.
+             * DISP3DCNT bits 12/13 are sticky read-only status flags. They
+             * clear only when software writes a one to the corresponding bit.
              */
+            const uint16_t pending_status = static_cast<uint16_t>(
+                three_d_control_ & Disp3dStatusMask &
+                static_cast<uint16_t>(~value));
             three_d_control_ = static_cast<uint16_t>(
-                value & Disp3dControlWritableMask);
+                (value & Disp3dControlWritableMask) | pending_status);
             return Status::Ok;
         }
         if (address == AlphaTestReferenceAddress) {
