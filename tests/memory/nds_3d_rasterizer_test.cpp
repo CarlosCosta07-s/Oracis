@@ -39,6 +39,19 @@ bool write_halfword(
         oracis::memory::Status::Ok;
 }
 
+bool write_rear_bitmap_pixel(
+    oracis::memory::GuestMemory &memory,
+    uint32_t lcdc_base,
+    uint8_t row,
+    uint8_t column,
+    uint16_t value)
+{
+    const uint32_t pixel_index =
+        static_cast<uint32_t>(row) * UINT32_C(256) + column;
+    return write_halfword(
+        memory, lcdc_base + pixel_index * 2u, value);
+}
+
 struct Capture {
     uint32_t count = 0u;
     uint32_t center_fragment_count = 0u;
@@ -101,17 +114,49 @@ int main()
         return fail("geometry, VRAM or display-control device installation failed");
     }
 
-    /* Prepare a direct-color texel in VRAM A, then assign A to texture slot 0. */
+    /* Prepare texture slot 0 plus the color/depth bitmap slots 2 and 3. */
     if (vram.write(
             NDS_ARM9, NdsVramControl::VramCntAAddress, 1u,
+            UINT32_C(0x80)) != Status::Ok ||
+        vram.write(
+            NDS_ARM9, NdsVramControl::VramCntCAddress, 1u,
+            UINT32_C(0x80)) != Status::Ok ||
+        vram.write(
+            NDS_ARM9, NdsVramControl::VramCntDAddress, 1u,
             UINT32_C(0x80)) != Status::Ok ||
         !write_halfword(memory, UINT32_C(0x06800000), UINT16_C(0xFC00)) ||
         !write_halfword(memory, UINT32_C(0x06800006), UINT16_C(0xFC00)) ||
         !write_halfword(memory, UINT32_C(0x0680000A), UINT16_C(0x801F)) ||
         !write_halfword(memory, UINT32_C(0x0680000E), UINT16_C(0x7FFF)) ||
+        !write_rear_bitmap_pixel(
+            memory, UINT32_C(0x06840000), 250u, 120u, UINT16_C(0x801F)) ||
+        !write_rear_bitmap_pixel(
+            memory, UINT32_C(0x06840000), 250u, 121u, UINT16_C(0x03E0)) ||
+        !write_rear_bitmap_pixel(
+            memory, UINT32_C(0x06840000), 0u, 120u, UINT16_C(0xFC00)) ||
+        !write_rear_bitmap_pixel(
+            memory, UINT32_C(0x06840000), 0u, 0u, UINT16_C(0xFC1F)) ||
+        !write_rear_bitmap_pixel(
+            memory, UINT32_C(0x06840000), 185u, 119u, UINT16_C(0x83E0)) ||
+        !write_rear_bitmap_pixel(
+            memory, UINT32_C(0x06860000), 250u, 120u, UINT16_C(0xFFFF)) ||
+        !write_rear_bitmap_pixel(
+            memory, UINT32_C(0x06860000), 250u, 121u, UINT16_C(0x4001)) ||
+        !write_rear_bitmap_pixel(
+            memory, UINT32_C(0x06860000), 0u, 120u, UINT16_C(0xC000)) ||
+        !write_rear_bitmap_pixel(
+            memory, UINT32_C(0x06860000), 0u, 0u, UINT16_C(0x0001)) ||
+        !write_rear_bitmap_pixel(
+            memory, UINT32_C(0x06860000), 185u, 119u, UINT16_C(0x9234)) ||
         vram.write(
             NDS_ARM9, NdsVramControl::VramCntAAddress, 1u,
-            UINT32_C(0x83)) != Status::Ok) {
+            UINT32_C(0x83)) != Status::Ok ||
+        vram.write(
+            NDS_ARM9, NdsVramControl::VramCntCAddress, 1u,
+            UINT32_C(0x93)) != Status::Ok ||
+        vram.write(
+            NDS_ARM9, NdsVramControl::VramCntDAddress, 1u,
+            UINT32_C(0x9B)) != Status::Ok) {
         return fail("direct-color texture setup failed");
     }
 
@@ -399,7 +444,7 @@ int main()
             UINT16_C(0x4000)) != Status::Ok ||
         display.write(
             NDS_ARM9, NdsDisplayControl::ClearImageOffsetAddress, 2u,
-            UINT16_C(0x1234)) != Status::Ok ||
+            UINT16_C(0x78FA)) != Status::Ok ||
         display.three_d_clear_depth_expanded24() != UINT32_C(0x800000)) {
         return fail("rear-plane clear register setup or depth expansion failed");
     }
@@ -422,25 +467,76 @@ int main()
         return fail("CLEAR_COLOR RGB6/A5/fog/ID or CLEAR_DEPTH expansion was incorrect");
     }
 
-    /* Bitmap rear-plane mode needs texture slots 2/3 and must fail closed. */
+    /*
+     * Slot 2 stores RGB555/binary alpha, slot 3 stores depth15/fog. Losing
+     * either source must leave the previously initialized plane untouched.
+     */
     if (display.write(
             NDS_ARM9, NdsDisplayControl::Disp3dControlAddress, 2u,
             static_cast<uint32_t>(
                 NdsDisplayControl::Disp3dAlphaTestEnable |
                 NdsDisplayControl::Disp3dAlphaBlendEnable |
                 (UINT16_C(1u) << 14u))) != Status::Ok ||
+        vram.write(
+            NDS_ARM9, NdsVramControl::VramCntDAddress, 1u, 0u) != Status::Ok ||
         rasterizer.initialize_rear_plane(
-            color, depth, display) !=
-            Nds3dRasterStatus::RearPlaneBitmapNotSupported ||
+            color, depth, display) != Nds3dRasterStatus::TextureFailure ||
+        color.pixel_at(0u, 0u)->red6 != 63u ||
         color.pixel_at(0u, 0u)->polygon_id != 37u ||
-        depth.depth_at(0u, 0u) != UINT32_C(0x800000)) {
-        return fail("bitmap rear-plane mode was not explicitly rejected without mutating buffers");
+        depth.depth_at(0u, 0u) != UINT32_C(0x800000) ||
+        vram.write(
+            NDS_ARM9, NdsVramControl::VramCntDAddress, 1u,
+            UINT32_C(0x9B)) != Status::Ok) {
+        return fail("missing slot did not fail without mutating the rear plane");
     }
+
+    if (rasterizer.initialize_rear_plane(
+            color, depth, display) != Nds3dRasterStatus::Ok) {
+        return fail("rear-plane bitmap initialization failed");
+    }
+
+    const Nds3dColorPixel *bitmap_red = color.pixel_at(0u, 0u);
+    const Nds3dColorPixel *bitmap_transparent = color.pixel_at(1u, 0u);
+    const Nds3dColorPixel *bitmap_blue_wrap = color.pixel_at(0u, 6u);
+    const Nds3dColorPixel *bitmap_xy_wrap = color.pixel_at(136u, 6u);
+    const Nds3dColorPixel *bitmap_bottom_wrap = color.pixel_at(255u, 191u);
+    if (bitmap_red == nullptr ||
+        bitmap_red->red6 != 63u || bitmap_red->green6 != 0u ||
+        bitmap_red->blue6 != 0u || bitmap_red->alpha5 != 31u ||
+        bitmap_red->polygon_id != 37u || !bitmap_red->fog_enabled ||
+        depth.depth_at(0u, 0u) != UINT32_C(0x00FFFFFF) ||
+        bitmap_transparent == nullptr ||
+        bitmap_transparent->green6 != 63u ||
+        bitmap_transparent->alpha5 != 0u ||
+        bitmap_transparent->polygon_id != 37u ||
+        bitmap_transparent->fog_enabled ||
+        depth.depth_at(1u, 0u) != UINT32_C(0x00800200) ||
+        bitmap_blue_wrap == nullptr ||
+        bitmap_blue_wrap->blue6 != 63u ||
+        bitmap_blue_wrap->alpha5 != 31u ||
+        !bitmap_blue_wrap->fog_enabled ||
+        depth.depth_at(0u, 6u) != UINT32_C(0x00800000) ||
+        bitmap_xy_wrap == nullptr ||
+        bitmap_xy_wrap->red6 != 63u ||
+        bitmap_xy_wrap->blue6 != 63u ||
+        !bitmap_xy_wrap->fog_enabled ||
+        depth.depth_at(136u, 6u) != UINT32_C(0x00000200) ||
+        bitmap_bottom_wrap == nullptr ||
+        bitmap_bottom_wrap->green6 != 63u ||
+        bitmap_bottom_wrap->alpha5 != 31u ||
+        !bitmap_bottom_wrap->fog_enabled ||
+        depth.depth_at(255u, 191u) != UINT32_C(0x00246800)) {
+        return fail("rear-plane bitmap color/depth/fog/alpha or wrap failed");
+    }
+
+    /* Restore the uniform rear-plane before the polygon composition test. */
     if (display.write(
             NDS_ARM9, NdsDisplayControl::Disp3dControlAddress, 2u,
             static_cast<uint32_t>(
                 NdsDisplayControl::Disp3dAlphaTestEnable |
-                NdsDisplayControl::Disp3dAlphaBlendEnable)) != Status::Ok) {
+                NdsDisplayControl::Disp3dAlphaBlendEnable)) != Status::Ok ||
+        rasterizer.initialize_rear_plane(
+            color, depth, display) != Nds3dRasterStatus::Ok) {
         return fail("uniform rear-plane mode restore failed");
     }
     if (rasterizer.render_scanline_composited(

@@ -114,7 +114,7 @@ int main()
     if (display.write(
             NDS_ARM9, NdsDisplayControl::ClearImageOffsetAddress,
             2u, UINT16_C(0xFFFF)) != Status::Ok ||
-        display.three_d_clear_image_offset() != UINT16_C(0x7FFF) ||
+        display.three_d_clear_image_offset() != UINT16_C(0xFFFF) ||
         display.read(
             NDS_ARM9, NdsDisplayControl::ClearImageOffsetAddress,
             2u).status != Status::PermissionDenied) {
