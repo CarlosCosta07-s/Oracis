@@ -840,7 +840,21 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_composited(
         return Nds3dRasterStatus::Ok;
     }
     if ((geometry_.render_swap_parameters() & UINT8_C(1)) == 0u) {
-        return Nds3dRasterStatus::TranslucentSortingNotSupported;
+        /*
+         * SWAP_BUFFERS bit 0 selects Y-sorting for translucent polygons.
+         * Solid polygons (alpha 31) do not need that ordering: the depth
+         * buffer resolves their visibility. Keep rejecting alpha 1..30 until
+         * the DS-specific translucent sort is implemented.
+         */
+        for (uint32_t index = 0u;
+             index < geometry_.render_polygon_count(); ++index) {
+            const NdsGeometryEngine::Polygon *polygon =
+                geometry_.render_polygon_at(index);
+            if (polygon == nullptr) return Nds3dRasterStatus::InvalidGeometry;
+            if (polygon->alpha > 0u && polygon->alpha < 31u) {
+                return Nds3dRasterStatus::TranslucentSortingNotSupported;
+            }
+        }
     }
 
     CompositedScanlineContext context{

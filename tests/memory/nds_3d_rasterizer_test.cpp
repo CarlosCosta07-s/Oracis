@@ -313,20 +313,19 @@ int main()
     }
 
     /*
-     * The first render buffer uses automatic translucent sorting. Until that
-     * sort exists, the color compositor must fail closed without changing
-     * color or depth.
+     * The first render buffer selected automatic sorting, but every polygon
+     * is solid (alpha 31). Opaque polygons may use the ordinary depth test
+     * without requiring the unsupported translucent Y-sort.
      */
     Nds3dDepthBuffer auto_sort_depth{};
     Nds3dColorBuffer auto_sort_color{};
     if (rasterizer.render_scanline_composited(
             96u, auto_sort_depth, auto_sort_color,
-            true, false, 0u) !=
-            Nds3dRasterStatus::TranslucentSortingNotSupported ||
-        auto_sort_depth.depth_at(127u, 96u) !=
+            true, false, 0u) != Nds3dRasterStatus::Ok ||
+        auto_sort_depth.depth_at(127u, 96u) ==
             Nds3dDepthBuffer::MaximumDepth ||
-        auto_sort_color.pixel_at(127u, 96u)->alpha5 != 0u) {
-        return fail("automatic translucent sorting did not fail closed");
+        auto_sort_color.pixel_at(127u, 96u)->alpha5 != 31u) {
+        return fail("automatic-sort mode rejected a solid-only render buffer");
     }
 
     if (!capture.center.textured ||

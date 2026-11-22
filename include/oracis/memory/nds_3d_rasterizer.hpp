@@ -166,9 +166,10 @@ public:
         void *context) const noexcept;
 
     /*
-     * Composite one scanline into color/depth staging buffers.
-     * Fails closed unless the render buffer requests manual translucent
-     * sorting; automatic Y-sorting is not implemented yet.
+     * Composite one scanline into color/depth staging buffers. Solid-only
+     * buffers render with either SWAP_BUFFERS sort setting; translucent
+     * alpha 1..30 still requires manual order until automatic DS Y-sorting
+     * is implemented.
      */
     Nds3dRasterStatus render_scanline_composited(
         uint16_t scanline,
