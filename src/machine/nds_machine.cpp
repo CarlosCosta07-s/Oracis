@@ -72,8 +72,8 @@ void NdsMachine::on_display_scanline_boundary(
      * GBATEK documents 3D rendering from scanline 214. The first 48 lines
      * must be ready before scanline 262 wraps and output begins at line zero.
      */
-    constexpr uint16_t ThreeDRenderStartScanline = 214u;
-    if (current_scanline == ThreeDRenderStartScanline) {
+    /* Latch the completed display frame's FIFO low-water at VBlank. */
+    if (current_scanline == memory::NdsDisplayControl::VisibleScanlines) {
         std::size_t minimum_queued_lines = 0u;
         if (three_d_scanline_cache_.finish_low_water_tracking(
                 minimum_queued_lines)) {
@@ -82,6 +82,10 @@ void NdsMachine::on_display_scanline_boundary(
             display_control_.set_three_d_rendered_line_count(
                 static_cast<uint8_t>(adjusted_count > 46u ? 46u : adjusted_count));
         }
+    }
+
+    constexpr uint16_t ThreeDRenderStartScanline = 214u;
+    if (current_scanline == ThreeDRenderStartScanline) {
         if (!bg0_three_d_enabled) {
             three_d_scanline_sequence_initialized_ = false;
             return;
