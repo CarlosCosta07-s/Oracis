@@ -80,3 +80,21 @@ The 48-line FIFO and BG0 seam are implemented and tested, but cycle-accurate sch
 ## Hardware reference
 
 Register bitfields, texture formats and VRAM slot allocation are cross-checked against [GBATEK — Nintendo DS 3D Video](https://mgba-emu.github.io/gbatek/#ds-3d-video).
+
+
+## Scanline-clock producer
+
+The 48-line Engine A BG0 cache is no longer dependent solely on a host call to
+render a lookahead batch. NdsDisplayControl can notify the owning machine at
+each synchronized scanline boundary. NdsSystemClock now advances the display
+and geometry devices in scanline-sized quanta, processing geometry time before
+the display boundary callback and releasing SWAP_BUFFERS at the line-192
+VBlank edge. At the natural 262-to-0 frame wrap, the machine initializes the
+rear plane and primes the first 48 lines; subsequent visible-line boundaries
+refill available FIFO slots while a full FIFO applies back-pressure.
+
+This is event-synchronized at scanline granularity, not cycle-accurate polygon
+rasterization. The callback does not claim to model the hardware's internal
+rendering latency, RDLINES_COUNT history, or DISP3DCNT underflow/overflow
+status. A host request can still initialize the pipeline when BG0-3D is enabled
+mid-frame.
