@@ -324,6 +324,7 @@ Status NdsGeometryEngine::install() noexcept
     current_texture_s_ = 0;
     current_texture_t_ = 0;
     current_texture_parameters_ = 0u;
+    current_texture_palette_base_ = 0u;
     texture_transform_mode_ = 0u;
     buffers_ = {};
     build_buffer_index_ = 0u;
@@ -1563,6 +1564,7 @@ void NdsGeometryEngine::emit_polygon(
     Polygon polygon{};
     polygon.attributes = active_polygon_attributes_;
     polygon.texture_parameters = current_texture_parameters_;
+    polygon.texture_palette_base = current_texture_palette_base_;
     polygon.vertex_count = clipped_count;
     polygon.far_plane_intersection = far_plane_intersection;
     polygon.light_enable_mask = static_cast<uint8_t>(
@@ -1824,6 +1826,9 @@ void NdsGeometryEngine::execute_active_command() noexcept
         current_texture_parameters_ = active_parameters_[0];
         texture_transform_mode_ = static_cast<uint8_t>(
             (current_texture_parameters_ >> 30u) & UINT32_C(3));
+    } else if (active_command_ == 0x2Bu) {
+        current_texture_palette_base_ = static_cast<uint16_t>(
+            active_parameters_[0] & UINT32_C(0x1FFF));
     } else if (active_command_ == 0x40u) {
         begin_vertex_list(active_parameters_[0]);
     } else if (active_command_ == 0x41u) {
