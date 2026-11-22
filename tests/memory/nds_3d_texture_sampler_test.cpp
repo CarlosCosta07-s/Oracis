@@ -39,6 +39,9 @@ int main()
             NDS_ARM9, NdsVramControl::VramCntAAddress, 1u, UINT32_C(0x80)) !=
             Status::Ok ||
         vram.write(
+            NDS_ARM9, NdsVramControl::VramCntBAddress, 1u, UINT32_C(0x80)) !=
+            Status::Ok ||
+        vram.write(
             NDS_ARM9, NdsVramControl::VramCntEAddress, 1u, UINT32_C(0x80)) !=
             Status::Ok ||
         vram.write(
@@ -55,7 +58,13 @@ int main()
         !write_halfword(memory, UINT32_C(0x06800180), UINT16_C(0x0002)) ||
         !write_halfword(memory, UINT32_C(0x06800200), UINT16_C(0x0003)) ||
         !write_halfword(memory, UINT32_C(0x06800280), UINT16_C(0x0004)) ||
-        !write_halfword(memory, UINT32_C(0x06800300), UINT16_C(0x00FB))) {
+        !write_halfword(memory, UINT32_C(0x06800300), UINT16_C(0x00FB)) ||
+        !write_halfword(memory, UINT32_C(0x06804000), UINT16_C(0x000E)) ||
+        !write_halfword(memory, UINT32_C(0x06804002), UINT16_C(0x0000)) ||
+        !write_halfword(memory, UINT32_C(0x06804004), UINT16_C(0x000E)) ||
+        !write_halfword(memory, UINT32_C(0x06804006), UINT16_C(0x0000)) ||
+        !write_halfword(memory, UINT32_C(0x06804008), UINT16_C(0x000F)) ||
+        !write_halfword(memory, UINT32_C(0x0680400A), UINT16_C(0x0000))) {
         return fail("synthetic texture data could not be written");
     }
 
@@ -64,12 +73,21 @@ int main()
         !write_halfword(memory, UINT32_C(0x0688000C), UINT16_C(0x7C00)) ||
         !write_halfword(memory, UINT32_C(0x06880036), UINT16_C(0x03FF)) ||
         !write_halfword(memory, UINT32_C(0x06880048), UINT16_C(0x7FE0)) ||
-        !write_halfword(memory, UINT32_C(0x06890006), UINT16_C(0x4210))) {
+        !write_halfword(memory, UINT32_C(0x06880000), UINT16_C(0x001F)) ||
+        !write_halfword(memory, UINT32_C(0x06880002), UINT16_C(0x7C00)) ||
+        !write_halfword(memory, UINT32_C(0x06880006), UINT16_C(0x03E0)) ||
+        !write_halfword(memory, UINT32_C(0x06890006), UINT16_C(0x4210)) ||
+        !write_halfword(memory, UINT32_C(0x06882000), UINT16_C(0x4000)) ||
+        !write_halfword(memory, UINT32_C(0x06882002), UINT16_C(0xC000)) ||
+        !write_halfword(memory, UINT32_C(0x06882004), UINT16_C(0x8000))) {
         return fail("synthetic texture palette could not be written");
     }
 
     if (vram.write(
             NDS_ARM9, NdsVramControl::VramCntAAddress, 1u, UINT32_C(0x83)) !=
+            Status::Ok ||
+        vram.write(
+            NDS_ARM9, NdsVramControl::VramCntBAddress, 1u, UINT32_C(0x8B)) !=
             Status::Ok ||
         vram.write(
             NDS_ARM9, NdsVramControl::VramCntEAddress, 1u, UINT32_C(0x83)) !=
@@ -206,11 +224,44 @@ int main()
         return fail("no-texture format was not reported distinctly");
     }
 
-    const Nds3dTextureSample compressed =
-        sampler.sample(
-            (UINT32_C(5) << 26u), 0u, 0, 0);
-    if (compressed.status != Nds3dTextureSampleStatus::UnsupportedFormat) {
-        return fail("compressed format did not fail closed");
+    /*
+     * 4x4 compressed textures use packed 2bpp blocks in slot 0 and
+     * per-block metadata in the lower half of texture slot 1.
+     */
+    const uint32_t compressed_parameters =
+        (UINT32_C(5) << 26u) | UINT32_C(0x800);
+    const Nds3dTextureSample compressed_mode1_color2 =
+        sampler.sample(compressed_parameters, 0u, 0, 0);
+    const Nds3dTextureSample compressed_mode1_transparent =
+        sampler.sample(compressed_parameters, 0u, 16, 0);
+    if (compressed_mode1_color2.status != Nds3dTextureSampleStatus::Ok ||
+        compressed_mode1_color2.color_rgb555 !=
+            static_cast<uint16_t>(UINT16_C(15) | (UINT16_C(15) << 10u)) ||
+        compressed_mode1_transparent.status != Nds3dTextureSampleStatus::Ok ||
+        !compressed_mode1_transparent.transparent ||
+        compressed_mode1_transparent.alpha != 0u) {
+        return fail("4x4 compressed mode-1 interpolation/transparency failed");
+    }
+
+    /* Mode 2 keeps texel 3 opaque and addresses all four palette colors. */
+    const Nds3dTextureSample compressed_mode2_color3 =
+        sampler.sample(compressed_parameters, 0u, 0, 64);
+    if (compressed_mode2_color3.status != Nds3dTextureSampleStatus::Ok ||
+        compressed_mode2_color3.color_rgb555 != UINT16_C(0x03E0) ||
+        compressed_mode2_color3.transparent) {
+        return fail("4x4 compressed mode-2 fourth palette color failed");
+    }
+
+    /* Mode 3 uses the documented 5:3 and 3:5 weighted colors. */
+    const Nds3dTextureSample compressed_mode3_color2 =
+        sampler.sample(compressed_parameters, 0u, 64, 0);
+    const Nds3dTextureSample compressed_mode3_color3 =
+        sampler.sample(compressed_parameters, 0u, 80, 0);
+    if (compressed_mode3_color2.status != Nds3dTextureSampleStatus::Ok ||
+        compressed_mode3_color2.color_rgb555 != UINT16_C(19) ||
+        compressed_mode3_color3.status != Nds3dTextureSampleStatus::Ok ||
+        compressed_mode3_color3.color_rgb555 != UINT16_C(11)) {
+        return fail("4x4 compressed mode-3 weighted colors failed");
     }
 
     if (vram.write(
