@@ -735,6 +735,7 @@ Status NdsDisplayControl::write(
 
 void NdsDisplayControl::advance_scanline() noexcept
 {
+    const uint16_t previous_scanline = vcount_;
     const std::array<bool, 2> vcount_match_before = {
         vcount_matches(0u), vcount_matches(1u)
     };
@@ -814,6 +815,11 @@ void NdsDisplayControl::advance_scanline() noexcept
     }
 
     hblank_irq_fired_ = {};
+    if (scanline_observer_ != nullptr) {
+        scanline_observer_(
+            scanline_observer_context_, previous_scanline, vcount_,
+            natural_frame_wrap);
+    }
 }
 
 void NdsDisplayControl::advance_bus_cycles(uint64_t cycles) noexcept
