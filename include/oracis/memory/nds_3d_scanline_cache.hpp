@@ -52,6 +52,10 @@ public:
     Nds3dScanlineCacheStatus consume(
         uint16_t expected_scanline) noexcept;
 
+    /* Measure the minimum queued-line count across one displayed frame. */
+    void begin_low_water_tracking() noexcept;
+    bool finish_low_water_tracking(std::size_t &minimum_queued_lines) noexcept;
+
     std::size_t queued_lines() const noexcept { return count_; }
     std::size_t free_lines() const noexcept { return Capacity - count_; }
     bool empty() const noexcept { return count_ == 0u; }
@@ -75,6 +79,8 @@ private:
     std::size_t count_ = 0u;
     uint16_t next_producer_scanline_ = 0u;
     uint16_t next_consumer_scanline_ = 0u;
+    std::size_t minimum_queued_lines_ = Capacity;
+    bool low_water_tracking_ = false;
 };
 
 } // namespace oracis::memory
