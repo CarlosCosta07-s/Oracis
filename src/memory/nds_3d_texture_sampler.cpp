@@ -128,10 +128,6 @@ Nds3dTextureSample Nds3dTextureSampler::sample(
         result.transparent = false;
         return result;
     }
-    if (format == 5u) {
-        /* 4x4 block metadata is decoded in a separate follow-up stage. */
-        return failure(Nds3dTextureSampleStatus::UnsupportedFormat);
-    }
     const uint32_t width = UINT32_C(8) <<
         ((texture_parameters >> 20u) & UINT32_C(7));
     const uint32_t height = UINT32_C(8) <<
@@ -166,6 +162,149 @@ Nds3dTextureSample Nds3dTextureSampler::sample(
         }
         return read_texture_byte(static_cast<uint32_t>(address));
     };
+
+    if (format == 5u) {
+        const uint32_t image_slot = static_cast<uint32_t>(
+            texture_base / NdsVramControl::BankSize);
+        const uint32_t slot_offset = static_cast<uint32_t>(
+            texture_base % NdsVramControl::BankSize);
+        if ((image_slot != 0u && image_slot != 2u) ||
+            (width > 512u && height > 512u)) {
+            return failure(Nds3dTextureSampleStatus::InvalidParameters);
+        }
+
+        const uint32_t blocks_per_row = width / 4u;
+        const uint64_t block_index =
+            static_cast<uint64_t>(y / 4u) * blocks_per_row + (x / 4u);
+        const uint64_t block_offset =
+            static_cast<uint64_t>(slot_offset) + block_index * 4u;
+        if (block_offset + 4u > NdsVramControl::BankSize) {
+            return failure(Nds3dTextureSampleStatus::InvalidParameters);
+        }
+
+        uint32_t block_texels = 0u;
+        for (uint32_t byte = 0u; byte < 4u; ++byte) {
+            const ReadResult part = vram_.read_texture_slot_byte(
+                static_cast<uint8_t>(image_slot),
+                static_cast<uint32_t>(block_offset + byte));
+            if (part.status != Status::Ok) {
+                return failure(map_vram_status(part.status));
+            }
+            block_texels |=
+                (part.value & UINT32_C(0xFF)) << (byte * 8u);
+        }
+
+        /*
+         * The metadata for Slot 0 is in the lower half of texture Slot 1;
+         * Slot 2 uses the upper half. Every four-byte texel block has a
+         * corresponding 16-bit palette-index/mode entry.
+         */
+        const uint64_t metadata_offset =
+            (image_slot == 2u ? UINT64_C(0x10000) : 0u) +
+            (slot_offset / 2u) + block_index * 2u;
+        if (metadata_offset + 2u > NdsVramControl::BankSize) {
+            return failure(Nds3dTextureSampleStatus::InvalidParameters);
+        }
+        const ReadResult metadata_low = vram_.read_texture_slot_byte(
+            1u, static_cast<uint32_t>(metadata_offset));
+        const ReadResult metadata_high = vram_.read_texture_slot_byte(
+            1u, static_cast<uint32_t>(metadata_offset + 1u));
+        if (metadata_low.status != Status::Ok ||
+            metadata_high.status != Status::Ok) {
+            const Status failed_status =
+                metadata_low.status != Status::Ok
+                    ? metadata_low.status : metadata_high.status;
+            return failure(map_vram_status(failed_status));
+        }
+        const uint32_t metadata =
+            (metadata_low.value & UINT32_C(0xFF)) |
+            ((metadata_high.value & UINT32_C(0xFF)) << 8u);
+        const uint32_t palette_index_base =
+            (metadata & UINT32_C(0x3FFF)) * 4u;
+        const uint8_t interpolation_mode = static_cast<uint8_t>(
+            metadata >> 14u);
+        const uint32_t local_texel =
+            ((y & 3u) * 4u) + (x & 3u);
+        const uint8_t texel_index_2bpp = static_cast<uint8_t>(
+            (block_texels >> (local_texel * 2u)) & UINT32_C(3));
+
+        if ((interpolation_mode == 0u || interpolation_mode == 1u) &&
+            texel_index_2bpp == 3u) {
+            Nds3dTextureSample transparent{};
+            transparent.status = Nds3dTextureSampleStatus::Ok;
+            transparent.alpha = 0u;
+            transparent.has_texture = true;
+            transparent.transparent = true;
+            return transparent;
+        }
+
+        const uint64_t palette_block_address =
+            palette_address + palette_index_base;
+        if (palette_block_address > UINT32_MAX) {
+            return failure(Nds3dTextureSampleStatus::InvalidParameters);
+        }
+        const auto read_compressed_color = [&](
+            uint8_t color_index) noexcept {
+            const uint64_t address = palette_block_address +
+                static_cast<uint64_t>(color_index) * 2u;
+            if (address > UINT32_MAX) {
+                return ReadResult{Status::AddressOverflow, 0u};
+            }
+            return vram_.read_texture_palette_halfword(
+                static_cast<uint32_t>(address));
+        };
+
+        const auto sample_from_color = [](
+            uint16_t color) noexcept {
+            Nds3dTextureSample result{};
+            result.status = Nds3dTextureSampleStatus::Ok;
+            result.color_rgb555 = static_cast<uint16_t>(
+                color & UINT16_C(0x7FFF));
+            result.alpha = 31u;
+            result.has_texture = true;
+            result.transparent = false;
+            return result;
+        };
+
+        if (texel_index_2bpp <= 1u ||
+            interpolation_mode == 0u ||
+            interpolation_mode == 2u) {
+            const ReadResult selected = read_compressed_color(
+                texel_index_2bpp);
+            if (selected.status != Status::Ok) {
+                return failure(map_vram_status(selected.status));
+            }
+            return sample_from_color(static_cast<uint16_t>(selected.value));
+        }
+
+        const ReadResult color0 = read_compressed_color(0u);
+        const ReadResult color1 = read_compressed_color(1u);
+        if (color0.status != Status::Ok || color1.status != Status::Ok) {
+            const Status failed_status = color0.status != Status::Ok
+                ? color0.status : color1.status;
+            return failure(map_vram_status(failed_status));
+        }
+
+        const uint32_t weight0 =
+            interpolation_mode == 1u
+                ? 1u
+                : (texel_index_2bpp == 2u ? 5u : 3u);
+        const uint32_t weight1 = 8u - weight0;
+        const uint16_t first = static_cast<uint16_t>(color0.value);
+        const uint16_t second = static_cast<uint16_t>(color1.value);
+        uint16_t blended = 0u;
+        for (uint32_t shift : {0u, 5u, 10u}) {
+            const uint32_t first_channel =
+                (static_cast<uint32_t>(first) >> shift) & UINT32_C(0x1F);
+            const uint32_t second_channel =
+                (static_cast<uint32_t>(second) >> shift) & UINT32_C(0x1F);
+            const uint32_t channel =
+                (first_channel * weight0 + second_channel * weight1) / 8u;
+            blended = static_cast<uint16_t>(
+                blended | static_cast<uint16_t>(channel << shift));
+        }
+        return sample_from_color(blended);
+    }
 
     if (format == 7u) {
         const uint64_t address =
