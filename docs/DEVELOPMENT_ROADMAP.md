@@ -185,3 +185,6 @@ The DISP3DCNT polygon/vertex RAM overflow bit is now connected to actual
 Geometry Engine submission failures. The machine integration test fills the
 2,048-polygon buffer with valid triangles, submits one additional triangle,
 and checks that bit 13 is latched.
+
+
+RDLINES_COUNT (0x04000320) is now readable by ARM9 as a read-only byte. The machine measures the minimum BG0 FIFO occupancy after consumption during one displayed frame and publishes the clamped, minus-two value in the 0..46 range at the next scanline-214 pre-render event. This is a scanline-level low-water approximation, not a cycle-accurate implementation of the hardware's internal FIFO sampling latency.
