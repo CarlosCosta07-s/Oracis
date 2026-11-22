@@ -254,6 +254,16 @@ public:
 private:
     static bool valid_cpu(NdsCpu cpu) noexcept;
     static unsigned cpu_index(NdsCpu cpu) noexcept;
+    static void display_scanline_observer(
+        void *context, uint16_t previous_scanline,
+        uint16_t current_scanline, bool natural_frame_wrap) noexcept;
+    void on_display_scanline_boundary(
+        uint16_t previous_scanline, uint16_t current_scanline,
+        bool natural_frame_wrap) noexcept;
+    memory::Nds3dRasterStatus reset_3d_bg0_scanline_sequence(
+        uint16_t first_scanline) noexcept;
+    memory::Nds3dRasterStatus fill_3d_bg0_lookahead(
+        uint16_t scanline) noexcept;
     void sync_arm9_tcm_timing_state() noexcept;
     NdsMachineStatus begin_interrupt_wait(
         NdsCpu cpu, uint32_t clear_old_flags,
