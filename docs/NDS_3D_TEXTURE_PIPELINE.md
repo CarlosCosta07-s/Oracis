@@ -95,10 +95,10 @@ frame wrap begins output at line zero. Subsequent visible-line boundaries
 refill available FIFO slots while a full FIFO applies back-pressure.
 
 This is event-synchronized at scanline granularity, not cycle-accurate polygon
-rasterization. The callback does not claim to model the hardware's internal
-rendering latency, RDLINES_COUNT history, or DISP3DCNT underflow/overflow
-status. A host request can still initialize the pipeline when BG0-3D is enabled
-mid-frame.
+rasterization. It does not model the hardware's internal rendering latency or
+the sub-scanline sampling timing used by RDLINES_COUNT and DISP3DCNT status.
+RDLINES_COUNT is a previous-frame FIFO low-water approximation. A host request
+can still initialize the pipeline when BG0-3D is enabled mid-frame.
 
 
 ## DISP3DCNT sticky status
