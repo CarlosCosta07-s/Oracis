@@ -631,6 +631,56 @@ int main()
         return fail("POLYGON_ATTR alpha zero was not identified as wireframe");
     }
 
+    /*
+     * Automatic sorting remains unsupported for translucent polygons.
+     * Alpha 1..30 is translucent by POLYGON_ATTR definition; this fourth
+     * render buffer must therefore fail closed without touching color/depth.
+     */
+    if (!write_command(geometry, 0x2Au, 0u)) {
+        return fail("translucent fixture could not disable texture mapping");
+    }
+    geometry.advance_bus_cycles(1u);
+    if (!write_command(geometry, 0x29u,
+            (UINT32_C(30) << 16u) | (UINT32_C(1) << 7u) |
+                (UINT32_C(5) << 24u)) ||
+        !write_command(geometry, 0x40u, 0u)) {
+        return fail("translucent POLYGON_ATTR/BEGIN_VTXS enqueue failed");
+    }
+    geometry.advance_bus_cycles(2u);
+    for (unsigned index = 0u; index < positions.size(); ++index) {
+        if (!write_command(geometry, 0x20u, UINT32_C(0x03E0)) ||
+            !write_command(geometry, 0x24u, positions[index])) {
+            return fail("translucent triangle parameter enqueue failed");
+        }
+        geometry.advance_bus_cycles(9u);
+    }
+    if (geometry.polygon_count() != 1u ||
+        !write_command(geometry, 0x50u, 0u)) {
+        return fail("translucent polygon or fourth SWAP_BUFFERS enqueue failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    if (!geometry.swap_waiting_for_vblank()) {
+        return fail("translucent SWAP_BUFFERS did not wait for VBlank");
+    }
+    geometry.notify_vblank();
+    geometry.advance_bus_cycles(392u);
+
+    Nds3dDepthBuffer translucent_auto_sort_depth{};
+    Nds3dColorBuffer translucent_auto_sort_color{};
+    if (geometry.render_polygon_count() != 1u ||
+        geometry.render_swap_parameters() != 0u ||
+        geometry.render_polygon_at(0u) == nullptr ||
+        geometry.render_polygon_at(0u)->alpha != 30u ||
+        rasterizer.render_scanline_composited(
+            96u, translucent_auto_sort_depth,
+            translucent_auto_sort_color, true, false, 0u) !=
+            Nds3dRasterStatus::TranslucentSortingNotSupported ||
+        translucent_auto_sort_depth.depth_at(127u, 96u) !=
+            Nds3dDepthBuffer::MaximumDepth ||
+        translucent_auto_sort_color.pixel_at(127u, 96u)->alpha5 != 0u) {
+        return fail("automatic Y-sort did not fail closed for translucent polygons");
+    }
+
     std::puts("NDS 3D rasterizer tests passed");
     return 0;
 }
