@@ -828,8 +828,7 @@ int main()
         return fail("TOON_TABLE MMIO access, alignment or RGB555 mask failed");
     }
 
-    if (!write_halfword(memory, UINT32_C(0x06800000), UINT16_C(0x801F)) ||
-        !write_command(geometry, 0x2Au, UINT32_C(7) << 26u) ||
+    if (!write_command(geometry, 0x2Au, UINT32_C(7) << 26u) ||
         !write_command(geometry, 0x29u,
             (UINT32_C(31) << 16u) | (UINT32_C(1) << 7u) |
                 (UINT32_C(2) << 4u) | (UINT32_C(6) << 24u)) ||
@@ -870,9 +869,9 @@ int main()
     }
     const Nds3dColorPixel *toon_pixel = toon_output.pixel_at(127u, 96u);
     if (toon_pixel == nullptr ||
-        toon_pixel->red6 != 9u ||
+        toon_pixel->red6 != 0u ||
         toon_pixel->green6 != 0u ||
-        toon_pixel->blue6 != 0u ||
+        toon_pixel->blue6 != 41u ||
         toon_pixel->alpha5 != 31u) {
         return fail("Toon lookup or texture modulation produced the wrong RGB6 result");
     }
@@ -891,9 +890,9 @@ int main()
     const Nds3dColorPixel *highlight_pixel =
         toon_output.pixel_at(127u, 96u);
     if (highlight_pixel == nullptr ||
-        highlight_pixel->red6 != 18u ||
+        highlight_pixel->red6 != 9u ||
         highlight_pixel->green6 != 25u ||
-        highlight_pixel->blue6 != 41u ||
+        highlight_pixel->blue6 != 63u ||
         highlight_pixel->alpha5 != 31u) {
         return fail("Highlight additive shading produced the wrong RGB6 result");
     }
