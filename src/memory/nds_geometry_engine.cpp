@@ -772,6 +772,13 @@ void NdsGeometryEngine::notify_vblank() noexcept
         return;
     }
 
+    /*
+     * SWAP_BUFFERS parameters configure the Geometry Engine for the next
+     * buffer. Preserve the previous settings on the geometry being handed
+     * to the Rendering Engine.
+     */
+    buffers_[build_buffer_index_].swap_parameters = swap_parameters_;
+
     const uint8_t old_build = build_buffer_index_;
     build_buffer_index_ = render_buffer_index_;
     render_buffer_index_ = old_build;

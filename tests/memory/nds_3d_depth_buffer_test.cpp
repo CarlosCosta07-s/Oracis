@@ -57,6 +57,20 @@ int main()
     }
 
     depth.clear(UINT32_C(0x00500000));
+    fragment.w_buffer = true;
+    fragment.depth24 = UINT32_C(0x005000FF);
+    if (!depth.test_and_update(fragment)) {
+        return fail("W Depth Equal rejected its inclusive +/-0xFF boundary");
+    }
+
+    depth.clear(UINT32_C(0x00500000));
+    fragment.depth24 = UINT32_C(0x00500100);
+    if (depth.test_and_update(fragment)) {
+        return fail("W Depth Equal accepted a value outside the +/-0xFF tolerance");
+    }
+
+    depth.clear(UINT32_C(0x00500000));
+    fragment.w_buffer = false;
     fragment.depth_equal = false;
     fragment.depth24 = UINT32_C(0x00500000);
     if (depth.test_and_update(fragment)) {

@@ -45,6 +45,7 @@ struct Nds3dFragment {
     bool textured = false;
     bool depth_equal = false;
     bool translucent_depth_write = false;
+    bool w_buffer = false;
 };
 
 using Nds3dFragmentCallback = void (*)(
@@ -61,6 +62,7 @@ public:
     static constexpr uint32_t ScreenHeight = 192u;
     static constexpr uint32_t MaximumDepth = UINT32_C(0x00FFFFFF);
     static constexpr uint32_t DepthEqualTolerance = UINT32_C(0x200);
+    static constexpr uint32_t WDepthEqualTolerance = UINT32_C(0x0FF);
 
     Nds3dDepthBuffer() noexcept = default;
     Nds3dDepthBuffer(const Nds3dDepthBuffer &) = delete;
@@ -95,6 +97,16 @@ public:
      */
     Nds3dRasterStatus render_scanline(
         uint16_t scanline,
+        Nds3dFragmentCallback callback,
+        void *context) const noexcept;
+
+    /*
+     * Rasterize and forward only fragments that pass the scanline depth
+     * buffer. The caller owns the depth buffer lifetime and clear policy.
+     */
+    Nds3dRasterStatus render_scanline_depth_tested(
+        uint16_t scanline,
+        Nds3dDepthBuffer &depth_buffer,
         Nds3dFragmentCallback callback,
         void *context) const noexcept;
 

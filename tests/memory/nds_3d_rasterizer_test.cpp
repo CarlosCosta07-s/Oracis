@@ -44,8 +44,10 @@ struct Capture {
     bool center_seen = false;
     bool decal_transparent_texel_center_seen = false;
     bool transparent_modulate_texel_center_seen = false;
+    bool w_buffer_center_seen = false;
     oracis::memory::Nds3dFragment center{};
     oracis::memory::Nds3dFragment decal_center{};
+    oracis::memory::Nds3dFragment w_buffer_center{};
 };
 
 void capture_fragment(
@@ -66,6 +68,10 @@ void capture_fragment(
         }
         if (fragment.polygon_id == 3u) {
             capture->transparent_modulate_texel_center_seen = true;
+        }
+        if (fragment.polygon_id == 4u) {
+            capture->w_buffer_center_seen = true;
+            capture->w_buffer_center = fragment;
         }
     }
 }
@@ -230,7 +236,7 @@ int main()
     }
 
     if (geometry.polygon_count() != 3u ||
-        !write_command(geometry, 0x50u, 0u)) {
+        !write_command(geometry, 0x50u, UINT32_C(2))) {
         return fail("three triangles or SWAP_BUFFERS enqueue failed");
     }
     geometry.advance_bus_cycles(1u);
@@ -240,8 +246,10 @@ int main()
     geometry.notify_vblank();
     geometry.advance_bus_cycles(392u);
     if (geometry.render_polygon_count() != 3u ||
-        geometry.render_vertex_count() != 9u) {
-        return fail("SWAP_BUFFERS did not publish the render buffer");
+        geometry.render_vertex_count() != 9u ||
+        geometry.render_swap_parameters() != 0u ||
+        geometry.swap_parameters() != 2u) {
+        return fail("SWAP_BUFFERS did not preserve render-buffer mode separately from next-build mode");
     }
 
     Nds3dTextureSampler textures(vram);
@@ -284,8 +292,67 @@ int main()
     }
 
     /*
+     * Build a second frame after the first SWAP_BUFFERS selected W buffering.
+     * The second swap requests Z for the following build, but the published
+     * render buffer must retain the W option used while this polygon was built.
+     */
+    if (!write_command(geometry, 0x29u,
+            (UINT32_C(31) << 16u) | (UINT32_C(1) << 7u) |
+                (UINT32_C(4) << 24u))) {
+        return fail("W-buffer POLYGON_ATTR enqueue failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    if (!write_command(geometry, 0x40u, 0u)) {
+        return fail("W-buffer BEGIN_VTXS enqueue failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    for (unsigned index = 0u; index < positions.size(); ++index) {
+        if (!write_command(geometry, 0x22u, texture_s[index])) {
+            return fail("W-buffer TEXCOORD enqueue failed");
+        }
+        geometry.advance_bus_cycles(1u);
+        if (!write_command(geometry, 0x20u, UINT32_C(0x7FFF))) {
+            return fail("W-buffer COLOR enqueue failed");
+        }
+        geometry.advance_bus_cycles(1u);
+        if (!write_command(geometry, 0x24u, positions[index])) {
+            return fail("W-buffer VTX_10 enqueue failed");
+        }
+        geometry.advance_bus_cycles(8u);
+    }
+    if (geometry.polygon_count() != 1u ||
+        !write_command(geometry, 0x50u, 0u)) {
+        return fail("W-buffer polygon or second SWAP_BUFFERS enqueue failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    if (!geometry.swap_waiting_for_vblank()) {
+        return fail("W-buffer SWAP_BUFFERS did not wait for VBlank");
+    }
+    geometry.notify_vblank();
+    geometry.advance_bus_cycles(392u);
+    if (geometry.render_polygon_count() != 1u ||
+        geometry.render_swap_parameters() != 2u ||
+        geometry.swap_parameters() != 0u) {
+        return fail("W-buffer mode was not retained with the second render buffer");
+    }
+
+    Nds3dDepthBuffer depth{};
+    Capture w_capture{};
+    if (rasterizer.render_scanline_depth_tested(
+            96u, depth, capture_fragment, &w_capture) !=
+            Nds3dRasterStatus::Ok ||
+        !w_capture.w_buffer_center_seen ||
+        !w_capture.w_buffer_center.w_buffer ||
+        w_capture.w_buffer_center.depth24 == 0u ||
+        w_capture.w_buffer_center.depth24 >= UINT32_C(0x7FFFF0) ||
+        depth.depth_at(127u, 96u) != w_capture.w_buffer_center.depth24) {
+        return fail("W-buffer perspective depth or depth-tested callback was incorrect");
+    }
+
+    /*
      * POLYGON_ATTR alpha=0 selects wireframe mode. The current line/edge
      * rasterizer is intentionally incomplete and must report this explicitly.
+     * The second SWAP selected Z for this third build buffer.
      */
     if (!write_command(geometry, 0x29u,
             (UINT32_C(1) << 7u) | (UINT32_C(3) << 24u))) {
@@ -312,7 +379,7 @@ int main()
     }
     if (geometry.polygon_count() != 1u ||
         !write_command(geometry, 0x50u, 0u)) {
-        return fail("wireframe polygon or second SWAP_BUFFERS enqueue failed");
+        return fail("wireframe polygon or third SWAP_BUFFERS enqueue failed");
     }
     geometry.advance_bus_cycles(1u);
     if (!geometry.swap_waiting_for_vblank()) {
@@ -321,6 +388,7 @@ int main()
     geometry.notify_vblank();
     geometry.advance_bus_cycles(392u);
     if (geometry.render_polygon_count() != 1u ||
+        geometry.render_swap_parameters() != 0u ||
         rasterizer.render_scanline(
             96u, capture_fragment, &capture) !=
             Nds3dRasterStatus::WireframeNotSupported) {

@@ -88,6 +88,46 @@ uint32_t interpolate_depth(
         value / area, 0, kMaximumDepth));
 }
 
+uint32_t interpolate_w_buffer_depth(
+    const std::array<const NdsGeometryEngine::Vertex *, 3> &vertices,
+    const std::array<int64_t, 3> &weights,
+    int64_t area) noexcept
+{
+    if (area <= 0) return Nds3dRasterizer::MaximumDepth;
+
+    int64_t minimum_w = std::numeric_limits<int64_t>::max();
+    for (const auto *vertex : vertices) {
+        const int64_t w = vertex->clip_position[3];
+        if (w <= 0) return Nds3dRasterizer::MaximumDepth;
+        minimum_w = std::min(minimum_w, w);
+    }
+
+    /*
+     * Reconstruct W from linearly interpolated reciprocal W. The common
+     * minimum-W scale keeps the denominator bounded and avoids overflowing
+     * the signed 64-bit accumulator for large clip-space coordinates.
+     */
+    long double reciprocal_sum = 0.0L;
+    for (unsigned index = 0u; index < 3u; ++index) {
+        const long double reciprocal =
+            static_cast<long double>(minimum_w) /
+            static_cast<long double>(vertices[index]->clip_position[3]);
+        reciprocal_sum +=
+            static_cast<long double>(weights[index]) * reciprocal;
+    }
+    if (!(reciprocal_sum > 0.0L)) {
+        return Nds3dRasterizer::MaximumDepth;
+    }
+
+    const long double depth =
+        (static_cast<long double>(area) *
+         static_cast<long double>(minimum_w)) / reciprocal_sum;
+    return static_cast<uint32_t>(std::clamp(
+        std::round(depth),
+        0.0L,
+        static_cast<long double>(Nds3dRasterizer::MaximumDepth)));
+}
+
 uint16_t interpolate_color_channel(
     const std::array<int64_t, 3> &weights,
     const std::array<uint16_t, 3> &colors,
@@ -225,6 +265,7 @@ Nds3dRasterStatus rasterize_triangle_scanline(
     const NdsGeometryEngine::Polygon &polygon,
     const Nds3dTextureSampler &textures,
     uint16_t scanline,
+    bool w_buffer,
     Nds3dFragmentCallback callback,
     void *context) noexcept
 {
@@ -337,8 +378,10 @@ Nds3dRasterStatus rasterize_triangle_scanline(
         Nds3dFragment fragment{};
         fragment.x = static_cast<uint8_t>(x);
         fragment.y = static_cast<uint8_t>(scanline);
-        fragment.depth24 = interpolate_depth(
-            weights, vertex_depths, area);
+        fragment.depth24 = w_buffer
+            ? interpolate_w_buffer_depth(vertices, weights, area)
+            : interpolate_depth(weights, vertex_depths, area);
+        fragment.w_buffer = w_buffer;
         fragment.polygon_id = polygon.polygon_id;
         fragment.fog_enabled = polygon.fog_enabled;
         fragment.depth_equal = polygon.depth_equal;
@@ -360,6 +403,28 @@ Nds3dRasterStatus rasterize_triangle_scanline(
     }
 
     return Nds3dRasterStatus::Ok;
+}
+
+} // namespace
+
+namespace {
+
+struct DepthTestedCallbackContext {
+    Nds3dDepthBuffer *depth_buffer = nullptr;
+    Nds3dFragmentCallback callback = nullptr;
+    void *callback_context = nullptr;
+};
+
+void forward_depth_passed_fragment(
+    void *opaque,
+    const Nds3dFragment &fragment) noexcept
+{
+    auto *context = static_cast<DepthTestedCallbackContext *>(opaque);
+    if (context != nullptr && context->depth_buffer != nullptr &&
+        context->callback != nullptr &&
+        context->depth_buffer->test_and_update(fragment)) {
+        context->callback(context->callback_context, fragment);
+    }
 }
 
 } // namespace
@@ -386,7 +451,10 @@ bool Nds3dDepthBuffer::test_and_update(
         const uint32_t difference = previous > fragment.depth24
             ? previous - fragment.depth24
             : fragment.depth24 - previous;
-        passes = difference <= DepthEqualTolerance;
+        const uint32_t tolerance = fragment.w_buffer
+            ? WDepthEqualTolerance
+            : DepthEqualTolerance;
+        passes = difference <= tolerance;
     } else {
         passes = fragment.depth24 < previous;
     }
@@ -411,6 +479,21 @@ uint32_t Nds3dDepthBuffer::depth_at(
     return depths_[index];
 }
 
+Nds3dRasterStatus Nds3dRasterizer::render_scanline_depth_tested(
+    uint16_t scanline,
+    Nds3dDepthBuffer &depth_buffer,
+    Nds3dFragmentCallback callback,
+    void *context) const noexcept
+{
+    if (callback == nullptr) return Nds3dRasterStatus::MissingCallback;
+
+    DepthTestedCallbackContext callback_context{
+        &depth_buffer, callback, context
+    };
+    return render_scanline(
+        scanline, forward_depth_passed_fragment, &callback_context);
+}
+
 Nds3dRasterStatus Nds3dRasterizer::render_scanline(
     uint16_t scanline,
     Nds3dFragmentCallback callback,
@@ -423,6 +506,7 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline(
 
     const uint32_t vertex_count = geometry_.render_vertex_count();
     const uint32_t polygon_count = geometry_.render_polygon_count();
+    const bool w_buffer = geometry_.render_uses_w_buffer();
 
     for (uint32_t polygon_index = 0u;
          polygon_index < polygon_count; ++polygon_index) {
@@ -454,7 +538,7 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline(
             const Nds3dRasterStatus result =
                 rasterize_triangle_scanline(
                     *first, *second, *third, *polygon, textures_,
-                    scanline, callback, context);
+                    scanline, w_buffer, callback, context);
             if (result != Nds3dRasterStatus::Ok) return result;
         }
     }

@@ -76,6 +76,7 @@ public:
         std::array<Polygon, PolygonRamCapacity> polygons{};
         uint32_t polygon_count = 0u;
         bool polygon_overflow = false;
+        uint8_t swap_parameters = 0u;
     };
 
     explicit NdsGeometryEngine(NdsInterruptControl &interrupts) noexcept
@@ -141,6 +142,12 @@ public:
     uint8_t build_buffer_index() const noexcept { return build_buffer_index_; }
     uint8_t render_buffer_index() const noexcept { return render_buffer_index_; }
     uint8_t swap_parameters() const noexcept { return swap_parameters_; }
+    uint8_t render_swap_parameters() const noexcept {
+        return buffers_[render_buffer_index_].swap_parameters;
+    }
+    bool render_uses_w_buffer() const noexcept {
+        return (render_swap_parameters() & UINT8_C(2)) != 0u;
+    }
     bool vertex_list_open() const noexcept { return vertex_list_open_; }
     bool incomplete_polygon_list() const noexcept {
         return has_incomplete_primitive();

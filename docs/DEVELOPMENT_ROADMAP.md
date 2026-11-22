@@ -96,3 +96,14 @@ A revisão do rasterizador alinhou `POLYGON_ATTR` à definição do hardware: al
 Foi acrescentado `Nds3dDepthBuffer`, com armazenamento de profundidade 24-bit para 256×192 pixels, teste Less, Depth Equal com tolerância inclusiva ±0x200, gravação para pixels opacos e gravação de pixels translúcidos somente quando `POLYGON_ATTR.Bit11` permite. Fragmentos totalmente transparentes não passam nem atualizam profundidade. O novo teste cobre comparações, limite da tolerância, controle de depth-write e linhas inválidas. A etapa consome os fragmentos na ordem recebida e não implementa ordenação automática/manual nem composição de cor/alpha.
 
 A CI #1051 validou esta atualização nos quatro jobs: Desktop Linux, ARM runtime, Android ARM64 e compilador NDSRecomp estático. Desktop e ARM runtime executaram 52/52 CTests, incluindo as regressões de rasterização e profundidade 3D. Isso valida esta etapa, não o pipeline 3D completo nem o boot de jogo. Consulte [NDS_3D_TEXTURE_PIPELINE.md](NDS_3D_TEXTURE_PIPELINE.md).
+
+
+## Atualização 2026-11-22 — opções Z/W por buffer e teste de profundidade no rasterizador
+
+A Geometry RAM agora preserva os dois bits de `SWAP_BUFFERS` associados ao conjunto que acabou de ser entregue ao Rendering Engine. O parâmetro do comando atual continua configurando somente o próximo conjunto de geometria; a opção anterior fica vinculada ao render buffer já publicado. Isso evita que o modo Z/W de uma construção seguinte altere a profundidade da imagem em renderização.
+
+O rasterizador consulta o bit 1 do próprio render buffer. Em Z-buffer, continua usando Z/W normalizado; em W-buffer, reconstrói W de forma perspectiva-correta a partir dos W de clip-space. Foi acrescentada a entrada `render_scanline_depth_tested`, que filtra os fragmentos pelo depth buffer antes de encaminhá-los ao próximo consumidor. O teste de integração percorre duas trocas consecutivas para provar a latência de um swap: o primeiro buffer permanece em Z, enquanto o segundo usa W mesmo quando o segundo comando já seleciona Z para a terceira construção.
+
+O Depth Equal usa ±0x200 em Z-buffer (valor documentado por GBATEK) e ±0xFF em W-buffer (observação de engenharia reversa da comunidade, ainda pendente de conformance test em hardware). O depth buffer continua pertencendo ao consumidor por frame; clear/rear-plane reais, ordenação de polígonos translúcidos, composição RGBA, fog, modos toon/shadow e cache 48-line continuam pendentes. CI ainda precisa validar esta atualização.
+
+Referência: [GBATEK — SWAP_BUFFERS e profundidade](https://mgba-emu.github.io/gbatek/#ds-3d-video). Observação de tolerância W: [discussão técnica de depth buffering](https://melonds.kuribo64.net/board/thread.php?id=13&page=1).
