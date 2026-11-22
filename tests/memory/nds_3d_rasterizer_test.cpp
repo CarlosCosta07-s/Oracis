@@ -401,8 +401,8 @@ int main()
     /* Equal depth must suppress an edge even when the neighbor ID differs. */
     Nds3dColorBuffer edge_rule_color{};
     Nds3dDepthBuffer edge_rule_depth{};
-    edge_rule_color.clear(0u, 0u, 0u, 31u, 0u, false);
-    edge_rule_depth.clear(200u);
+    edge_rule_color.clear(0u, 0u, 0u, 31u, 9u, false);
+    edge_rule_depth.clear(100u);
     Nds3dColorPixel candidate_pixel{};
     candidate_pixel.alpha5 = 31u;
     candidate_pixel.polygon_id = 9u;
