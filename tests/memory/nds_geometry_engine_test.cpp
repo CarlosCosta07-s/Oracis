@@ -430,6 +430,19 @@ int main()
     }
     geometry.advance_bus_cycles(8u);
     if (geometry.vertex_count() != 3u || geometry.polygon_count() != 1u) {
+        std::fprintf(
+            stderr,
+            "GE clip debug: final_vertices=%u polygons=%u list_vertices=%u "
+            "primitive_mode=%u primitive_cache=%u fifo=%u pipe=%u busy=%u "
+            "completed=%llu overflow_v=%u overflow_p=%u\\n",
+            geometry.vertex_count(), geometry.polygon_count(),
+            geometry.vertex_list_vertex_count(), geometry.primitive_mode(),
+            geometry.incomplete_polygon_list() ? 1u : 0u,
+            geometry.fifo_entries(), geometry.pipe_entries(),
+            geometry.busy() ? 1u : 0u,
+            static_cast<unsigned long long>(geometry.completed_commands()),
+            geometry.vertex_ram_overflow() ? 1u : 0u,
+            geometry.polygon_ram_overflow() ? 1u : 0u);
         return fail("third VTX command did not commit the first triangle");
     }
     const NdsGeometryEngine::Vertex *vertex = geometry.vertex_at(0u);
