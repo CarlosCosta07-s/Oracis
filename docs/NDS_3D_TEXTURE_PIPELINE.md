@@ -118,3 +118,8 @@ submission path rather than only by a manual test hook. The machine integration
 test submits 2,049 valid triangles to a 2,048-entry polygon RAM and verifies the
 status register. The bit remains sticky and software-cleared using write-one
 acknowledgement.
+
+
+## RDLINES_COUNT low-water reporting
+
+RDLINES_COUNT at 0x04000320 is exposed as an ARM9-only, read-only byte. At natural frame wrap, the machine starts tracking the minimum number of queued BG0 lines after each successful consumption. At the next scanline-214 pre-render boundary it publishes max(minimum - 2, 0), clamped to the documented 0..46 register range. This is a queue-level previous-frame low-water approximation; it does not reproduce the hardware's internal sub-scanline sampling latency or cycle-exact FIFO accounting.
