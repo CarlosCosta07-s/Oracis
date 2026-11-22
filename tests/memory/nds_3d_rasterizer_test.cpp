@@ -62,9 +62,7 @@ struct Capture {
     bool all_fragments_opaque = true;
     bool a3i5_center_seen = false;
     bool a5i3_center_seen = false;
-    bool a5i3_edge_candidate_seen = false;
     bool direct_color_center_seen = false;
-    bool direct_color_opaque_edge_candidate_seen = false;
     oracis::memory::Nds3dFragment a3i5_center{};
     oracis::memory::Nds3dFragment a5i3_center{};
     oracis::memory::Nds3dFragment direct_color_center{};
@@ -89,22 +87,15 @@ void capture_fragment(
             capture->a3i5_center_seen = true;
             capture->a3i5_center = fragment;
         }
-        if (fragment.polygon_id == 7u) {
-            if (fragment.x == 127u && fragment.y == 96u) {
-                capture->a5i3_center_seen = true;
-                capture->a5i3_center = fragment;
-            }
-            capture->a5i3_edge_candidate_seen =
-                capture->a5i3_edge_candidate_seen || fragment.edge_candidate;
+        if (fragment.polygon_id == 7u &&
+            fragment.x == 127u && fragment.y == 96u) {
+            capture->a5i3_center_seen = true;
+            capture->a5i3_center = fragment;
         }
-        if (fragment.polygon_id == 8u) {
-            if (fragment.x == 127u && fragment.y == 96u) {
-                capture->direct_color_center_seen = true;
-                capture->direct_color_center = fragment;
-            }
-            capture->direct_color_opaque_edge_candidate_seen =
-                capture->direct_color_opaque_edge_candidate_seen ||
-                fragment.edge_candidate;
+        if (fragment.polygon_id == 8u &&
+            fragment.x == 127u && fragment.y == 96u) {
+            capture->direct_color_center_seen = true;
+            capture->direct_color_center = fragment;
         }
         if (fragment.polygon_id == 1u && !capture->center_seen) {
             capture->center_seen = true;
@@ -1482,9 +1473,24 @@ int main()
         a5i3_capture.a5i3_center.alpha5 == 0u ||
         a5i3_capture.a5i3_center.alpha5 >= 31u ||
         !a5i3_capture.a5i3_center.translucent ||
-        a5i3_capture.a5i3_center.edge_candidate ||
-        a5i3_capture.a5i3_edge_candidate_seen) {
+        a5i3_capture.a5i3_center.edge_candidate) {
         return fail("A5I3 final alpha was not classified as translucent");
+    }
+
+    Nds3dDepthBuffer a5i3_depth{};
+    Nds3dColorBuffer a5i3_color{};
+    a5i3_depth.clear();
+    a5i3_color.clear(0u, 0u, 0u, 31u, 0u, false);
+    if (rasterizer.render_scanline_composited(
+            96u, a5i3_depth, a5i3_color, display) != Nds3dRasterStatus::Ok) {
+        return fail("A5I3 composited scanline failed");
+    }
+    for (uint32_t x = 0u; x < Nds3dRasterizer::ScreenWidth; ++x) {
+        const auto *pixel = a5i3_color.pixel_at(
+            static_cast<uint8_t>(x), 96u);
+        if (pixel != nullptr && pixel->edge_candidate) {
+            return fail("translucent A5I3 texels were incorrectly Edge Marked");
+        }
     }
 
     /*
@@ -1538,9 +1544,29 @@ int main()
             Nds3dRasterStatus::Ok ||
         !direct_color_opaque_capture.direct_color_center_seen ||
         direct_color_opaque_capture.direct_color_center.alpha5 != 31u ||
-        direct_color_opaque_capture.direct_color_center.translucent ||
-        !direct_color_opaque_capture.direct_color_opaque_edge_candidate_seen) {
-        return fail("opaque Direct Color alpha did not preserve edge candidates");
+        direct_color_opaque_capture.direct_color_center.translucent) {
+        return fail("opaque Direct Color texel did not retain full final alpha");
+    }
+
+    Nds3dDepthBuffer direct_color_depth{};
+    Nds3dColorBuffer direct_color_color{};
+    direct_color_depth.clear();
+    direct_color_color.clear(0u, 0u, 0u, 31u, 0u, false);
+    if (rasterizer.render_scanline_composited(
+            96u, direct_color_depth, direct_color_color, display) !=
+            Nds3dRasterStatus::Ok) {
+        return fail("opaque Direct Color composited scanline failed");
+    }
+    uint32_t direct_color_edge_candidates = 0u;
+    for (uint32_t x = 0u; x < Nds3dRasterizer::ScreenWidth; ++x) {
+        const auto *pixel = direct_color_color.pixel_at(
+            static_cast<uint8_t>(x), 96u);
+        if (pixel != nullptr && pixel->edge_candidate) {
+            ++direct_color_edge_candidates;
+        }
+    }
+    if (direct_color_edge_candidates == 0u) {
+        return fail("opaque Direct Color texel did not create perimeter edge candidates");
     }
 
     /*
