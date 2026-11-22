@@ -70,9 +70,9 @@ The rasterizer integration test constructs Geometry Engine triangles, swaps thei
 ## Remaining work
 
 1. Implement automatic Y-sorting of translucent polygons; manual-order composition is currently the only enabled path.
-2. Replace host-requested lookahead with a producer scheduled from VBlank pre-render and synchronized VCOUNT/scanline timing; model missed lines, FIFO underflow/overflow behavior and `RDLINES_COUNT`.
+2. Refine the scanline-event producer toward sub-scanline/cycle-accurate timing; model missed lines and FIFO underflow/overflow timing, and improve cycle-exact `RDLINES_COUNT` sampling.
 3. Extend the now-integrated Engine A BG0 path to Android presentation and validate it against reference frames.
-4. Complete DISP3DCNT underflow/overflow status producers, toon/highlight, shadow, real wireframe, fog and edge marking.
+4. Refine cycle-accurate DISP3DCNT underflow/overflow status timing and implement toon/highlight, shadow, real wireframe, fog and edge marking.
 5. Add texture/fragment cache policy, cycle-accurate FIFO fill timing, malformed-size/boundary vectors and more conformance tests.
 
 The 48-line FIFO and BG0 seam are implemented and tested, but cycle-accurate scheduling, real-game frames and boot/playability have not been demonstrated.
