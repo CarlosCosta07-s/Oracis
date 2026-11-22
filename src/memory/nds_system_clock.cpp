@@ -58,43 +58,45 @@ NdsClockStatus NdsSystemClock::report_cpu_cycles(
     /* Commit only after all validation has completed. */
     cpu_cycles_[index] = cumulative_cycles;
     if (elapsed_bus_cycles != 0u) {
-        timers_.advance_bus_cycles(elapsed_bus_cycles);
-        display_.advance_bus_cycles(elapsed_bus_cycles);
-        if (game_card_ != nullptr) {
-            game_card_->advance_bus_cycles(elapsed_bus_cycles);
-        }
-        if (geometry_ != nullptr) {
-            /*
-             * SWAP_BUFFERS waits for each VBlank edge (scanline 192), then
-             * spends 392 more bus cycles in the command processor. Split the
-             * geometry clock at frame edges so it cannot consume cycles from
-             * before VBlank as post-swap execution time.
-             */
-            constexpr uint64_t frame_cycles =
-                static_cast<uint64_t>(NdsDisplayControl::CyclesPerScanline) *
-                NdsDisplayControl::ScanlinesPerFrame;
-            constexpr uint64_t vblank_offset =
-                static_cast<uint64_t>(NdsDisplayControl::CyclesPerScanline) *
-                NdsDisplayControl::VisibleScanlines;
-            const uint64_t start = global_bus_cycles_;
-            uint64_t next_vblank =
-                (start / frame_cycles) * frame_cycles + vblank_offset;
-            if (next_vblank <= start) {
-                next_vblank += frame_cycles;
+        /*
+         * Advance the devices in scanline-sized quanta. Geometry must reach a
+         * line boundary before the display announces it: at VBlank, the
+         * geometry engine is released only after the display's line-192 edge;
+         * at frame wrap, the new frame's BG0 producer must see the completed
+         * SWAP_BUFFERS result and all geometry work performed during VBlank.
+         *
+         * Splitting at every line boundary also gives scanline observers a
+         * stable, synchronized point at which to schedule the 3D line buffer.
+         */
+        constexpr uint64_t frame_cycles =
+            static_cast<uint64_t>(NdsDisplayControl::CyclesPerScanline) *
+            NdsDisplayControl::ScanlinesPerFrame;
+        constexpr uint64_t vblank_offset =
+            static_cast<uint64_t>(NdsDisplayControl::CyclesPerScanline) *
+            NdsDisplayControl::VisibleScanlines;
+        uint64_t cursor = global_bus_cycles_;
+        while (cursor < synchronized_bus_cycles) {
+            const uint64_t line_offset =
+                cursor % NdsDisplayControl::CyclesPerScanline;
+            const uint64_t until_line_boundary =
+                NdsDisplayControl::CyclesPerScanline - line_offset;
+            const uint64_t step = std::min(
+                synchronized_bus_cycles - cursor, until_line_boundary);
+
+            timers_.advance_bus_cycles(step);
+            if (game_card_ != nullptr) {
+                game_card_->advance_bus_cycles(step);
             }
-            uint64_t cursor = start;
-            while (next_vblank <= synchronized_bus_cycles) {
-                geometry_->advance_bus_cycles(next_vblank - cursor);
+            if (geometry_ != nullptr) {
+                geometry_->advance_bus_cycles(step);
+            }
+            display_.advance_bus_cycles(step);
+            cursor += step;
+
+            if (geometry_ != nullptr &&
+                cursor % frame_cycles == vblank_offset) {
                 geometry_->notify_vblank();
-                cursor = next_vblank;
-                if (next_vblank >
-                    std::numeric_limits<uint64_t>::max() - frame_cycles) {
-                    break;
-                }
-                next_vblank += frame_cycles;
             }
-            geometry_->advance_bus_cycles(
-                synchronized_bus_cycles - cursor);
         }
         global_bus_cycles_ = synchronized_bus_cycles;
     }
