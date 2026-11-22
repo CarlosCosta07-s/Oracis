@@ -1131,6 +1131,66 @@ int main()
         return fail("Shadow rendering did not fail closed without a stencil buffer");
     }
 
+
+    /* Manual mode groups opaque polygons first and preserves translucent
+       submission order even when a translucent polygon was submitted first. */
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::Disp3dControlAddress, 2u,
+            NdsDisplayControl::Disp3dAlphaBlendEnable) != Status::Ok ||
+        !write_command(geometry, 0x2Au, 0u)) {
+        return fail("manual translucent sorting display/texture setup failed");
+    }
+    const auto submit_manual_test_triangle = [&](uint32_t attributes,
+                                                  uint16_t color) {
+        if (!write_command(geometry, 0x29u, attributes) ||
+            !write_command(geometry, 0x40u, 0u)) {
+            return false;
+        }
+        geometry.advance_bus_cycles(2u);
+        for (uint32_t position : positions) {
+            if (!write_command(geometry, 0x20u, color) ||
+                !write_command(geometry, 0x24u, position)) {
+                return false;
+            }
+            geometry.advance_bus_cycles(9u);
+        }
+        return true;
+    };
+    constexpr uint32_t ManualFront = UINT32_C(1) << 7u;
+    constexpr uint32_t ManualDepthEqual = UINT32_C(1) << 14u;
+    constexpr uint32_t ManualAlpha = 15u;
+    const uint32_t red_translucent = ManualFront |
+        ManualDepthEqual | (ManualAlpha << 16u) | (UINT32_C(2) << 24u);
+    const uint32_t blue_opaque = ManualFront |
+        (UINT32_C(31) << 16u) | (UINT32_C(1) << 24u);
+    const uint32_t green_translucent = ManualFront |
+        ManualDepthEqual | (ManualAlpha << 16u) | (UINT32_C(3) << 24u);
+    if (!submit_manual_test_triangle(red_translucent, UINT16_C(0x001F)) ||
+        !submit_manual_test_triangle(blue_opaque, UINT16_C(0x7C00)) ||
+        !submit_manual_test_triangle(green_translucent, UINT16_C(0x03E0)) ||
+        geometry.polygon_count() != 3u ||
+        !write_command(geometry, 0x50u, UINT32_C(1))) {
+        return fail("manual opaque/translucent submission or SWAP_BUFFERS failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    geometry.notify_vblank();
+    geometry.advance_bus_cycles(392u);
+    Nds3dDepthBuffer manual_depth{};
+    Nds3dColorBuffer manual_output{};
+    manual_depth.clear();
+    manual_output.clear(0u, 0u, 0u, 31u, 0u, false);
+    if (rasterizer.render_scanline_composited(
+            96u, manual_depth, manual_output, display) !=
+            Nds3dRasterStatus::Ok) {
+        return fail("manual translucent scanline composition failed");
+    }
+    const Nds3dColorPixel *manual_pixel = manual_output.pixel_at(127u, 96u);
+    if (manual_pixel == nullptr || manual_pixel->red6 != 15u ||
+        manual_pixel->green6 != 31u || manual_pixel->blue6 != 15u ||
+        manual_pixel->alpha5 != 31u || manual_pixel->polygon_id != 3u) {
+        return fail("manual mode did not group opaque first and preserve translucent order");
+    }
+
     std::puts("NDS 3D rasterizer tests passed");
     return 0;
 }
