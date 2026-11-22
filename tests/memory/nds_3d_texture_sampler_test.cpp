@@ -42,6 +42,9 @@ int main()
             NDS_ARM9, NdsVramControl::VramCntBAddress, 1u, UINT32_C(0x80)) !=
             Status::Ok ||
         vram.write(
+            NDS_ARM9, NdsVramControl::VramCntCAddress, 1u, UINT32_C(0x80)) !=
+            Status::Ok ||
+        vram.write(
             NDS_ARM9, NdsVramControl::VramCntEAddress, 1u, UINT32_C(0x80)) !=
             Status::Ok ||
         vram.write(
@@ -64,7 +67,10 @@ int main()
         !write_halfword(memory, UINT32_C(0x06804004), UINT16_C(0x000E)) ||
         !write_halfword(memory, UINT32_C(0x06804006), UINT16_C(0x0000)) ||
         !write_halfword(memory, UINT32_C(0x06804008), UINT16_C(0x000F)) ||
-        !write_halfword(memory, UINT32_C(0x0680400A), UINT16_C(0x0000))) {
+        !write_halfword(memory, UINT32_C(0x0680400A), UINT16_C(0x0000)) ||
+        !write_halfword(memory, UINT32_C(0x06840000), UINT16_C(0x000E)) ||
+        !write_halfword(memory, UINT32_C(0x06840002), UINT16_C(0x0000)) ||
+        !write_halfword(memory, UINT32_C(0x06830000), UINT16_C(0x4000))) {
         return fail("synthetic texture data could not be written");
     }
 
@@ -88,6 +94,9 @@ int main()
             Status::Ok ||
         vram.write(
             NDS_ARM9, NdsVramControl::VramCntBAddress, 1u, UINT32_C(0x8B)) !=
+            Status::Ok ||
+        vram.write(
+            NDS_ARM9, NdsVramControl::VramCntCAddress, 1u, UINT32_C(0x93)) !=
             Status::Ok ||
         vram.write(
             NDS_ARM9, NdsVramControl::VramCntEAddress, 1u, UINT32_C(0x83)) !=
@@ -241,6 +250,17 @@ int main()
         !compressed_mode1_transparent.transparent ||
         compressed_mode1_transparent.alpha != 0u) {
         return fail("4x4 compressed mode-1 interpolation/transparency failed");
+    }
+
+    /* Slot 2 uses the upper half of slot 1 for its block metadata. */
+    const uint32_t compressed_slot2_parameters =
+        (UINT32_C(5) << 26u) | UINT32_C(0x8000);
+    const Nds3dTextureSample compressed_slot2 =
+        sampler.sample(compressed_slot2_parameters, 0u, 0, 0);
+    if (compressed_slot2.status != Nds3dTextureSampleStatus::Ok ||
+        compressed_slot2.color_rgb555 !=
+            static_cast<uint16_t>(UINT16_C(15) | (UINT16_C(15) << 10u))) {
+        return fail("4x4 compressed slot-2 metadata mapping failed");
     }
 
     /* Mode 2 keeps texel 3 opaque and addresses all four palette colors. */
