@@ -98,7 +98,11 @@ This is event-synchronized at scanline granularity, not cycle-accurate polygon
 rasterization. It does not model the hardware's internal rendering latency or
 the sub-scanline sampling timing used by RDLINES_COUNT and DISP3DCNT status.
 RDLINES_COUNT is a previous-frame FIFO low-water approximation. A host request
-can still initialize the pipeline when BG0-3D is enabled mid-frame.
+can still initialize the pipeline when BG0-3D is enabled mid-frame. The machine
+accepts only consecutive VCOUNT transitions as scanline scheduling edges;
+software jumps directly to lines 192 or 214 cannot prematurely close the
+low-water window or launch a new pre-render. Natural 262-to-0 frame wrap is
+handled separately. A machine regression verifies both discontinuous jumps.
 
 
 ## DISP3DCNT sticky status
@@ -106,9 +110,9 @@ can still initialize the pipeline when BG0-3D is enabled mid-frame.
 `DISP3DCNT` now retains bits 12/13 as sticky status and applies the
 hardware write-one-to-clear acknowledgement rule. A host-side BG0 composition
 failure caused by a missing 3D scanline source sets the color-buffer underflow
-bit (12), which software can observe and acknowledge through MMIO. The polygon/
-vertex RAM overflow flag (13) has the same register semantics and a device-side
-report hook, but the Geometry Engine overflow producer is not connected yet.
+bit (12), which software can observe and acknowledge through MMIO. The polygon/vertex RAM overflow flag (13) is connected to actual
+Geometry Engine polygon/vertex RAM submission failures. The machine latches
+the bit on overflow; software clears it with write-one acknowledgement.
 
 
 The Geometry Engine now reports clipping/vertex-RAM and polygon-RAM exhaustion

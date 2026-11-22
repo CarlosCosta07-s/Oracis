@@ -171,14 +171,15 @@ writing into a full FIFO. The machine test exercises VBlank pre-render and one
 rolling refill using synthetic bus time.
 
 Still outstanding: sub-scanline geometry/render timing, measured FIFO
-underflow behavior, RDLINES_COUNT semantics, Android BG0 presentation,
+underflow behavior, cycle-exact RDLINES_COUNT sampling, Android BG0 presentation,
 translucent polygon sorting, and an actual Platinum boot/frame.
 
 
-The `DISP3DCNT` bits 12/13 now retain sticky status and clear on a
-write-one acknowledgement. A missing BG0 3D scanline source sets bit 12; bit 13
-has register/report-hook support but still needs the Geometry Engine's actual
-polygon/vertex RAM overflow event.
+The `DISP3DCNT` bits 12/13 retain sticky status and clear on a
+write-one acknowledgement. A missing BG0 3D scanline source sets bit 12;
+actual Geometry Engine polygon/vertex RAM submission overflow sets bit 13.
+The machine integration test submits 2,049 valid triangles against the
+2,048-polygon capacity and verifies that the status bit is latched.
 
 
 The DISP3DCNT polygon/vertex RAM overflow bit is now connected to actual
@@ -188,3 +189,11 @@ and checks that bit 13 is latched.
 
 
 RDLINES_COUNT (0x04000320) is now readable by ARM9 as a read-only byte. The machine measures the minimum BG0 FIFO occupancy after consumption during one displayed frame and publishes the clamped, minus-two value in the 0..46 range at VBlank entry (scanline 192), before the next pre-render at scanline 214. This is a scanline-level low-water approximation, not a cycle-accurate implementation of the hardware's internal FIFO sampling latency.
+
+
+The display-boundary observer now treats only consecutive VCOUNT transitions
+as scanline scheduling edges. A software jump directly to line 192 cannot
+finalize the FIFO low-water measurement, and a jump directly to line 214 cannot
+restart pre-render. Natural 262-to-0 frame wrap remains the separate frame
+boundary. The machine regression covers both cases; CI run #1112 passed all
+four jobs (Desktop Linux, ARM runtime, Android ARM64 and pinned NDSRecomp).
