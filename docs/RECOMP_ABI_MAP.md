@@ -189,3 +189,17 @@ A ponte C host (oracis_host_runtime_*) possui um ciclo de vida próprio para a i
 Essa recriação pertence à ponte host: NdsMachine::shutdown() continua responsável por desfazer os vínculos e encerrar a execução, sem limpar por conta própria o registry global de bancos. Se o shutdown falhar parcialmente, a ponte limpa as tabelas de dispatch depois de encerrar as fatias, mas mantém a instância para não destruir um objeto que ainda possa possuir vínculos globais pendentes.
 
 oracis_host_runtime_bridge_c_test cobre esse contrato com tabelas ARM9/ARM7 automáticas: elas permanecem registradas até o shutdown, saem de escopo e, depois, buscas para seus endereços precisam retornar CPU_NOT_REGISTERED, sem candidato nem ponteiro residual. O teste também inicializa uma segunda instância limpa, confirma que não há bancos herdados e executa outro shutdown. São fixtures sintéticas; isso não demonstra o boot do jogo nem a ligação dos bancos reais.
+
+
+## 14. Preflight obrigatório antes de cada host round
+
+`oracis_host_runtime_run_round()` agora resolve os PCs correntes de ARM9 e
+ARM7 antes de entrar no scheduler. A validação usa o estado real de CPSR.T,
+as tabelas registradas e o callback de identidade dos bytes guest. Se qualquer
+CPU não resolver seu entry point, a ponte retorna
+`ORACIS_HOST_RUNTIME_ENTRYPOINT_UNRESOLVED`; nenhum banco é chamado e o
+orçamento de ciclos não é consumido. Isso evita que um PC inicial sem linha
+válida ou uma imagem modificada chegue ao dispatcher fail-closed como
+`std::abort`. A checagem não substitui a validação em cada transferência:
+branches, chamadas e retornos continuam sujeitos à validação normal do
+registry.

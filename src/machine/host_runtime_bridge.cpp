@@ -812,6 +812,24 @@ extern "C" int oracis_host_runtime_run_round(
     if (!has_both_program_banks()) return ORACIS_HOST_RUNTIME_NO_PROGRAM_BANKS;
     if (!machine.program_loaded()) return ORACIS_HOST_RUNTIME_NO_PROGRAM_LOADED;
 
+    /*
+     * A caller must not be able to enter generated code with a stale image,
+     * an unregistered start address or the wrong ARM/Thumb mode. Dispatch
+     * itself remains guarded on every transfer, but that is too late for the
+     * initial PC because a miss there terminates through the fail-closed
+     * dispatcher. Preflight both CPUs before consuming any round budget.
+     */
+    OracisHostRuntimeEntryPointReport arm9_entry{};
+    OracisHostRuntimeEntryPointReport arm7_entry{};
+    const int entrypoint_status = oracis_host_runtime_validate_entrypoints(
+        &arm9_entry, &arm7_entry);
+    if (entrypoint_status != ORACIS_HOST_RUNTIME_OK) {
+        return entrypoint_status;
+    }
+    if (arm9_entry.resolved == 0u || arm7_entry.resolved == 0u) {
+        return ORACIS_HOST_RUNTIME_ENTRYPOINT_UNRESOLVED;
+    }
+
     oracis::machine::NdsMachineStatus status;
     if (irq_context == nullptr) {
         status = machine.run_dual_core_round(

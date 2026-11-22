@@ -196,3 +196,15 @@ Símbolos fornecidos pelo compilador C ou pela plataforma só podem ser excluíd
 A execução contra os bancos reais ainda precisa ser feita localmente e seu relatório deve ser revisado antes de habilitar execução. A existência do alvo e o sucesso das fixtures não significam que os 48 símbolos reais já estejam resolvidos.
 
 A auditoria também grava um relatório estruturado em `build/oracis_platinum_bank_symbol_audit.json` (ou no diretório de build usado pelo CMake). O schema `oracis-bank-symbol-audit-v1` registra, para cada referência indefinida, os bancos que a solicitam, o status (`resolved`, `allowlisted` ou `unresolved`) e todos os objetos/arquivos de runtime que fornecem a definição. O relatório é escrito de forma atômica e permanece no diretório local de build; não é enviado como artifact pela CI. Para executar a ferramenta diretamente, use `--report-json /caminho/local/relatorio.json`.
+
+
+## 13. Proteção de entrada antes da execução
+
+A ponte `oracis_host_runtime_run_round()` executa automaticamente o preflight
+dos PCs atuais de ARM9 e ARM7 antes de iniciar qualquer fatia. Os dois PCs
+precisam resolver em suas tabelas e passar pela validação de identidade dos
+bytes locais no modo determinado por CPSR.T. Caso contrário, retorna
+`ORACIS_HOST_RUNTIME_ENTRYPOINT_UNRESOLVED` sem executar funções nem avançar o
+clock. O host ainda pode chamar `oracis_host_runtime_validate_entrypoints()`
+antes para obter relatórios detalhados; a checagem automática torna essa
+chamada diagnóstica, não um pré-requisito de segurança.
