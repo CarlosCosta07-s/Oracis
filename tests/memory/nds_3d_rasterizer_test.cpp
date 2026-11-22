@@ -1341,6 +1341,18 @@ int main()
     geometry.advance_bus_cycles(392u);
 
     /*
+     * Earlier fixtures write DISP3DCNT wholesale. Re-enable Edge Marking
+     * explicitly so the following A3I5/A5I3/Direct Color checks exercise
+     * candidate generation rather than silently testing the disabled path.
+     */
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::Disp3dControlAddress, 2u,
+            display.three_d_control_register() |
+                NdsDisplayControl::Disp3dEdgeMarkingEnable) != Status::Ok) {
+        return fail("Edge Marking could not be enabled for texture-alpha regressions");
+    }
+
+    /*
      * A3I5 can make a POLYGON_ATTR alpha-31 polygon translucent after
      * modulation. Such pixels must not be tagged by Edge Marking.
      */
