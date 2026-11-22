@@ -74,6 +74,14 @@ void NdsMachine::on_display_scanline_boundary(
      */
     constexpr uint16_t ThreeDRenderStartScanline = 214u;
     if (current_scanline == ThreeDRenderStartScanline) {
+        std::size_t minimum_queued_lines = 0u;
+        if (three_d_scanline_cache_.finish_low_water_tracking(
+                minimum_queued_lines)) {
+            const std::size_t adjusted_count =
+                minimum_queued_lines > 2u ? minimum_queued_lines - 2u : 0u;
+            display_control_.set_three_d_rendered_line_count(
+                static_cast<uint8_t>(adjusted_count > 46u ? 46u : adjusted_count));
+        }
         if (!bg0_three_d_enabled) {
             three_d_scanline_sequence_initialized_ = false;
             return;
@@ -89,6 +97,9 @@ void NdsMachine::on_display_scanline_boundary(
 
     if (natural_frame_wrap && current_scanline == 0u) {
         /* Preserve the 48 lines prepared during the preceding VBlank. */
+        if (three_d_scanline_sequence_initialized_ && bg0_three_d_enabled) {
+            three_d_scanline_cache_.begin_low_water_tracking();
+        }
         return;
     }
 
