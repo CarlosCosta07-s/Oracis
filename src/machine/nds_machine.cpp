@@ -63,17 +63,21 @@ void NdsMachine::on_display_scanline_boundary(
     uint16_t previous_scanline, uint16_t current_scanline,
     bool natural_frame_wrap) noexcept
 {
-    static_cast<void>(previous_scanline);
+    const bool sequential_scanline =
+        previous_scanline < memory::NdsDisplayControl::LastScanline &&
+        current_scanline == static_cast<uint16_t>(previous_scanline + 1u);
     const bool bg0_three_d_enabled =
         (display_control_.dispcnt(0u) & UINT32_C(0x00000108)) ==
         UINT32_C(0x00000108);
 
     /*
-     * GBATEK documents 3D rendering from scanline 214. The first 48 lines
-     * must be ready before scanline 262 wraps and output begins at line zero.
+     * VCOUNT can be redirected by software. Such a jump is not a completed
+     * scanline and must not finalize a frame or launch the 3D pre-render.
+     * Only consecutive line edges drive the scanline producer; the natural
+     * 262-to-0 frame wrap is handled separately below.
      */
-    /* Latch the completed display frame's FIFO low-water at VBlank. */
-    if (current_scanline == memory::NdsDisplayControl::VisibleScanlines) {
+    if (sequential_scanline &&
+        current_scanline == memory::NdsDisplayControl::VisibleScanlines) {
         std::size_t minimum_queued_lines = 0u;
         if (three_d_scanline_cache_.finish_low_water_tracking(
                 minimum_queued_lines)) {
@@ -85,7 +89,8 @@ void NdsMachine::on_display_scanline_boundary(
     }
 
     constexpr uint16_t ThreeDRenderStartScanline = 214u;
-    if (current_scanline == ThreeDRenderStartScanline) {
+    if (sequential_scanline &&
+        current_scanline == ThreeDRenderStartScanline) {
         if (!bg0_three_d_enabled) {
             three_d_scanline_sequence_initialized_ = false;
             return;
@@ -107,7 +112,8 @@ void NdsMachine::on_display_scanline_boundary(
         return;
     }
 
-    if (current_scanline >= memory::Nds3dRasterizer::ScreenHeight ||
+    if (!sequential_scanline ||
+        current_scanline >= memory::Nds3dRasterizer::ScreenHeight ||
         !three_d_scanline_sequence_initialized_ ||
         !bg0_three_d_enabled) {
         return;
