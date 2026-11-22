@@ -58,11 +58,11 @@ This stage uses nearest-texel lookup only. It does not interpolate polygon coord
 
 ## Regression coverage
 
-The synthetic tests cover A3I5, 2bpp, 4bpp, 8bpp, A5I3, Direct Color and all four 4x4 compressed modes; alpha decoding; the format-2 palette-base unit; F-bank palette slot 4; clamp and repeat+flip; no-texture; slot-0/slot-1 compressed blocks; unallocated slots; and ambiguous image/palette allocations. No ROM, BIOS, firmware or extracted game data is used.
+The synthetic tests cover A3I5, 2bpp, 4bpp, 8bpp, A5I3, Direct Color and all four 4x4 compressed modes; alpha decoding; the format-2 palette-base unit; F-bank palette slot 4; clamp and repeat+flip; no-texture; slot-0/slot-1 and slot-2 compressed blocks (including the upper-half metadata route); unallocated slots; and ambiguous image/palette allocations. No ROM, BIOS, firmware or extracted game data is used.
 
 ## Remaining work
 
-1. Add slot-2 compressed texture fixtures and malformed-size/boundary regressions; validate exact hardware behavior on more reference cases.
+1. Add malformed-size/boundary regressions and validate exact hardware behavior on more reference cases.
 2. Make texture-coordinate interpolation and perspective correction part of a scanline/pixel rasterizer.
 3. Add texture/fragment cache policy and measured timing.
 4. Blend texels with interpolated vertex color and polygon alpha according to the DS polygon mode.
