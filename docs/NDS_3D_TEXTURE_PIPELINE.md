@@ -57,13 +57,13 @@ The initial `Nds3dRasterizer` stage:
 - samples the polygon's captured texture state and emits RGB6/A6 fragments plus normalized depth, polygon ID and fog-enable metadata;
 - implements the initial DS polygon texture modes 0 (modulation) and 1 (decal).
 
-The rasterizer reports modes 2/3 (toon/highlight and shadow) and alpha-zero wireframe cases as unsupported rather than silently substituting another mode. Its callback is a fragment producer: it does not yet perform depth-buffer rejection, polygon sorting, final translucency composition, fog blending or write into the DS 48-line output cache. A generated fragment stream is not the same as a completed frame on the host display.
+The rasterizer reports modes 2/3 (toon/highlight and shadow) and line-segment/wireframe geometry as unsupported rather than silently substituting another mode. Polygon alpha zero is preserved in the emitted fragment; it is not treated as a wireframe marker. Its callback is a fragment producer: it does not yet perform depth-buffer rejection, polygon sorting, final translucency composition, fog blending or write into the DS 48-line output cache. A generated fragment stream is not the same as a completed frame on the host display.
 
 ## Regression coverage
 
 The synthetic sampler tests cover A3I5, 2bpp, 4bpp, 8bpp, A5I3, Direct Color and all four 4x4 compressed modes; alpha decoding; the format-2 palette-base unit; F-bank palette slot 4; clamp and repeat+flip; no-texture; slot-0/slot-1 and slot-2 compressed blocks (including the upper-half metadata route); unallocated slots; and ambiguous image/palette allocations.
 
-The rasterizer integration test constructs a Geometry Engine triangle, swaps its buffer at VBlank, samples a direct-color VRAM texel and verifies the resulting center fragment. Its updated fixture uses different clip-space W values and texel colors chosen to distinguish perspective-correct sampling from affine interpolation. The test is currently being checked by CI workflow #1042. No ROM, BIOS, firmware or extracted game data is used.
+The rasterizer integration test constructs Geometry Engine triangles, swaps their buffer at VBlank, samples direct-color VRAM texels and verifies the resulting center fragments. Its fixture uses different clip-space W values and texel colors chosen to distinguish perspective-correct sampling from affine interpolation. An overlapping zero-alpha polygon also verifies that alpha zero is preserved for the downstream compositor. The current revision is being checked by CI. No ROM, BIOS, firmware or extracted game data is used.
 
 ## Remaining work
 
