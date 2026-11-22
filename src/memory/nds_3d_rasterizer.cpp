@@ -55,9 +55,10 @@ bool edge_contains(
 }
 
 /*
- * Edge marking flags the pixel footprint crossed by a polygon perimeter
- * segment. edge_function uses doubled sample coordinates, so the L1
- * half-pixel support radius is |dx| + |dy| in this integer domain.
+ * Edge marking flags a pixel when its square footprint touches a polygon
+ * perimeter segment. edge_function doubles both vertices and sample points,
+ * scaling the cross product by four. The half-pixel L1 support of the square
+ * therefore becomes 2 * (|dx| + |dy|) in edge_function's integer domain.
  */
 bool pixel_touches_edge_band(
     int64_t value,
@@ -69,8 +70,9 @@ bool pixel_touches_edge_band(
     const int64_t dy = static_cast<int64_t>(b.screen_position[1]) -
         a.screen_position[1];
     const int64_t absolute_value = value < 0 ? -value : value;
-    const int64_t threshold = (dx < 0 ? -dx : dx) +
-        (dy < 0 ? -dy : dy);
+    const int64_t absolute_dx = dx < 0 ? -dx : dx;
+    const int64_t absolute_dy = dy < 0 ? -dy : dy;
+    const int64_t threshold = 2 * (absolute_dx + absolute_dy);
     return absolute_value <= threshold;
 }
 

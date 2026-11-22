@@ -366,6 +366,14 @@ int main()
     }
     Nds3dDepthBuffer edge_depth{};
     Nds3dColorBuffer edge_color{};
+    if (rasterizer.render_scanline_composited(
+            0u, edge_depth, edge_color, display) != Nds3dRasterStatus::Ok) {
+        return fail("horizontal edge-marking scanline composition failed");
+    }
+    const Nds3dColorPixel *top_edge_pixel = edge_color.pixel_at(127u, 0u);
+    if (top_edge_pixel == nullptr || !top_edge_pixel->edge_candidate) {
+        return fail("pixel footprint touching the horizontal polygon edge was not marked");
+    }
     for (uint16_t y = 95u; y <= 97u; ++y) {
         if (rasterizer.render_scanline_composited(
                 y, edge_depth, edge_color, display) != Nds3dRasterStatus::Ok) {
