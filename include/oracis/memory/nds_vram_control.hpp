@@ -55,6 +55,18 @@ public:
     ReadResult read_lcdc_bank_halfword(
         uint8_t bank_index, uint32_t byte_offset) const noexcept;
 
+    /*
+     * Internal 3D-engine reads. Texture image slots are 128 KiB each
+     * (banks A-D, MST=3); the palette address space contains six 16 KiB
+     * slots (E covers 0-3, F/G can select 0, 1, 4 or 5).
+     * These methods bypass CPU visibility but still require a unique,
+     * correctly allocated physical bank.
+     */
+    ReadResult read_texture_slot_byte(
+        uint8_t texture_slot, uint32_t byte_offset) const noexcept;
+    ReadResult read_texture_palette_halfword(
+        uint32_t byte_address) const noexcept;
+
     uint8_t control_c() const noexcept { return controls_[2]; }
     uint8_t control_d() const noexcept { return controls_[3]; }
     uint8_t status() const noexcept;
