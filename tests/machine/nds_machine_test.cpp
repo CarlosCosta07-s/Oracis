@@ -3346,6 +3346,59 @@ int main()
         return fail("scheduled display scanline machine did not shut down cleanly");
     }
 
+    /*
+     * A software VCOUNT redirect must not impersonate the natural 191->192
+     * VBlank edge or the 213->214 3D pre-render edge.
+     */
+    NdsMachine discontinuous(SharedWramMode::Arm9All32K);
+    if (discontinuous.initialize() != NdsMachineStatus::Ok ||
+        discontinuous.display_control().write(
+            NDS_ARM9, NdsDisplayControl::EngineABase +
+                NdsDisplayControl::DispcntOffset, 4u,
+            UINT32_C(0x00000108)) != oracis::memory::Status::Ok ||
+        discontinuous.report_idle_bus_cycles(
+            NDS_ARM9, synthetic_frame_bus_cycles) != NdsMachineStatus::Ok ||
+        discontinuous.report_idle_bus_cycles(
+            NDS_ARM7, synthetic_frame_bus_cycles) != NdsMachineStatus::Ok ||
+        discontinuous.three_d_scanline_cache().queued_lines() !=
+            oracis::memory::Nds3dScanlineCache::Capacity) {
+        return fail("discontinuous-VCOUNT fixture could not prime the 3D FIFO");
+    }
+
+    constexpr uint64_t one_scanline_cycles =
+        NdsDisplayControl::CyclesPerScanline;
+    if (discontinuous.display_control().write(
+            NDS_ARM9, NdsDisplayControl::VcountAddress, 2u, 192u) !=
+            oracis::memory::Status::Ok ||
+        discontinuous.report_idle_bus_cycles(
+            NDS_ARM9, one_scanline_cycles) != NdsMachineStatus::Ok ||
+        discontinuous.report_idle_bus_cycles(
+            NDS_ARM7, one_scanline_cycles) != NdsMachineStatus::Ok ||
+        discontinuous.display_control().read(
+            NDS_ARM9, NdsDisplayControl::RenderedLineCountAddress,
+            1u).value != 0u) {
+        return fail("a software VCOUNT jump incorrectly latched RDLINES_COUNT");
+    }
+
+    if (discontinuous.three_d_scanline_cache().consume(0u) !=
+            oracis::memory::Nds3dScanlineCacheStatus::Ok ||
+        discontinuous.display_control().write(
+            NDS_ARM9, NdsDisplayControl::VcountAddress, 2u, 214u) !=
+            oracis::memory::Status::Ok ||
+        discontinuous.report_idle_bus_cycles(
+            NDS_ARM9, one_scanline_cycles) != NdsMachineStatus::Ok ||
+        discontinuous.report_idle_bus_cycles(
+            NDS_ARM7, one_scanline_cycles) != NdsMachineStatus::Ok ||
+        discontinuous.three_d_scanline_cache().queued_lines() != 47u ||
+        discontinuous.three_d_scanline_cache().next_consumer_scanline() != 1u ||
+        discontinuous.three_d_scanline_cache().next_producer_scanline() != 48u) {
+        return fail("a software VCOUNT jump incorrectly restarted 3D pre-render");
+    }
+
+    if (discontinuous.shutdown() != NdsMachineStatus::Ok) {
+        return fail("discontinuous-VCOUNT machine did not shut down cleanly");
+    }
+
     std::puts("NdsMachine ownership, dual-core scheduling, dispatch and IRQ tests passed");
     return 0;
 }
