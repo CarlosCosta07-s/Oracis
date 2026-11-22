@@ -293,6 +293,31 @@ int main(void)
         fprintf(stderr, "C host bridge raised BG0 3D underflow during a complete synthetic frame\\n");
         return 1;
     }
+    /*
+     * Rendering the next host frame starts again at line zero after the
+     * previous consumer reached line 192. The host-side recovery must rebuild
+     * the lookahead instead of treating the exhausted FIFO as an underrun.
+     */
+    for (uint32_t line = 0u; line < 192u; ++line) {
+        if (oracis_host_runtime_render_scanline(
+                0u, line, main_scanline, 256u, &video_report) !=
+                ORACIS_HOST_RUNTIME_OK ||
+            video_report.status != 0u ||
+            video_report.three_d_raster_status != 0u ||
+            main_scanline[0] != UINT16_C(0x001F) ||
+            main_scanline[255] != UINT16_C(0x001F)) {
+            fprintf(stderr,
+                "C host bridge failed BG0 3D replay frame at scanline %u "
+                "(status=%u raster=%u)\\n",
+                line, video_report.status, video_report.three_d_raster_status);
+            return 1;
+        }
+    }
+    if ((bus_read_u16(UINT32_C(0x04000060)) &
+            UINT16_C(1u << 12u)) != 0u) {
+        fprintf(stderr, "C host bridge raised BG0 3D underflow during consecutive synthetic frames\\n");
+        return 1;
+    }
     /* Leave later tests on the ordinary 2D compositor path. */
     bus_write_u32(UINT32_C(0x04000000), UINT32_C(1) << 16u);
 
