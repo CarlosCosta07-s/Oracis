@@ -335,6 +335,7 @@ Status NdsDisplayControl::install() noexcept
     clear_color_ = 0u;
     clear_depth_ = 0u;
     clear_image_offset_ = 0u;
+    rendered_line_count_ = 0u;
     reset_timing();
     installed_ = true;
     return Status::Ok;
@@ -343,6 +344,14 @@ Status NdsDisplayControl::install() noexcept
 ReadResult NdsDisplayControl::read(
     NdsCpu cpu, uint32_t address, uint32_t width) const noexcept
 {
+    if (address == RenderedLineCountAddress) {
+        if (!installed_) return {Status::Unmapped, 0u};
+        if (!valid_cpu(cpu)) return {Status::InvalidCpu, 0u};
+        if (cpu != NDS_ARM9) return {Status::Unmapped, 0u};
+        if (width != 1u) return {Status::InvalidWidth, 0u};
+        return {Status::Ok, rendered_line_count_};
+    }
+
     if (address == Disp3dControlAddress ||
         address == AlphaTestReferenceAddress ||
         address == ClearColorAddress ||
@@ -479,6 +488,13 @@ Status NdsDisplayControl::write(
     uint32_t width,
     uint32_t value) noexcept
 {
+    if (address == RenderedLineCountAddress) {
+        if (!installed_) return Status::Unmapped;
+        if (!valid_cpu(cpu)) return Status::InvalidCpu;
+        if (cpu != NDS_ARM9) return Status::Unmapped;
+        return width == 1u ? Status::PermissionDenied : Status::InvalidWidth;
+    }
+
     if (address == Disp3dControlAddress ||
         address == AlphaTestReferenceAddress ||
         address == ClearColorAddress ||
