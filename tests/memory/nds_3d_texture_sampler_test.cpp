@@ -86,10 +86,10 @@ int main()
         !write_halfword(memory, UINT32_C(0x06880004), UINT16_C(0x7FFF)) ||
         !write_halfword(memory, UINT32_C(0x06880006), UINT16_C(0x03E0)) ||
         !write_halfword(memory, UINT32_C(0x06890006), UINT16_C(0x4210)) ||
-        !write_halfword(memory, UINT32_C(0x06882000), UINT16_C(0x4000)) ||
-        !write_halfword(memory, UINT32_C(0x06882002), UINT16_C(0xC000)) ||
-        !write_halfword(memory, UINT32_C(0x06882004), UINT16_C(0x8000)) ||
-        !write_halfword(memory, UINT32_C(0x06882006), UINT16_C(0x0000))) {
+        !write_halfword(memory, UINT32_C(0x06822000), UINT16_C(0x4000)) ||
+        !write_halfword(memory, UINT32_C(0x06822002), UINT16_C(0xC000)) ||
+        !write_halfword(memory, UINT32_C(0x06822004), UINT16_C(0x8000)) ||
+        !write_halfword(memory, UINT32_C(0x06822006), UINT16_C(0x0000))) {
         return fail("synthetic texture palette could not be written");
     }
 
