@@ -226,7 +226,8 @@ int main()
     if (ambiguous_texture.status !=
             Nds3dTextureSampleStatus::AmbiguousVram ||
         vram.write(
-            NDS_ARM9, NdsVramControl::VramCntBAddress, 1u, 0u) != Status::Ok) {
+            NDS_ARM9, NdsVramControl::VramCntBAddress, 1u,
+            UINT32_C(0x8B)) != Status::Ok) {
         return fail("overlapping texture-image allocation was not rejected");
     }
 
