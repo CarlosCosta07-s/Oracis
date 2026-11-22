@@ -235,6 +235,12 @@ Nds3dRasterStatus rasterize_triangle_scanline(
         third.clip_position[3] <= 0) {
         return Nds3dRasterStatus::InvalidGeometry;
     }
+    if (polygon.line_segment) {
+        return Nds3dRasterStatus::WireframeNotSupported;
+    }
+    if (polygon.polygon_mode > 1u) {
+        return Nds3dRasterStatus::UnsupportedPolygonMode;
+    }
 
     const NdsGeometryEngine::Vertex *a = &first;
     const NdsGeometryEngine::Vertex *b = &second;
@@ -299,13 +305,6 @@ Nds3dRasterStatus rasterize_triangle_scanline(
             !edge_contains(weights[1], *c, *a) ||
             !edge_contains(weights[2], *a, *b)) {
             continue;
-        }
-
-        if (polygon.alpha == 0u) {
-            return Nds3dRasterStatus::WireframeNotSupported;
-        }
-        if (polygon.polygon_mode > 1u) {
-            return Nds3dRasterStatus::UnsupportedPolygonMode;
         }
 
         int16_t texture_s = 0;
