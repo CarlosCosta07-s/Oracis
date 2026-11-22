@@ -220,6 +220,86 @@ ReadResult NdsVramControl::read_lcdc_bank_halfword(
     return memory_.read_device(static_cast<uint32_t>(address), 2u);
 }
 
+ReadResult NdsVramControl::read_texture_slot_byte(
+    uint8_t texture_slot, uint32_t byte_offset) const noexcept
+{
+    if (texture_slot >= 4u || byte_offset >= BankSize) {
+        return {Status::InvalidRegion, 0u};
+    }
+
+    int selected_bank = -1;
+    for (unsigned bank_index = 0u; bank_index < 4u; ++bank_index) {
+        const uint8_t control = controls_[bank_index];
+        const uint8_t offset = static_cast<uint8_t>(
+            (control >> 3u) & UINT8_C(3));
+        if (bank_mst_enabled(
+                control, static_cast<uint8_t>(bank_index), 3u) &&
+            offset == texture_slot) {
+            if (selected_bank >= 0) return {Status::Overlap, 0u};
+            selected_bank = static_cast<int>(bank_index);
+        }
+    }
+
+    if (selected_bank < 0) return {Status::Unmapped, 0u};
+    const uint64_t address =
+        static_cast<uint64_t>(kVramBackingBase) +
+        kVramBanks[static_cast<unsigned>(selected_bank)].backing_offset +
+        byte_offset;
+    if (address > UINT32_MAX) return {Status::AddressOverflow, 0u};
+    return memory_.read_device(static_cast<uint32_t>(address), 1u);
+}
+
+ReadResult NdsVramControl::read_texture_palette_halfword(
+    uint32_t byte_address) const noexcept
+{
+    constexpr uint32_t kPaletteSlotSize = UINT32_C(0x4000);
+    constexpr uint32_t kPaletteAddressSpace = UINT32_C(0x18000);
+    if ((byte_address & UINT32_C(1)) != 0u ||
+        byte_address > kPaletteAddressSpace - UINT32_C(2)) {
+        return {Status::InvalidRegion, 0u};
+    }
+
+    const unsigned slot = byte_address / kPaletteSlotSize;
+    const uint32_t slot_offset = byte_address % kPaletteSlotSize;
+    int selected_bank = -1;
+    uint32_t bank_offset = 0u;
+
+    /* Bank E supplies four consecutive 16 KiB palette slots (0-3). */
+    if (slot < 4u && bank_mst_enabled(controls_[4], 4u, 3u)) {
+        selected_bank = 4;
+        bank_offset = static_cast<uint32_t>(slot) * kPaletteSlotSize +
+            slot_offset;
+    }
+
+    /*
+     * Banks F/G each supply one 16 KiB slot. OFS maps 0,1,2,3 to
+     * texture-palette slots 0,1,4,5 respectively.
+     */
+    for (unsigned bank_index = 5u; bank_index <= 6u; ++bank_index) {
+        const uint8_t control = controls_[bank_index];
+        const uint8_t offset = static_cast<uint8_t>(
+            (control >> 3u) & UINT8_C(3));
+        const unsigned mapped_slot =
+            static_cast<unsigned>(offset & UINT8_C(1)) +
+            ((offset & UINT8_C(2)) != 0u ? 4u : 0u);
+        if (bank_mst_enabled(
+                control, static_cast<uint8_t>(bank_index), 3u) &&
+            mapped_slot == slot) {
+            if (selected_bank >= 0) return {Status::Overlap, 0u};
+            selected_bank = static_cast<int>(bank_index);
+            bank_offset = slot_offset;
+        }
+    }
+
+    if (selected_bank < 0) return {Status::Unmapped, 0u};
+    const uint64_t address =
+        static_cast<uint64_t>(kVramBackingBase) +
+        kVramBanks[static_cast<unsigned>(selected_bank)].backing_offset +
+        bank_offset;
+    if (address > UINT32_MAX) return {Status::AddressOverflow, 0u};
+    return memory_.read_device(static_cast<uint32_t>(address), 2u);
+}
+
 ReadResult NdsVramControl::read_extended_bg_palette_slot(
     unsigned engine_index,
     uint8_t palette_slot,
