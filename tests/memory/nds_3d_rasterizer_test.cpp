@@ -1140,6 +1140,7 @@ int main()
         !write_command(geometry, 0x2Au, 0u)) {
         return fail("manual translucent sorting display/texture setup failed");
     }
+    geometry.advance_bus_cycles(1u);
     const auto submit_manual_test_triangle = [&](uint32_t attributes,
                                                   uint16_t color) {
         if (!write_command(geometry, 0x29u, attributes) ||
