@@ -142,6 +142,22 @@ int main()
         return fail("A5I3 alpha or F-bank palette slot mapping failed");
     }
 
+    /* Overlapping F/E palette slot assignments fail closed. */
+    if (vram.write(
+            NDS_ARM9, NdsVramControl::VramCntFAddress, 1u,
+            UINT32_C(0x83)) != Status::Ok) {
+        return fail("overlapping palette slot fixture could not be configured");
+    }
+    const Nds3dTextureSample ambiguous_palette =
+        sampler.sample(a3i5, UINT32_C(2), 0, 0);
+    if (ambiguous_palette.status !=
+            Nds3dTextureSampleStatus::AmbiguousVram ||
+        vram.write(
+            NDS_ARM9, NdsVramControl::VramCntFAddress, 1u,
+            UINT32_C(0x93)) != Status::Ok) {
+        return fail("overlapping texture-palette allocation was not rejected");
+    }
+
     /* Direct texture: bit 15 supplies per-texel alpha. */
     const uint32_t direct = (UINT32_C(7) << 26u) | UINT32_C(0x20);
     const Nds3dTextureSample direct_opaque =
@@ -166,6 +182,21 @@ int main()
         flipped.color_rgb555 != UINT16_C(0x03E0) ||
         flipped.alpha != 31u) {
         return fail("repeat/flip coordinate addressing failed");
+    }
+
+    /* Two image banks claiming slot 0 must not be chosen arbitrarily. */
+    if (vram.write(
+            NDS_ARM9, NdsVramControl::VramCntBAddress, 1u,
+            UINT32_C(0x83)) != Status::Ok) {
+        return fail("overlapping texture image slot fixture could not be configured");
+    }
+    const Nds3dTextureSample ambiguous_texture =
+        sampler.sample(direct, 0u, 0, 0);
+    if (ambiguous_texture.status !=
+            Nds3dTextureSampleStatus::AmbiguousVram ||
+        vram.write(
+            NDS_ARM9, NdsVramControl::VramCntBAddress, 1u, 0u) != Status::Ok) {
+        return fail("overlapping texture-image allocation was not rejected");
     }
 
     const Nds3dTextureSample no_texture =
