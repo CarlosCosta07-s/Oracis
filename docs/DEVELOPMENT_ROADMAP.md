@@ -118,3 +118,12 @@ A nova API `render_scanline_composited` encadeia o alpha test (alpha final maior
 O teste `oracis_nds_3d_color_buffer_test` cobre a fórmula, alpha máximo, blending desativado, rear-plane transparente e descarte alpha-zero. A integração do rasterizador cobre auto-sort fail-closed, alpha-test antes do depth write e composição de scanline W-buffer em modo manual. A CI #1056 passou nos quatro jobs: Desktop Linux, ARM runtime, Android ARM64 e NDSRecomp estático. Desktop e ARM runtime executaram 53/53 CTests. Isso ainda não comprova a saída 3D completa, integração BG0, apresentação de quadro ou boot de jogo.
 
 Referência de composição: [GBATEK — alpha blending, alpha test e DISP3DCNT](https://mgba-emu.github.io/gbatek/#ds-3d-toon-edge-fog-alpha-blending-anti-aliasing).
+
+
+## Atualização 2026-11-22 — rear-plane uniforme e validação multiplataforma
+
+`NdsDisplayControl` agora modela `CLEAR_COLOR` (32 bits), `CLEAR_DEPTH` (15 bits úteis) e `CLRIMAGE_OFFSET` (15 bits úteis) no MMIO ARM9, todos write-only. A inicialização uniforme usa RGB555 expandido a RGB6, alpha5, fog-enable e polygon ID6 de `CLEAR_COLOR`, além de depth15 expandido a depth24 por `raw × 0x200 + ((raw + 1) / 0x8000) × 0x1FF`. O teste cobre também o endpoint de profundidade máxima.
+
+`Nds3dRasterizer::initialize_rear_plane` prepara os buffers de staging a partir desses valores. O modo bitmap de rear-plane (`DISP3DCNT.Bit14`) é fail-closed e não modifica os buffers, porque a leitura dos mapas de cor/profundidade nas Texture Slots 2/3 e o offset de imagem ainda não foram implementados. O armazenamento de saída continua sendo um staging buffer 256×192 do software, sem o cache de hardware de 48 linhas.
+
+A CI #1061 passou nos quatro jobs: Desktop Linux, ARM runtime, Android ARM64 e NDSRecomp estático. Desktop e ARM runtime executaram 53/53 CTests; o build/auditoria opcional local também passou. Isso valida os registradores e o rear-plane uniforme, mas não o rear-plane bitmap, o cache 48-line, composição BG0 ou a apresentação de um frame completo. Consulte [NDS_3D_TEXTURE_PIPELINE.md](NDS_3D_TEXTURE_PIPELINE.md).
