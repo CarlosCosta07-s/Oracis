@@ -3220,9 +3220,45 @@ int main()
 
     oracis_host_set_keypad_state(0u);
     NdsMachine successor(SharedWramMode::Arm9All32K);
-    if (successor.initialize() != NdsMachineStatus::Ok ||
-        successor.shutdown() != NdsMachineStatus::Ok) {
+    if (successor.initialize() != NdsMachineStatus::Ok) {
         return fail("machine ownership was not released after shutdown");
+    }
+
+    /* The 3D lookahead is now driven by synchronized VCOUNT line boundaries. */
+    if (successor.display_control().write(
+            NDS_ARM9, NdsDisplayControl::DispcntOffset, 4u,
+            UINT32_C(0x00000108)) != oracis::memory::Status::Ok) {
+        return fail("scheduled 3D BG0 scanline test could not enable BG0-3D");
+    }
+    constexpr uint64_t synthetic_frame_bus_cycles =
+        static_cast<uint64_t>(NdsDisplayControl::CyclesPerScanline) *
+        NdsDisplayControl::ScanlinesPerFrame;
+    if (successor.report_idle_bus_cycles(
+            NDS_ARM9, synthetic_frame_bus_cycles) != NdsMachineStatus::Ok ||
+        successor.report_idle_bus_cycles(
+            NDS_ARM7, synthetic_frame_bus_cycles) != NdsMachineStatus::Ok ||
+        successor.three_d_scanline_cache().queued_lines() !=
+            oracis::memory::Nds3dScanlineCache::Capacity ||
+        successor.three_d_scanline_cache().next_consumer_scanline() != 0u ||
+        successor.three_d_scanline_cache().next_producer_scanline() != 48u) {
+        return fail("natural frame wrap did not schedule the first 48 BG0 lines");
+    }
+    if (successor.three_d_scanline_cache().consume(0u) !=
+            oracis::memory::Nds3dScanlineCacheStatus::Ok ||
+        successor.report_idle_bus_cycles(
+            NDS_ARM9, NdsDisplayControl::CyclesPerScanline) !=
+            NdsMachineStatus::Ok ||
+        successor.report_idle_bus_cycles(
+            NDS_ARM7, NdsDisplayControl::CyclesPerScanline) !=
+            NdsMachineStatus::Ok ||
+        successor.three_d_scanline_cache().queued_lines() !=
+            oracis::memory::Nds3dScanlineCache::Capacity ||
+        successor.three_d_scanline_cache().next_consumer_scanline() != 1u ||
+        successor.three_d_scanline_cache().next_producer_scanline() != 49u) {
+        return fail("VCOUNT line boundary did not refill the rolling 48-line BG0 FIFO");
+    }
+    if (successor.shutdown() != NdsMachineStatus::Ok) {
+        return fail("scheduled display scanline machine did not shut down cleanly");
     }
 
     std::puts("NdsMachine ownership, dual-core scheduling, dispatch and IRQ tests passed");
