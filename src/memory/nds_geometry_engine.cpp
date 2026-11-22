@@ -1467,13 +1467,16 @@ void NdsGeometryEngine::emit_polygon(
         projected_vertices{};
     for (uint8_t index = 0u; index < clipped_count; ++index) {
         projected_vertices[index] = project_fixed(clipped[index]);
+        const auto &projected = projected_vertices[index];
+        minimum_x = std::min(minimum_x, projected[0]);
+        minimum_y = std::min(minimum_y, projected[1]);
+        maximum_x = std::max(maximum_x, projected[0]);
+        maximum_y = std::max(maximum_y, projected[1]);
+    }
+    for (uint8_t index = 0u; index < clipped_count; ++index) {
         const auto &current = projected_vertices[index];
         const auto &next = projected_vertices[(index + 1u) % clipped_count];
         signed_area_twice += current[0] * next[1] - next[0] * current[1];
-        minimum_x = std::min(minimum_x, current[0]);
-        minimum_y = std::min(minimum_y, current[1]);
-        maximum_x = std::max(maximum_x, current[0]);
-        maximum_y = std::max(maximum_y, current[1]);
     }
     polygon.front_facing = signed_area_twice > 0;
     polygon.zero_dot_polygon =
