@@ -390,7 +390,7 @@ int main()
     if (geometry.vertex_count() != outside_count) {
         return fail("VTX command outside BEGIN_VTXS appended Vertex RAM");
     }
-    if (!write_command(geometry, 0x29u, UINT32_C(0x2A7F1234)) ||
+    if (!write_command(geometry, 0x29u, UINT32_C(0x2A7F1230)) ||
         !write_command(geometry, 0x40u, UINT32_C(2))) {
         return fail("BEGIN_VTXS triangle-strip setup enqueue failed");
     }
@@ -407,12 +407,17 @@ int main()
         (UINT32_C(0x100) << 20u);
     const uint32_t packed_texcoord =
         UINT32_C(0xFFF00010);
+    const uint32_t matching_emission =
+        (UINT32_C(16) << 16u) |
+        (UINT32_C(16) << 21u) |
+        (UINT32_C(16) << 26u);
     if (!write_command(geometry, 0x20u, UINT32_C(0x4210)) ||
+        !write_command(geometry, 0x31u, matching_emission) ||
         !write_command(geometry, 0x21u, packed_normal) ||
         !write_command(geometry, 0x22u, packed_texcoord)) {
         return fail("vertex color, normal and UV command enqueue failed");
     }
-    geometry.advance_bus_cycles(11u);
+    geometry.advance_bus_cycles(15u);
 
     const uint32_t vtx16_xy =
         (UINT32_C(0x0800) << 16u) | UINT32_C(0x0400);
@@ -539,7 +544,7 @@ int main()
         strip_first->vertex_indices !=
             std::array<uint32_t, NdsGeometryEngine::MaxClippedPolygonVertices>{
                 0u, 1u, 2u, 0u, 0u, 0u, 0u, 0u, 0u, 0u} ||
-        strip_first->attributes != UINT32_C(0x2A7F1234) ||
+        strip_first->attributes != UINT32_C(0x2A7F1230) ||
         strip_second->vertex_indices !=
             std::array<uint32_t, NdsGeometryEngine::MaxClippedPolygonVertices>{
                 3u, 4u, 5u, 0u, 0u, 0u, 0u, 0u, 0u, 0u}) {
