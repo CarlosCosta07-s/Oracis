@@ -28,9 +28,15 @@ public:
     static constexpr uint32_t VcountAddress = UINT32_C(0x04000006);
     static constexpr uint32_t Disp3dControlAddress = UINT32_C(0x04000060);
     static constexpr uint32_t AlphaTestReferenceAddress = UINT32_C(0x04000340);
+    static constexpr uint32_t ClearColorAddress = UINT32_C(0x04000350);
+    static constexpr uint32_t ClearDepthAddress = UINT32_C(0x04000354);
+    static constexpr uint32_t ClearImageOffsetAddress = UINT32_C(0x04000356);
     static constexpr uint16_t Disp3dAlphaTestEnable = UINT16_C(1u << 2u);
     static constexpr uint16_t Disp3dAlphaBlendEnable = UINT16_C(1u << 3u);
     static constexpr uint16_t Disp3dControlWritableMask = UINT16_C(0x4FFF);
+    static constexpr uint32_t ClearColorWritableMask = UINT32_C(0x3F1FFFFF);
+    static constexpr uint16_t ClearDepthWritableMask = UINT16_C(0x7FFF);
+    static constexpr uint16_t ClearImageOffsetWritableMask = UINT16_C(0x7FFF);
     static constexpr uint32_t BgControlOffset = UINT32_C(0x0008);
     static constexpr uint32_t BgScrollOffset = UINT32_C(0x0010);
     static constexpr uint32_t BgAffineOffset = UINT32_C(0x0020);
@@ -155,6 +161,15 @@ public:
     bool three_d_alpha_blending_enabled() const noexcept {
         return (three_d_control_ & Disp3dAlphaBlendEnable) != 0u;
     }
+    bool three_d_rear_plane_bitmap_enabled() const noexcept {
+        return (three_d_control_ & UINT16_C(1u << 14u)) != 0u;
+    }
+    uint32_t three_d_clear_color() const noexcept { return clear_color_; }
+    uint16_t three_d_clear_depth() const noexcept { return clear_depth_; }
+    uint16_t three_d_clear_image_offset() const noexcept {
+        return clear_image_offset_;
+    }
+    uint32_t three_d_clear_depth_expanded24() const noexcept;
     uint16_t master_brightness(unsigned engine_index) const noexcept;
     uint16_t apply_master_brightness(
         unsigned engine_index, uint16_t rgb555) const noexcept;
@@ -212,6 +227,9 @@ private:
     std::array<CpuStatus, 2> cpu_status_{};
     uint16_t three_d_control_ = 0u;
     uint8_t alpha_test_reference_ = 0u;
+    uint32_t clear_color_ = 0u;
+    uint16_t clear_depth_ = 0u;
+    uint16_t clear_image_offset_ = 0u;
     std::array<bool, 2> hblank_irq_fired_{};
     std::array<uint32_t, MainMemoryDisplayFifoCapacityWords>
         main_memory_display_fifo_{};

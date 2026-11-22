@@ -84,6 +84,48 @@ int main()
         return fail("DISP3DCNT accepted read-only or reserved status bits");
     }
 
+    constexpr uint32_t clear_color = UINT32_C(0x2A11C521);
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::ClearColorAddress,
+            4u, clear_color) != Status::Ok ||
+        display.three_d_clear_color() !=
+            (clear_color & NdsDisplayControl::ClearColorWritableMask) ||
+        display.read(
+            NDS_ARM9, NdsDisplayControl::ClearColorAddress,
+            4u).status != Status::PermissionDenied) {
+        return fail("CLEAR_COLOR did not retain its documented fields/write-only access");
+    }
+
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::ClearDepthAddress,
+            2u, UINT16_C(0xFFFF)) != Status::Ok ||
+        display.three_d_clear_depth() != UINT16_C(0x7FFF) ||
+        display.three_d_clear_depth_expanded24() != UINT32_C(0xFFFFFF) ||
+        display.read(
+            NDS_ARM9, NdsDisplayControl::ClearDepthAddress,
+            2u).status != Status::PermissionDenied) {
+        return fail("CLEAR_DEPTH mask or 15-to-24-bit expansion was incorrect");
+    }
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::ClearDepthAddress,
+            4u, UINT32_C(0x1234)) != Status::InvalidWidth) {
+        return fail("CLEAR_DEPTH accepted a word access");
+    }
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::ClearImageOffsetAddress,
+            2u, UINT16_C(0xFFFF)) != Status::Ok ||
+        display.three_d_clear_image_offset() != UINT16_C(0x7FFF) ||
+        display.read(
+            NDS_ARM9, NdsDisplayControl::ClearImageOffsetAddress,
+            2u).status != Status::PermissionDenied) {
+        return fail("CLRIMAGE_OFFSET mask or write-only access was incorrect");
+    }
+    if (display.write(
+            NDS_ARM7, NdsDisplayControl::ClearColorAddress,
+            4u, clear_color) != Status::Unmapped) {
+        return fail("3D rear-plane registers were accessible to ARM7");
+    }
+
     constexpr uint32_t engine_a_dispcnt = UINT32_C(0x04000000);
     constexpr uint32_t engine_b_dispcnt = UINT32_C(0x04001000);
     constexpr uint32_t engine_a_bg0 = UINT32_C(0x04000008);

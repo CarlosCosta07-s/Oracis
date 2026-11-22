@@ -143,6 +143,13 @@ uint32_t NdsDisplayControl::dispcnt(unsigned engine_index) const noexcept
     return engines_[engine_index].dispcnt;
 }
 
+uint32_t NdsDisplayControl::three_d_clear_depth_expanded24() const noexcept
+{
+    const uint32_t raw = clear_depth_ & ClearDepthWritableMask;
+    return raw * UINT32_C(0x200) +
+        ((raw + 1u) / UINT32_C(0x8000)) * UINT32_C(0x1FF);
+}
+
 uint16_t NdsDisplayControl::master_brightness(
     unsigned engine_index) const noexcept
 {
@@ -325,6 +332,9 @@ Status NdsDisplayControl::install() noexcept
     cpu_status_ = {};
     three_d_control_ = 0u;
     alpha_test_reference_ = 0u;
+    clear_color_ = 0u;
+    clear_depth_ = 0u;
+    clear_image_offset_ = 0u;
     reset_timing();
     installed_ = true;
     return Status::Ok;
@@ -334,7 +344,10 @@ ReadResult NdsDisplayControl::read(
     NdsCpu cpu, uint32_t address, uint32_t width) const noexcept
 {
     if (address == Disp3dControlAddress ||
-        address == AlphaTestReferenceAddress) {
+        address == AlphaTestReferenceAddress ||
+        address == ClearColorAddress ||
+        address == ClearDepthAddress ||
+        address == ClearImageOffsetAddress) {
         if (!installed_) return {Status::Unmapped, 0u};
         if (!valid_cpu(cpu)) return {Status::InvalidCpu, 0u};
         if (cpu != NDS_ARM9) return {Status::Unmapped, 0u};
@@ -343,8 +356,14 @@ ReadResult NdsDisplayControl::read(
             /* Underflow/overflow status flags are not produced yet. */
             return {Status::Ok, three_d_control_};
         }
-        if (width != 1u) return {Status::InvalidWidth, 0u};
-        return {Status::PermissionDenied, 0u}; /* Write-only register. */
+        if (address == AlphaTestReferenceAddress) {
+            if (width != 1u) return {Status::InvalidWidth, 0u};
+        } else if (address == ClearColorAddress) {
+            if (width != 4u) return {Status::InvalidWidth, 0u};
+        } else if (width != 2u) {
+            return {Status::InvalidWidth, 0u};
+        }
+        return {Status::PermissionDenied, 0u}; /* Remaining 3D registers are write-only. */
     }
 
     if (address == MainMemoryDisplayFifoAddress) {
@@ -462,7 +481,10 @@ Status NdsDisplayControl::write(
     uint32_t value) noexcept
 {
     if (address == Disp3dControlAddress ||
-        address == AlphaTestReferenceAddress) {
+        address == AlphaTestReferenceAddress ||
+        address == ClearColorAddress ||
+        address == ClearDepthAddress ||
+        address == ClearImageOffsetAddress) {
         if (!installed_) return Status::Unmapped;
         if (!valid_cpu(cpu)) return Status::InvalidCpu;
         if (cpu != NDS_ARM9) return Status::Unmapped;
@@ -476,9 +498,26 @@ Status NdsDisplayControl::write(
                 value & Disp3dControlWritableMask);
             return Status::Ok;
         }
-        if (width != 1u) return Status::InvalidWidth;
-        alpha_test_reference_ = static_cast<uint8_t>(
-            value & UINT32_C(0x1F));
+        if (address == AlphaTestReferenceAddress) {
+            if (width != 1u) return Status::InvalidWidth;
+            alpha_test_reference_ = static_cast<uint8_t>(
+                value & UINT32_C(0x1F));
+            return Status::Ok;
+        }
+        if (address == ClearColorAddress) {
+            if (width != 4u) return Status::InvalidWidth;
+            clear_color_ = value & ClearColorWritableMask;
+            return Status::Ok;
+        }
+        if (address == ClearDepthAddress) {
+            if (width != 2u) return Status::InvalidWidth;
+            clear_depth_ = static_cast<uint16_t>(
+                value & ClearDepthWritableMask);
+            return Status::Ok;
+        }
+        if (width != 2u) return Status::InvalidWidth;
+        clear_image_offset_ = static_cast<uint16_t>(
+            value & ClearImageOffsetWritableMask);
         return Status::Ok;
     }
 
