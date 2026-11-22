@@ -172,3 +172,9 @@ the initial frame prime and one rolling refill using synthetic bus time.
 Still outstanding: sub-scanline geometry/render timing, measured FIFO
 underflow behavior, RDLINES_COUNT semantics, Android BG0 presentation,
 translucent polygon sorting, and an actual Platinum boot/frame.
+
+
+The `DISP3DCNT` bits 12/13 now retain sticky status and clear on a
+write-one acknowledgement. A missing BG0 3D scanline source sets bit 12; bit 13
+has register/report-hook support but still needs the Geometry Engine's actual
+polygon/vertex RAM overflow event.
