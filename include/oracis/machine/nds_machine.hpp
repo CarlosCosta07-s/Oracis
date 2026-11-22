@@ -28,6 +28,7 @@
 #include "oracis/memory/nds_post_flag.hpp"
 #include "oracis/memory/nds_display_control.hpp"
 #include "oracis/memory/nds_geometry_engine.hpp"
+#include "oracis/memory/nds_3d_rasterizer.hpp"
 
 /* Forward-declared here to keep the machine header independent of runtime_arm.h. */
 struct NdsStaticValidation;
@@ -171,6 +172,13 @@ public:
         NdsMachineIrqContextProvider irq_context,
         void *context) noexcept;
 
+    /* Prepare Engine A's rolling 48-line 3D BG0 lookahead window. */
+    memory::Nds3dRasterStatus prepare_3d_bg0_scanline(
+        uint16_t scanline) noexcept;
+    memory::Nds3dScanlineCache &three_d_scanline_cache() noexcept {
+        return three_d_scanline_cache_;
+    }
+
     /*
      * Default executor for registered static banks. It dispatches the
      * selected CPU's current guest PC through runtime_dispatch(); a missing
@@ -308,6 +316,13 @@ private:
     memory::NdsDmaControl dma_control_;
     memory::NdsDisplayControl display_control_;
     memory::NdsGeometryEngine geometry_engine_;
+    memory::Nds3dTextureSampler three_d_texture_sampler_;
+    memory::Nds3dRasterizer three_d_rasterizer_;
+    memory::Nds3dColorBuffer three_d_color_buffer_;
+    memory::Nds3dDepthBuffer three_d_depth_buffer_;
+    memory::Nds3dScanlineCache three_d_scanline_cache_;
+    uint16_t next_three_d_producer_scanline_ = 0u;
+    bool three_d_scanline_sequence_initialized_ = false;
     memory::NdsTimerControl timer_control_;
     memory::NdsKeypadControl keypad_control_;
     memory::NdsSystemClock system_clock_;

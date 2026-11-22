@@ -671,15 +671,31 @@ extern "C" int oracis_host_runtime_render_scanline(
         return ORACIS_HOST_RUNTIME_OK;
     }
 
+    const bool engine_a_3d_bg0 =
+        engine_index == 0u && display_mode == 1u &&
+        (dispcnt & UINT32_C(0x00000108)) == UINT32_C(0x00000108);
+    if (engine_a_3d_bg0) {
+        const auto raster_status = machine.prepare_3d_bg0_scanline(
+            static_cast<uint16_t>(scanline));
+        if (raster_status != oracis::memory::Nds3dRasterStatus::Ok) {
+            if (report != nullptr) {
+                report->three_d_raster_status = static_cast<uint32_t>(raster_status);
+            }
+            return ORACIS_HOST_RUNTIME_VIDEO_ERROR;
+        }
+    }
+
     std::array<oracis::memory::Nds2dCompositedPixel, 256> composed{};
     oracis::memory::Nds2dBgCompositor compositor(
         machine.guest_memory(), &machine.vram_control());
-    const oracis::memory::Nds2dComposeResult result =
-        compositor.render_scanline(
-            static_cast<unsigned>(engine_index),
-            machine.display_control(),
-            static_cast<uint16_t>(scanline),
-            composed);
+    const oracis::memory::Nds2dComposeResult result = engine_a_3d_bg0
+        ? compositor.render_scanline(
+            static_cast<unsigned>(engine_index), machine.display_control(),
+            static_cast<uint16_t>(scanline), composed,
+            machine.three_d_scanline_cache())
+        : compositor.render_scanline(
+            static_cast<unsigned>(engine_index), machine.display_control(),
+            static_cast<uint16_t>(scanline), composed);
 
     if (report != nullptr) {
         report->status = static_cast<uint32_t>(result.status);

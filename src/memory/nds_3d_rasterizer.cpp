@@ -836,6 +836,9 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_composited(
     if (alpha_test_reference > 31u) {
         return Nds3dRasterStatus::InvalidAlphaTestReference;
     }
+    if (geometry_.render_polygon_count() == 0u) {
+        return Nds3dRasterStatus::Ok;
+    }
     if ((geometry_.render_swap_parameters() & UINT8_C(1)) == 0u) {
         return Nds3dRasterStatus::TranslucentSortingNotSupported;
     }

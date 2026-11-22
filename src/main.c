@@ -257,7 +257,7 @@ static bool update_composed_screen(
                     SDL_LOG_CATEGORY_APPLICATION,
                     "NDS 2D composition failed (engine=%u, line=%u, "
                     "bridge=%d, compositor=%u, BG=%u, fetch=%u, memory=%u, "
-                    "OBJ=%u, OBJ index=%u). The frame was not presented.",
+                    "OBJ=%u, OBJ index=%u, 3D=%u). The frame was not presented.",
                     engine_index,
                     scanline,
                     status,
@@ -266,7 +266,8 @@ static bool update_composed_screen(
                     report.fetch_status,
                     report.memory_status,
                     report.object_fetch_status,
-                    report.object_index);
+                    report.object_index,
+                    report.three_d_raster_status);
                 g_video_error_reported = true;
             }
             return false;

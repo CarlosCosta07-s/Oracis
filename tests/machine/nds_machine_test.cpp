@@ -134,6 +134,35 @@ int main()
         return fail("machine initialization and device binding failed");
     }
 
+    if (machine.prepare_3d_bg0_scanline(0u) !=
+            oracis::memory::Nds3dRasterStatus::Ok ||
+        machine.three_d_scanline_cache().queued_lines() !=
+            oracis::memory::Nds3dScanlineCache::Capacity ||
+        machine.three_d_scanline_cache().next_producer_scanline() != 48u ||
+        machine.three_d_scanline_cache().next_consumer_scanline() != 0u) {
+        return fail("machine did not pre-render the first 48 3D BG0 scanlines");
+    }
+    if (machine.three_d_scanline_cache().consume(0u) !=
+            oracis::memory::Nds3dScanlineCacheStatus::Ok ||
+        machine.prepare_3d_bg0_scanline(1u) !=
+            oracis::memory::Nds3dRasterStatus::Ok ||
+        machine.three_d_scanline_cache().queued_lines() !=
+            oracis::memory::Nds3dScanlineCache::Capacity ||
+        machine.three_d_scanline_cache().next_producer_scanline() != 49u ||
+        machine.three_d_scanline_cache().next_consumer_scanline() != 1u) {
+        return fail("machine did not maintain the rolling 48-line BG0 cache");
+    }
+    if (machine.prepare_3d_bg0_scanline(10u) !=
+            oracis::memory::Nds3dRasterStatus::Ok ||
+        machine.three_d_scanline_cache().queued_lines() !=
+            oracis::memory::Nds3dScanlineCache::Capacity ||
+        machine.three_d_scanline_cache().next_producer_scanline() != 58u ||
+        machine.three_d_scanline_cache().next_consumer_scanline() != 10u ||
+        machine.prepare_3d_bg0_scanline(192u) !=
+            oracis::memory::Nds3dRasterStatus::InvalidScanline) {
+        return fail("machine did not recover after a skipped 3D BG0 scanline");
+    }
+
     if (oracis_arm_runtime_current_state() != machine.cpu_state(NDS_ARM9) ||
         g_nds_active != NDS_ARM9 ||
         machine.cpu_state(NDS_ARM9)->cpsr != ORACIS_ARM_MODE_SYSTEM ||

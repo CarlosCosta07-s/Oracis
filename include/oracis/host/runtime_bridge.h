@@ -54,6 +54,7 @@ typedef struct OracisHostVideoScanlineReport {
     uint32_t memory_status;
     uint32_t object_fetch_status;
     uint32_t object_index;
+    uint32_t three_d_raster_status;
 } OracisHostVideoScanlineReport;
 
 /* Initializes the process-wide NDS machine and binds its base devices. */
