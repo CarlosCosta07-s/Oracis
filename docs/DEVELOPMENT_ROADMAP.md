@@ -155,7 +155,7 @@ A integração já está conectada à `NdsMachine` e à apresentação desktop. 
 
 A `NdsMachine` agora possui o sampler de texturas, rasterizador, buffers de cor/profundidade e FIFO BG0 de 48 linhas. Quando Engine A está no modo gráfico e BG0 está habilitado como 3D, o host desktop prepara uma janela progressiva de até 48 scanlines e usa a sobrecarga cache-aware do compositor 2D. A janela avança conforme o host solicita cada linha; saltos ou ativação tardia do BG0 3D reinicializam a fila e o rear-plane. A regressão de máquina cobre preenchimento inicial, avanço da janela e recuperação após linha perdida.
 
-Este marco integra produção e consumo de linhas ao caminho de apresentação desktop, mas **não** implementa ainda o agendamento do produtor pelo VBlank/VCOUNT, temporização ciclo-a-ciclo, status de FIFO/RDLINES_COUNT ou apresentação Android. O preenchimento é acionado pela solicitação de scanline do host e deve ser tratado como lookahead funcional, não como precisão de hardware.
+A produção e o consumo de BG0 3D estão integrados à máquina e ao host desktop. O produtor prepara 48 linhas na scanline 214 durante VBlank; o compositor consome as linhas em ordem e o relógio repõe o espaço disponível a cada limite visível. O RDLINES_COUNT expõe uma aproximação do menor nível da FIFO no quadro anterior, fechada em VBlank. Permanecem pendentes a temporização sub-scanline/ciclo-a-ciclo e a apresentação Android; este marco ainda não demonstra um quadro real do Pokémon Platinum.
 
 
 ## 2026-11-22 follow-up — 3D scanline scheduling
