@@ -3271,10 +3271,12 @@ int main()
             4u, parameter) == oracis::memory::Status::Ok;
     };
     if (!write_geometry(0x10u, 1u) ||
-        !write_geometry(0x15u, 0u) ||
-        (overflow_geometry.advance_bus_cycles(20u), false) ||
-        !write_geometry(0x40u, 0u)) {
-        return fail("polygon RAM overflow fixture could not initialize geometry");
+        !write_geometry(0x15u, 0u)) {
+        return fail("polygon RAM overflow fixture could not initialize matrices");
+    }
+    overflow_geometry.advance_bus_cycles(20u);
+    if (!write_geometry(0x40u, 0u)) {
+        return fail("polygon RAM overflow fixture could not begin the triangle list");
     }
     overflow_geometry.advance_bus_cycles(1u);
 
@@ -3284,17 +3286,11 @@ int main()
         const uint32_t uz = static_cast<uint32_t>(z) & UINT32_C(0x3FF);
         return ux | (uy << 10u) | (uz << 20u);
     };
-    constexpr std::array<uint32_t, 3> overflow_triangle = {
-        UINT32_C(0x3F03F0), /* (-16, -16, 0) */
-        UINT32_C(0x0003F010), /* (16, -16, 0) */
-        UINT32_C(0x00004000) /* (0, 16, 0) */
-    };
     const std::array<uint32_t, 3> packed_overflow_triangle = {
         pack_vtx10(-16, -16, 0),
         pack_vtx10(16, -16, 0),
         pack_vtx10(0, 16, 0)
     };
-    static_cast<void>(overflow_triangle);
     for (uint32_t polygon = 0u;
          polygon < oracis::memory::NdsGeometryEngine::PolygonRamCapacity + 1u;
          ++polygon) {
