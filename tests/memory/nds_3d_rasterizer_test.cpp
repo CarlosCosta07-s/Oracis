@@ -444,7 +444,7 @@ int main()
             UINT16_C(0x4000)) != Status::Ok ||
         display.write(
             NDS_ARM9, NdsDisplayControl::ClearImageOffsetAddress, 2u,
-            UINT16_C(0x78FA)) != Status::Ok ||
+            UINT16_C(0xFA78)) != Status::Ok ||
         display.three_d_clear_depth_expanded24() != UINT32_C(0x800000)) {
         return fail("rear-plane clear register setup or depth expansion failed");
     }

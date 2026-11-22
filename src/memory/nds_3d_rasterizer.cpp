@@ -646,9 +646,9 @@ Nds3dRasterStatus Nds3dRasterizer::initialize_rear_plane(
 
     if (display_control.three_d_rear_plane_bitmap_enabled()) {
         constexpr uint32_t bitmap_bytes = NdsVramControl::BankSize;
-        const uint32_t row_offset =
-            display_control.three_d_clear_image_offset() & UINT16_C(0x00FF);
         const uint32_t column_offset =
+            display_control.three_d_clear_image_offset() & UINT16_C(0x00FF);
+        const uint32_t row_offset =
             (display_control.three_d_clear_image_offset() >> 8u) &
             UINT16_C(0x00FF);
         constexpr std::array<uint8_t, 2> bitmap_slots{{2u, 3u}};
