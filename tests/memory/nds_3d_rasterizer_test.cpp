@@ -22,7 +22,7 @@ bool write_command(
     uint32_t parameter = 0u)
 {
     const uint32_t address =
-        oracis::memory::NdsGeometryEngine::CommandPortsBase +
+        oracis::memory::NdsGeometryEngine::GxFifoBase +
         static_cast<uint32_t>(command) * 4u;
     return geometry.write(NDS_ARM9, address, 4u, parameter) ==
         oracis::memory::Status::Ok;
