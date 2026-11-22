@@ -399,7 +399,7 @@ int main()
     geometry.advance_bus_cycles(11u);
 
     const uint32_t vtx16_xy =
-        (UINT32_C(0x2000) << 16u) | UINT32_C(0x1000);
+        (UINT32_C(0x0800) << 16u) | UINT32_C(0x0400);
     if (!write_command(geometry, 0x23u, vtx16_xy) ||
         !write_command(geometry, 0x23u, UINT32_C(0x3000))) {
         return fail("VTX_16 parameter enqueue failed");
@@ -411,7 +411,7 @@ int main()
     }
 
     const uint32_t vtx10 =
-        UINT32_C(0x040) |
+        UINT32_C(0x010) |
         (UINT32_C(0x3FF) << 10u) |
         (UINT32_C(0x020) << 20u);
     if (!write_command(geometry, 0x24u, vtx10)) {
@@ -425,7 +425,7 @@ int main()
 
     if (!write_command(
             geometry, 0x25u,
-            (UINT32_C(0x4000) << 16u) | UINT32_C(0xE000))) {
+            (UINT32_C(0x0800) << 16u) | UINT32_C(0xF800))) {
         return fail("VTX_XY command enqueue failed");
     }
     geometry.advance_bus_cycles(8u);
@@ -435,10 +435,10 @@ int main()
     const NdsGeometryEngine::Vertex *vertex = geometry.vertex_at(0u);
     if (vertex == nullptr ||
         vertex->source_position !=
-            std::array<int32_t, 3>{INT32_C(4096), INT32_C(8192), INT32_C(12288)} ||
+            std::array<int32_t, 3>{INT32_C(1024), INT32_C(2048), INT32_C(3072)} ||
         vertex->clip_position !=
-            std::array<int32_t, 4>{INT32_C(4096), INT32_C(8192),
-                INT32_C(12288), INT32_C(4096)} ||
+            std::array<int32_t, 4>{INT32_C(1024), INT32_C(2048),
+                INT32_C(3072), INT32_C(4096)} ||
         vertex->normal !=
             std::array<int32_t, 3>{INT32_C(8), -INT32_C(8), INT32_C(2048)} ||
         vertex->color_rgb555 != UINT16_C(0x4210) ||
@@ -448,13 +448,13 @@ int main()
     vertex = geometry.vertex_at(1u);
     if (vertex == nullptr ||
         vertex->source_position !=
-            std::array<int32_t, 3>{INT32_C(4096), -INT32_C(64), INT32_C(2048)}) {
+            std::array<int32_t, 3>{INT32_C(1024), -INT32_C(64), INT32_C(2048)}) {
         return fail("VTX_10 signed 10-bit and six-fraction decode was incorrect");
     }
     vertex = geometry.vertex_at(2u);
     if (vertex == nullptr ||
         vertex->source_position !=
-            std::array<int32_t, 3>{-INT32_C(8192), INT32_C(16384), INT32_C(2048)}) {
+            std::array<int32_t, 3>{-INT32_C(2048), INT32_C(2048), INT32_C(2048)}) {
         return fail("VTX_XY failed to retain the previous Z coordinate");
     }
 
@@ -543,10 +543,10 @@ int main()
     }
     geometry.advance_bus_cycles(2u);
     const uint32_t quad_vertices[4][2] = {
-        {UINT32_C(0), UINT32_C(0x1000)},
-        {UINT32_C(0x1000), UINT32_C(0x1000)},
-        {UINT32_C(0x2000), UINT32_C(0x1000)},
-        {UINT32_C(0x3000), UINT32_C(0x1000)}
+        {UINT32_C(0), UINT32_C(0x0800)},
+        {UINT32_C(0x0400), UINT32_C(0x0800)},
+        {UINT32_C(0x0800), UINT32_C(0x0800)},
+        {UINT32_C(0x0C00), UINT32_C(0x0800)}
     };
     for (unsigned index = 0u; index < 4u; ++index) {
         if (!write_command(
@@ -577,10 +577,10 @@ int main()
     }
     geometry.advance_bus_cycles(1u);
     for (unsigned index = 0u; index < 6u; ++index) {
-        const uint32_t x = static_cast<uint32_t>(index) * UINT32_C(0x1000);
+        const uint32_t x = static_cast<uint32_t>(index) * UINT32_C(0x0300);
         if (!write_command(
                 geometry, 0x23u,
-                (UINT32_C(0x2000) << 16u) | x) ||
+                (UINT32_C(0x0800) << 16u) | x) ||
             !write_command(geometry, 0x23u, UINT32_C(0))) {
             return fail("quad-strip VTX_16 enqueue failed");
         }
@@ -709,7 +709,7 @@ int main()
         return fail("clip-space vertex was not projected into the configured viewport");
     }
 
-    /* A vertex outside any clip plane is not assigned a screen position yet. */
+    /* A partially outside triangle is clipped into a screen-ready polygon. */
     NdsGeometryEngine outside_viewport_geometry(interrupts);
     if (outside_viewport_geometry.install() != Status::Ok ||
         !write_command(outside_viewport_geometry, 0x40u, UINT32_C(0))) {
