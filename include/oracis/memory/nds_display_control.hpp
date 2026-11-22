@@ -21,6 +21,10 @@ class NdsDmaControl;
 
 class NdsDisplayControl final {
 public:
+    using ScanlineObserver = void (*)(
+        void *context, uint16_t previous_scanline,
+        uint16_t current_scanline, bool natural_frame_wrap) noexcept;
+
     static constexpr uint32_t EngineABase = UINT32_C(0x04000000);
     static constexpr uint32_t EngineBBase = UINT32_C(0x04001000);
     static constexpr uint32_t DispcntOffset = UINT32_C(0x0000);
@@ -128,6 +132,11 @@ public:
      */
     void advance_bus_cycles(uint64_t cycles) noexcept;
     void reset_timing() noexcept;
+    void set_scanline_observer(
+        void *context, ScanlineObserver observer) noexcept {
+        scanline_observer_context_ = context;
+        scanline_observer_ = observer;
+    }
 
     /* True when Engine A selects the main-memory display input mode. */
     bool main_memory_display_mode() const noexcept;
@@ -245,6 +254,8 @@ private:
     uint32_t line_cycle_ = 0u;
     bool pending_vcount_write_ = false;
     uint16_t pending_vcount_ = 0u;
+    void *scanline_observer_context_ = nullptr;
+    ScanlineObserver scanline_observer_ = nullptr;
     bool installed_ = false;
 };
 
