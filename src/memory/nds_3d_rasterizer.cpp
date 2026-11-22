@@ -1,4 +1,5 @@
 #include "oracis/memory/nds_3d_rasterizer.hpp"
+#include "oracis/memory/nds_display_control.hpp"
 
 #include <algorithm>
 #include <array>
@@ -602,6 +603,24 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_depth_tested(
     };
     return render_scanline(
         scanline, forward_depth_passed_fragment, &callback_context);
+}
+
+Nds3dRasterStatus Nds3dRasterizer::render_scanline_composited(
+    uint16_t scanline,
+    Nds3dDepthBuffer &depth_buffer,
+    Nds3dColorBuffer &color_buffer,
+    const NdsDisplayControl &display_control) const noexcept
+{
+    if (!display_control.installed()) {
+        return Nds3dRasterStatus::DisplayControlUnavailable;
+    }
+    return render_scanline_composited(
+        scanline,
+        depth_buffer,
+        color_buffer,
+        display_control.three_d_alpha_blending_enabled(),
+        display_control.three_d_alpha_test_enabled(),
+        display_control.three_d_alpha_test_reference());
 }
 
 Nds3dRasterStatus Nds3dRasterizer::render_scanline_composited(

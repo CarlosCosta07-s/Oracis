@@ -1067,6 +1067,21 @@ int main()
     bus_write_u16(UINT32_C(0x04000050), UINT16_C(0xFFFF));
     bus_write_u16(UINT32_C(0x04000052), UINT16_C(0xFFFF));
     bus_write_u16(UINT32_C(0x04000054), UINT16_C(0xFFFF));
+    constexpr uint16_t expected_3d_control =
+        NdsDisplayControl::Disp3dAlphaTestEnable |
+        NdsDisplayControl::Disp3dAlphaBlendEnable;
+    bus_write_u16(
+        NdsDisplayControl::Disp3dControlAddress,
+        expected_3d_control);
+    bus_write_u8(
+        NdsDisplayControl::AlphaTestReferenceAddress, UINT8_C(29));
+    if (bus_read_u16(NdsDisplayControl::Disp3dControlAddress) !=
+            expected_3d_control ||
+        machine.display_control().three_d_alpha_test_reference() != 29u ||
+        !machine.display_control().three_d_alpha_test_enabled() ||
+        !machine.display_control().three_d_alpha_blending_enabled()) {
+        return fail("3D DISP3DCNT/ALPHA_TEST_REF bus bridge failed");
+    }
     if (bus_read_u32(engine_a_dispcnt) != UINT32_C(0x00010013) ||
         bus_read_u32(engine_b_dispcnt) != UINT32_C(0x80000021) ||
         bus_read_u16(engine_a_bg0cnt) != UINT16_C(0x1234) ||

@@ -1,6 +1,7 @@
 #include "oracis/memory/guest_memory.hpp"
 #include "oracis/memory/nds_3d_rasterizer.hpp"
 #include "oracis/memory/nds_3d_texture_sampler.hpp"
+#include "oracis/memory/nds_display_control.hpp"
 #include "oracis/memory/nds_geometry_engine.hpp"
 #include "oracis/memory/nds_interrupt_control.hpp"
 #include "oracis/memory/nds_vram_control.hpp"
@@ -93,9 +94,11 @@ int main()
     NdsInterruptControl interrupts(memory);
     NdsGeometryEngine geometry(interrupts);
     NdsVramControl vram(memory);
+    NdsDisplayControl display(interrupts);
     if (geometry.install() != Status::Ok ||
-        vram.install() != Status::Ok) {
-        return fail("geometry or VRAM device installation failed");
+        vram.install() != Status::Ok ||
+        display.install() != Status::Ok) {
+        return fail("geometry, VRAM or display-control device installation failed");
     }
 
     /* Prepare a direct-color texel in VRAM A, then assign A to texture slot 0. */
@@ -355,21 +358,36 @@ int main()
 
     Nds3dDepthBuffer alpha_test_depth{};
     Nds3dColorBuffer alpha_test_color{};
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::Disp3dControlAddress, 2u,
+            static_cast<uint32_t>(
+                NdsDisplayControl::Disp3dAlphaTestEnable |
+                NdsDisplayControl::Disp3dAlphaBlendEnable)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::AlphaTestReferenceAddress,
+            1u, UINT32_C(31)) != Status::Ok) {
+        return fail("DISP3DCNT/ALPHA_TEST_REF setup failed");
+    }
+
     if (rasterizer.render_scanline_composited(
-            96u, alpha_test_depth, alpha_test_color,
-            true, true, 31u) != Nds3dRasterStatus::Ok ||
+            96u, alpha_test_depth, alpha_test_color, display) !=
+            Nds3dRasterStatus::Ok ||
         alpha_test_depth.depth_at(127u, 96u) !=
             Nds3dDepthBuffer::MaximumDepth ||
         alpha_test_color.pixel_at(127u, 96u)->alpha5 != 0u) {
-        return fail("alpha-test rejection updated color or depth");
+        return fail("MMIO alpha-test rejection updated color or depth");
     }
 
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::AlphaTestReferenceAddress,
+            1u, UINT32_C(30)) != Status::Ok) {
+        return fail("ALPHA_TEST_REF update failed");
+    }
     Nds3dDepthBuffer depth{};
     Nds3dColorBuffer color{};
     if (rasterizer.render_scanline_composited(
-            96u, depth, color, true, true, 30u) !=
-            Nds3dRasterStatus::Ok) {
-        return fail("manual-order composited scanline returned an error");
+            96u, depth, color, display) != Nds3dRasterStatus::Ok) {
+        return fail("manual-order MMIO-composited scanline returned an error");
     }
     const Nds3dColorPixel *center_pixel = color.pixel_at(127u, 96u);
     if (center_pixel == nullptr ||

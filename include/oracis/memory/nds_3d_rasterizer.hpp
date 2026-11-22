@@ -17,6 +17,8 @@
 
 namespace oracis::memory {
 
+class NdsDisplayControl;
+
 enum class Nds3dRasterStatus : uint8_t {
     Ok = 0,
     InvalidScanline,
@@ -26,7 +28,8 @@ enum class Nds3dRasterStatus : uint8_t {
     UnsupportedPolygonMode,
     WireframeNotSupported,
     TranslucentSortingNotSupported,
-    InvalidAlphaTestReference
+    InvalidAlphaTestReference,
+    DisplayControlUnavailable
 };
 
 /*
@@ -165,6 +168,15 @@ public:
         bool alpha_blending_enabled,
         bool alpha_test_enabled,
         uint8_t alpha_test_reference) const noexcept;
+
+    /*
+     * Pull DISP3DCNT and ALPHA_TEST_REF directly from the display MMIO device.
+     */
+    Nds3dRasterStatus render_scanline_composited(
+        uint16_t scanline,
+        Nds3dDepthBuffer &depth_buffer,
+        Nds3dColorBuffer &color_buffer,
+        const NdsDisplayControl &display_control) const noexcept;
 
 private:
     const NdsGeometryEngine &geometry_;
