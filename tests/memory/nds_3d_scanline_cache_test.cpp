@@ -80,6 +80,28 @@ int main()
         cache.peek(49u, &line) != Nds3dScanlineCacheStatus::Empty) {
         return fail("FIFO did not report an empty queue");
     }
+    cache.reset(0u);
+    for (uint16_t scanline = 0u; scanline < 8u; ++scanline) {
+        if (cache.enqueue(scanline, make_line(scanline)) !=
+            Nds3dScanlineCacheStatus::Ok) {
+            return fail("low-water fixture could not prime FIFO");
+        }
+    }
+    cache.begin_low_water_tracking();
+    for (uint16_t scanline = 0u; scanline < 3u; ++scanline) {
+        if (cache.consume(scanline) != Nds3dScanlineCacheStatus::Ok ||
+            cache.enqueue(static_cast<uint16_t>(scanline + 8u),
+                make_line(static_cast<uint16_t>(scanline + 8u))) !=
+                Nds3dScanlineCacheStatus::Ok) {
+            return fail("low-water fixture failed while consuming/refilling");
+        }
+    }
+    std::size_t minimum_queued_lines = 0u;
+    if (!cache.finish_low_water_tracking(minimum_queued_lines) ||
+        minimum_queued_lines != 7u ||
+        cache.finish_low_water_tracking(minimum_queued_lines)) {
+        return fail("FIFO frame low-water measurement was not retained exactly once");
+    }
     if (cache.reset(191u) != Nds3dScanlineCacheStatus::Ok ||
         cache.enqueue(191u, make_line(31u)) != Nds3dScanlineCacheStatus::Ok ||
         cache.consume(191u) != Nds3dScanlineCacheStatus::Ok ||
