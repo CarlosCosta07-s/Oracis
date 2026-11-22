@@ -351,8 +351,6 @@ Nds2dComposeResult Nds2dBgCompositor::render_scanline(
     return {};
 }
 
-} // namespace oracis::memory
-
 Nds2dComposeResult Nds2dBgCompositor::render_scanline(
     unsigned engine_index,
     const NdsDisplayControl &display,
