@@ -835,6 +835,124 @@ int main()
     }
 
     /*
+     * POLYGON_ATTR controls front/back visibility after clipping. Anti-
+     * clockwise polygons are front-facing; reversing the vertices selects
+     * the back surface. Repeated-point line segments bypass those flags.
+     */
+    const auto make_polygon = [&interrupts](
+        NdsGeometryEngine &engine, uint32_t attributes,
+        bool reverse_winding, bool cross_far_plane,
+        bool duplicate_vertex) noexcept {
+        if (engine.install() != Status::Ok ||
+            !write_command(engine, 0x29u, attributes) ||
+            !write_command(engine, 0x40u, UINT32_C(0))) {
+            return false;
+        }
+        engine.advance_bus_cycles(2u);
+
+        std::array<std::array<int16_t, 3>, 3> points = {{
+            {{-INT16_C(2048), -INT16_C(2048), 0}},
+            {{INT16_C(2048), -INT16_C(2048), 0}},
+            {{0, INT16_C(2048), 0}}
+        }};
+        if (cross_far_plane) points[0][2] = INT16_C(8192);
+        if (duplicate_vertex) points[2] = points[1];
+        if (reverse_winding) std::swap(points[1], points[2]);
+
+        for (const auto &point : points) {
+            const uint32_t xy =
+                (static_cast<uint32_t>(static_cast<uint16_t>(point[1])) << 16u) |
+                static_cast<uint16_t>(point[0]);
+            if (!write_command(engine, 0x23u, xy) ||
+                !write_command(
+                    engine, 0x23u, static_cast<uint16_t>(point[2]))) {
+                return false;
+            }
+        }
+        engine.advance_bus_cycles(27u);
+        return true;
+    };
+
+    NdsGeometryEngine front_only_geometry(interrupts);
+    if (!make_polygon(
+            front_only_geometry, UINT32_C(1) << 7u,
+            false, false, false)) {
+        return fail("front-surface triangle fixture setup failed");
+    }
+    const NdsGeometryEngine::Polygon *front_polygon =
+        front_only_geometry.polygon_at(0u);
+    if (front_polygon == nullptr || !front_polygon->front_facing ||
+        front_polygon->line_segment || !front_polygon->render_enabled ||
+        front_polygon->far_plane_intersection) {
+        return fail("anti-clockwise triangle was not accepted as the front surface");
+    }
+
+    NdsGeometryEngine back_hidden_geometry(interrupts);
+    if (!make_polygon(
+            back_hidden_geometry, UINT32_C(1) << 7u,
+            true, false, false)) {
+        return fail("back-surface hidden triangle fixture setup failed");
+    }
+    const NdsGeometryEngine::Polygon *back_hidden =
+        back_hidden_geometry.polygon_at(0u);
+    if (back_hidden == nullptr || back_hidden->front_facing ||
+        back_hidden->line_segment || back_hidden->render_enabled) {
+        return fail("back-facing triangle ignored the front-only surface flag");
+    }
+
+    NdsGeometryEngine back_visible_geometry(interrupts);
+    if (!make_polygon(
+            back_visible_geometry, UINT32_C(1) << 6u,
+            true, false, false)) {
+        return fail("back-surface visible triangle fixture setup failed");
+    }
+    const NdsGeometryEngine::Polygon *back_visible =
+        back_visible_geometry.polygon_at(0u);
+    if (back_visible == nullptr || back_visible->front_facing ||
+        !back_visible->render_enabled) {
+        return fail("back-facing triangle was not accepted by the back-surface flag");
+    }
+
+    NdsGeometryEngine line_geometry(interrupts);
+    if (!make_polygon(line_geometry, 0u, false, false, true)) {
+        return fail("line-segment polygon fixture setup failed");
+    }
+    const NdsGeometryEngine::Polygon *line_polygon =
+        line_geometry.polygon_at(0u);
+    if (line_polygon == nullptr || !line_polygon->line_segment ||
+        !line_polygon->render_enabled) {
+        return fail("repeated-vertex line segment was incorrectly face-culled");
+    }
+
+    /* POLYGON_ATTR bit 12 gates polygons which intersect the far clip plane. */
+    NdsGeometryEngine far_hidden_geometry(interrupts);
+    if (!make_polygon(
+            far_hidden_geometry, UINT32_C(1) << 7u,
+            false, true, false)) {
+        return fail("far-plane hidden polygon fixture setup failed");
+    }
+    const NdsGeometryEngine::Polygon *far_hidden =
+        far_hidden_geometry.polygon_at(0u);
+    if (far_hidden == nullptr || !far_hidden->far_plane_intersection ||
+        far_hidden->render_enabled || far_hidden->vertex_count != 4u) {
+        return fail("far-plane crossing polygon ignored the disabled far-plane flag");
+    }
+
+    NdsGeometryEngine far_visible_geometry(interrupts);
+    if (!make_polygon(
+            far_visible_geometry,
+            (UINT32_C(1) << 7u) | (UINT32_C(1) << 12u),
+            false, true, false)) {
+        return fail("far-plane visible polygon fixture setup failed");
+    }
+    const NdsGeometryEngine::Polygon *far_visible =
+        far_visible_geometry.polygon_at(0u);
+    if (far_visible == nullptr || !far_visible->far_plane_intersection ||
+        !far_visible->render_enabled || far_visible->vertex_count != 4u) {
+        return fail("POLYGON_ATTR bit 12 did not allow a clipped far-plane polygon");
+    }
+
+    /*
      * The machine clock advances GX commands only at the shared ARM9/ARM7
      * watermark. ARM9 running ahead alone must not consume a FIFO command.
      */

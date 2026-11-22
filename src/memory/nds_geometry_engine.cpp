@@ -1266,10 +1266,12 @@ NdsGeometryEngine::Vertex NdsGeometryEngine::interpolate_vertex(
 bool NdsGeometryEngine::clip_polygon(
     const Vertex *vertices, uint8_t count,
     std::array<Vertex, MaxClippedPolygonVertices> &clipped,
-    uint8_t &clipped_count) const noexcept
+    uint8_t &clipped_count,
+    bool &far_plane_intersection) const noexcept
 {
     clipped = {};
     clipped_count = 0u;
+    far_plane_intersection = false;
     if (vertices == nullptr || count < 3u || count > 4u) return false;
 
     std::array<Vertex, MaxClippedPolygonVertices> source{};
@@ -1298,6 +1300,9 @@ bool NdsGeometryEngine::clip_polygon(
             const Vertex &current = source[index];
             const int64_t current_distance = clip_distance(current, plane);
             const bool current_inside = current_distance >= 0;
+            if (plane == 5u && current_inside != previous_inside) {
+                far_plane_intersection = true;
+            }
 
             if (current_inside) {
                 if (!previous_inside &&
@@ -1382,7 +1387,10 @@ void NdsGeometryEngine::emit_polygon(
 
     std::array<Vertex, MaxClippedPolygonVertices> clipped{};
     uint8_t clipped_count = 0u;
-    if (!clip_polygon(vertices, count, clipped, clipped_count)) {
+    bool far_plane_intersection = false;
+    if (!clip_polygon(
+            vertices, count, clipped, clipped_count,
+            far_plane_intersection)) {
         buffer.vertex_overflow = true;
         return;
     }
@@ -1400,6 +1408,47 @@ void NdsGeometryEngine::emit_polygon(
     Polygon polygon{};
     polygon.attributes = active_polygon_attributes_;
     polygon.vertex_count = clipped_count;
+    polygon.far_plane_intersection = far_plane_intersection;
+
+    /*
+     * The DS defines anti-clockwise projected winding as the front surface.
+     * The viewport has a lower-left origin, so a positive shoelace area is
+     * front-facing. Repeated vertices form line segments and bypass face
+     * visibility bits, as on hardware.
+     */
+    int64_t signed_area_twice = 0;
+    for (uint8_t index = 0u; index < clipped_count; ++index) {
+        const Vertex &current = clipped[index];
+        const Vertex &next = clipped[(index + 1u) % clipped_count];
+        signed_area_twice +=
+            static_cast<int64_t>(current.screen_position[0]) *
+                next.screen_position[1] -
+            static_cast<int64_t>(next.screen_position[0]) *
+                current.screen_position[1];
+    }
+    polygon.front_facing = signed_area_twice > 0;
+
+    for (uint8_t left = 0u; left < clipped_count; ++left) {
+        for (uint8_t right = left + 1u; right < clipped_count; ++right) {
+            if (clipped[left].clip_position ==
+                clipped[right].clip_position) {
+                polygon.line_segment = true;
+            }
+        }
+    }
+
+    constexpr uint32_t kPolygonBackSurface = UINT32_C(1) << 6u;
+    constexpr uint32_t kPolygonFrontSurface = UINT32_C(1) << 7u;
+    constexpr uint32_t kPolygonFarPlaneIntersections =
+        UINT32_C(1) << 12u;
+    const bool face_visible = polygon.line_segment ||
+        (polygon.front_facing
+            ? (active_polygon_attributes_ & kPolygonFrontSurface) != 0u
+            : (active_polygon_attributes_ & kPolygonBackSurface) != 0u);
+    const bool far_plane_visible = !polygon.far_plane_intersection ||
+        (active_polygon_attributes_ & kPolygonFarPlaneIntersections) != 0u;
+    polygon.render_enabled = face_visible && far_plane_visible;
+
     const uint32_t base_vertex = buffer.vertex_count;
     for (uint8_t index = 0u; index < clipped_count; ++index) {
         polygon.vertex_indices[index] = base_vertex + index;

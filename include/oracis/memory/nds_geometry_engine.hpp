@@ -51,6 +51,10 @@ public:
         std::array<uint32_t, MaxClippedPolygonVertices> vertex_indices{};
         uint32_t attributes = 0u;
         uint8_t vertex_count = 0u;
+        bool front_facing = false;
+        bool line_segment = false;
+        bool far_plane_intersection = false;
+        bool render_enabled = false;
     };
 
     struct GeometryBuffer {
@@ -218,7 +222,8 @@ private:
     bool clip_polygon(
         const Vertex *vertices, uint8_t count,
         std::array<Vertex, MaxClippedPolygonVertices> &clipped,
-        uint8_t &clipped_count) const noexcept;
+        uint8_t &clipped_count,
+        bool &far_plane_intersection) const noexcept;
     void reset_build_buffer() noexcept;
     void set_current_matrix(const Matrix &matrix) noexcept;
     void multiply_current_matrix(const Matrix &matrix,
