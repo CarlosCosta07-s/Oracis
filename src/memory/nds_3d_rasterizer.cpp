@@ -741,9 +741,6 @@ Nds3dRasterStatus Nds3dRasterizer::initialize_rear_plane(
         (clear_color >> 15u) & UINT32_C(1));
     const uint8_t alpha5 = static_cast<uint8_t>(
         (clear_color >> 16u) & UINT32_C(0x1F));
-    const uint8_t polygon_id = static_cast<uint8_t>(
-        (clear_color >> 24u) & UINT32_C(0x3F));
-
     color_buffer.clear(
         expand_five_to_six(red5),
         expand_five_to_six(green5),
