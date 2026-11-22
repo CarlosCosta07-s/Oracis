@@ -156,3 +156,19 @@ A integração temporal ainda não está concluída: a fila não é alimentada a
 A `NdsMachine` agora possui o sampler de texturas, rasterizador, buffers de cor/profundidade e FIFO BG0 de 48 linhas. Quando Engine A está no modo gráfico e BG0 está habilitado como 3D, o host desktop prepara uma janela progressiva de até 48 scanlines e usa a sobrecarga cache-aware do compositor 2D. A janela avança conforme o host solicita cada linha; saltos ou ativação tardia do BG0 3D reinicializam a fila e o rear-plane. A regressão de máquina cobre preenchimento inicial, avanço da janela e recuperação após linha perdida.
 
 Este marco integra produção e consumo de linhas ao caminho de apresentação desktop, mas **não** implementa ainda o agendamento do produtor pelo VBlank/VCOUNT, temporização ciclo-a-ciclo, status de FIFO/RDLINES_COUNT ou apresentação Android. O preenchimento é acionado pela solicitação de scanline do host e deve ser tratado como lookahead funcional, não como precisão de hardware.
+
+
+## 2026-11-22 follow-up — 3D scanline scheduling
+
+The 3D BG0 lookahead producer is now driven by the synchronized display clock.
+The display device reports completed scanline boundaries to its owning machine;
+the system clock splits elapsed bus time at those boundaries and advances the
+geometry engine before the display callback. This ensures the line-192 VBlank
+notification is delivered before the following frame's 262-to-0 producer reset.
+At natural frame wrap, 48 visible lines are queued; each later visible boundary
+refills free slots without writing into a full FIFO. The machine test exercises
+the initial frame prime and one rolling refill using synthetic bus time.
+
+Still outstanding: sub-scanline geometry/render timing, measured FIFO
+underflow behavior, RDLINES_COUNT semantics, Android BG0 presentation,
+translucent polygon sorting, and an actual Platinum boot/frame.
