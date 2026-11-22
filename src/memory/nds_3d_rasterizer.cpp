@@ -369,7 +369,7 @@ Nds3dRasterStatus rasterize_triangle_scanline(
     if (polygon.line_segment || polygon.alpha == 0u) {
         return Nds3dRasterStatus::WireframeNotSupported;
     }
-    if (polygon.polygon_mode > 2u ||
+    if (polygon.polygon_mode > 3u ||
         (polygon.polygon_mode == 2u && toon_table == nullptr)) {
         return Nds3dRasterStatus::UnsupportedPolygonMode;
     }
@@ -447,11 +447,17 @@ Nds3dRasterStatus rasterize_triangle_scanline(
             return Nds3dRasterStatus::InvalidGeometry;
         }
 
-        const Nds3dTextureSample texture = textures.sample(
-            polygon.texture_parameters,
-            polygon.texture_palette_base,
-            texture_s,
-            texture_t);
+        Nds3dTextureSample texture{};
+        if (polygon.polygon_mode == 3u) {
+            /* Shadow mode uses the polygon vertex color, not a texture. */
+            texture.status = Nds3dTextureSampleStatus::NoTexture;
+        } else {
+            texture = textures.sample(
+                polygon.texture_parameters,
+                polygon.texture_palette_base,
+                texture_s,
+                texture_t);
+        }
         if (texture.status != Nds3dTextureSampleStatus::Ok &&
             texture.status != Nds3dTextureSampleStatus::NoTexture) {
             return Nds3dRasterStatus::TextureFailure;
@@ -474,6 +480,7 @@ Nds3dRasterStatus rasterize_triangle_scanline(
             : interpolate_depth(weights, vertex_depths, area);
         fragment.w_buffer = w_buffer;
         fragment.polygon_id = polygon.polygon_id;
+        fragment.polygon_mode = polygon.polygon_mode;
         fragment.fog_enabled = polygon.fog_enabled;
         fragment.depth_equal = polygon.depth_equal;
         fragment.translucent = polygon.alpha < 31u;
@@ -517,6 +524,7 @@ struct DepthTestedCallbackContext {
 struct CompositedScanlineContext {
     Nds3dDepthBuffer *depth_buffer = nullptr;
     Nds3dColorBuffer *color_buffer = nullptr;
+    Nds3dShadowStencilBuffer *shadow_stencil = nullptr;
     bool alpha_blending_enabled = false;
     bool alpha_test_enabled = false;
     uint8_t alpha_test_reference = 0u;
@@ -550,10 +558,32 @@ void composite_depth_passed_fragment(
         return;
     }
 
-    if (context->depth_buffer->test_and_update(fragment)) {
-        static_cast<void>(context->color_buffer->blend_fragment(
-            fragment, context->alpha_blending_enabled));
+    if (!context->depth_buffer->test_and_update(fragment)) return;
+
+    if (fragment.polygon_mode == 3u) {
+        if (context->shadow_stencil == nullptr) return;
+        if (fragment.polygon_id == 0u) {
+            /* Pass 1: mark back-facing shadow-volume pixels without drawing. */
+            static_cast<void>(context->shadow_stencil->mark(
+                fragment.x, fragment.y));
+            return;
+        }
+
+        /* Pass 2: consume the mask before checking the receiver polygon ID. */
+        if (context->shadow_stencil->test_and_clear(
+                fragment.x, fragment.y)) {
+            return;
+        }
+        const Nds3dColorPixel *destination = context->color_buffer->pixel_at(
+            fragment.x, fragment.y);
+        if (destination == nullptr ||
+            destination->polygon_id == fragment.polygon_id) {
+            return;
+        }
     }
+
+    static_cast<void>(context->color_buffer->blend_fragment(
+        fragment, context->alpha_blending_enabled));
 }
 
 } // namespace
@@ -798,6 +828,36 @@ void Nds3dDepthBuffer::clear(uint32_t depth) noexcept
     depths_.fill(std::min(depth, MaximumDepth));
 }
 
+void Nds3dShadowStencilBuffer::clear() noexcept
+{
+    bits_.fill(0u);
+}
+
+bool Nds3dShadowStencilBuffer::mark(uint8_t x, uint8_t y) noexcept
+{
+    if (y >= ScreenHeight) return false;
+    bits_[static_cast<std::size_t>(y) * ScreenWidth + x] = 1u;
+    return true;
+}
+
+bool Nds3dShadowStencilBuffer::is_marked(
+    uint8_t x, uint8_t y) const noexcept
+{
+    if (y >= ScreenHeight) return false;
+    return bits_[static_cast<std::size_t>(y) * ScreenWidth + x] != 0u;
+}
+
+bool Nds3dShadowStencilBuffer::test_and_clear(
+    uint8_t x, uint8_t y) noexcept
+{
+    if (y >= ScreenHeight) return false;
+    const std::size_t index =
+        static_cast<std::size_t>(y) * ScreenWidth + x;
+    const bool marked = bits_[index] != 0u;
+    bits_[index] = 0u;
+    return marked;
+}
+
 bool Nds3dDepthBuffer::write_depth(
     uint8_t x, uint8_t y, uint32_t depth) noexcept
 {
@@ -998,15 +1058,38 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_composited(
         return Nds3dRasterStatus::DisplayControlUnavailable;
     }
     const Nds3dRasterStatus status = render_scanline_composited_impl(
-        scanline,
-        depth_buffer,
-        color_buffer,
+        scanline, depth_buffer, color_buffer,
         display_control.three_d_alpha_blending_enabled(),
         display_control.three_d_alpha_test_enabled(),
         display_control.three_d_alpha_test_reference(),
         &display_control.three_d_toon_table(),
         display_control.three_d_highlight_shading_enabled(),
-        display_control.three_d_edge_marking_enabled());
+        display_control.three_d_edge_marking_enabled(), nullptr);
+    if (status != Nds3dRasterStatus::Ok) return status;
+    return color_buffer.apply_fog_scanline(
+            scanline, depth_buffer, display_control)
+        ? Nds3dRasterStatus::Ok
+        : Nds3dRasterStatus::InvalidScanline;
+}
+
+Nds3dRasterStatus Nds3dRasterizer::render_scanline_composited(
+    uint16_t scanline,
+    Nds3dDepthBuffer &depth_buffer,
+    Nds3dColorBuffer &color_buffer,
+    const NdsDisplayControl &display_control,
+    Nds3dShadowStencilBuffer &shadow_stencil) const noexcept
+{
+    if (!display_control.installed()) {
+        return Nds3dRasterStatus::DisplayControlUnavailable;
+    }
+    const Nds3dRasterStatus status = render_scanline_composited_impl(
+        scanline, depth_buffer, color_buffer,
+        display_control.three_d_alpha_blending_enabled(),
+        display_control.three_d_alpha_test_enabled(),
+        display_control.three_d_alpha_test_reference(),
+        &display_control.three_d_toon_table(),
+        display_control.three_d_highlight_shading_enabled(),
+        display_control.three_d_edge_marking_enabled(), &shadow_stencil);
     if (status != Nds3dRasterStatus::Ok) return status;
     return color_buffer.apply_fog_scanline(
             scanline, depth_buffer, display_control)
@@ -1020,7 +1103,8 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_to_cache(
     Nds3dColorBuffer &color_buffer,
     Nds3dScanlineCache &cache,
     const NdsDisplayControl &display_control,
-    bool edge_marking_pipeline) const noexcept
+    bool edge_marking_pipeline,
+    Nds3dShadowStencilBuffer *shadow_stencil) const noexcept
 {
     if (!display_control.installed()) {
         return Nds3dRasterStatus::DisplayControlUnavailable;
@@ -1046,7 +1130,8 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_to_cache(
                 display_control.three_d_alpha_test_enabled(),
                 display_control.three_d_alpha_test_reference(),
                 &display_control.three_d_toon_table(),
-                display_control.three_d_highlight_shading_enabled(), false);
+                display_control.three_d_highlight_shading_enabled(), false,
+                shadow_stencil);
         if (rendered != Nds3dRasterStatus::Ok) return rendered;
         if (!color_buffer.apply_fog_scanline(
                 scanline, depth_buffer, display_control)) {
@@ -1092,7 +1177,8 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_to_cache(
                 display_control.three_d_alpha_test_enabled(),
                 display_control.three_d_alpha_test_reference(),
                 &display_control.three_d_toon_table(),
-                display_control.three_d_highlight_shading_enabled(), true);
+                display_control.three_d_highlight_shading_enabled(), true,
+                shadow_stencil);
         if (rendered != Nds3dRasterStatus::Ok) return rendered;
         /* The first line is a top-neighbor prerequisite, not a queued line. */
         if (scanline == 0u) return Nds3dRasterStatus::Ok;
@@ -1138,7 +1224,8 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_composited(
 {
     return render_scanline_composited_impl(
         scanline, depth_buffer, color_buffer, alpha_blending_enabled,
-        alpha_test_enabled, alpha_test_reference, nullptr, false, false);
+        alpha_test_enabled, alpha_test_reference, nullptr, false, false,
+        nullptr);
 }
 
 Nds3dRasterStatus Nds3dRasterizer::render_scanline_composited_impl(
@@ -1150,13 +1237,45 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_composited_impl(
     uint8_t alpha_test_reference,
     const std::array<uint16_t, 32> *toon_table,
     bool highlight_shading,
-    bool edge_marking_enabled) const noexcept
+    bool edge_marking_enabled,
+    Nds3dShadowStencilBuffer *shadow_stencil) const noexcept
 {
     if (alpha_test_reference > 31u) {
         return Nds3dRasterStatus::InvalidAlphaTestReference;
     }
     if (geometry_.render_polygon_count() == 0u) {
         return Nds3dRasterStatus::Ok;
+    }
+
+    bool has_shadow_polygons = false;
+    bool shadow_render_pass_started = false;
+    for (uint32_t index = 0u;
+         index < geometry_.render_polygon_count(); ++index) {
+        const NdsGeometryEngine::Polygon *polygon =
+            geometry_.render_polygon_at(index);
+        if (polygon == nullptr) return Nds3dRasterStatus::InvalidGeometry;
+        if (polygon->polygon_mode != 3u) continue;
+        has_shadow_polygons = true;
+        const bool back_render =
+            (polygon->attributes & (UINT32_C(1) << 6u)) != 0u;
+        const bool front_render =
+            (polygon->attributes & (UINT32_C(1) << 7u)) != 0u;
+        if (polygon->alpha == 0u || polygon->alpha == 31u ||
+            polygon->line_segment || !back_render ||
+            (polygon->polygon_id == 0u && front_render) ||
+            (polygon->polygon_id != 0u && !front_render)) {
+            return Nds3dRasterStatus::InvalidShadowPolygon;
+        }
+        if (polygon->polygon_id == 0u) {
+            if (shadow_render_pass_started) {
+                return Nds3dRasterStatus::ShadowPassOrderInvalid;
+            }
+        } else {
+            shadow_render_pass_started = true;
+        }
+    }
+    if (has_shadow_polygons && shadow_stencil == nullptr) {
+        return Nds3dRasterStatus::ShadowStencilUnavailable;
     }
     if ((geometry_.render_swap_parameters() & UINT8_C(1)) == 0u) {
         /*
@@ -1179,6 +1298,7 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_composited_impl(
     CompositedScanlineContext context{
         &depth_buffer,
         &color_buffer,
+        shadow_stencil,
         alpha_blending_enabled,
         alpha_test_enabled,
         alpha_test_reference

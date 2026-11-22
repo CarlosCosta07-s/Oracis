@@ -331,6 +331,7 @@ private:
     memory::Nds3dRasterizer three_d_rasterizer_;
     memory::Nds3dColorBuffer three_d_color_buffer_;
     memory::Nds3dDepthBuffer three_d_depth_buffer_;
+    memory::Nds3dShadowStencilBuffer three_d_shadow_stencil_buffer_;
     memory::Nds3dScanlineCache three_d_scanline_cache_;
     uint16_t next_three_d_producer_scanline_ = 0u;
     bool three_d_scanline_sequence_initialized_ = false;

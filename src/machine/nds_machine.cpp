@@ -142,6 +142,7 @@ memory::Nds3dRasterStatus NdsMachine::reset_3d_bg0_scanline_sequence(
         three_d_scanline_sequence_initialized_ = false;
         return rear_plane;
     }
+    three_d_shadow_stencil_buffer_.clear();
     next_three_d_producer_scanline_ = first_scanline;
     three_d_edge_marking_pipeline_active_ =
         first_scanline == 0u && display_control_.three_d_edge_marking_enabled();
@@ -194,7 +195,8 @@ memory::Nds3dRasterStatus NdsMachine::fill_3d_bg0_lookahead(
             three_d_rasterizer_.render_scanline_to_cache(
                 next_three_d_producer_scanline_, three_d_depth_buffer_,
                 three_d_color_buffer_, three_d_scanline_cache_, display_control_,
-                three_d_edge_marking_pipeline_active_);
+                three_d_edge_marking_pipeline_active_,
+                &three_d_shadow_stencil_buffer_);
         if (rendered != Nds3dRasterStatus::Ok) return rendered;
         ++next_three_d_producer_scanline_;
     }

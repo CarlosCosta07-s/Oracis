@@ -1001,6 +1001,137 @@ int main()
         return fail("Highlight additive shading produced the wrong RGB6 result");
     }
 
+
+    /* DS Shadow mode: mask, stencil consumption, receiver ID and blend. */
+    constexpr uint32_t ShadowAlpha = 15u;
+    const uint32_t shadow_mask_attributes =
+        (UINT32_C(3) << 4u) | (UINT32_C(1) << 6u) |
+        (ShadowAlpha << 16u);
+    const std::array<uint32_t, 3> back_face_positions = {
+        positions[0], positions[2], positions[1]
+    };
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::Disp3dControlAddress, 2u,
+            NdsDisplayControl::Disp3dAlphaBlendEnable) != Status::Ok ||
+        !write_command(geometry, 0x29u, shadow_mask_attributes) ||
+        !write_command(geometry, 0x40u, 0u)) {
+        return fail("shadow mask polygon setup failed");
+    }
+    geometry.advance_bus_cycles(2u);
+    for (uint32_t position : back_face_positions) {
+        if (!write_command(geometry, 0x20u, 0u) ||
+            !write_command(geometry, 0x24u, position)) {
+            return fail("shadow mask vertex setup failed");
+        }
+        geometry.advance_bus_cycles(9u);
+    }
+    if (geometry.polygon_count() != 1u ||
+        geometry.polygon_at(0u) == nullptr ||
+        geometry.polygon_at(0u)->front_facing ||
+        !geometry.polygon_at(0u)->render_enabled ||
+        !write_command(geometry, 0x50u, UINT32_C(1))) {
+        return fail("shadow mask did not retain a back-facing, manually ordered polygon");
+    }
+    geometry.advance_bus_cycles(1u);
+    if (!geometry.swap_waiting_for_vblank()) {
+        return fail("shadow mask SWAP_BUFFERS did not wait for VBlank");
+    }
+    geometry.notify_vblank();
+    geometry.advance_bus_cycles(392u);
+
+    Nds3dShadowStencilBuffer shadow_stencil{};
+    Nds3dDepthBuffer shadow_depth{};
+    Nds3dColorBuffer shadow_output{};
+    shadow_depth.clear();
+    shadow_output.clear(40u, 40u, 40u, 31u, 5u, false);
+    if (rasterizer.render_scanline_composited(
+            96u, shadow_depth, shadow_output, display, shadow_stencil) !=
+            Nds3dRasterStatus::Ok ||
+        !shadow_stencil.is_marked(127u, 96u) ||
+        shadow_output.pixel_at(127u, 96u)->red6 != 40u ||
+        shadow_output.pixel_at(127u, 96u)->polygon_id != 5u) {
+        return fail("Shadow pass 1 changed color or failed to mark the stencil");
+    }
+
+    constexpr uint8_t ShadowPolygonId = 9u;
+    const uint32_t shadow_render_attributes =
+        (UINT32_C(3) << 4u) | (UINT32_C(1) << 6u) |
+        (UINT32_C(1) << 7u) | (ShadowAlpha << 16u) |
+        (static_cast<uint32_t>(ShadowPolygonId) << 24u);
+    if (!write_command(geometry, 0x29u, shadow_render_attributes) ||
+        !write_command(geometry, 0x40u, 0u)) {
+        return fail("shadow render polygon setup failed");
+    }
+    geometry.advance_bus_cycles(2u);
+    for (uint32_t position : positions) {
+        if (!write_command(geometry, 0x20u, 0u) ||
+            !write_command(geometry, 0x24u, position)) {
+            return fail("shadow render vertex setup failed");
+        }
+        geometry.advance_bus_cycles(9u);
+    }
+    if (geometry.polygon_count() != 1u ||
+        geometry.polygon_at(0u) == nullptr ||
+        !geometry.polygon_at(0u)->front_facing ||
+        !geometry.polygon_at(0u)->render_enabled ||
+        !write_command(geometry, 0x50u, UINT32_C(1))) {
+        return fail("shadow render pass did not include both polygon faces");
+    }
+    geometry.advance_bus_cycles(1u);
+    if (!geometry.swap_waiting_for_vblank()) {
+        return fail("shadow render SWAP_BUFFERS did not wait for VBlank");
+    }
+    geometry.notify_vblank();
+    geometry.advance_bus_cycles(392u);
+
+    /* The second pass consumes the mask and leaves the receiver unchanged. */
+    if (rasterizer.render_scanline_composited(
+            96u, shadow_depth, shadow_output, display, shadow_stencil) !=
+            Nds3dRasterStatus::Ok ||
+        shadow_stencil.is_marked(127u, 96u) ||
+        shadow_output.pixel_at(127u, 96u)->red6 != 40u ||
+        shadow_output.pixel_at(127u, 96u)->polygon_id != 5u) {
+        return fail("Shadow pass 2 did not consume a masked pixel");
+    }
+
+    /* A matching receiver ID suppresses a shadow without changing its color. */
+    shadow_stencil.clear();
+    shadow_depth.clear();
+    shadow_output.clear(40u, 40u, 40u, 31u, ShadowPolygonId, false);
+    if (rasterizer.render_scanline_composited(
+            96u, shadow_depth, shadow_output, display, shadow_stencil) !=
+            Nds3dRasterStatus::Ok ||
+        shadow_output.pixel_at(127u, 96u)->red6 != 40u ||
+        shadow_output.pixel_at(127u, 96u)->polygon_id != ShadowPolygonId) {
+        return fail("Shadow was incorrectly applied to its own receiver ID");
+    }
+
+    /* A different receiver ID is shaded and records the shadow ID. */
+    shadow_depth.clear();
+    shadow_output.clear(40u, 40u, 40u, 31u, 10u, false);
+    if (rasterizer.render_scanline_composited(
+            96u, shadow_depth, shadow_output, display, shadow_stencil) !=
+            Nds3dRasterStatus::Ok ||
+        shadow_output.pixel_at(127u, 96u)->red6 != 20u ||
+        shadow_output.pixel_at(127u, 96u)->polygon_id != ShadowPolygonId) {
+        return fail("Shadow render pass did not blend or update the attribute ID");
+    }
+    shadow_depth.clear();
+    if (rasterizer.render_scanline_composited(
+            96u, shadow_depth, shadow_output, display, shadow_stencil) !=
+            Nds3dRasterStatus::Ok ||
+        shadow_output.pixel_at(127u, 96u)->red6 != 20u) {
+        return fail("Repeated Shadow polygons with the same ID shaded a pixel twice");
+    }
+
+    /* The legacy overload has no stencil state and must reject mode 3. */
+    shadow_depth.clear();
+    if (rasterizer.render_scanline_composited(
+            96u, shadow_depth, shadow_output, display) !=
+            Nds3dRasterStatus::ShadowStencilUnavailable) {
+        return fail("Shadow rendering did not fail closed without a stencil buffer");
+    }
+
     std::puts("NDS 3D rasterizer tests passed");
     return 0;
 }

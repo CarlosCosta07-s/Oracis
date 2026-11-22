@@ -4,8 +4,8 @@
  * Consumes the Geometry Engine's render buffer, samples captured texture
  * state, composes fragments into RGB6/A5 staging and exports BG0 RGB555/
  * alpha5 scanlines to the bounded 48-line FIFO. MMIO-controlled fog is
- * applied after scanline composition. Toon/highlight shading is table-driven;
- * translucent Y-sort, shadow mode, wireframe/edge marking and cycle-accurate
+ * applied after scanline composition. Toon/highlight and two-pass Shadow
+ * polygons are supported; translucent Y-sort, wireframe and cycle-accurate
  * scheduling remain open.
  */
 #ifndef ORACIS_MEMORY_NDS_3D_RASTERIZER_HPP
@@ -35,7 +35,10 @@ enum class Nds3dRasterStatus : uint8_t {
     DisplayControlUnavailable,
     ScanlineCacheFull,
     ScanlineCacheOutOfOrder,
-    ScanlineCacheInvalid
+    ScanlineCacheInvalid,
+    ShadowStencilUnavailable,
+    InvalidShadowPolygon,
+    ShadowPassOrderInvalid
 };
 
 /*
@@ -60,6 +63,7 @@ struct Nds3dFragment {
     bool translucent_depth_write = false;
     bool w_buffer = false;
     bool edge_candidate = false;
+    uint8_t polygon_mode = 0u;
 };
 
 using Nds3dFragmentCallback = void (*)(
@@ -89,6 +93,29 @@ public:
 
 private:
     std::array<uint32_t, ScreenWidth * ScreenHeight> depths_{};
+};
+
+/*
+ * Per-pixel stencil bits used by the DS two-pass shadow-volume algorithm.
+ * The mask pass marks pixels; the render pass consumes and clears each mark.
+ */
+class Nds3dShadowStencilBuffer final {
+public:
+    static constexpr uint32_t ScreenWidth = 256u;
+    static constexpr uint32_t ScreenHeight = 192u;
+
+    Nds3dShadowStencilBuffer() noexcept { clear(); }
+    Nds3dShadowStencilBuffer(const Nds3dShadowStencilBuffer &) = delete;
+    Nds3dShadowStencilBuffer &operator=(
+        const Nds3dShadowStencilBuffer &) = delete;
+
+    void clear() noexcept;
+    bool mark(uint8_t x, uint8_t y) noexcept;
+    bool is_marked(uint8_t x, uint8_t y) const noexcept;
+    bool test_and_clear(uint8_t x, uint8_t y) noexcept;
+
+private:
+    std::array<uint8_t, ScreenWidth * ScreenHeight> bits_{};
 };
 
 struct Nds3dColorPixel {
@@ -213,6 +240,12 @@ public:
         Nds3dDepthBuffer &depth_buffer,
         Nds3dColorBuffer &color_buffer,
         const NdsDisplayControl &display_control) const noexcept;
+    Nds3dRasterStatus render_scanline_composited(
+        uint16_t scanline,
+        Nds3dDepthBuffer &depth_buffer,
+        Nds3dColorBuffer &color_buffer,
+        const NdsDisplayControl &display_control,
+        Nds3dShadowStencilBuffer &shadow_stencil) const noexcept;
 
     /*
      * Render one line and enqueue RGB555/alpha5 for Engine A BG0. With
@@ -227,7 +260,8 @@ public:
         Nds3dColorBuffer &color_buffer,
         Nds3dScanlineCache &cache,
         const NdsDisplayControl &display_control,
-        bool edge_marking_pipeline = false) const noexcept;
+        bool edge_marking_pipeline = false,
+        Nds3dShadowStencilBuffer *shadow_stencil = nullptr) const noexcept;
 
 private:
     Nds3dRasterStatus render_scanline_impl(
@@ -246,7 +280,8 @@ private:
         uint8_t alpha_test_reference,
         const std::array<uint16_t, 32> *toon_table,
         bool highlight_shading,
-        bool edge_marking_enabled) const noexcept;
+        bool edge_marking_enabled,
+        Nds3dShadowStencilBuffer *shadow_stencil) const noexcept;
 
     const NdsGeometryEngine &geometry_;
     const Nds3dTextureSampler &textures_;
