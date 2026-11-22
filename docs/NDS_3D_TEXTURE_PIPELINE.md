@@ -2,16 +2,11 @@
 
 ## Scope
 
-This document records the first independently tested texture-sampling stage. It does **not** claim that the Nintendo DS 3D renderer or first-frame presentation is complete.
+This document records the implemented texture lookup and the first scanline fragment-generation stage. It does **not** claim that the Nintendo DS 3D renderer, complete display composition or first-frame presentation is finished.
 
-The current implementation is a deterministic, nearest-texel lookup. It receives:
+The `Nds3dTextureSampler` performs deterministic nearest-texel lookup. It receives the polygon-captured `TEXIMAGE_PARAM` and `PLTT_BASE`, signed S/T values in DS 1.11.4 format and current `NdsVramControl` allocation state.
 
-- the captured `TEXIMAGE_PARAM` command value;
-- the captured `PLTT_BASE` command value;
-- signed S/T coordinates in the DS 1.11.4 texel format;
-- the current `NdsVramControl` allocation state.
-
-The sampler is deliberately separate from `NdsGeometryEngine`. Each emitted polygon now retains both `TEXIMAGE_PARAM` and the 13-bit `PLTT_BASE` value so a later renderer can sample using the state belonging to that polygon.
+The separate `Nds3dRasterizer` consumes the Geometry Engine's swapped render buffer and asks the sampler for the texel at each covered pixel. Polygon texture state is captured when the polygon is emitted, so an older polygon does not observe the latest global register values.
 
 ## VRAM access contract
 
@@ -50,25 +45,35 @@ The polygon captures this value alongside `TEXIMAGE_PARAM`; the renderer must no
 
 Palette color-zero transparency is applied for formats 2, 3 and 4 when TEXIMAGE_PARAM bit 29 is set. A3I5 and A5I3 use their encoded alpha fields. Direct Color uses bit 15 as alpha.
 
-## Coordinate addressing
+## Coordinate addressing and scanline rasterization
 
 The sampler converts signed 1.11.4 coordinates to integer texel coordinates using floor semantics. Each axis independently supports clamp, repeat and repeat+flip according to TEXIMAGE_PARAM.
 
-This stage uses nearest-texel lookup only. It does not interpolate polygon coordinates, perform perspective correction, filter neighboring texels or composite texture output with vertex color.
+The initial `Nds3dRasterizer` stage:
+- walks the swapped Geometry Engine render buffer and triangulates clipped polygons as a fan;
+- tests pixel centers with a top-left edge rule to avoid double coverage on shared edges;
+- interpolates vertex RGB555 values in screen space;
+- interpolates S/T with a perspective-correct barycentric ratio using each vertex's clip-space W;
+- samples the polygon's captured texture state and emits RGB6/A6 fragments plus normalized depth, polygon ID and fog-enable metadata;
+- implements the initial DS polygon texture modes 0 (modulation) and 1 (decal).
+
+The rasterizer reports modes 2/3 (toon/highlight and shadow) and alpha-zero wireframe cases as unsupported rather than silently substituting another mode. Its callback is a fragment producer: it does not yet perform depth-buffer rejection, polygon sorting, final translucency composition, fog blending or write into the DS 48-line output cache. A generated fragment stream is not the same as a completed frame on the host display.
 
 ## Regression coverage
 
-The synthetic tests cover A3I5, 2bpp, 4bpp, 8bpp, A5I3, Direct Color and all four 4x4 compressed modes; alpha decoding; the format-2 palette-base unit; F-bank palette slot 4; clamp and repeat+flip; no-texture; slot-0/slot-1 and slot-2 compressed blocks (including the upper-half metadata route); unallocated slots; and ambiguous image/palette allocations. No ROM, BIOS, firmware or extracted game data is used.
+The synthetic sampler tests cover A3I5, 2bpp, 4bpp, 8bpp, A5I3, Direct Color and all four 4x4 compressed modes; alpha decoding; the format-2 palette-base unit; F-bank palette slot 4; clamp and repeat+flip; no-texture; slot-0/slot-1 and slot-2 compressed blocks (including the upper-half metadata route); unallocated slots; and ambiguous image/palette allocations.
+
+The rasterizer integration test constructs a Geometry Engine triangle, swaps its buffer at VBlank, samples a direct-color VRAM texel and verifies the resulting center fragment. Its updated fixture uses different clip-space W values and texel colors chosen to distinguish perspective-correct sampling from affine interpolation. The test is currently being checked by CI workflow #1042. No ROM, BIOS, firmware or extracted game data is used.
 
 ## Remaining work
 
-1. Add malformed-size/boundary regressions and validate exact hardware behavior on more reference cases.
-2. Make texture-coordinate interpolation and perspective correction part of a scanline/pixel rasterizer.
-3. Add texture/fragment cache policy and measured timing.
-4. Blend texels with interpolated vertex color and polygon alpha according to the DS polygon mode.
-5. Add depth, fog, translucency and final 3D framebuffer output.
+1. Complete and validate the perspective-correct rasterizer regression across Desktop Linux and Android ARM64.
+2. Implement the DS Z/W depth-buffer compare, polygon priority/order and translucent fragment composition.
+3. Implement the remaining polygon modes (toon/highlight and shadow), wireframe/edge cases, fog color/density and exact alpha behavior.
+4. Connect fragment output to the DS 3D line cache and the 2D Engine A BG0 3D display path, including the 48-line handoff.
+5. Add texture/fragment cache policy, hardware timing, malformed-size/boundary vectors and more reference-driven conformance tests.
 
-The sampler alone does not prove that any game boots or renders correctly.
+Neither the sampler nor the initial fragment producer proves that any game boots, displays a complete frame or is playable.
 
 ## Hardware reference
 
