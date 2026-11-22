@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <limits>
 
 namespace oracis::memory {
 namespace {
@@ -133,10 +132,6 @@ Nds3dTextureSample Nds3dTextureSampler::sample(
         /* 4x4 block metadata is decoded in a separate follow-up stage. */
         return failure(Nds3dTextureSampleStatus::UnsupportedFormat);
     }
-    if (format > 7u) {
-        return failure(Nds3dTextureSampleStatus::InvalidParameters);
-    }
-
     const uint32_t width = UINT32_C(8) <<
         ((texture_parameters >> 20u) & UINT32_C(7));
     const uint32_t height = UINT32_C(8) <<
