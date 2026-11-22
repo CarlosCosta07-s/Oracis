@@ -6,7 +6,7 @@ This document records the implemented texture lookup and the first scanline frag
 
 The `Nds3dTextureSampler` performs deterministic nearest-texel lookup. It receives the polygon-captured `TEXIMAGE_PARAM` and `PLTT_BASE`, signed S/T values in DS 1.11.4 format and current `NdsVramControl` allocation state.
 
-The separate `Nds3dRasterizer` consumes the Geometry Engine's swapped render buffer and asks the sampler for the texel at each covered pixel. Polygon texture state is captured when the polygon is emitted, so an older polygon does not observe the latest global register values.
+The separate `Nds3dRasterizer` consumes the Geometry Engine's swapped render buffer and asks the sampler for the texel at each covered pixel. Polygon texture state is captured when the polygon is emitted, so an older polygon does not observe the latest global register values. `POLYGON_ATTR` alpha zero selects wireframe mode; it is not an ordinary transparent polygon. A sampled texel with effective alpha zero is discarded before a fragment is emitted.
 
 ## VRAM access contract
 
@@ -57,18 +57,18 @@ The initial `Nds3dRasterizer` stage:
 - samples the polygon's captured texture state and emits RGB6/A6 fragments plus normalized depth, polygon ID and fog-enable metadata;
 - implements the initial DS polygon texture modes 0 (modulation) and 1 (decal).
 
-The rasterizer reports modes 2/3 (toon/highlight and shadow) and line-segment/wireframe geometry as unsupported rather than silently substituting another mode. Polygon alpha zero is preserved in the emitted fragment; it is not treated as a wireframe marker. Its callback is a fragment producer: it does not yet perform depth-buffer rejection, polygon sorting, final translucency composition, fog blending or write into the DS 48-line output cache. A generated fragment stream is not the same as a completed frame on the host display.
+The rasterizer reports modes 2/3 (toon/highlight and shadow), `POLYGON_ATTR` alpha zero (wireframe) and line-segment geometry as unsupported rather than silently substituting another mode. Texels with effective alpha zero are discarded before fragment generation. `Nds3dDepthBuffer` is a separate 256×192, 24-bit depth stage. It implements the normal Less comparison, Depth Equal with the documented inclusive ±0x200 tolerance, unconditional depth writes for opaque fragments and optional writes for translucent fragments controlled by `POLYGON_ATTR.Bit11`. Fully transparent fragments are rejected. The depth stage consumes fragments in caller-supplied polygon order; it does not sort polygons or blend framebuffer colors. The rasterizer/depth stages still do not write into the DS 48-line output cache. A generated fragment stream is not the same as a completed frame on the host display.
 
 ## Regression coverage
 
 The synthetic sampler tests cover A3I5, 2bpp, 4bpp, 8bpp, A5I3, Direct Color and all four 4x4 compressed modes; alpha decoding; the format-2 palette-base unit; F-bank palette slot 4; clamp and repeat+flip; no-texture; slot-0/slot-1 and slot-2 compressed blocks (including the upper-half metadata route); unallocated slots; and ambiguous image/palette allocations.
 
-The rasterizer integration test constructs Geometry Engine triangles, swaps their buffer at VBlank, samples direct-color VRAM texels and verifies the resulting center fragments. Its fixture uses different clip-space W values and texel colors chosen to distinguish perspective-correct sampling from affine interpolation. An overlapping zero-alpha polygon also verifies that alpha zero is preserved for the downstream compositor. The current revision is being checked by CI. No ROM, BIOS, firmware or extracted game data is used.
+The rasterizer integration test constructs Geometry Engine triangles, swaps their buffer at VBlank, samples direct-color VRAM texels and verifies the resulting center fragments. Its fixture uses different clip-space W values and texel colors chosen to distinguish perspective-correct sampling from affine interpolation. An overlapping polygon sampling a direct-color texel with its alpha bit clear verifies that the texel is discarded. A separate swapped frame verifies that `POLYGON_ATTR` alpha zero is reported as unsupported wireframe instead of emitted as an interior fragment. The depth-buffer test covers Less, exact-equal rejection, the ±0x200 Depth Equal boundary, opaque writes, optional translucent writes and fully transparent rejection. No ROM, BIOS, firmware or extracted game data is used.
 
 ## Remaining work
 
 1. Complete and validate the perspective-correct rasterizer regression across Desktop Linux and Android ARM64.
-2. Implement the DS Z/W depth-buffer compare, polygon priority/order and translucent fragment composition.
+2. Implement automatic/manual translucent polygon ordering from `SWAP_BUFFERS` and the 3D color/alpha composition rules; the first depth comparison stage is now implemented and tested.
 3. Implement the remaining polygon modes (toon/highlight and shadow), wireframe/edge cases, fog color/density and exact alpha behavior.
 4. Connect fragment output to the DS 3D line cache and the 2D Engine A BG0 3D display path, including the 48-line handoff.
 5. Add texture/fragment cache policy, hardware timing, malformed-size/boundary vectors and more reference-driven conformance tests.

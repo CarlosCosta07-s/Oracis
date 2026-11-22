@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 
@@ -235,7 +236,7 @@ Nds3dRasterStatus rasterize_triangle_scanline(
         third.clip_position[3] <= 0) {
         return Nds3dRasterStatus::InvalidGeometry;
     }
-    if (polygon.line_segment) {
+    if (polygon.line_segment || polygon.alpha == 0u) {
         return Nds3dRasterStatus::WireframeNotSupported;
     }
     if (polygon.polygon_mode > 1u) {
@@ -324,6 +325,12 @@ Nds3dRasterStatus rasterize_triangle_scanline(
             return Nds3dRasterStatus::TextureFailure;
         }
 
+        /*
+         * A texel whose effective alpha is zero produces no color, depth or
+         * fog fragment on the DS. Do not forward it to downstream stages.
+         */
+        if (texture.has_texture && texture.alpha == 0u) continue;
+
         const uint16_t red = interpolate_color_channel(
             weights, vertex_colors, 0u, area);
         const uint16_t green = interpolate_color_channel(
@@ -340,12 +347,16 @@ Nds3dRasterStatus rasterize_triangle_scanline(
             weights, vertex_depths, area);
         fragment.polygon_id = polygon.polygon_id;
         fragment.fog_enabled = polygon.fog_enabled;
+        fragment.depth_equal = polygon.depth_equal;
+        fragment.translucent_depth_write =
+            polygon.translucent_depth_write;
         shade_fragment(
             polygon.polygon_mode,
             interpolated_color,
             polygon.alpha,
             texture,
             fragment);
+        if (fragment.alpha6 == 0u) continue;
         callback(context, fragment);
     }
 
@@ -353,6 +364,53 @@ Nds3dRasterStatus rasterize_triangle_scanline(
 }
 
 } // namespace
+
+void Nds3dDepthBuffer::clear(uint32_t depth) noexcept
+{
+    depths_.fill(std::min(depth, MaximumDepth));
+}
+
+bool Nds3dDepthBuffer::test_and_update(
+    const Nds3dFragment &fragment) noexcept
+{
+    if (fragment.y >= ScreenHeight ||
+        fragment.depth24 > MaximumDepth ||
+        fragment.alpha6 == 0u) {
+        return false;
+    }
+
+    const std::size_t index =
+        static_cast<std::size_t>(fragment.y) * ScreenWidth + fragment.x;
+    const uint32_t previous = depths_[index];
+    bool passes = false;
+    if (fragment.depth_equal) {
+        const uint32_t difference = previous > fragment.depth24
+            ? previous - fragment.depth24
+            : fragment.depth24 - previous;
+        passes = difference <= DepthEqualTolerance;
+    } else {
+        passes = fragment.depth24 < previous;
+    }
+    if (!passes) return false;
+
+    /*
+     * Opaque fragments update depth. Translucent fragments do so only when
+     * POLYGON_ATTR.Bit11 enables translucent depth writes.
+     */
+    if (fragment.alpha6 == 63u || fragment.translucent_depth_write) {
+        depths_[index] = fragment.depth24;
+    }
+    return true;
+}
+
+uint32_t Nds3dDepthBuffer::depth_at(
+    uint8_t x, uint8_t y) const noexcept
+{
+    if (y >= ScreenHeight) return MaximumDepth;
+    const std::size_t index =
+        static_cast<std::size_t>(y) * ScreenWidth + x;
+    return depths_[index];
+}
 
 Nds3dRasterStatus Nds3dRasterizer::render_scanline(
     uint16_t scanline,

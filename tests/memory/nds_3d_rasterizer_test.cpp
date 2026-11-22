@@ -40,8 +40,9 @@ bool write_halfword(
 
 struct Capture {
     uint32_t count = 0u;
+    uint32_t center_fragment_count = 0u;
     bool center_seen = false;
-    bool transparent_center_seen = false;
+    bool transparent_texture_polygon_center_seen = false;
     oracis::memory::Nds3dFragment center{};
 };
 
@@ -52,11 +53,13 @@ void capture_fragment(
     auto *capture = static_cast<Capture *>(context);
     ++capture->count;
     if (fragment.x == 127u && fragment.y == 96u) {
-        if (fragment.alpha6 == 0u) {
-            capture->transparent_center_seen = true;
-        } else if (!capture->center_seen) {
+        ++capture->center_fragment_count;
+        if (fragment.polygon_id == 1u && !capture->center_seen) {
             capture->center_seen = true;
             capture->center = fragment;
+        }
+        if (fragment.polygon_id == 2u) {
+            capture->transparent_texture_polygon_center_seen = true;
         }
     }
 }
@@ -90,6 +93,7 @@ int main()
         !write_halfword(memory, UINT32_C(0x06800000), UINT16_C(0xFC00)) ||
         !write_halfword(memory, UINT32_C(0x06800006), UINT16_C(0xFC00)) ||
         !write_halfword(memory, UINT32_C(0x0680000A), UINT16_C(0x801F)) ||
+        !write_halfword(memory, UINT32_C(0x0680000E), UINT16_C(0x7FFF)) ||
         vram.write(
             NDS_ARM9, NdsVramControl::VramCntAAddress, 1u,
             UINT32_C(0x83)) != Status::Ok) {
@@ -118,9 +122,10 @@ int main()
     }
     geometry.advance_bus_cycles(34u);
 
-    /* One front-facing triangle, white vertex color, direct-color texture. */
+    /* One front-facing opaque triangle, polygon ID 1. */
     if (!write_command(geometry, 0x29u,
-            (UINT32_C(31) << 16u) | (UINT32_C(1) << 7u))) {
+            (UINT32_C(31) << 16u) | (UINT32_C(1) << 7u) |
+                (UINT32_C(1) << 24u))) {
         return fail("POLYGON_ATTR enqueue failed");
     }
     geometry.advance_bus_cycles(1u);
@@ -161,13 +166,13 @@ int main()
     }
 
     /*
-     * A zero polygon alpha is a valid transparent fragment, not wireframe.
-     * Emit an overlapping copy to verify that the rasterizer preserves that
-     * alpha for the downstream depth/translucency stage.
+     * Emit an overlapping polygon that samples texel 7, whose direct-color
+     * alpha bit is clear. It must be discarded before reaching the callback.
      */
     if (!write_command(geometry, 0x29u,
-            (UINT32_C(0) << 16u) | (UINT32_C(1) << 7u))) {
-        return fail("transparent POLYGON_ATTR enqueue failed");
+            (UINT32_C(31) << 16u) | (UINT32_C(1) << 7u) |
+                (UINT32_C(2) << 24u))) {
+        return fail("transparent-texture POLYGON_ATTR enqueue failed");
     }
     geometry.advance_bus_cycles(1u);
     if (!write_command(geometry, 0x40u, 0u)) {
@@ -175,7 +180,7 @@ int main()
     }
     geometry.advance_bus_cycles(1u);
     for (unsigned index = 0u; index < positions.size(); ++index) {
-        if (!write_command(geometry, 0x22u, texture_s[index])) {
+        if (!write_command(geometry, 0x22u, UINT32_C(256))) {
             return fail("transparent TEXCOORD enqueue failed");
         }
         geometry.advance_bus_cycles(1u);
@@ -209,8 +214,10 @@ int main()
     Capture capture{};
     if (rasterizer.render_scanline(
             96u, capture_fragment, &capture) != Nds3dRasterStatus::Ok ||
-        capture.count == 0u || !capture.center_seen) {
-        return fail("scanline rasterizer did not emit the expected center fragment");
+        capture.count == 0u || !capture.center_seen ||
+        capture.center_fragment_count != 1u ||
+        capture.transparent_texture_polygon_center_seen) {
+        return fail("scanline rasterizer emitted a transparent texel or missed the opaque fragment");
     }
 
     if (!capture.center.textured ||
@@ -218,10 +225,11 @@ int main()
         capture.center.green6 != 0u ||
         capture.center.blue6 != 63u ||
         capture.center.alpha6 != 63u ||
-        !capture.transparent_center_seen ||
+        capture.center.depth_equal ||
+        capture.center.translucent_depth_write ||
         capture.center.depth24 < UINT32_C(0x7FFFF0) ||
         capture.center.depth24 > UINT32_C(0x800010)) {
-        return fail("perspective texture sample or RGB6/A6 modulation was incorrect");
+        return fail("perspective sample, RGB6/A6 modulation or transparent-texel rejection was incorrect");
     }
 
     if (rasterizer.render_scanline(
@@ -231,6 +239,50 @@ int main()
             96u, nullptr, &capture) !=
             Nds3dRasterStatus::MissingCallback) {
         return fail("scanline argument validation failed");
+    }
+
+    /*
+     * POLYGON_ATTR alpha=0 selects wireframe mode. The current line/edge
+     * rasterizer is intentionally incomplete and must report this explicitly.
+     */
+    if (!write_command(geometry, 0x29u,
+            (UINT32_C(1) << 7u) | (UINT32_C(3) << 24u))) {
+        return fail("wireframe POLYGON_ATTR enqueue failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    if (!write_command(geometry, 0x40u, 0u)) {
+        return fail("wireframe BEGIN_VTXS enqueue failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    for (unsigned index = 0u; index < positions.size(); ++index) {
+        if (!write_command(geometry, 0x22u, texture_s[index])) {
+            return fail("wireframe TEXCOORD enqueue failed");
+        }
+        geometry.advance_bus_cycles(1u);
+        if (!write_command(geometry, 0x20u, UINT32_C(0x7FFF))) {
+            return fail("wireframe COLOR enqueue failed");
+        }
+        geometry.advance_bus_cycles(1u);
+        if (!write_command(geometry, 0x24u, positions[index])) {
+            return fail("wireframe VTX_10 enqueue failed");
+        }
+        geometry.advance_bus_cycles(8u);
+    }
+    if (geometry.polygon_count() != 1u ||
+        !write_command(geometry, 0x50u, 0u)) {
+        return fail("wireframe polygon or second SWAP_BUFFERS enqueue failed");
+    }
+    geometry.advance_bus_cycles(1u);
+    if (!geometry.swap_waiting_for_vblank()) {
+        return fail("wireframe SWAP_BUFFERS did not wait for VBlank");
+    }
+    geometry.notify_vblank();
+    geometry.advance_bus_cycles(392u);
+    if (geometry.render_polygon_count() != 1u ||
+        rasterizer.render_scanline(
+            96u, capture_fragment, &capture) !=
+            Nds3dRasterStatus::WireframeNotSupported) {
+        return fail("POLYGON_ATTR alpha zero was not identified as wireframe");
     }
 
     std::puts("NDS 3D rasterizer tests passed");
