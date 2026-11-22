@@ -40,6 +40,9 @@ int main()
             Status::Ok ||
         vram.write(
             NDS_ARM9, NdsVramControl::VramCntEAddress, 1u, UINT32_C(0x80)) !=
+            Status::Ok ||
+        vram.write(
+            NDS_ARM9, NdsVramControl::VramCntFAddress, 1u, UINT32_C(0x80)) !=
             Status::Ok) {
         return fail("temporary LCDC bank allocation failed");
     }
