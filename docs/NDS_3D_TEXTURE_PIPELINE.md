@@ -44,7 +44,7 @@ The polygon captures this value alongside `TEXIMAGE_PARAM`; the renderer must no
 | 2 | 2bpp / 4 colors | Implemented, including 8-byte PLTT_BASE units |
 | 3 | 4bpp / 16 colors | Implemented |
 | 4 | 8bpp / 256 colors | Implemented |
-| 5 | 4x4 compressed | Explicitly unsupported; returns `UnsupportedFormat` |
+| 5 | 4x4 compressed | Implemented: 2bpp block payload, slot-1 metadata, all four transparency/interpolation modes |
 | 6 | A5I3 | Implemented |
 | 7 | Direct RGB555 | Implemented, including texel alpha bit |
 
@@ -58,11 +58,11 @@ This stage uses nearest-texel lookup only. It does not interpolate polygon coord
 
 ## Regression coverage
 
-The synthetic tests cover A3I5, 2bpp, 4bpp, 8bpp, A5I3 and Direct Color; alpha decoding; the format-2 palette-base unit; F-bank palette slot 4; clamp and repeat+flip; no-texture and compressed-format fail-closed results; unallocated slots; and ambiguous image/palette allocations. No ROM, BIOS, firmware or extracted game data is used.
+The synthetic tests cover A3I5, 2bpp, 4bpp, 8bpp, A5I3, Direct Color and all four 4x4 compressed modes; alpha decoding; the format-2 palette-base unit; F-bank palette slot 4; clamp and repeat+flip; no-texture; slot-0/slot-1 compressed blocks; unallocated slots; and ambiguous image/palette allocations. No ROM, BIOS, firmware or extracted game data is used.
 
 ## Remaining work
 
-1. Decode 4x4 compressed texture blocks and their separate block/palette-index metadata.
+1. Add slot-2 compressed texture fixtures and malformed-size/boundary regressions; validate exact hardware behavior on more reference cases.
 2. Make texture-coordinate interpolation and perspective correction part of a scanline/pixel rasterizer.
 3. Add texture/fragment cache policy and measured timing.
 4. Blend texels with interpolated vertex color and polygon alpha according to the DS polygon mode.
