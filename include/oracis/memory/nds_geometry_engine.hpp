@@ -100,6 +100,13 @@ public:
     /* Notify the command processor when the display enters scanline 192. */
     void notify_vblank() noexcept;
 
+    using OverflowObserver = void (*)(void *context) noexcept;
+    void set_overflow_observer(
+        void *context, OverflowObserver observer) noexcept {
+        overflow_observer_context_ = context;
+        overflow_observer_ = observer;
+    }
+
     /* Reassert level-sensitive GX FIFO IRQ after software writes IF. */
     void refresh_fifo_irq() noexcept;
 
@@ -244,6 +251,7 @@ private:
     void begin_vertex_list(uint32_t parameter) noexcept;
     void end_vertex_list() noexcept;
     bool has_incomplete_primitive() const noexcept;
+    void notify_polygon_vertex_overflow() noexcept;
     void append_vertex_to_list(const Vertex &vertex) noexcept;
     void emit_polygon(const Vertex *vertices, uint8_t count) noexcept;
     static int64_t clip_distance(const Vertex &vertex, uint8_t plane) noexcept;
@@ -341,6 +349,8 @@ private:
     uint8_t primitive_vertex_count_ = 0u;
 
     uint64_t completed_commands_ = 0u;
+    void *overflow_observer_context_ = nullptr;
+    OverflowObserver overflow_observer_ = nullptr;
     bool installed_ = false;
 };
 

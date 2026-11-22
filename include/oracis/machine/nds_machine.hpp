@@ -257,6 +257,7 @@ private:
     static void display_scanline_observer(
         void *context, uint16_t previous_scanline,
         uint16_t current_scanline, bool natural_frame_wrap) noexcept;
+    static void geometry_overflow_observer(void *context) noexcept;
     void on_display_scanline_boundary(
         uint16_t previous_scanline, uint16_t current_scanline,
         bool natural_frame_wrap) noexcept;

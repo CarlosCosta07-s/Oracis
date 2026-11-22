@@ -1542,6 +1542,13 @@ bool NdsGeometryEngine::has_incomplete_primitive() const noexcept
     }
 }
 
+void NdsGeometryEngine::notify_polygon_vertex_overflow() noexcept
+{
+    if (overflow_observer_ != nullptr) {
+        overflow_observer_(overflow_observer_context_);
+    }
+}
+
 void NdsGeometryEngine::emit_polygon(
     const Vertex *vertices, uint8_t count) noexcept
 {
@@ -1555,16 +1562,19 @@ void NdsGeometryEngine::emit_polygon(
             vertices, count, clipped, clipped_count,
             far_plane_intersection)) {
         buffer.vertex_overflow = true;
+        notify_polygon_vertex_overflow();
         return;
     }
     if (clipped_count < 3u) return;
 
     if (buffer.polygon_count >= PolygonRamCapacity) {
         buffer.polygon_overflow = true;
+        notify_polygon_vertex_overflow();
         return;
     }
     if (clipped_count > VertexRamCapacity - buffer.vertex_count) {
         buffer.vertex_overflow = true;
+        notify_polygon_vertex_overflow();
         return;
     }
 

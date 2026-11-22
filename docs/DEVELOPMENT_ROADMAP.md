@@ -178,3 +178,9 @@ The `DISP3DCNT` bits 12/13 now retain sticky status and clear on a
 write-one acknowledgement. A missing BG0 3D scanline source sets bit 12; bit 13
 has register/report-hook support but still needs the Geometry Engine's actual
 polygon/vertex RAM overflow event.
+
+
+The DISP3DCNT polygon/vertex RAM overflow bit is now connected to actual
+Geometry Engine submission failures. The machine integration test fills the
+2,048-polygon buffer with valid triangles, submits one additional triangle,
+and checks that bit 13 is latched.

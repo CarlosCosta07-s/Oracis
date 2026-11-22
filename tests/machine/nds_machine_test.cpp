@@ -3257,6 +3257,66 @@ int main()
         successor.three_d_scanline_cache().next_producer_scanline() != 49u) {
         return fail("VCOUNT line boundary did not refill the rolling 48-line BG0 FIFO");
     }
+    /*
+     * Drive real Geometry Engine polygon RAM exhaustion through the machine's
+     * overflow observer and verify that DISP3DCNT bit 13 becomes visible.
+     */
+    auto &overflow_geometry = successor.geometry_engine();
+    const auto write_geometry = [&overflow_geometry](
+        uint8_t command, uint32_t parameter) noexcept {
+        return overflow_geometry.write(
+            NDS_ARM9,
+            oracis::memory::NdsGeometryEngine::GxFifoBase +
+                static_cast<uint32_t>(command) * 4u,
+            4u, parameter) == oracis::memory::Status::Ok;
+    };
+    if (!write_geometry(0x10u, 1u) ||
+        !write_geometry(0x15u, 0u) ||
+        (overflow_geometry.advance_bus_cycles(20u), false) ||
+        !write_geometry(0x40u, 0u)) {
+        return fail("polygon RAM overflow fixture could not initialize geometry");
+    }
+    overflow_geometry.advance_bus_cycles(1u);
+
+    const auto pack_vtx10 = [](int32_t x, int32_t y, int32_t z) noexcept {
+        const uint32_t ux = static_cast<uint32_t>(x) & UINT32_C(0x3FF);
+        const uint32_t uy = static_cast<uint32_t>(y) & UINT32_C(0x3FF);
+        const uint32_t uz = static_cast<uint32_t>(z) & UINT32_C(0x3FF);
+        return ux | (uy << 10u) | (uz << 20u);
+    };
+    constexpr std::array<uint32_t, 3> overflow_triangle = {
+        UINT32_C(0x3F03F0), /* (-16, -16, 0) */
+        UINT32_C(0x0003F010), /* (16, -16, 0) */
+        UINT32_C(0x00004000) /* (0, 16, 0) */
+    };
+    const std::array<uint32_t, 3> packed_overflow_triangle = {
+        pack_vtx10(-16, -16, 0),
+        pack_vtx10(16, -16, 0),
+        pack_vtx10(0, 16, 0)
+    };
+    static_cast<void>(overflow_triangle);
+    for (uint32_t polygon = 0u;
+         polygon < oracis::memory::NdsGeometryEngine::PolygonRamCapacity + 1u;
+         ++polygon) {
+        for (const uint32_t vertex : packed_overflow_triangle) {
+            if (!write_geometry(0x24u, vertex)) {
+                return fail("polygon RAM overflow fixture rejected a VTX_10 command");
+            }
+        }
+        overflow_geometry.advance_bus_cycles(24u);
+    }
+
+    const auto disp3d_after_polygon_overflow = successor.display_control().read(
+        NDS_ARM9, NdsDisplayControl::Disp3dControlAddress, 2u);
+    if (!disp3d_after_polygon_overflow ||
+        (disp3d_after_polygon_overflow.value &
+            NdsDisplayControl::Disp3dPolygonVertexRamOverflowStatus) == 0u ||
+        !overflow_geometry.polygon_ram_overflow() ||
+        overflow_geometry.polygon_count() !=
+            NdsGeometryEngine::PolygonRamCapacity) {
+        return fail("Geometry Engine polygon RAM overflow did not set DISP3DCNT bit 13");
+    }
+
     if (successor.shutdown() != NdsMachineStatus::Ok) {
         return fail("scheduled display scanline machine did not shut down cleanly");
     }

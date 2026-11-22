@@ -36,6 +36,16 @@ NdsMachine::NdsMachine(memory::SharedWramMode initial_wram_mode) noexcept
     game_card_control_.attach_dma_control(dma_control_);
     display_control_.set_scanline_observer(
         this, &NdsMachine::display_scanline_observer);
+    geometry_engine_.set_overflow_observer(
+        this, &NdsMachine::geometry_overflow_observer);
+}
+
+void NdsMachine::geometry_overflow_observer(void *context) noexcept
+{
+    auto *machine = static_cast<NdsMachine *>(context);
+    if (machine != nullptr) {
+        machine->display_control_.report_3d_polygon_vertex_ram_overflow();
+    }
 }
 
 void NdsMachine::display_scanline_observer(

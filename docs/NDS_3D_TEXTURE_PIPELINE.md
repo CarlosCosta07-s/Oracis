@@ -108,3 +108,12 @@ failure caused by a missing 3D scanline source sets the color-buffer underflow
 bit (12), which software can observe and acknowledge through MMIO. The polygon/
 vertex RAM overflow flag (13) has the same register semantics and a device-side
 report hook, but the Geometry Engine overflow producer is not connected yet.
+
+
+The Geometry Engine now reports clipping/vertex-RAM and polygon-RAM exhaustion
+to its owning machine at the point of failure. The machine latches
+`DISP3DCNT` bit 13, so the overflow flag is produced by the actual polygon
+submission path rather than only by a manual test hook. The machine integration
+test submits 2,049 valid triangles to a 2,048-entry polygon RAM and verifies the
+status register. The bit remains sticky and software-cleared using write-one
+acknowledgement.
