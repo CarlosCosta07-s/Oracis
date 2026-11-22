@@ -131,6 +131,12 @@ int main()
         return fail("inline leaf was admitted without a resolved link cache");
     }
 
+    /* Restore the ARM caller state before checking the ARM validation row. */
+    runtime_dispatch_with_exchange(0x02000000u);
+    if ((arm9.cpsr & CPSR_T_BIT) != 0u) {
+        return fail("ARM state was not restored after link-slot mode tests");
+    }
+
     /* A validated/mutable row stays inactive until identity is proven. */
     uint32_t lookup_status = UINT32_MAX;
     uint32_t candidate_count = 0u;
