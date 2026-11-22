@@ -1,10 +1,10 @@
 /*
- * Nintendo DS 3D scanline rasterizer (initial fragment stage).
+ * Nintendo DS 3D scanline rasterizer and BG0 scanline producer.
  *
  * Consumes the Geometry Engine's render buffer, samples captured texture
- * state and emits shaded per-pixel fragments for the scanline consumer.
- * Depth composition, translucent sorting, toon/shadow modes, fog blending
- * and the 48-line display cache are deliberately separate stages.
+ * state, composes fragments into RGB6/A5 staging and exports BG0 RGB555/
+ * alpha5 scanlines to the bounded 48-line FIFO. Automatic translucent
+ * sorting, toon/shadow modes, fog blending and cycle scheduling remain open.
  */
 #ifndef ORACIS_MEMORY_NDS_3D_RASTERIZER_HPP
 #define ORACIS_MEMORY_NDS_3D_RASTERIZER_HPP
@@ -179,8 +179,9 @@ public:
         uint8_t alpha_test_reference) const noexcept;
 
     /*
-     * Initialize the uniform rear-plane from CLEAR_COLOR and CLEAR_DEPTH.
-     * Bitmap mode (DISP3DCNT.Bit14) is rejected until slots 2/3 are supported.
+     * Initialize the rear-plane from CLEAR_COLOR/CLEAR_DEPTH, or from the
+     * 256x256 color/depth bitmaps in texture slots 2/3 when DISP3DCNT.Bit14
+     * is set. The visible 256x192 window is copied to the staging surfaces.
      */
     Nds3dRasterStatus initialize_rear_plane(
         Nds3dColorBuffer &color_buffer,
@@ -196,6 +197,11 @@ public:
         Nds3dColorBuffer &color_buffer,
         const NdsDisplayControl &display_control) const noexcept;
 
+    /*
+     * Render one line and enqueue RGB555/alpha5 for Engine A BG0. The caller
+     * initializes the rear-plane once per frame and resets the FIFO before
+     * pre-rendering; cache capacity/order errors are reported explicitly.
+     */
     Nds3dRasterStatus render_scanline_to_cache(
         uint16_t scanline,
         Nds3dDepthBuffer &depth_buffer,

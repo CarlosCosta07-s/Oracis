@@ -138,3 +138,14 @@ O modo `DISP3DCNT.Bit14=1` deixou de ser recusado. A leitura halfword de um slot
 A regressão cria imagens artificiais nos slots 2/3 e testa alpha sólido/transparente, RGB555→RGB6, fog independente, valores de profundidade (inclusive 0x7FFF→0xFFFFFF), deslocamento horizontal e vertical, wrap da última linha visível e slot 3 temporariamente ausente. O teste do sampler cobre o acesso halfword aos slots 2/3 e limites. A CI #1067 passou nos quatro jobs: Desktop Linux, ARM runtime, Android ARM64 e NDSRecomp estático; Desktop e ARM executaram 53/53 CTests, e a verificação local opcional executou 1/1.
 
 Permanece pendente integrar a superfície 256×192 ao cache hardware de 48 linhas e ao caminho Engine A BG0; esta etapa não comprova quadro 3D completo nem boot de jogo. Consulte [NDS_3D_TEXTURE_PIPELINE.md](NDS_3D_TEXTURE_PIPELINE.md).
+
+
+## Atualização 2026-11-22 — FIFO 3D de 48 linhas e entrada BG0
+
+Foi criado `Nds3dScanlineCache`, um FIFO circular limitado a 48 scanlines BG0. A fila controla cursores de produtor/consumidor, exige sequência estrita de linhas, rejeita RGB555/alpha fora do domínio e precisa ser reiniciada a cada frame. A numeração não faz wrap implícito de 191 para 0.
+
+`Nds3dColorBuffer::copy_bg0_scanline` converte a superfície RGB6/A5 para RGB555/alpha5 da entrada BG0. `Nds3dRasterizer::render_scanline_to_cache` verifica capacidade e ordem antes de rasterizar, compõe a linha com os registradores MMIO e enfileira a saída convertida. O compositor 2D ganhou uma sobrecarga com `Nds3dScanlineCache`: quando Engine A seleciona 3D para BG0, consulta exatamente a linha solicitada e só a remove depois que a composição 2D inteira termina com sucesso. FIFO vazio, linha fora de ordem ou falha na composição preservam o buffer de saída; uma falha de composição também mantém a linha pendente na fila.
+
+Os testes verificam capacidade 48, full/empty, wrap do anel, ordem do produtor/consumidor, reset, alpha inválido, conversão RGB6→RGB555, consumo BG0, underflow e retenção da linha diante de falha de composição. A CI #1070 passou nos quatro jobs: Desktop Linux e ARM runtime com 54/54 CTests, Android ARM64 e NDSRecomp estático; a checagem opcional de static-bank executou 1/1.
+
+A integração temporal ainda não está concluída: a fila não é alimentada automaticamente no início da renderização do VBlank, não está sincronizada ao consumo por VCOUNT/scanline e ainda não foi conectada ao `NdsMachine` nem aos caminhos de apresentação desktop/mobile. O próximo passo é implementar o agendamento do produtor e consumidor, além de linhas perdidas/atrasadas e `RDLINES_COUNT`. Esta etapa implementa a transferência 3D→2D, mas não comprova um quadro 3D completo nem boot de jogo. Consulte [NDS_3D_TEXTURE_PIPELINE.md](NDS_3D_TEXTURE_PIPELINE.md) e [NDS_2D_PIPELINE.md](NDS_2D_PIPELINE.md).

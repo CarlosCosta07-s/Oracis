@@ -73,8 +73,9 @@ public:
      * Compose one visible 256-pixel line. The caller's output is unchanged
      * unless all required BG, OBJ/OAM, BG0 3D source and backdrop reads
      * succeed. When Engine A selects 3D for enabled BG0 (DISPCNT bit 3), the
-     * caller must supply that rendered 3D scanline. BG0HOFS is applied across
-     * the 512-pixel horizontal wrap region; alpha zero is transparent.
+     * caller supplies that line directly or uses the cache-aware overload
+     * below. BG0HOFS is applied across the 512-pixel horizontal wrap region;
+     * alpha zero is transparent.
      * When the selected immediate second target requires BG0 3D alpha
      * blending, the compositor fails closed because the exact 5-bit alpha
      * coefficient conversion is not sufficiently specified.
@@ -86,6 +87,7 @@ public:
         std::array<Nds2dCompositedPixel, 256> &output,
         const Nds3dBg0Scanline *three_d_bg0 = nullptr) const noexcept;
 
+    /* Uses the requested visible line; consumes it only after composition succeeds. */
     Nds2dComposeResult render_scanline(
         unsigned engine_index,
         const NdsDisplayControl &display,
