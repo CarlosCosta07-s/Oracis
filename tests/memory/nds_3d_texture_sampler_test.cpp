@@ -294,9 +294,11 @@ int main()
     const Nds3dTextureSample compressed_mode3_color3 =
         sampler.sample(compressed_parameters, 0u, 80, 0);
     if (compressed_mode3_color2.status != Nds3dTextureSampleStatus::Ok ||
-        compressed_mode3_color2.color_rgb555 != UINT16_C(19) ||
+        compressed_mode3_color2.color_rgb555 !=
+            static_cast<uint16_t>(UINT16_C(19) | (UINT16_C(11) << 10u)) ||
         compressed_mode3_color3.status != Nds3dTextureSampleStatus::Ok ||
-        compressed_mode3_color3.color_rgb555 != UINT16_C(11)) {
+        compressed_mode3_color3.color_rgb555 !=
+            static_cast<uint16_t>(UINT16_C(11) | (UINT16_C(19) << 10u))) {
         return fail("4x4 compressed mode-3 weighted colors failed");
     }
 
