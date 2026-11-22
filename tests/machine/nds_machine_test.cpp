@@ -3258,6 +3258,19 @@ int main()
         successor.three_d_scanline_cache().next_producer_scanline() != 49u) {
         return fail("VCOUNT line boundary did not refill the rolling 48-line BG0 FIFO");
     }
+
+    /* Complete the remaining visible frame and enter the next pre-render. */
+    constexpr uint64_t lines_until_next_prerender =
+        static_cast<uint64_t>(214u - 1u) *
+        NdsDisplayControl::CyclesPerScanline;
+    if (successor.report_idle_bus_cycles(
+            NDS_ARM9, lines_until_next_prerender) != NdsMachineStatus::Ok ||
+        successor.report_idle_bus_cycles(
+            NDS_ARM7, lines_until_next_prerender) != NdsMachineStatus::Ok ||
+        successor.display_control().read(
+            NDS_ARM9, NdsDisplayControl::RenderedLineCountAddress, 1u).value != 45u) {
+        return fail("RDLINES_COUNT did not report the previous-frame FIFO low-water mark");
+    }
     /*
      * Drive real Geometry Engine polygon RAM exhaustion through the machine's
      * overflow observer and verify that DISP3DCNT bit 13 becomes visible.
