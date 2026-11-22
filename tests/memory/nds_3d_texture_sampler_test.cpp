@@ -68,6 +68,8 @@ int main()
         !write_halfword(memory, UINT32_C(0x06804006), UINT16_C(0x0000)) ||
         !write_halfword(memory, UINT32_C(0x06804008), UINT16_C(0x000F)) ||
         !write_halfword(memory, UINT32_C(0x0680400A), UINT16_C(0x0000)) ||
+        !write_halfword(memory, UINT32_C(0x0680400C), UINT16_C(0x000E)) ||
+        !write_halfword(memory, UINT32_C(0x0680400E), UINT16_C(0x0000)) ||
         !write_halfword(memory, UINT32_C(0x06840000), UINT16_C(0x000E)) ||
         !write_halfword(memory, UINT32_C(0x06840002), UINT16_C(0x0000)) ||
         !write_halfword(memory, UINT32_C(0x06830000), UINT16_C(0x4000))) {
@@ -81,11 +83,13 @@ int main()
         !write_halfword(memory, UINT32_C(0x06880048), UINT16_C(0x7FE0)) ||
         !write_halfword(memory, UINT32_C(0x06880000), UINT16_C(0x001F)) ||
         !write_halfword(memory, UINT32_C(0x06880002), UINT16_C(0x7C00)) ||
+        !write_halfword(memory, UINT32_C(0x06880004), UINT16_C(0x7FFF)) ||
         !write_halfword(memory, UINT32_C(0x06880006), UINT16_C(0x03E0)) ||
         !write_halfword(memory, UINT32_C(0x06890006), UINT16_C(0x4210)) ||
         !write_halfword(memory, UINT32_C(0x06882000), UINT16_C(0x4000)) ||
         !write_halfword(memory, UINT32_C(0x06882002), UINT16_C(0xC000)) ||
-        !write_halfword(memory, UINT32_C(0x06882004), UINT16_C(0x8000))) {
+        !write_halfword(memory, UINT32_C(0x06882004), UINT16_C(0x8000)) ||
+        !write_halfword(memory, UINT32_C(0x06882006), UINT16_C(0x0000))) {
         return fail("synthetic texture palette could not be written");
     }
 
@@ -250,6 +254,18 @@ int main()
         !compressed_mode1_transparent.transparent ||
         compressed_mode1_transparent.alpha != 0u) {
         return fail("4x4 compressed mode-1 interpolation/transparency failed");
+    }
+
+    /* Mode 0 selects the third palette color directly; code 3 is transparent. */
+    const Nds3dTextureSample compressed_mode0_color2 =
+        sampler.sample(compressed_parameters, 0u, 64, 64);
+    const Nds3dTextureSample compressed_mode0_transparent =
+        sampler.sample(compressed_parameters, 0u, 80, 64);
+    if (compressed_mode0_color2.status != Nds3dTextureSampleStatus::Ok ||
+        compressed_mode0_color2.color_rgb555 != UINT16_C(0x7FFF) ||
+        compressed_mode0_transparent.status != Nds3dTextureSampleStatus::Ok ||
+        !compressed_mode0_transparent.transparent) {
+        return fail("4x4 compressed mode-0 color selection/transparency failed");
     }
 
     /* Slot 2 uses the upper half of slot 1 for its block metadata. */
