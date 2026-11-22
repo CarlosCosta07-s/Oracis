@@ -176,6 +176,12 @@ public:
     static Matrix identity_matrix() noexcept;
 
 private:
+    struct LightSource {
+        std::array<int32_t, 3> direction{};
+        std::array<int32_t, 3> half_vector{};
+        std::array<uint8_t, 3> color{};
+    };
+
     struct FifoEntry {
         uint8_t command = 0u;
         uint32_t parameter = 0u;
@@ -218,6 +224,9 @@ private:
     void execute_active_command() noexcept;
     void execute_matrix_command() noexcept;
     void execute_vertex_command() noexcept;
+    std::array<int32_t, 3> transform_direction(
+        const std::array<int32_t, 3> &vector) const noexcept;
+    void calculate_lighting() noexcept;
     void submit_vertex() noexcept;
     void calculate_screen_position(Vertex &vertex) const noexcept;
     void begin_vertex_list(uint32_t parameter) noexcept;
@@ -288,6 +297,13 @@ private:
     std::array<int32_t, 3> current_vertex_position_{};
     std::array<int32_t, 3> current_vertex_normal_{};
     uint16_t current_vertex_color_ = UINT16_C(0x7FFF);
+    std::array<LightSource, 4> lights_{};
+    std::array<uint8_t, 3> material_diffuse_{};
+    std::array<uint8_t, 3> material_ambient_{};
+    std::array<uint8_t, 3> material_specular_{};
+    std::array<uint8_t, 3> material_emission_{};
+    std::array<uint8_t, 128> shininess_table_{};
+    bool shininess_table_enabled_ = false;
     int16_t current_texture_s_ = 0;
     int16_t current_texture_t_ = 0;
     std::array<GeometryBuffer, 2> buffers_{};

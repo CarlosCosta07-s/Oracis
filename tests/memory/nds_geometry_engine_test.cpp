@@ -1203,6 +1203,105 @@ int main()
         return fail("VBlank incorrectly recovered or swapped a locked Geometry Engine");
     }
 
-    std::puts("NDS Geometry Engine FIFO, GXSTAT and matrix-command tests passed");
+    /*
+     * Lighting commands update material/light state, and NORMAL latches the
+     * resulting RGB555 vertex color. Near-unit 1.9 vectors avoid overflow.
+     */
+    NdsGeometryEngine lighting_geometry(interrupts);
+    if (lighting_geometry.install() != Status::Ok) {
+        return fail("lighting Geometry Engine installation failed");
+    }
+    const auto run_lighting_command = [&lighting_geometry](
+        uint8_t command, uint32_t parameter, uint32_t cycles) noexcept {
+        if (!write_command(lighting_geometry, command, parameter)) return false;
+        lighting_geometry.advance_bus_cycles(cycles);
+        return true;
+    };
+    const uint32_t diffuse_ambient =
+        UINT32_C(31) | (UINT32_C(1) << 15u) |
+        (UINT32_C(31) << 21u);
+    const uint32_t specular_emission = UINT32_C(5) << 26u;
+    const uint32_t light_negative_z = UINT32_C(0x201) << 20u;
+    const uint32_t white_light =
+        UINT32_C(31) | (UINT32_C(31) << 5u) | (UINT32_C(31) << 10u);
+    const uint32_t lit_polygon_attributes =
+        UINT32_C(1) | (UINT32_C(1) << 6u) | (UINT32_C(1) << 7u);
+    const uint32_t normal_positive_z = UINT32_C(0x1FF) << 20u;
+    if (!run_lighting_command(0x30u, diffuse_ambient, 4u) ||
+        !run_lighting_command(0x31u, specular_emission, 4u) ||
+        !run_lighting_command(0x32u, light_negative_z, 6u) ||
+        !run_lighting_command(0x33u, white_light, 1u) ||
+        !run_lighting_command(0x29u, lit_polygon_attributes, 1u) ||
+        !run_lighting_command(0x40u, 0u, 1u) ||
+        !run_lighting_command(0x21u, normal_positive_z, 9u)) {
+        return fail("lighting commands could not be executed");
+    }
+    const auto pack_vtx10 = [](
+        int32_t x, int32_t y, int32_t z) noexcept {
+        return (static_cast<uint32_t>(x) & UINT32_C(0x3FF)) |
+            ((static_cast<uint32_t>(y) & UINT32_C(0x3FF)) << 10u) |
+            ((static_cast<uint32_t>(z) & UINT32_C(0x3FF)) << 20u);
+    };
+    const std::array<uint32_t, 3> lit_triangle = {
+        pack_vtx10(-16, -16, 0),
+        pack_vtx10(16, -16, 0),
+        pack_vtx10(0, 16, 0)
+    };
+    for (const uint32_t vertex : lit_triangle) {
+        if (!run_lighting_command(0x24u, vertex, 8u)) {
+            return fail("lit VTX_10 command enqueue failed");
+        }
+    }
+    const NdsGeometryEngine::Vertex *lit_vertex =
+        lighting_geometry.vertex_at(0u);
+    const uint16_t expected_lit_color = static_cast<uint16_t>(
+        UINT16_C(30) | (UINT16_C(31) << 5u) | (UINT16_C(5) << 10u));
+    if (lighting_geometry.vertex_count() != 3u ||
+        lit_vertex == nullptr || lit_vertex->color_rgb555 != expected_lit_color ||
+        lit_vertex->normal != std::array<int32_t, 3>{0, 0, 4088}) {
+        return fail("NORMAL did not combine diffuse, ambient and emission colors");
+    }
+
+    /* The 128-entry shininess table attenuates specular reflection. */
+    NdsGeometryEngine shininess_geometry(interrupts);
+    if (shininess_geometry.install() != Status::Ok) {
+        return fail("shininess Geometry Engine installation failed");
+    }
+    const auto run_shininess_command = [&shininess_geometry](
+        uint8_t command, uint32_t parameter, uint32_t cycles) noexcept {
+        if (!write_command(shininess_geometry, command, parameter)) return false;
+        shininess_geometry.advance_bus_cycles(cycles);
+        return true;
+    };
+    const uint32_t shininess_word = UINT32_C(0x80808080);
+    for (unsigned index = 0u; index < 32u; ++index) {
+        if (!write_command(shininess_geometry, 0x34u, shininess_word)) {
+            return fail("SHININESS table word enqueue failed");
+        }
+    }
+    shininess_geometry.advance_bus_cycles(32u);
+    const uint32_t specular_material =
+        UINT32_C(31) | (UINT32_C(1) << 15u);
+    if (!run_shininess_command(0x31u, specular_material, 4u) ||
+        !run_shininess_command(0x32u, light_negative_z, 6u) ||
+        !run_shininess_command(0x33u, white_light, 1u) ||
+        !run_shininess_command(0x29u, lit_polygon_attributes, 1u) ||
+        !run_shininess_command(0x40u, 0u, 1u) ||
+        !run_shininess_command(0x21u, normal_positive_z, 9u)) {
+        return fail("specular lighting setup failed");
+    }
+    for (const uint32_t vertex : lit_triangle) {
+        if (!run_shininess_command(0x24u, vertex, 8u)) {
+            return fail("specular VTX_10 enqueue failed");
+        }
+    }
+    const NdsGeometryEngine::Vertex *specular_vertex =
+        shininess_geometry.vertex_at(0u);
+    if (specular_vertex == nullptr ||
+        specular_vertex->color_rgb555 != UINT16_C(15)) {
+        return fail("SHININESS table did not scale the specular vertex color");
+    }
+
+    std::puts("NDS Geometry Engine FIFO, lighting, GXSTAT and matrix-command tests passed");
     return 0;
 }

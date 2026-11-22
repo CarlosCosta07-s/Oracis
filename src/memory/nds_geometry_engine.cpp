@@ -312,6 +312,13 @@ Status NdsGeometryEngine::install() noexcept
     current_vertex_position_ = {};
     current_vertex_normal_ = {};
     current_vertex_color_ = UINT16_C(0x7FFF);
+    lights_ = {};
+    material_diffuse_ = {};
+    material_ambient_ = {};
+    material_specular_ = {};
+    material_emission_ = {};
+    shininess_table_ = {};
+    shininess_table_enabled_ = false;
     current_texture_s_ = 0;
     current_texture_t_ = 0;
     buffers_ = {};
@@ -1023,6 +1030,95 @@ void NdsGeometryEngine::execute_matrix_command() noexcept
     }
 }
 
+std::array<int32_t, 3> NdsGeometryEngine::transform_direction(
+    const std::array<int32_t, 3> &vector) const noexcept
+{
+    std::array<int32_t, 3> transformed{};
+    for (unsigned column = 0u; column < 3u; ++column) {
+        int64_t accumulator = 0;
+        for (unsigned row = 0u; row < 3u; ++row) {
+            accumulator +=
+                static_cast<int64_t>(vector[row]) *
+                directional_matrix_[row * 4u + column];
+        }
+        transformed[column] = low_signed_word(
+            static_cast<uint64_t>(accumulator >> 12u));
+    }
+    return transformed;
+}
+
+void NdsGeometryEngine::calculate_lighting() noexcept
+{
+    constexpr int64_t kColorMaximum = 31;
+    constexpr int64_t kVectorOne = INT64_C(1) << 12u;
+
+    const auto dot_q12 = [](
+        const std::array<int32_t, 3> &left,
+        const std::array<int32_t, 3> &right) noexcept {
+        int64_t accumulator = 0;
+        for (unsigned axis = 0u; axis < 3u; ++axis) {
+            accumulator +=
+                static_cast<int64_t>(left[axis]) * right[axis];
+        }
+        return accumulator >> 12u;
+    };
+
+    std::array<int64_t, 3> result = {
+        material_emission_[0],
+        material_emission_[1],
+        material_emission_[2]
+    };
+
+    for (unsigned light_index = 0u; light_index < lights_.size(); ++light_index) {
+        if ((active_polygon_attributes_ & (UINT32_C(1) << light_index)) == 0u) {
+            continue;
+        }
+
+        const LightSource &light = lights_[light_index];
+        const int64_t diffuse_level = std::clamp<int64_t>(
+            -dot_q12(light.direction, current_vertex_normal_),
+            0, kVectorOne);
+        const int64_t specular_dot = std::clamp<int64_t>(
+            -dot_q12(light.half_vector, current_vertex_normal_),
+            0, kVectorOne);
+        const int64_t specular_square =
+            (specular_dot * specular_dot) >> 12u;
+
+        int64_t specular_level = specular_square;
+        if (shininess_table_enabled_) {
+            const uint32_t table_index = static_cast<uint32_t>(
+                std::min<int64_t>(
+                    127, (specular_square * 128) >> 12u));
+            /* SHININESS entries are unsigned 0.8 values. */
+            specular_level =
+                static_cast<int64_t>(shininess_table_[table_index]) << 4u;
+        }
+
+        for (unsigned channel = 0u; channel < 3u; ++channel) {
+            const int64_t light_color = light.color[channel];
+            const int64_t ambient = (
+                static_cast<int64_t>(material_ambient_[channel]) *
+                light_color) / kColorMaximum;
+            const int64_t diffuse = (
+                static_cast<int64_t>(material_diffuse_[channel]) *
+                light_color * diffuse_level) /
+                (kColorMaximum * kVectorOne);
+            const int64_t specular = (
+                static_cast<int64_t>(material_specular_[channel]) *
+                light_color * specular_level) /
+                (kColorMaximum * kVectorOne);
+            result[channel] += ambient + diffuse + specular;
+        }
+    }
+
+    for (unsigned channel = 0u; channel < 3u; ++channel) {
+        result[channel] = std::clamp<int64_t>(
+            result[channel], 0, kColorMaximum);
+    }
+    current_vertex_color_ = static_cast<uint16_t>(
+        result[0] | (result[1] << 5u) | (result[2] << 10u));
+}
+
 void NdsGeometryEngine::execute_vertex_command() noexcept
 {
     const uint32_t parameter = active_parameters_[0];
@@ -1038,22 +1134,9 @@ void NdsGeometryEngine::execute_vertex_command() noexcept
             sign_extend(parameter >> 10u, 10u) * 8,
             sign_extend(parameter >> 20u, 10u) * 8
         };
-        /* NORMAL uses a signed 1.9 vector and the Directional Matrix. */
-        for (unsigned row = 0u; row < 3u; ++row) {
-            uint64_t accumulator = 0u;
-            for (unsigned column = 0u; column < 3u; ++column) {
-                const int64_t product =
-                    static_cast<int64_t>(
-                        directional_matrix_[row * 4u + column]) *
-                    static_cast<int64_t>(source_normal[column]);
-                accumulator += static_cast<uint64_t>(product);
-            }
-            const int64_t signed_accumulator =
-                std::bit_cast<int64_t>(accumulator);
-            current_vertex_normal_[row] = std::bit_cast<int32_t>(
-                static_cast<uint32_t>(
-                    static_cast<uint64_t>(signed_accumulator >> 12u)));
-        }
+        /* NORMAL is a row vector multiplied by the Directional Matrix. */
+        current_vertex_normal_ = transform_direction(source_normal);
+        calculate_lighting();
         return;
     }
 
@@ -1607,6 +1690,71 @@ void NdsGeometryEngine::execute_active_command() noexcept
     } else if (active_command_ == 0x29u) {
         /* POLYGON_ATTR is latched only by the next BEGIN_VTXS. */
         pending_polygon_attributes_ = active_parameters_[0];
+    } else if (active_command_ == 0x30u) {
+        const uint32_t value = active_parameters_[0];
+        material_diffuse_ = {
+            static_cast<uint8_t>(value & UINT32_C(0x1F)),
+            static_cast<uint8_t>((value >> 5u) & UINT32_C(0x1F)),
+            static_cast<uint8_t>((value >> 10u) & UINT32_C(0x1F))
+        };
+        material_ambient_ = {
+            static_cast<uint8_t>((value >> 16u) & UINT32_C(0x1F)),
+            static_cast<uint8_t>((value >> 21u) & UINT32_C(0x1F)),
+            static_cast<uint8_t>((value >> 26u) & UINT32_C(0x1F))
+        };
+        if ((value & (UINT32_C(1) << 15u)) != 0u) {
+            current_vertex_color_ = static_cast<uint16_t>(
+                material_diffuse_[0] |
+                (static_cast<uint16_t>(material_diffuse_[1]) << 5u) |
+                (static_cast<uint16_t>(material_diffuse_[2]) << 10u));
+        }
+    } else if (active_command_ == 0x31u) {
+        const uint32_t value = active_parameters_[0];
+        material_specular_ = {
+            static_cast<uint8_t>(value & UINT32_C(0x1F)),
+            static_cast<uint8_t>((value >> 5u) & UINT32_C(0x1F)),
+            static_cast<uint8_t>((value >> 10u) & UINT32_C(0x1F))
+        };
+        material_emission_ = {
+            static_cast<uint8_t>((value >> 16u) & UINT32_C(0x1F)),
+            static_cast<uint8_t>((value >> 21u) & UINT32_C(0x1F)),
+            static_cast<uint8_t>((value >> 26u) & UINT32_C(0x1F))
+        };
+        shininess_table_enabled_ =
+            (value & (UINT32_C(1) << 15u)) != 0u;
+    } else if (active_command_ == 0x32u) {
+        const uint32_t value = active_parameters_[0];
+        const unsigned light_index = value >> 30u;
+        const std::array<int32_t, 3> source_direction = {
+            sign_extend(value, 10u) * 8,
+            sign_extend(value >> 10u, 10u) * 8,
+            sign_extend(value >> 20u, 10u) * 8
+        };
+        LightSource &light = lights_[light_index];
+        light.direction = transform_direction(source_direction);
+        light.half_vector = {
+            light.direction[0] / 2,
+            light.direction[1] / 2,
+            static_cast<int32_t>(
+                (static_cast<int64_t>(light.direction[2]) -
+                 (INT64_C(1) << 12u)) / 2)
+        };
+    } else if (active_command_ == 0x33u) {
+        const uint32_t value = active_parameters_[0];
+        const unsigned light_index = value >> 30u;
+        lights_[light_index].color = {
+            static_cast<uint8_t>(value & UINT32_C(0x1F)),
+            static_cast<uint8_t>((value >> 5u) & UINT32_C(0x1F)),
+            static_cast<uint8_t>((value >> 10u) & UINT32_C(0x1F))
+        };
+    } else if (active_command_ == 0x34u) {
+        for (unsigned word = 0u; word < 32u; ++word) {
+            for (unsigned byte = 0u; byte < 4u; ++byte) {
+                shininess_table_[word * 4u + byte] =
+                    static_cast<uint8_t>(
+                        active_parameters_[word] >> (byte * 8u));
+            }
+        }
     } else if (active_command_ == 0x40u) {
         begin_vertex_list(active_parameters_[0]);
     } else if (active_command_ == 0x41u) {
@@ -1618,7 +1766,7 @@ void NdsGeometryEngine::execute_active_command() noexcept
         viewport_x2_ = static_cast<uint8_t>((parameter >> 16u) & UINT32_C(0xFF));
         viewport_y2_ = static_cast<uint8_t>((parameter >> 24u) & UINT32_C(0xFF));
     }
-    /* Six-plane clipping, lighting and rasterization remain separate stages. */
+    /* Six-plane clipping and rasterization remain separate stages. */
 }
 
 } // namespace oracis::memory
