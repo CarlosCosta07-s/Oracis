@@ -353,6 +353,9 @@ int main()
                 NdsDisplayControl::Disp3dEdgeMarkingEnable) != Status::Ok ||
         display.write(
             NDS_ARM9, NdsDisplayControl::EdgeColorAddress, 2u,
+            UINT16_C(0x03E0)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::EdgeColorAddress + 2u, 2u,
             UINT16_C(0x03E0)) != Status::Ok) {
         return fail("edge-marking control or edge-color setup failed");
     }

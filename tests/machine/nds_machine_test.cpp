@@ -3245,7 +3245,7 @@ int main()
         successor.three_d_scanline_cache().queued_lines() !=
             oracis::memory::Nds3dScanlineCache::Capacity ||
         successor.three_d_scanline_cache().next_consumer_scanline() != 0u ||
-        successor.three_d_scanline_cache().next_producer_scanline() != 49u) {
+        successor.three_d_scanline_cache().next_producer_scanline() != 48u) {
         return fail("line-214 pre-render did not leave 48 BG0 lines ready at frame wrap");
     }
     if (successor.three_d_scanline_cache().consume(0u) !=
@@ -3259,7 +3259,7 @@ int main()
         successor.three_d_scanline_cache().queued_lines() !=
             oracis::memory::Nds3dScanlineCache::Capacity ||
         successor.three_d_scanline_cache().next_consumer_scanline() != 1u ||
-        successor.three_d_scanline_cache().next_producer_scanline() != 50u) {
+        successor.three_d_scanline_cache().next_producer_scanline() != 49u) {
         return fail("VCOUNT line boundary did not refill the rolling 48-line BG0 FIFO");
     }
 
@@ -3287,7 +3287,7 @@ int main()
         successor.three_d_scanline_cache().queued_lines() !=
             oracis::memory::Nds3dScanlineCache::Capacity ||
         successor.three_d_scanline_cache().next_consumer_scanline() != 0u ||
-        successor.three_d_scanline_cache().next_producer_scanline() != 49u) {
+        successor.three_d_scanline_cache().next_producer_scanline() != 48u) {
         return fail("scanline-214 pre-render did not prime the next BG0 frame");
     }
     /*
