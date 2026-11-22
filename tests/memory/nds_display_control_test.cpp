@@ -37,6 +37,35 @@ int main()
         return fail("3D display-control registers did not reset to zero");
     }
 
+    if (display.read(
+            NDS_ARM9, NdsDisplayControl::RenderedLineCountAddress,
+            1u).status != Status::Ok ||
+        display.read(
+            NDS_ARM9, NdsDisplayControl::RenderedLineCountAddress,
+            1u).value != 0u ||
+        display.read(
+            NDS_ARM9, NdsDisplayControl::RenderedLineCountAddress,
+            2u).status != Status::InvalidWidth ||
+        display.read(
+            NDS_ARM7, NdsDisplayControl::RenderedLineCountAddress,
+            1u).status != Status::Unmapped ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::RenderedLineCountAddress,
+            1u, 12u) != Status::PermissionDenied) {
+        return fail("RDLINES_COUNT access permissions or width were incorrect");
+    }
+    display.set_three_d_rendered_line_count(37u);
+    if (display.read(
+            NDS_ARM9, NdsDisplayControl::RenderedLineCountAddress,
+            1u).value != 37u) {
+        return fail("RDLINES_COUNT did not expose the previous-frame measurement");
+    }
+    display.set_three_d_rendered_line_count(255u);
+    if (display.three_d_rendered_line_count() != 46u) {
+        return fail("RDLINES_COUNT exceeded the documented 0..46 range");
+    }
+    display.set_three_d_rendered_line_count(0u);
+
     constexpr uint16_t alpha_test_and_blend = static_cast<uint16_t>(
         NdsDisplayControl::Disp3dAlphaTestEnable |
         NdsDisplayControl::Disp3dAlphaBlendEnable);
