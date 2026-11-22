@@ -1355,6 +1355,8 @@ int main()
             (static_cast<uint32_t>(source_t) << 16u);
         if (!write_command(engine, 0x2Au, teximage_parameters)) return false;
         engine.advance_bus_cycles(1u);
+        if (!write_command(engine, 0x2Bu, UINT32_C(0x123))) return false;
+        engine.advance_bus_cycles(1u);
         if (!write_command(engine, 0x22u, texcoord)) return false;
         engine.advance_bus_cycles(1u);
         if (!write_command(engine, 0x40u, 0u)) return false;
@@ -1396,6 +1398,7 @@ int main()
     const auto *mode1_polygon = texgen_mode1->polygon_at(0u);
     if (mode1_vertex == nullptr || mode1_polygon == nullptr ||
         mode1_vertex->texture_s != 33 || mode1_vertex->texture_t != 98 ||
+        mode1_polygon->texture_palette_base != UINT16_C(0x123) ||
         mode1_polygon->texture_parameters !=
             ((UINT32_C(1) << 30u) | (UINT32_C(3) << 26u) |
              (UINT32_C(1) << 20u))) {
@@ -1419,6 +1422,7 @@ int main()
     const auto *mode2_polygon = texgen_mode2->polygon_at(0u);
     if (mode2_vertex == nullptr || mode2_polygon == nullptr ||
         mode2_vertex->texture_s != 31 || mode2_vertex->texture_t != 63 ||
+        mode2_polygon->texture_palette_base != UINT16_C(0x123) ||
         mode2_vertex->normal != std::array<int32_t, 3>{0, 0, -4088} ||
         mode2_polygon->texture_parameters !=
             ((UINT32_C(2) << 30u) | (UINT32_C(3) << 26u) |
@@ -1438,6 +1442,7 @@ int main()
     const auto *mode3_polygon = texgen_mode3->polygon_at(0u);
     if (mode3_vertex == nullptr || mode3_polygon == nullptr ||
         mode3_vertex->texture_s != 32 || mode3_vertex->texture_t != 24 ||
+        mode3_polygon->texture_palette_base != UINT16_C(0x123) ||
         mode3_polygon->texture_parameters !=
             ((UINT32_C(3) << 30u) | (UINT32_C(3) << 26u) |
              (UINT32_C(1) << 20u))) {
