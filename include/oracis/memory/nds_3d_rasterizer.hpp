@@ -54,6 +54,7 @@ struct Nds3dFragment {
     bool fog_enabled = false;
     bool textured = false;
     bool depth_equal = false;
+    bool translucent = false;
     bool translucent_depth_write = false;
     bool w_buffer = false;
 };
@@ -122,6 +123,10 @@ public:
     bool blend_fragment(
         const Nds3dFragment &fragment,
         bool alpha_blending_enabled) noexcept;
+    bool apply_fog_scanline(
+        uint16_t scanline,
+        const Nds3dDepthBuffer &depth_buffer,
+        const NdsDisplayControl &display_control) noexcept;
     const Nds3dColorPixel *pixel_at(
         uint8_t x, uint8_t y) const noexcept;
     bool copy_bg0_scanline(

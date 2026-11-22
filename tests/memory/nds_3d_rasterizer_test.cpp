@@ -681,6 +681,130 @@ int main()
         return fail("automatic Y-sort did not fail closed for translucent polygons");
     }
 
+
+    /* FOG_COLOR/FOG_OFFSET/FOG_TABLE MMIO and post-composition fog pass. */
+    constexpr uint32_t fog_color_register =
+        UINT32_C(31) | (UINT32_C(31) << 16u);
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::FogColorAddress, 4u,
+            fog_color_register) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::FogOffsetAddress, 2u,
+            UINT32_C(0xFFFF)) != Status::Ok ||
+        display.three_d_fog_color() != fog_color_register ||
+        display.three_d_fog_offset() != UINT16_C(0x7FFF) ||
+        display.read(
+            NDS_ARM9, NdsDisplayControl::FogColorAddress, 4u).status !=
+            Status::PermissionDenied ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::FogColorAddress, 2u, 0u) !=
+            Status::InvalidWidth ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::FogDensityTableAddress + 31u,
+            2u, 0u) != Status::InvalidWidth) {
+        return fail("fog register permissions, widths or masks were incorrect");
+    }
+
+    for (uint32_t index = 0u; index < NdsDisplayControl::FogDensityTableEntries;
+         ++index) {
+        const uint8_t density = index == 0u ? 0u : 127u;
+        if (display.write(
+                NDS_ARM9,
+                NdsDisplayControl::FogDensityTableAddress + index,
+                1u, density) != Status::Ok ||
+            display.three_d_fog_density(index) != density) {
+            return fail("fog density byte table did not retain seven-bit entries");
+        }
+    }
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::FogDensityTableAddress, 4u,
+            UINT32_C(0xFFFE0080)) != Status::Ok ||
+        display.three_d_fog_density(0u) != 0u ||
+        display.three_d_fog_density(1u) != 0u ||
+        display.three_d_fog_density(2u) != 126u ||
+        display.three_d_fog_density(3u) != 127u) {
+        return fail("packed fog density writes did not mask each byte");
+    }
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::FogDensityTableAddress, 4u,
+            UINT32_C(0x7F7F7F00)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::Disp3dControlAddress, 2u,
+            NdsDisplayControl::Disp3dFogMasterEnable) != Status::Ok) {
+        return fail("fog scanline fixture registers could not be configured");
+    }
+
+    Nds3dDepthBuffer fog_depth{};
+    Nds3dColorBuffer fog_color_buffer{};
+    fog_color_buffer.clear(0u, 0u, 63u, 31u, 0u, true);
+    if (!fog_depth.write_depth(0u, 0u, UINT32_C(0x400) << 9u) ||
+        !fog_depth.write_depth(1u, 0u, UINT32_C(0x600) << 9u) ||
+        !fog_depth.write_depth(2u, 0u, UINT32_C(0x800) << 9u) ||
+        !fog_color_buffer.write_pixel(
+            3u, 0u, Nds3dColorPixel{0u, 0u, 63u, 31u, 0u, false}) ||
+        !fog_color_buffer.apply_fog_scanline(0u, fog_depth, display)) {
+        return fail("fog density interpolation pass failed");
+    }
+    const Nds3dColorPixel *fog_near = fog_color_buffer.pixel_at(0u, 0u);
+    const Nds3dColorPixel *fog_middle = fog_color_buffer.pixel_at(1u, 0u);
+    const Nds3dColorPixel *fog_far = fog_color_buffer.pixel_at(2u, 0u);
+    const Nds3dColorPixel *fog_disabled = fog_color_buffer.pixel_at(3u, 0u);
+    if (fog_near == nullptr || fog_near->red6 != 0u ||
+        fog_near->blue6 != 63u ||
+        fog_middle == nullptr || fog_middle->red6 != 31u ||
+        fog_middle->blue6 != 31u ||
+        fog_far == nullptr || fog_far->red6 != 63u ||
+        fog_far->blue6 != 0u ||
+        fog_disabled == nullptr || fog_disabled->blue6 != 63u) {
+        return fail("fog table interpolation, full-density endpoint or pixel flag failed");
+    }
+
+    if (display.write(
+            NDS_ARM9, NdsDisplayControl::FogColorAddress, 4u,
+            UINT32_C(31)) != Status::Ok ||
+        display.write(
+            NDS_ARM9, NdsDisplayControl::Disp3dControlAddress, 2u,
+            static_cast<uint32_t>(
+                NdsDisplayControl::Disp3dFogMasterEnable |
+                NdsDisplayControl::Disp3dFogAlphaOnly)) != Status::Ok ||
+        !fog_color_buffer.write_pixel(
+            0u, 1u, Nds3dColorPixel{10u, 20u, 30u, 31u, 0u, true}) ||
+        !fog_color_buffer.apply_fog_scanline(1u, fog_depth, display)) {
+        return fail("alpha-only fog configuration or application failed");
+    }
+    const Nds3dColorPixel *alpha_only_pixel =
+        fog_color_buffer.pixel_at(0u, 1u);
+    if (alpha_only_pixel == nullptr ||
+        alpha_only_pixel->red6 != 10u ||
+        alpha_only_pixel->green6 != 20u ||
+        alpha_only_pixel->blue6 != 30u ||
+        alpha_only_pixel->alpha5 != 0u) {
+        return fail("alpha-only fog changed RGB or failed to blend alpha");
+    }
+
+    Nds3dColorBuffer fog_flag_buffer{};
+    fog_flag_buffer.clear(0u, 0u, 0u, 31u, 0u, true);
+    Nds3dFragment translucent_flag_fragment{};
+    translucent_flag_fragment.x = 0u;
+    translucent_flag_fragment.y = 0u;
+    translucent_flag_fragment.red6 = 20u;
+    translucent_flag_fragment.alpha6 = 30u;
+    translucent_flag_fragment.alpha5 = 15u;
+    translucent_flag_fragment.translucent = true;
+    translucent_flag_fragment.fog_enabled = false;
+    Nds3dFragment opaque_flag_fragment = translucent_flag_fragment;
+    opaque_flag_fragment.x = 1u;
+    opaque_flag_fragment.alpha6 = 63u;
+    opaque_flag_fragment.alpha5 = 31u;
+    opaque_flag_fragment.translucent = false;
+    opaque_flag_fragment.fog_enabled = true;
+    if (!fog_flag_buffer.blend_fragment(translucent_flag_fragment, true) ||
+        !fog_flag_buffer.blend_fragment(opaque_flag_fragment, true) ||
+        fog_flag_buffer.pixel_at(0u, 0u)->fog_enabled ||
+        !fog_flag_buffer.pixel_at(1u, 0u)->fog_enabled) {
+        return fail("opaque replacement/translucent AND fog-flag semantics failed");
+    }
+
     std::puts("NDS 3D rasterizer tests passed");
     return 0;
 }

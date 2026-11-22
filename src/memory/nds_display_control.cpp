@@ -335,6 +335,9 @@ Status NdsDisplayControl::install() noexcept
     clear_color_ = 0u;
     clear_depth_ = 0u;
     clear_image_offset_ = 0u;
+    fog_color_ = 0u;
+    fog_offset_ = 0u;
+    fog_density_table_ = {};
     rendered_line_count_ = 0u;
     reset_timing();
     installed_ = true;
@@ -350,6 +353,31 @@ ReadResult NdsDisplayControl::read(
         if (cpu != NDS_ARM9) return {Status::Unmapped, 0u};
         if (width != 1u) return {Status::InvalidWidth, 0u};
         return {Status::Ok, rendered_line_count_};
+    }
+
+    if (address == FogColorAddress || address == FogOffsetAddress ||
+        (address >= FogDensityTableAddress &&
+         address < FogDensityTableAddress + FogDensityTableBytes)) {
+        if (!installed_) return {Status::Unmapped, 0u};
+        if (!valid_cpu(cpu)) return {Status::InvalidCpu, 0u};
+        if (cpu != NDS_ARM9) return {Status::Unmapped, 0u};
+        if (address == FogColorAddress) {
+            return width == 4u
+                ? ReadResult{Status::PermissionDenied, 0u}
+                : ReadResult{Status::InvalidWidth, 0u};
+        }
+        if (address == FogOffsetAddress) {
+            return width == 2u
+                ? ReadResult{Status::PermissionDenied, 0u}
+                : ReadResult{Status::InvalidWidth, 0u};
+        }
+        const uint32_t offset = address - FogDensityTableAddress;
+        const bool valid_width = width == 1u || width == 2u || width == 4u;
+        if (!valid_width || (offset % width) != 0u ||
+            offset + width > FogDensityTableBytes) {
+            return {Status::InvalidWidth, 0u};
+        }
+        return {Status::PermissionDenied, 0u};
     }
 
     if (address == Disp3dControlAddress ||
@@ -493,6 +521,35 @@ Status NdsDisplayControl::write(
         if (!valid_cpu(cpu)) return Status::InvalidCpu;
         if (cpu != NDS_ARM9) return Status::Unmapped;
         return width == 1u ? Status::PermissionDenied : Status::InvalidWidth;
+    }
+
+    if (address == FogColorAddress || address == FogOffsetAddress ||
+        (address >= FogDensityTableAddress &&
+         address < FogDensityTableAddress + FogDensityTableBytes)) {
+        if (!installed_) return Status::Unmapped;
+        if (!valid_cpu(cpu)) return Status::InvalidCpu;
+        if (cpu != NDS_ARM9) return Status::Unmapped;
+        if (address == FogColorAddress) {
+            if (width != 4u) return Status::InvalidWidth;
+            fog_color_ = value & UINT32_C(0x001F7FFF);
+            return Status::Ok;
+        }
+        if (address == FogOffsetAddress) {
+            if (width != 2u) return Status::InvalidWidth;
+            fog_offset_ = static_cast<uint16_t>(value & UINT32_C(0x7FFF));
+            return Status::Ok;
+        }
+        const uint32_t offset = address - FogDensityTableAddress;
+        const bool valid_width = width == 1u || width == 2u || width == 4u;
+        if (!valid_width || (offset % width) != 0u ||
+            offset + width > FogDensityTableBytes) {
+            return Status::InvalidWidth;
+        }
+        for (uint32_t byte = 0u; byte < width; ++byte) {
+            fog_density_table_[offset + byte] = static_cast<uint8_t>(
+                (value >> (byte * 8u)) & UINT32_C(0x7F));
+        }
+        return Status::Ok;
     }
 
     if (address == Disp3dControlAddress ||

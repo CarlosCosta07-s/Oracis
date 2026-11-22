@@ -36,8 +36,15 @@ public:
     static constexpr uint32_t ClearDepthAddress = UINT32_C(0x04000354);
     static constexpr uint32_t RenderedLineCountAddress = UINT32_C(0x04000320);
     static constexpr uint32_t ClearImageOffsetAddress = UINT32_C(0x04000356);
+    static constexpr uint32_t FogColorAddress = UINT32_C(0x04000358);
+    static constexpr uint32_t FogOffsetAddress = UINT32_C(0x0400035C);
+    static constexpr uint32_t FogDensityTableAddress = UINT32_C(0x04000360);
+    static constexpr uint32_t FogDensityTableEntries = 32u;
+    static constexpr uint32_t FogDensityTableBytes = FogDensityTableEntries;
     static constexpr uint16_t Disp3dAlphaTestEnable = UINT16_C(1u << 2u);
     static constexpr uint16_t Disp3dAlphaBlendEnable = UINT16_C(1u << 3u);
+    static constexpr uint16_t Disp3dFogAlphaOnly = UINT16_C(1u << 6u);
+    static constexpr uint16_t Disp3dFogMasterEnable = UINT16_C(1u << 7u);
     static constexpr uint16_t Disp3dColorBufferUnderflowStatus = UINT16_C(1u << 12u);
     static constexpr uint16_t Disp3dPolygonVertexRamOverflowStatus = UINT16_C(1u << 13u);
     static constexpr uint16_t Disp3dStatusMask = UINT16_C(0x3000);
@@ -195,6 +202,22 @@ public:
     uint16_t three_d_clear_image_offset() const noexcept {
         return clear_image_offset_;
     }
+    uint32_t three_d_fog_color() const noexcept { return fog_color_; }
+    uint16_t three_d_fog_offset() const noexcept { return fog_offset_; }
+    uint8_t three_d_fog_density(uint32_t index) const noexcept {
+        return index < FogDensityTableEntries ? fog_density_table_[index] : 0u;
+    }
+    const std::array<uint8_t, FogDensityTableEntries> &
+    three_d_fog_density_table() const noexcept { return fog_density_table_; }
+    uint8_t three_d_fog_shift() const noexcept {
+        return static_cast<uint8_t>((three_d_control_ >> 8u) & 0x0Fu);
+    }
+    bool three_d_fog_alpha_only() const noexcept {
+        return (three_d_control_ & Disp3dFogAlphaOnly) != 0u;
+    }
+    bool three_d_fog_enabled() const noexcept {
+        return (three_d_control_ & Disp3dFogMasterEnable) != 0u;
+    }
     uint32_t three_d_clear_depth_expanded24() const noexcept;
     uint16_t master_brightness(unsigned engine_index) const noexcept;
     uint16_t apply_master_brightness(
@@ -256,6 +279,9 @@ private:
     uint32_t clear_color_ = 0u;
     uint16_t clear_depth_ = 0u;
     uint16_t clear_image_offset_ = 0u;
+    uint32_t fog_color_ = 0u;
+    uint16_t fog_offset_ = 0u;
+    std::array<uint8_t, FogDensityTableEntries> fog_density_table_{};
     uint8_t rendered_line_count_ = 0u;
     std::array<bool, 2> hblank_irq_fired_{};
     std::array<uint32_t, MainMemoryDisplayFifoCapacityWords>

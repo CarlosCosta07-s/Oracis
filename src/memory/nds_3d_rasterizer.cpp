@@ -201,6 +201,43 @@ bool perspective_texture_coordinates(
     return true;
 }
 
+
+uint8_t interpolate_fog_density(
+    uint32_t depth24,
+    uint16_t fog_offset,
+    uint8_t fog_shift,
+    const std::array<uint8_t, 32> &density_table) noexcept
+{
+    const uint32_t depth15 = std::min<uint32_t>(
+        depth24 >> 9u, UINT32_C(0x7FFF));
+    const uint32_t fog_step = UINT32_C(0x400) >> fog_shift;
+    if (fog_step == 0u) {
+        return depth15 <= fog_offset ? density_table[0] : density_table[31];
+    }
+
+    const uint32_t first_boundary =
+        static_cast<uint32_t>(fog_offset) + fog_step;
+    if (depth15 <= first_boundary) return density_table[0];
+
+    uint32_t previous_boundary = first_boundary;
+    for (uint32_t index = 1u; index < density_table.size(); ++index) {
+        const uint32_t boundary =
+            static_cast<uint32_t>(fog_offset) + fog_step * (index + 1u);
+        if (depth15 <= boundary) {
+            const int32_t previous_density = density_table[index - 1u];
+            const int32_t next_density = density_table[index];
+            const int32_t distance = static_cast<int32_t>(
+                depth15 - previous_boundary);
+            const int32_t interpolated = previous_density +
+                ((next_density - previous_density) * distance) /
+                    static_cast<int32_t>(fog_step);
+            return static_cast<uint8_t>(std::clamp(interpolated, 0, 127));
+        }
+        previous_boundary = boundary;
+    }
+    return density_table[31];
+}
+
 void shade_fragment(
     uint8_t polygon_mode,
     uint16_t vertex_color,
@@ -389,6 +426,7 @@ Nds3dRasterStatus rasterize_triangle_scanline(
         fragment.polygon_id = polygon.polygon_id;
         fragment.fog_enabled = polygon.fog_enabled;
         fragment.depth_equal = polygon.depth_equal;
+        fragment.translucent = polygon.alpha < 31u;
         fragment.translucent_depth_write =
             polygon.translucent_depth_write;
         shade_fragment(
@@ -544,7 +582,59 @@ bool Nds3dColorBuffer::blend_fragment(
     destination.alpha5 = static_cast<uint8_t>(
         std::max<uint32_t>(source_alpha, destination.alpha5));
     destination.polygon_id = fragment.polygon_id;
-    destination.fog_enabled = fragment.fog_enabled;
+    destination.fog_enabled = fragment.translucent
+        ? (destination.fog_enabled && fragment.fog_enabled)
+        : fragment.fog_enabled;
+    return true;
+}
+
+
+bool Nds3dColorBuffer::apply_fog_scanline(
+    uint16_t scanline,
+    const Nds3dDepthBuffer &depth_buffer,
+    const NdsDisplayControl &display_control) noexcept
+{
+    if (scanline >= ScreenHeight || !display_control.installed()) {
+        return false;
+    }
+    if (!display_control.three_d_fog_enabled()) return true;
+
+    const uint32_t fog_color = display_control.three_d_fog_color();
+    const uint8_t fog_red = expand_five_to_six(fog_color);
+    const uint8_t fog_green = expand_five_to_six(fog_color >> 5u);
+    const uint8_t fog_blue = expand_five_to_six(fog_color >> 10u);
+    const uint8_t fog_alpha = static_cast<uint8_t>(
+        (fog_color >> 16u) & UINT32_C(0x1F));
+    const bool alpha_only = display_control.three_d_fog_alpha_only();
+    const uint16_t fog_offset = display_control.three_d_fog_offset();
+    const uint8_t fog_shift = display_control.three_d_fog_shift();
+    const auto &density_table = display_control.three_d_fog_density_table();
+
+    for (uint32_t x = 0u; x < ScreenWidth; ++x) {
+        const std::size_t index =
+            static_cast<std::size_t>(scanline) * ScreenWidth + x;
+        Nds3dColorPixel &pixel = pixels_[index];
+        if (!pixel.fog_enabled) continue;
+
+        uint32_t density = interpolate_fog_density(
+            depth_buffer.depth_at(static_cast<uint8_t>(x), scanline),
+            fog_offset, fog_shift, density_table);
+        if (density == 127u) density = 128u;
+
+        const uint32_t inverse_density = 128u - density;
+        const auto blend = [density, inverse_density](
+            uint8_t fog, uint8_t source) noexcept {
+            return static_cast<uint8_t>(
+                (static_cast<uint32_t>(fog) * density +
+                 static_cast<uint32_t>(source) * inverse_density) / 128u);
+        };
+        if (!alpha_only) {
+            pixel.red6 = blend(fog_red, pixel.red6);
+            pixel.green6 = blend(fog_green, pixel.green6);
+            pixel.blue6 = blend(fog_blue, pixel.blue6);
+        }
+        pixel.alpha5 = blend(fog_alpha, pixel.alpha5);
+    }
     return true;
 }
 
@@ -780,13 +870,18 @@ Nds3dRasterStatus Nds3dRasterizer::render_scanline_composited(
     if (!display_control.installed()) {
         return Nds3dRasterStatus::DisplayControlUnavailable;
     }
-    return render_scanline_composited(
+    const Nds3dRasterStatus status = render_scanline_composited(
         scanline,
         depth_buffer,
         color_buffer,
         display_control.three_d_alpha_blending_enabled(),
         display_control.three_d_alpha_test_enabled(),
         display_control.three_d_alpha_test_reference());
+    if (status != Nds3dRasterStatus::Ok) return status;
+    return color_buffer.apply_fog_scanline(
+            scanline, depth_buffer, display_control)
+        ? Nds3dRasterStatus::Ok
+        : Nds3dRasterStatus::InvalidScanline;
 }
 
 Nds3dRasterStatus Nds3dRasterizer::render_scanline_to_cache(
