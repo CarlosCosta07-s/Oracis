@@ -12,13 +12,21 @@ Cada fase deve produzir uma entrega pequena, compilável, executável e verific�
 6. ROM, BIOS, firmware, arquivos extraídos, saves e bancos gerados ficam fora do Git, CI e releases.
 7. A reutilização de código de pret/pokeplatinum continua bloqueada até esclarecimento dos direitos.
 
-## Snapshot verificado — 23/11/2026
+## Base de CI verificada — 23/11/2026
 
-HEAD: `1e945e13b751add8e1dc2b2b68f41898c0fba164` (`main`). A CI [#45209899276](https://github.com/CarlosCosta07-s/Oracis/actions/runs/45209899276) passou nos quatro jobs: Desktop Linux e runtime ARM com 56/56 CTests cada, tooling Python com 53 testes, smoke sintético 1/1, Android ARM64 e compilador estático NDSRecomp aprovados.
+A base validada pela CI #45209899276 é o commit 1e945e13b751add8e1dc2b2b68f41898c0fba164 (main à época). A CI [#45209899276](https://github.com/CarlosCosta07-s/Oracis/actions/runs/45209899276) passou nos quatro jobs: Desktop Linux e runtime ARM com 56/56 CTests cada, tooling Python com 53 testes, smoke sintético 1/1, Android ARM64 e compilador estático NDSRecomp aprovados.
 
 O suporte de exceções integrado agora inclui Data Abort ARM9 para violações de acesso de dados da MPU e Prefetch Abort ARM9 quando o dispatch atinge um mapeamento executável cuja busca é negada pela MPU. Os caminhos ARM e Thumb incluem dispatch direto, link slots e interworking; o runtime restaura o estado no Data Abort e solicita unwind cooperativo após as entradas de Abort.
 
 Limites que continuam explícitos: o modelo MPU/CP15 é parcial; c7 não opera sobre caches físicos porque ainda não existem; falhas de barramento externas/MMIO e aborts ARM7 ainda não são entregues como exceções guest; os vetores da BIOS ARM9 não têm handlers retail carregados; os bancos reais de Pokémon Platinum permanecem privados e não executados. A CI de bancos usa apenas fixtures sintéticas e não comprova boot nem primeiro quadro.
+
+## Experimento Android de entrada nativa — commits 3a9bc39 e d46f4db
+
+O host Android agora abre o seletor SDL3 para uma imagem NDS do usuário e para uma BIOS ARM7 de 16 KiB. A leitura foi migrada para SDL_IOStream para aceitar URIs content:// emitidas pelo seletor Android. Depois de carregar e validar os segmentos, o host verifica os entrypoints dos dois CPUs. Se ambos resolverem para bancos estáticos registrados, inicia rounds nativos limitados a 131.072 ciclos de barramento por iteração do loop principal; qualquer erro desabilita a execução e registra o ciclo e os status do runtime.
+
+Esse fluxo é direct-entry, não uma execução de reset pelas BIOS retail. A BIOS ARM7 é usada para obter a tabela KEY1 e descriptografar o prefixo da Secure Area; a BIOS ARM9 não é carregada/executada. O estado de firmware, o fornecimento Android de Chip ID físico, o handshake completo do cartucho, a sequência BIOS completa e a cobertura de todos os overlays permanecem pendentes.
+
+A CI Android atual compila a biblioteca nativa ARM64. Não há ainda projeto Gradle/Manifest no repositório para gerar APK instalável. A compilação dos bancos reais exige artefatos locais privados; a CI não recebe ROM, BIOS, firmware, segmentos extraídos ou bancos derivados. O experimento e os novos commits ainda precisam de validação no aparelho e não comprovam boot ou primeiro quadro. Detalhes em [ANDROID_DIRECT_BOOT.md](ANDROID_DIRECT_BOOT.md).
 
 ## Fases
 
@@ -43,13 +51,13 @@ Limites que continuam explícitos: o modelo MPU/CP15 é parcial; c7 não opera s
 
 ## Próxima ordem de implementação
 
-1. Ligar os quatro objetos corpo/dispatch locais às bibliotecas Oracis e confirmar a resolução dos 48 símbolos externos do inventário.
-2. Validar o adaptador de direção do C gerado e a rota DTCM load-mode nos dois toolchains; depois modelar a região externa inferior exigida por ITCM load-mode reads e ampliar cache, contenção e wait states dinâmicos somente com dados verificáveis.
-3. Auditar e implementar os alvos indiretos/overlays desconhecidos e os SWIs/serviços BIOS/NitroSDK requeridos pela inicialização; completar DMA, temporização de transferências e MMIO.
-4. Ampliar a cobertura end-to-end de IRQ para os eventos periféricos ainda não exercitados; Timer 0, DMA0, IPCSYNC e Game Card B7/DMA nos dois CPUs já possuem testes de máquina sem provider externo. Medir latência/prioridade e otimizar o polling sem perder precisão.
-5. Registrar os bancos reais, confirmar identidade das entradas e executar testes controlados de dispatch sem abrir rounds de jogo.
-6. Habilitar rounds somente após os serviços mínimos de boot estarem presentes e observáveis.
-7. Implementar VRAM/PPU e apresentar o primeiro quadro; áudio, saves e UX avançam depois.
+1. Validar no aparelho Android a seleção SAF da ROM e da BIOS ARM7 e confirmar a leitura dos URIs content:// por SDL_IOStream.
+2. Preparar o empacotamento Android instalável; a CI atual compila somente a biblioteca nativa ARM64.
+3. Construir localmente com os bancos privados reais, confirmar a resolução dos entrypoints ARM9/ARM7 e capturar o primeiro dispatch guest do experimento direct-entry.
+4. Resolver o primeiro dispatch miss, acesso MMIO não suportado, falha de timing ou dependência BIOS/NitroSDK observada pelo scheduler, sem fallback de interpretador.
+5. Completar o fornecimento Android do Chip ID do cartucho e a integração de firmware/SPI, mantendo esses dados privados do usuário.
+6. Auditar os 60 overlays ainda sem banco e os destinos de chamadas indiretas desconhecidos; integrar os gerenciadores NitroSDK/HLE necessários.
+7. Completar a sincronização de vídeo, apresentar e verificar o primeiro quadro real; depois avançar áudio, saves e UX.
 
 
 ## IPC ARM9/ARM7
