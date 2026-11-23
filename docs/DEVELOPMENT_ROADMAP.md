@@ -471,3 +471,22 @@ Os artefatos C/OBJ/manifesto permanecem apenas em `.oracis` local. Os
 emissão, compilação C99 e resolução de símbolos não significa que o jogo
 já execute: faltam inicializadores estáticos, relocations, integração com
 o gerenciador NitroSDK, rastreamento de retornos guest e validação de boot.
+\n\n## Atualização 2026-11-23 — métricas de alvos indiretos no relatório
+
+O emissor passou a preservar, por overlay, os resultados de
+`[finder] indirect outcomes`: destinos resolvidos, sabidamente
+inalcançáveis, desconhecidos e seeds de ponteiros armazenados. Também
+registra as regiões guest de 64 KiB e a quantidade de sites marcados pelo
+NDSRecomp como possíveis aliases não declarados. O manifesto agrega somente
+overlays que realmente possuem as métricas e lista explicitamente os IDs
+reutilizados de relatórios antigos que ainda não as contêm.
+
+Na leitura agregada dos 29 logs locais: 8.966 chamadas indiretas analisadas,
+34 destinos resolvidos, 39 sabidamente inalcançáveis, 570 desconhecidos,
+62 seeds de ponteiro armazenados e 39 sites em 24 regiões candidatas; o
+finder também reportou 59 alvos undefined. Esses números são distintos da
+auditoria de símbolos do linker: os 67 objetos nativos continuaram com
+11.719 referências resolvidas e zero símbolos unresolved/allowlisted. A
+lacuna que resta aqui é a resolução de destinos guest indiretos, não a
+provisão de símbolos C do runtime. Não habilitar execução apenas porque a
+auditoria do linker passou.\n
