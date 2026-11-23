@@ -28,7 +28,9 @@ enum class NdsOverlayStatus : uint8_t {
     Overlap,
     Busy,
     WriteFailed,
-    IdentityConflict
+    IdentityConflict,
+    NotInitialized,
+    ProgramNotLoaded
 };
 
 /*
