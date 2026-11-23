@@ -87,6 +87,28 @@ struct OracisLinkSlotCache {
  * simply replaces its previous snapshot.
  */
 std::unordered_map<const NdsLinkSlot *, OracisLinkSlotCache> g_link_slot_cache;
+uint32_t g_link_slot_cache_epoch = 0u;
+
+/*
+ * Cache records own guard tokens referenced by generated NdsLinkSlots. Drop
+ * every record when the registry topology or memory epoch changes, and when
+ * banks are explicitly removed, so repeated machine sessions cannot retain
+ * orphaned callsite records indefinitely.
+ */
+void clear_link_slot_cache() noexcept
+{
+    g_link_slot_cache.clear();
+    g_link_slot_cache_epoch = 0u;
+}
+
+void synchronize_link_slot_cache_epoch(uint32_t key) noexcept
+{
+    const uint32_t epoch = key >> 1u;
+    if (key == 0u || epoch == 0u || epoch != g_link_slot_cache_epoch) {
+        g_link_slot_cache.clear();
+        g_link_slot_cache_epoch = key != 0u ? epoch : 0u;
+    }
+}
 
 bool link_slot_cache_hit(
     const NdsLinkSlot *slot,
@@ -151,6 +173,7 @@ void dispatch_link_slot(NdsLinkSlot *slot, const char *kind)
     const NdsCpu cpu = g_nds_active;
     const uint32_t target_pc = slot->target_pc;
     const uint32_t key = registry().link_epoch_key(cpu);
+    synchronize_link_slot_cache_epoch(key);
     const OracisLinkSlotCache *cached = nullptr;
     if (link_slot_cache_hit(slot, cpu, key, &cached)) {
         select_link_target_state(target_pc);
@@ -224,6 +247,9 @@ extern "C" int oracis_static_dispatch_register_bank(
     try {
         const auto result = registry().register_bank(
             cpu, table, length, std::string(bank_name));
+        if (result == oracis::recomp::RegisterBankStatus::Ok) {
+            clear_link_slot_cache();
+        }
         return static_cast<int>(result);
     } catch (...) {
         return static_cast<int>(
@@ -236,7 +262,9 @@ extern "C" int oracis_static_dispatch_unregister_bank(
     const NdsDispatchEntry *table,
     uint32_t length)
 {
-    return registry().unregister_bank(cpu, table, length) ? 1 : 0;
+    const bool removed = registry().unregister_bank(cpu, table, length);
+    if (removed) clear_link_slot_cache();
+    return removed ? 1 : 0;
 }
 
 extern "C" void oracis_static_dispatch_clear(void)
@@ -244,6 +272,7 @@ extern "C" void oracis_static_dispatch_clear(void)
     /* Clearing bank rows does not change the lifetime of the memory validator.
        The owner removes that callback explicitly when it unbinds GuestMemory. */
     registry().clear();
+    clear_link_slot_cache();
 }
 
 extern "C" void oracis_static_dispatch_set_validation_callback(
@@ -255,6 +284,7 @@ extern "C" void oracis_static_dispatch_set_validation_callback(
         g_validation_callback = callback;
         g_validation_user = user;
         registry().invalidate_link_epoch();
+        clear_link_slot_cache();
     }
 }
 
@@ -263,6 +293,7 @@ extern "C" void oracis_static_dispatch_set_memory_generation_provider(
     void *user)
 {
     registry().set_memory_generation_provider(provider, user);
+    clear_link_slot_cache();
 }
 
 extern "C" const NdsDispatchEntry *oracis_static_dispatch_lookup(
@@ -387,6 +418,7 @@ extern "C" int runtime_inline_leaf_admit(
 
     const NdsCpu cpu = g_nds_active;
     const uint32_t key = registry().link_epoch_key(cpu);
+    synchronize_link_slot_cache_epoch(key);
     const OracisLinkSlotCache *cached = nullptr;
     if (!link_slot_cache_hit(slot, cpu, key, &cached)) return 0;
 

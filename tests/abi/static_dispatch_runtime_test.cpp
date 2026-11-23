@@ -11,6 +11,7 @@ unsigned arm7_calls = 0u;
 unsigned thumb_calls = 0u;
 unsigned arm7_thumb_calls = 0u;
 unsigned validated_calls = 0u;
+unsigned validation_callback_calls = 0u;
 uint64_t dispatch_memory_generation = 1u;
 
 uint64_t read_dispatch_memory_generation(void *context)
@@ -38,6 +39,7 @@ int accept_expected_validation(
     uint32_t thumb,
     void *user)
 {
+    ++validation_callback_calls;
     return cpu == NDS_ARM9 &&
            candidate == user &&
            pc == 0x02001000u &&
@@ -269,18 +271,28 @@ int main()
 
     NdsLinkSlot guarded_slot{};
     guarded_slot.target_pc = 0x02001000u;
+    const unsigned validation_calls_before_link = validation_callback_calls;
     runtime_link_call(&guarded_slot);
     if (validated_calls != 3u || guarded_slot.fn != validated_body ||
         guarded_slot.key == 0u || guarded_slot.guard == nullptr ||
-        runtime_inline_leaf_admit(&guarded_slot, validated_body) != 1) {
+        runtime_inline_leaf_admit(&guarded_slot, validated_body) != 1 ||
+        validation_callback_calls != validation_calls_before_link + 1u) {
         return fail("validated link did not cache its guarded winning row");
     }
+
+    runtime_link_call(&guarded_slot);
+    if (validated_calls != 4u ||
+        validation_callback_calls != validation_calls_before_link + 1u) {
+        return fail("repeated guarded link did not reuse its cached validation proof");
+    }
+
     ++dispatch_memory_generation;
     if (runtime_inline_leaf_admit(&guarded_slot, validated_body) != 0) {
         return fail("mutable link guard survived a guest-memory generation change");
     }
     runtime_link_call(&guarded_slot);
-    if (validated_calls != 4u ||
+    if (validated_calls != 5u ||
+        validation_callback_calls != validation_calls_before_link + 2u ||
         runtime_inline_leaf_admit(&guarded_slot, validated_body) != 1) {
         return fail("mutable link was not revalidated and guarded after mutation");
     }

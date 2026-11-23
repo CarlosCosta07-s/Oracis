@@ -256,6 +256,12 @@ função apenas se chave, CPU, alvo, função e guarda coincidirem. Qualquer fal
 limpa os campos do slot e volta à consulta normal do registry, incluindo a
 prova dos bytes e dependências antes de executar a função.
 
+Os registros privados dos callsites são limpos na remoção/limpeza de bancos,
+na troca dos callbacks/providers e na primeira observação de uma nova época de
+memória/registry. Isso libera as guardas antigas e impede que slots de sessões
+anteriores acumulem indefinidamente. A sincronização usa o epoch global sem
+misturar a identidade ARM9/ARM7, que continua codificada no bit baixo da chave.
+
 `runtime_inline_leaf_admit()` exige o mesmo snapshot válido, igualdade exata
 com a função esperada e concordância entre CPSR.T e o modo do alvo. Falso é
 sempre seguro e envia o callsite a `runtime_link_call()`, que resolve e valida
