@@ -1964,6 +1964,15 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
         slice_active_[1] = false;
     }
 
+    /*
+     * Guest execution is stopped and the memory bus is still bound here.
+     * Remove stale overlay bytes before a later initialize/load cycle can
+     * accidentally validate old code against newly registered dispatch rows.
+     */
+    if (overlay_loader_.clear() != NdsOverlayStatus::Ok) {
+        return NdsMachineStatus::ShutdownFailed;
+    }
+
     /* Do not leave a process-global callback pointing at this memory map. */
     if (validation_bound_) {
         oracis_static_dispatch_set_validation_callback(nullptr, nullptr);
