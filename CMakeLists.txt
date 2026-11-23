@@ -115,6 +115,8 @@ add_library(oracis_memory STATIC
     src/memory/nds_dma_control.cpp
     src/memory/nds_timer_control.cpp
     src/memory/nds_keypad_control.cpp
+    src/memory/nds_rtc.cpp
+    src/memory/nds_spi_control.cpp
     src/memory/nds_system_clock.cpp
 )
 target_link_libraries(oracis_memory PUBLIC
@@ -440,6 +442,18 @@ if(BUILD_TESTING)
     target_link_libraries(oracis_nds_keypad_control_test PRIVATE oracis_memory)
     add_test(NAME oracis_nds_keypad_control_test COMMAND oracis_nds_keypad_control_test)
 
+    add_executable(oracis_nds_rtc_test
+        tests/memory/nds_rtc_test.cpp
+    )
+    target_link_libraries(oracis_nds_rtc_test PRIVATE oracis_memory)
+    add_test(NAME oracis_nds_rtc_test COMMAND oracis_nds_rtc_test)
+
+    add_executable(oracis_nds_spi_control_test
+        tests/memory/nds_spi_control_test.cpp
+    )
+    target_link_libraries(oracis_nds_spi_control_test PRIVATE oracis_memory)
+    add_test(NAME oracis_nds_spi_control_test COMMAND oracis_nds_spi_control_test)
+
     add_executable(oracis_nds_system_clock_test
         tests/memory/nds_system_clock_test.cpp
     )
@@ -459,6 +473,12 @@ if(BUILD_TESTING)
     )
     target_link_libraries(oracis_nds_machine_test PRIVATE oracis_machine)
     add_test(NAME oracis_nds_machine_test COMMAND oracis_nds_machine_test)
+
+    add_executable(oracis_nds_machine_serial_test
+        tests/machine/nds_machine_serial_test.cpp
+    )
+    target_link_libraries(oracis_nds_machine_serial_test PRIVATE oracis_machine)
+    add_test(NAME oracis_nds_machine_serial_test COMMAND oracis_nds_machine_serial_test)
 
     add_executable(oracis_host_runtime_bridge_c_test
         tests/host/runtime_bridge_c_test.c

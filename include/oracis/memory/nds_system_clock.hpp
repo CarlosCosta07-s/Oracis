@@ -14,6 +14,7 @@
 #include "oracis/memory/nds_display_control.hpp"
 #include "oracis/memory/nds_game_card_control.hpp"
 #include "oracis/memory/nds_geometry_engine.hpp"
+#include "oracis/memory/nds_spi_control.hpp"
 
 namespace oracis::memory {
 
@@ -28,9 +29,10 @@ class NdsSystemClock final {
 public:
     NdsSystemClock(NdsTimerControl &timers,NdsDisplayControl &display,
                    NdsGameCardControl *game_card=nullptr,
-                   NdsGeometryEngine *geometry=nullptr) noexcept
+                   NdsGeometryEngine *geometry=nullptr,
+                   NdsSpiControl *spi=nullptr) noexcept
         : timers_(timers), display_(display), game_card_(game_card),
-          geometry_(geometry) {}
+          geometry_(geometry), spi_(spi) {}
 
     NdsSystemClock(const NdsSystemClock &) = delete;
     NdsSystemClock &operator=(const NdsSystemClock &) = delete;
@@ -57,6 +59,7 @@ public:
 
     NdsTimerControl &timer_control() const noexcept { return timers_; }
     NdsDisplayControl &display_control() const noexcept { return display_; }
+    NdsSpiControl *spi_control() const noexcept { return spi_; }
 
 private:
     static bool valid_cpu(NdsCpu cpu) noexcept;
@@ -66,6 +69,7 @@ private:
     NdsDisplayControl &display_;
     NdsGameCardControl *game_card_ = nullptr;
     NdsGeometryEngine *geometry_ = nullptr;
+    NdsSpiControl *spi_ = nullptr;
     std::array<uint64_t, 2> cpu_cycles_{};
     uint64_t global_bus_cycles_ = 0u;
 };

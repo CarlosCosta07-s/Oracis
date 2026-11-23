@@ -297,3 +297,15 @@ com o bit 15 definido continua opaco e pode gerar candidatos no perímetro;
 com o bit 15 limpo, o fragmento totalmente transparente é descartado antes
 da entrega ao compositor. Os casos usam triângulos sintéticos submetidos pelo
 Geometry Engine e SWAP_BUFFERS manual, sem ROM ou dados extraídos de jogo.
+
+## Atualização 2026-11-23 — periféricos seriais ARM7 (RTC e SPI)
+
+Novos dispositivos exclusivos do ARM7, instalados no mapa retail e ligados à `NdsMachine` pela ponte C ABI:
+
+- `NdsRtc` (`0x04000138`): protocolo bit-bang de DATA/CLK/CS (comando `0110b`, bytes LSB primeiro, leitura na borda de descida), registradores de status 1/2, data/hora, hora, alarmes 1/2, ajuste de clock e registrador livre, BCD validado, modo 12/24 h, flag de power-on que limpa após a leitura e reset por software. O relógio não depende do tempo real do host: `set_date_time()` e `advance_seconds()` mantêm testes e replays determinísticos. Alarmes e a interrupção do RTC são armazenados, mas não gerados.
+- `NdsSpiControl` (`0x040001C0/C2`): SPICNT/SPIDATA com bit busy, tempo de transferência por baud e tamanho (8/16 bits), IRQ de conclusão ao ARM7 (bit 23), bit hold e troca de dispositivo encerrando a sequência. Dispositivos: gerenciamento de energia (registradores 0–4, bateria baixa, pedido de desligamento), flash de firmware somente leitura (`03h`/`05h`/`06h`/`04h`) e touchscreen (X/Y 12 e 8 bits, canais auxiliares, caneta levantada).
+- O `NdsSystemClock` avança e redefine o SPI junto com o cartucho e a geometria.
+
+Limites declarados: o firmware nunca é embutido; o host fornece a imagem do próprio usuário com `set_firmware_image()` e, sem ela, todo acesso é recusado. Gravação/apagamento de flash, JEDEC ID, dispositivo SPI 3 e conversões de touch sobrepostas retornam `Status::Unsupported` com diagnóstico em vez de inventar dados. Valores de caneta levantada, canal Z/temperatura e o bit de AM/PM em modo 24 h seguem a descrição pública e ainda não foram conferidos com capturas de hardware.
+
+Testes novos: `oracis_nds_rtc_test`, `oracis_nds_spi_control_test` e `oracis_nds_machine_serial_test` (RTC e firmware lidos pelo bus real, temporização pelo relógio do sistema e IRQ no controlador ARM7). Validação local: 58/58 CTests. Isso valida comportamento sintético dos dispositivos, não o boot nem a apresentação de Pokémon Platinum. A leitura de touch e botões X/Y pelo host (gamepad, EXTKEYIN, caneta via mouse) continua pendente.
