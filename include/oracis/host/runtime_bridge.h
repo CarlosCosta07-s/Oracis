@@ -40,7 +40,11 @@ typedef enum OracisHostRuntimeStatus {
     ORACIS_HOST_RUNTIME_OVERLAY_OVERLAP = 21,
     ORACIS_HOST_RUNTIME_OVERLAY_BUSY = 22,
     ORACIS_HOST_RUNTIME_OVERLAY_WRITE_FAILED = 23,
-    ORACIS_HOST_RUNTIME_OVERLAY_IDENTITY_CONFLICT = 24
+    ORACIS_HOST_RUNTIME_OVERLAY_IDENTITY_CONFLICT = 24,
+    ORACIS_HOST_RUNTIME_OVERLAY_INITIALIZER_DISPATCH_MISSING = 25,
+    ORACIS_HOST_RUNTIME_OVERLAY_INITIALIZER_BUDGET_EXCEEDED = 26,
+    ORACIS_HOST_RUNTIME_OVERLAY_INITIALIZER_EXECUTION_FAILED = 27,
+    ORACIS_HOST_RUNTIME_OVERLAY_INITIALIZER_INVALID_STACK = 28
 } OracisHostRuntimeStatus;
 
 /* Result of checking the current ARM9/ARM7 start PCs against registered banks. */
@@ -186,6 +190,15 @@ typedef struct OracisHostOverlayImage {
 /* Load one overlay after the two main program segments have been loaded. */
 int oracis_host_runtime_load_overlay(
     const OracisHostOverlayImage *overlay);
+/*
+ * Execute the overlay's validated static-init function pointers in table
+ * order. Each constructor receives an isolated bounded guest call; guest
+ * RAM/MMIO side effects persist, while CPU registers and guest return stack
+ * are restored. The caller must have established a valid guest stack.
+ */
+int oracis_host_runtime_run_overlay_static_initializers(
+    uint32_t cpu, uint32_t overlay_id,
+    uint64_t cycle_budget_per_initializer);
 /*
  * Unload only at a safe overlay-manager boundary. no_live_guest_references
  * must be 1 only after the host has established that no saved guest return
