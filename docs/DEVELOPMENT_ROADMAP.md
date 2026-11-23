@@ -554,3 +554,30 @@ continua sem invocar essas funções: falta uma camada de chamada guest segura,
 com contexto ARM/Thumb, retorno, tratamento de falhas e dependências entre
 módulos. Os testes cobrem ordem, dois modos, ponteiro fora da imagem e
 terminador zero.
+
+## Atualização 2026-11-23 — execução supervisionada de static-init
+
+A máquina agora oferece
+`run_overlay_static_initializers(cpu, overlay_id, cycle_budget)`, e o host
+bridge expõe `oracis_host_runtime_run_overlay_static_initializers`. A
+operação é explícita; carregar um overlay não executa seus construtores.
+Antes da primeira chamada, todos os entry points são resolvidos no dispatch
+registry. O host exige SP alinhado a 8 bytes e uma janela gravável de 256 bytes
+abaixo dele, sem inventar a configuração que deveria vir do BIOS.
+
+Cada função recebe uma slice com orçamento limitado, um LR sentinela e um
+frame na pilha de retornos guest. O retorno é reconhecido pela mesma convenção
+`BX LR` do codegen. Um tratador temporário captura dispatch misses aninhados;
+o scheduler solicita unwind em checkpoints de instrução quando o orçamento
+vence. Ao terminar, os registradores e a pilha de retornos do chamador são
+restaurados, mas efeitos em GuestMemory/MMIO são mantidos. O loader registra
+progresso e impede segunda execução. Falhas depois de começar deixam o
+overlay marcado como failed, sem retry automático nem rollback das mutações
+guest.
+
+Foi adicionado um teste dedicado para ARM/Thumb, ordem, retorno sintético,
+restauração de CPU, persistência de memória, orçamento e dispatch miss.
+A execução real dos 62 bancos continua condicionada ao estágio de boot que
+estabeleça a pilha guest, às dependências de overlays e à validação dos
+serviços NitroSDK. O executor supervisionado é infraestrutura de inicialização,
+não é evidência de boot jogável.
