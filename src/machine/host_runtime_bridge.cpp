@@ -31,6 +31,10 @@ extern const unsigned
 }
 #endif
 
+#ifdef ORACIS_WITH_PLATINUM_OVERLAY_BANKS
+extern "C" int oracis_register_compiled_overlay_banks(void);
+#endif
+
 namespace {
 
 std::optional<oracis::machine::NdsMachine> &host_machine_storage() noexcept
@@ -810,6 +814,12 @@ extern "C" int oracis_host_runtime_register_compiled_banks(void)
         g_dispatch_pokemon_platinum_usa_rev1_arm7_len);
 
     if (arm9_registered && arm7_registered) {
+#ifdef ORACIS_WITH_PLATINUM_OVERLAY_BANKS
+        const int overlay_status = oracis_register_compiled_overlay_banks();
+        if (overlay_status != ORACIS_DISPATCH_REGISTER_OK) {
+            return ORACIS_HOST_RUNTIME_BANK_REGISTRATION_FAILED;
+        }
+#endif
         return ORACIS_HOST_RUNTIME_BANKS_ALREADY_REGISTERED;
     }
 
@@ -848,6 +858,24 @@ extern "C" int oracis_host_runtime_register_compiled_banks(void)
             return ORACIS_HOST_RUNTIME_BANK_REGISTRATION_FAILED;
         }
     }
+#ifdef ORACIS_WITH_PLATINUM_OVERLAY_BANKS
+    const int overlay_status = oracis_register_compiled_overlay_banks();
+    if (overlay_status != ORACIS_DISPATCH_REGISTER_OK) {
+        if (added_arm7) {
+            (void)oracis_static_dispatch_unregister_bank(
+                NDS_ARM7,
+                g_dispatch_pokemon_platinum_usa_rev1_arm7,
+                g_dispatch_pokemon_platinum_usa_rev1_arm7_len);
+        }
+        if (added_arm9) {
+            (void)oracis_static_dispatch_unregister_bank(
+                NDS_ARM9,
+                g_dispatch_pokemon_platinum_usa_rev1_arm9,
+                g_dispatch_pokemon_platinum_usa_rev1_arm9_len);
+        }
+        return ORACIS_HOST_RUNTIME_BANK_REGISTRATION_FAILED;
+    }
+#endif
     return ORACIS_HOST_RUNTIME_OK;
 #else
     return ORACIS_HOST_RUNTIME_NO_COMPILED_BANKS;
