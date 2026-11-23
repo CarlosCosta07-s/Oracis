@@ -2177,6 +2177,30 @@ int main()
         return fail("MPU-permitted dynamic code target was incorrectly converted into Prefetch Abort");
     }
 
+    /*
+     * BX / LDM-to-PC uses the exchange dispatcher rather than a cached link
+     * slot. It must derive CPSR.T from bit zero before evaluating MPU access.
+     */
+    constexpr uint32_t prefetch_exchange_fault_pc = UINT32_C(0x02006044);
+    arm9->cpsr = ORACIS_ARM_MODE_USER;
+    arm9->R[15] = UINT32_C(0x02006000);
+    runtime_dispatch_with_exchange(prefetch_exchange_fault_pc | 1u);
+    if ((arm9->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_ABORT ||
+        (arm9->cpsr & CPSR_I_BIT) == 0u ||
+        (arm9->cpsr & CPSR_T_BIT) != 0u ||
+        arm9->R[15] != UINT32_C(0xFFFF000C) ||
+        arm9->R[14] != prefetch_exchange_fault_pc + 4u ||
+        arm9->banked_spsr[ARM_BANK_ABORT] !=
+            (ORACIS_ARM_MODE_USER | CPSR_T_BIT) ||
+        !runtime_unwinding()) {
+        return fail("BX interworking did not enter Thumb Prefetch Abort with the correct SPSR/LR");
+    }
+    if (!oracis_scheduler_set_unwinding(NDS_ARM9, 0)) {
+        return fail("BX Prefetch Abort unwind state could not be reset");
+    }
+    arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
+    arm9->R[15] = UINT32_C(0x02006000);
+
     const uint32_t saved_cpsr = arm9->cpsr;
     arm9->cpsr = (saved_cpsr & ~ORACIS_ARM_MODE_MASK) |
         ORACIS_ARM_MODE_USER;
