@@ -93,6 +93,7 @@ extern "C" int oracis_scheduler_begin_slice(
     state.slice_active = true;
     state.yield_requested = cycle_budget == 0u;
     state.unwinding = false;
+    state.bounded_unwind = false;
     return 1;
 }
 
@@ -102,6 +103,7 @@ extern "C" void oracis_scheduler_end_slice(NdsCpu cpu)
     CpuSliceState &state = g_cpu_slice[cpu_index(cpu)];
     state.slice_active = false;
     state.yield_requested = false;
+    state.bounded_unwind = false;
     /* The generated C stack has returned to the host; unwind is over. */
     state.unwinding = false;
 }
