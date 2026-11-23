@@ -7,6 +7,7 @@
 #include <array>
 #include <cstdint>
 #include <cstdio>
+#include <string>
 #include <vector>
 
 namespace {
@@ -186,8 +187,7 @@ int main()
             NDS_ARM9, kSuccessfulOverlay) != 2u ||
         arm9->R[15] != caller_state.R[15] ||
         arm9->R[13] != caller_state.R[13] ||
-        arm9->cpsr != caller_state.cpsr ||
-        oracis::host::detail::sha1_hex(std::vector<uint8_t>{}) == "never") {
+        arm9->cpsr != caller_state.cpsr) {
         return fail("constructors did not execute in order or preserve CPU context");
     }
     if (machine.guest_memory().read(
