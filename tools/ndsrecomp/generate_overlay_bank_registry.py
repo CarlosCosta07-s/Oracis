@@ -32,6 +32,8 @@ def generate(bank_dir: Path, output_cpp: Path, manifest_path: Path) -> dict:
         raise ValueError("unsupported or missing overlay emission report schema")
     if report.get("codegen") != "nds-codegen-v3":
         raise ValueError("overlay banks were not emitted by the pinned nds-codegen-v3")
+    if report.get("rom_sha1") != "0862ec35b24de5c7e2dcb88c9eea0873110d755c":
+        raise ValueError("overlay banks do not match Pokémon Platinum USA Rev 1")
     if report.get("direction_adapter", {}).get("status") != "passed":
         raise ValueError("overlay memory-direction adapter did not pass")
     records = []
