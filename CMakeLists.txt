@@ -18,6 +18,10 @@ set(ORACIS_LOCAL_BANK_DIR "" CACHE PATH
     "Optional local directory containing emitted Platinum ARM9/ARM7 C banks")
 set(ORACIS_LOCAL_OVERLAY_BANK_DIR "" CACHE PATH
     "Optional local directory containing emitted Platinum ARM9 overlay C banks")
+set(ORACIS_LOCAL_OVERLAY_IMAGE_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/.oracis/local/pokemon-platinum-usa-rev1/overlays"
+    CACHE PATH
+    "Local extracted Platinum overlay images and manifest used to verify compiled overlay identity")
 option(ORACIS_ALLOW_SYNTHETIC_BANKS
     "Allow explicitly marked synthetic bank fixtures (tests only)" OFF)
 set(ORACIS_BANK_SYMBOL_ALLOWLIST "" CACHE FILEPATH
@@ -287,12 +291,23 @@ if(ORACIS_LOCAL_OVERLAY_BANK_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     get_filename_component(ORACIS_LOCAL_OVERLAY_BANK_DIR
         "${ORACIS_LOCAL_OVERLAY_BANK_DIR}" ABSOLUTE)
+    get_filename_component(ORACIS_LOCAL_OVERLAY_IMAGE_DIR
+        "${ORACIS_LOCAL_OVERLAY_IMAGE_DIR}" ABSOLUTE)
+    if(NOT IS_DIRECTORY "${ORACIS_LOCAL_OVERLAY_IMAGE_DIR}" OR
+       NOT EXISTS "${ORACIS_LOCAL_OVERLAY_IMAGE_DIR}/manifest.json")
+        message(FATAL_ERROR
+            "ORACIS_LOCAL_OVERLAY_BANK_DIR requires the local extracted "
+            "overlay image directory and manifest. Set "
+            "ORACIS_LOCAL_OVERLAY_IMAGE_DIR to the output of "
+            "extract_nds_overlays.py.")
+    endif()
     set(_oracis_overlay_registrar
         "${CMAKE_CURRENT_BINARY_DIR}/oracis_generated_overlay_registry.cpp")
     execute_process(
         COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tools/ndsrecomp/generate_overlay_bank_registry.py"
             --bank-dir "${ORACIS_LOCAL_OVERLAY_BANK_DIR}"
+            --overlay-image-dir "${ORACIS_LOCAL_OVERLAY_IMAGE_DIR}"
             --output-cpp "${_oracis_overlay_registrar}"
             --manifest "${CMAKE_CURRENT_BINARY_DIR}/oracis_overlay_registry.json"
         RESULT_VARIABLE _oracis_overlay_registry_result
