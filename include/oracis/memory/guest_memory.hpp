@@ -60,8 +60,8 @@ public:
 
     GuestMemory(const GuestMemory &) = delete;
     GuestMemory &operator=(const GuestMemory &) = delete;
-    GuestMemory(GuestMemory &&) noexcept = default;
-    GuestMemory &operator=(GuestMemory &&) noexcept = default;
+    GuestMemory(GuestMemory &&other) noexcept;
+    GuestMemory &operator=(GuestMemory &&other) noexcept;
 
     /*
      * Allocate a region owned by this memory map.

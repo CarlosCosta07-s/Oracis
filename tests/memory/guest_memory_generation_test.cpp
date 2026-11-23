@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <utility>
 
 using oracis::memory::GuestMemory;
 using oracis::memory::Permission;
@@ -161,6 +162,36 @@ int main()
             "initial image") != Status::Ok ||
         !advanced(memory, generation)) {
         return fail("initial image mapping did not advance generation");
+    }
+
+    GuestMemory move_source;
+    if (move_source.map_ram(
+            0x07000000u, 0x100u, rwx, "move source") != Status::Ok) {
+        return fail("move source setup failed");
+    }
+    const uint64_t source_epoch_before_move =
+        move_source.mutation_generation();
+    GuestMemory moved(std::move(move_source));
+    if (move_source.mutation_generation() == source_epoch_before_move ||
+        moved.mutation_generation() == 0u ||
+        moved.read(NDS_ARM9, 0x07000000u, 1u).status != Status::Ok) {
+        return fail("move construction did not preserve data and invalidate source");
+    }
+
+    GuestMemory move_target;
+    if (move_target.map_ram(
+            0x07100000u, 0x100u, rwx, "move target") != Status::Ok) {
+        return fail("move target setup failed");
+    }
+    const uint64_t target_epoch_before_move =
+        move_target.mutation_generation();
+    const uint64_t moved_epoch_before_assignment =
+        moved.mutation_generation();
+    move_target = std::move(moved);
+    if (move_target.mutation_generation() == target_epoch_before_move ||
+        moved.mutation_generation() == moved_epoch_before_assignment ||
+        move_target.read(NDS_ARM9, 0x07000000u, 1u).status != Status::Ok) {
+        return fail("move assignment did not invalidate both memory identities");
     }
 
     std::puts("guest memory mutation generation tests passed");

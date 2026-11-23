@@ -6,6 +6,27 @@
 #include <utility>
 
 namespace oracis::memory {
+
+GuestMemory::GuestMemory(GuestMemory &&other) noexcept
+    : regions_(std::move(other.regions_)),
+      mutation_generation_(other.mutation_generation_)
+{
+    /* The source object remains observable after a move and must invalidate
+       any snapshots associated with its original identity. */
+    other.note_mutation();
+}
+
+GuestMemory &GuestMemory::operator=(GuestMemory &&other) noexcept
+{
+    if (this == &other) return *this;
+    regions_ = std::move(other.regions_);
+    /* Keep the destination's epoch lineage; never adopt a possibly equal
+       generation from another memory object. */
+    note_mutation();
+    other.note_mutation();
+    return *this;
+}
+
 namespace {
 
 constexpr uint64_t kGuestAddressSpaceSize = UINT64_C(0x1'0000'0000);
