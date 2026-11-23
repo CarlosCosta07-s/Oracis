@@ -130,6 +130,23 @@ class DiscoverPlatinumOverlayConfigsTests(unittest.TestCase):
                 self.image_dir, self.source_zip, self.output_dir
             )
 
+    def test_function_pointer_headers_are_opt_in_candidates(self) -> None:
+        self.write_source_zip([
+            "pokeplatinum-main/include/overlay005/funcptr_ov5_02000508.h"
+        ])
+        default_anchors, _, default_count = discovery.source_anchors(
+            self.source_zip
+        )
+        expanded_anchors, _, expanded_count = discovery.source_anchors(
+            self.source_zip, include_function_pointer_headers=True
+        )
+        self.assertEqual(default_count, 0)
+        self.assertEqual(default_anchors, {})
+        self.assertEqual(expanded_count, 1)
+        self.assertEqual(
+            expanded_anchors[5], [(0x02000508, "ov5_02000508")]
+        )
+
     def test_directory_source_matches_filename_contract(self) -> None:
         source_dir = self.root / "source-tree"
         target = (
