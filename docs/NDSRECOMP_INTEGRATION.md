@@ -273,6 +273,31 @@ somente diretórios que tenham um manifesto Oracis válido e contenham exatament
 os arquivos declarados nele; não apaga arquivos extras do usuário. A CI usa
 apenas fixtures sintéticas e nunca recebe ROM nem overlays comerciais.
 
+A descoberta de candidatos de entrada agora é reproduzível por
+`tools/ndsrecomp/discover_platinum_overlay_configs.py`. Ela recebe o diretório
+de imagens extraídas e um ZIP/diretório local da árvore Poképlatinum:
+
+    python tools/ndsrecomp/discover_platinum_overlay_configs.py \
+      --overlay-image-dir .oracis/local/pokemon-platinum-usa-rev1/overlays \
+      --source /caminho/pokeplatinum-main.zip
+
+A ferramenta inspeciona somente nomes de arquivos no padrão
+`src/overlayNNN/ovNNN_ADDRESS.c`; não lê, copia nem compila o conteúdo desses
+arquivos. Cada endereço é conferido contra a faixa de RAM e a identidade/hash
+do overlay extraído. Os TOMLs resultantes permanecem no diretório local
+ignorado pelo Git, e `anchor_discovery_report.json` lista também IDs sem
+âncoras no código-fonte fornecido. O campo de modo dos candidatos usa Thumb
+como hipótese provisória compatível com a auditoria anterior; os entry points
+permanecem marcados como não autoritativos e exigem revisão por bytes/
+desassemblagem antes de habilitar execução.
+
+Na cópia de Poképlatinum fornecida para a auditoria de 23/11/2026, foram
+encontrados arquivos-fonte com nomes de endereço para 29 dos 122 overlays
+ARM9. A ferramenta gerou/conferiu 29 TOMLs e identificou 93 overlays sem
+âncoras correspondentes nessa árvore. Esses 93 módulos continuam pendentes:
+não são inicializados com endereços inventados nem inferidos apenas de
+`load_address` ou `static_init_start`.
+
 **Limite desta etapa:** extrair e validar um overlay não significa recompilá-lo.
 O manifesto não inventa um entry point para o módulo. Ainda é necessário
 descobrir referências e alvos de função nos bancos principais, gerar a
