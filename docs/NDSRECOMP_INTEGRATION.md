@@ -623,3 +623,16 @@ ciclos e dispatch miss aninhado. Isso valida o protocolo de chamada nos bancos
 sintéticos do teste; não prova que os 62 bancos derivados de Platinum façam
 boot nem que os construtores reais possam ser executados sem dependências
 adicionais.
+
+
+## 21. Inicializadores solicitados durante uma fatia guest
+
+O executor supervisionado continua sendo dono das chamadas guest: os callbacks não são executados recursivamente dentro de uma função C gerada. Para permitir que uma futura rotina HLE do gerenciador de overlays solicite a inicialização no fluxo de execução, a máquina agora expõe `request_overlay_static_initializers()` e a ponte C expõe `oracis_host_runtime_request_overlay_static_initializers()`.
+
+Quando a solicitação vem do CPU atualmente selecionado e com uma fatia ativa, a máquina guarda um único pedido por CPU e solicita yield cooperativo. A função guest gerada retorna pelo caminho normal de unwind; depois de `end_cpu_slice()`, mas antes de o round avançar para o próximo core, o host drena o pedido e executa os construtores com o orçamento limitado já implementado. A resposta `ORACIS_HOST_RUNTIME_OVERLAY_INITIALIZER_PENDING` significa que o pedido foi aceito, não que os construtores já terminaram.
+
+Se a solicitação vier de uma fronteira sem fatia ativa, a API executa imediatamente, usando o mesmo caminho supervisionado. Pedidos duplicados durante a mesma fatia são recusados como ocupados. Uma falha na execução diferida termina o round com `NdsMachineStatus::OverlayInitializerFailed`; o loader mantém a sequência como falha e não tenta repeti-la automaticamente.
+
+O teste sintético pede um construtor durante a fatia ARM9, verifica o unwind, comprova que o callback só roda depois do fechamento da fatia e confirma progresso e restauração do estado de CPU.
+
+**Limite ainda aberto:** isto implementa o mecanismo de suspensão até a fronteira e retomada pelo PC guest salvo; não liga ainda a API a `Overlay_LoadByID`/`Overlay_UnloadByID`, nem resolve a aquisição/descompressão/identidade das imagens no HLE. O carregamento da imagem continua sendo uma operação externa em fronteira segura. Também não é evidência de boot do jogo.

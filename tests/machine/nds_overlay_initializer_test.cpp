@@ -314,18 +314,34 @@ int main()
     DeferredRequestContext deferred_context{&machine, kDeferredOverlay};
     const ArmCpuState pre_round_state = *arm9;
     const auto round_status = machine.run_dual_core_round(
-        10u, &request_deferred_initializer, nullptr, &deferred_context);
+        100u, &request_deferred_initializer, nullptr, &deferred_context);
+    const uint32_t deferred_progress =
+        machine.overlay_loader().static_initializer_progress(
+            NDS_ARM9, kDeferredOverlay);
+    const bool deferred_call_stack_balanced = runtime_call_stack_depth() == 0u;
+    const bool deferred_cpu_restored =
+        arm9->R[13] == pre_round_state.R[13] &&
+        arm9->R[14] == pre_round_state.R[14] &&
+        arm9->R[15] == pre_round_state.R[15] &&
+        arm9->cpsr == pre_round_state.cpsr;
     if (round_status != oracis::machine::NdsMachineStatus::Ok ||
         deferred_context.request_status != NdsOverlayStatus::InitializerPending ||
         g_initializer_order_count != 1u ||
         g_initializer_order[0] != 4u ||
-        machine.overlay_loader().static_initializer_progress(
-            NDS_ARM9, kDeferredOverlay) != 1u ||
-        runtime_call_stack_depth() != 0u ||
-        arm9->R[13] != pre_round_state.R[13] ||
-        arm9->R[14] != pre_round_state.R[14] ||
-        arm9->R[15] != pre_round_state.R[15] ||
-        arm9->cpsr != pre_round_state.cpsr) {
+        deferred_progress != 1u ||
+        !deferred_call_stack_balanced ||
+        !deferred_cpu_restored) {
+        std::fprintf(stderr,
+            "deferred diagnostics: round=%u request=%u order_count=%zu first=%u "
+            "progress=%u call_depth=%u cpu_pc=0x%08X expected_pc=0x%08X "
+            "arm9_cycles=%llu\\n",
+            static_cast<unsigned>(round_status),
+            static_cast<unsigned>(deferred_context.request_status),
+            g_initializer_order_count, g_initializer_order[0],
+            deferred_progress, runtime_call_stack_depth(),
+            arm9->R[15], pre_round_state.R[15],
+            static_cast<unsigned long long>(
+                oracis_scheduler_cycle_count(NDS_ARM9)));
         return fail("deferred constructors did not run at the guest slice boundary");
     }
 
