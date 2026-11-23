@@ -360,6 +360,8 @@ extern "C" void oracis_static_dispatch_clear(void)
        The owner removes that callback explicitly when it unbinds GuestMemory. */
     registry().clear();
     clear_link_slot_cache();
+    g_dispatch_miss_handler = nullptr;
+    g_dispatch_miss_user = nullptr;
 }
 
 extern "C" void oracis_static_dispatch_set_validation_callback(
@@ -538,11 +540,14 @@ extern "C" void runtime_dispatch_miss(uint32_t target_pc)
     const uint32_t cpsr = oracis_active_cpu_state
         ? oracis_active_cpu_state->cpsr : 0u;
     if (deliver_prefetch_abort(target_pc)) return;
+    const uint32_t status = static_cast<uint32_t>(
+        oracis::recomp::DispatchLookupStatus::Miss);
+    if (recover_dispatch_miss(
+            g_nds_active, target_pc, cpsr, status, 0u, nullptr)) {
+        return;
+    }
     dispatch_failure("explicit static dispatch miss", g_nds_active,
-                     target_pc, cpsr,
-                     static_cast<uint32_t>(
-                         oracis::recomp::DispatchLookupStatus::Miss),
-                     0u, nullptr);
+                     target_pc, cpsr, status, 0u, nullptr);
 }
 
 extern "C" void runtime_dispatch_bad_entry(uint32_t target_pc)
