@@ -364,6 +364,7 @@ def emit_banks(
 
         result = {
             "schema_version": 1,
+            "source_kind": "retail-rom",
             "rom_sha1": manifest["rom_sha1"],
             "banks": emitted,
             "notice": "Local generated C code. Do not commit or distribute game-derived output.",

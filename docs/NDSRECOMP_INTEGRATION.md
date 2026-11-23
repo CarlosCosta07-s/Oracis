@@ -161,6 +161,16 @@ O extrator só aceita a identidade de ROM documentada e grava os segmentos e met
 
 Quando `ORACIS_LOCAL_BANK_DIR` aponta para os bancos locais, o CMake compila os corpos e tabelas de dispatch como objetos e liga-os ao runtime. Na inicialização, o host pode registrar as tabelas por meio de `oracis_host_runtime_register_compiled_banks()`. O smoke test da CI valida essa ligação e o ciclo de registro/remoção com fixtures sintéticas.
 
+Antes de criar os alvos CMake, `validate_platinum_bank_set.py` confere o
+manifesto `oracis_banks.json`, a identidade USA Rev 1, a identidade do adaptador
+de memória e o SHA-1 de cada um dos seis arquivos C/H/dispatch. O diretório deve
+conter exatamente esses seis arquivos e o manifesto; symlinks, objetos antigos,
+arquivos extras, hashes divergentes ou metadados de outro segmento interrompem
+a configuração antes da compilação. Fixtures sintéticas usam
+`source_kind=synthetic-fixture` e exigem a opção explícita
+`ORACIS_ALLOW_SYNTHETIC_BANKS=ON`; essa opção existe apenas para a prova de
+integração e não transforma fixtures em bancos de Pokémon Platinum.
+
 Antes da publicação, `emit_platinum_banks.py` aplica o adaptador de código-fonte `tools/ndsrecomp/patch_memory_access_direction.py` aos corpos C emitidos. O pin NDSRecomp permanece imutável e continua gerando a chamada de três argumentos `runtime_mem_cycles`; o adaptador Oracis associa essa chamada à próxima operação guest `bus_read_*` ou `bus_write_*` e a reescreve para `runtime_mem_cycles_ex(..., ORACIS_MEMORY_ACCESS_READ/WRITE)`. A identidade do adaptador (`oracis-memory-direction-v1`) e as quantidades de chamadas por direção ficam no manifesto local `oracis_banks.json`; os hashes publicados são calculados após a adaptação. O adaptador trata comentários/literais, agrupa chamadas de mesma instrução quando o codegen emite vários timings antes dos acessos (como LDRD/STRD) e falha fechado quando não encontra operação correspondente. `tests/tools/test_extractor_recompiler.py` executa o NDSRecomp fixado sobre instruções sintéticas ARM/Thumb LDR, STR, LDM e STM, aplica o adaptador e compila os C resultantes contra a ABI C99 Oracis. Nenhum código do compilador upstream é alterado ou copiado.
 
 A ponte oferece `oracis_host_runtime_load_local_platinum_segments(directory)`. Quando `directory` é nulo, a função usa `.oracis/local/pokemon-platinum-usa-rev1`; lê `arm9.bin` e `arm7.bin`; exige os tamanhos, endereços de carga, entry points e SHA-1 esperados para USA Rev 1; rejeita arquivo ausente, truncado, maior ou com hash divergente; e só chama o carregamento de segmentos em memória depois da validação integral dos dois arquivos. A falha de validação ocorre antes de qualquer escrita na máquina.

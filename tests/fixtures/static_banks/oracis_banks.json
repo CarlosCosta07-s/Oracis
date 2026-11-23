@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "source_kind": "synthetic-fixture",
+  "rom_sha1": null,
+  "banks": {
+    "arm9": {
+      "bank": "pokemon_platinum_usa_rev1_arm9",
+      "load_address": 33554432,
+      "entry_pc": 33558528,
+      "entry_mode": "arm",
+      "size": 8,
+      "binary_sha1": null,
+      "memory_direction_adapter": "synthetic-fixture",
+      "memory_direction_calls": {
+        "reads": 0,
+        "writes": 0
+      },
+      "files": {
+        "pokemon_platinum_usa_rev1_arm9.c": "09975472eb6951c195137bbc219f54a05205dc35",
+        "pokemon_platinum_usa_rev1_arm9.h": "cbd8c095637b21e58815137a80ed78f5e6639529",
+        "pokemon_platinum_usa_rev1_arm9_dispatch.c": "d6f5f7dea59d08de3506e073f2859be29753230e"
+      }
+    },
+    "arm7": {
+      "bank": "pokemon_platinum_usa_rev1_arm7",
+      "load_address": 37224448,
+      "entry_pc": 37228544,
+      "entry_mode": "thumb",
+      "size": 2,
+      "binary_sha1": null,
+      "memory_direction_adapter": "synthetic-fixture",
+      "memory_direction_calls": {
+        "reads": 0,
+        "writes": 0
+      },
+      "files": {
+        "pokemon_platinum_usa_rev1_arm7.c": "f84fe0c4af7fedb2242a21389f89f0edf59bb90d",
+        "pokemon_platinum_usa_rev1_arm7.h": "7dd62daa9c44291f2299604e29ddce9c314ab5a0",
+        "pokemon_platinum_usa_rev1_arm7_dispatch.c": "012e618bd36593c4af0f286bbb9cac683e7a36e3"
+      }
+    }
+  },
+  "notice": "Synthetic CI fixture. Contains no Pokémon Platinum code or data."
+}

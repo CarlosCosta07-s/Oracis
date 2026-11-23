@@ -40,7 +40,8 @@ jobs:
             tools/ndsrecomp/extract_nds_programs.py \
             tools/ndsrecomp/emit_platinum_banks.py \
             tools/ndsrecomp/audit_bank_symbols.py \
-            tools/ndsrecomp/patch_memory_access_direction.py
+            tools/ndsrecomp/patch_memory_access_direction.py \
+            tools/ndsrecomp/validate_platinum_bank_set.py
           python3 -m unittest discover \
             --start-directory tests/tools \
             --pattern 'test_*.py' \
@@ -62,7 +63,8 @@ jobs:
       - name: Verify optional local static-bank build
         run: |
           cmake -S . -B build \
-            -DORACIS_LOCAL_BANK_DIR="$GITHUB_WORKSPACE/tests/fixtures/static_banks"
+            -DORACIS_LOCAL_BANK_DIR="$GITHUB_WORKSPACE/tests/fixtures/static_banks" \
+            -DORACIS_ALLOW_SYNTHETIC_BANKS=ON
           cmake --build build --target oracis_compiled_bank_link_smoke --parallel
           ctest --test-dir build -R oracis_compiled_bank_link_smoke --output-on-failure
           cmake --build build --target oracis_audit_platinum_bank_symbols --parallel

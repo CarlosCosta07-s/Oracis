@@ -143,6 +143,7 @@ class EmitPlatinumBanksTests(unittest.TestCase):
                 str(self.extracted / f"{cpu}.bin"),
             )
 
+        self.assertEqual(result["source_kind"], "retail-rom")
         self.assertEqual(set(result["banks"]), {"arm9", "arm7"})
         self.assertEqual(
             result["banks"]["arm9"]["entry_mode"], "arm"

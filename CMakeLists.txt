@@ -16,6 +16,8 @@ option(ORACIS_BUILD_HOST "Build the SDL3 desktop/Android host" ON)
 option(ORACIS_FETCH_SDL3 "Download and build the pinned SDL3 release" ON)
 set(ORACIS_LOCAL_BANK_DIR "" CACHE PATH
     "Optional local directory containing emitted Platinum ARM9/ARM7 C banks")
+option(ORACIS_ALLOW_SYNTHETIC_BANKS
+    "Allow explicitly marked synthetic bank fixtures (tests only)" OFF)
 set(ORACIS_BANK_SYMBOL_ALLOWLIST "" CACHE FILEPATH
     "Optional local allowlist for verified platform/C-runtime bank symbols")
 
@@ -137,6 +139,29 @@ if(ORACIS_LOCAL_BANK_DIR)
 
     get_filename_component(ORACIS_LOCAL_BANK_DIR
         "${ORACIS_LOCAL_BANK_DIR}" ABSOLUTE)
+
+    set(_oracis_bank_validation_args)
+    if(ORACIS_ALLOW_SYNTHETIC_BANKS)
+        list(APPEND _oracis_bank_validation_args --allow-synthetic-fixture)
+    endif()
+    execute_process(
+        COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/ndsrecomp/validate_platinum_bank_set.py"
+            --bank-dir "${ORACIS_LOCAL_BANK_DIR}"
+            ${_oracis_bank_validation_args}
+        RESULT_VARIABLE _oracis_bank_validation_result
+        OUTPUT_VARIABLE _oracis_bank_validation_stdout
+        ERROR_VARIABLE _oracis_bank_validation_stderr
+    )
+    if(NOT _oracis_bank_validation_result EQUAL 0)
+        message(FATAL_ERROR
+            "Local NDSRecomp bank-set validation failed. Re-run "
+            "tools/ndsrecomp/emit_platinum_banks.py with the correct user-owned "
+            "USA Rev 1 image.\n"
+            "${_oracis_bank_validation_stdout}"
+            "${_oracis_bank_validation_stderr}")
+    endif()
+    message(STATUS "${_oracis_bank_validation_stdout}")
 
     set(ORACIS_ARM9_BANK_NAME "pokemon_platinum_usa_rev1_arm9")
     set(ORACIS_ARM7_BANK_NAME "pokemon_platinum_usa_rev1_arm7")
