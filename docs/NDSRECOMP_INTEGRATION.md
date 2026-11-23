@@ -573,3 +573,53 @@ A regressão adicional cobre uma sequência ARM+Thumb ordenada, ponteiro fora
 da imagem rejeitado sem qualquer escrita e o zero como terminador da tabela.
 Isso valida a interpretação do metadado e a sua preservação; não demonstra
 execução dos inicializadores nem boot do jogo.
+
+## 20. Execução supervisionada de callbacks static-init
+
+Depois que o overlay foi carregado e seus bancos de dispatch registrados, a
+máquina pode executar a sequência decodificada por
+`NdsMachine::run_overlay_static_initializers(cpu, overlay_id, cycle_budget)`.
+O host bridge C expõe a mesma operação por
+`oracis_host_runtime_run_overlay_static_initializers`. A execução não é
+automática durante `load_overlay`: o gerente de boot/overlays deve solicitá-la
+no ponto apropriado, depois de estabelecer a pilha guest e garantir que os
+bancos necessários estejam presentes.
+
+Antes de executar qualquer callback, o método resolve todos os endereços na
+tabela de dispatch para o CPU e o estado ARM/Thumb indicados. Exige SP alinhado
+a 8 bytes e uma janela gravável de 0x100 bytes abaixo dele; não inventa uma
+pilha. Para cada função, abre uma slice com orçamento de ciclos, ativa unwind
+no limite de instrução, instala temporariamente um tratador de dispatch miss
+e injeta um endereço LR sentinela acompanhado de um frame na pilha de retornos
+guest. O retorno só é aceito quando a sequência gerada executa o equivalente a
+`BX LR` e consome esse frame. O bit ARM/Thumb é conferido no caminho de volta.
+
+Depois de cada callback, os registradores do CPU e a pilha de retornos guest
+são restaurados ao snapshot do chamador. Escritas em RAM e efeitos em MMIO
+permanecem, como efeitos de construtor. A lista mantém progresso e não pode ser
+executada duas vezes. Se um callback exceder o orçamento, encontrar dispatch
+ausente ou falhar em retornar ao sentinela, o overlay fica marcado como
+inicialização falha e não pode ser repetido automaticamente. Efeitos em RAM/
+MMIO de um construtor que falhou não são revertidos; o chamador deve tratar
+esse estado como falha de boot/overlay.
+
+O tratador de dispatch miss é escopado à chamada supervisionada. Sem ele,
+todos os caminhos de dispatch continuam fail-closed e abortam em misses,
+como antes. Falhas de entrada gerada inválida e operações sem implementação
+também permanecem fail-closed. O orçamento é aplicado nos checkpoints
+`runtime_unwinding()` dos corpos gerados; ele não interrompe uma instrução
+guest no meio.
+
+**Pré-condição ainda não satisfeita pelo boot atual:** `load_program_segments`
+não reproduz a configuração de registradores/pilha feita pelo BIOS. Portanto,
+sem um SP guest previamente estabelecido pelo próximo estágio de boot, a API
+retorna `ORACIS_HOST_RUNTIME_OVERLAY_INITIALIZER_INVALID_STACK`. Ela não
+deve ser usada como substituta da inicialização BIOS/NitroSDK.
+
+O teste sintético `oracis_nds_overlay_initializer_test` cobre sequência
+ARM+Thumb na ordem da tabela, escrita em GuestMemory, retorno sentinela,
+restauração dos registradores/pilha, bloqueio de segunda execução, limite de
+ciclos e dispatch miss aninhado. Isso valida o protocolo de chamada nos bancos
+sintéticos do teste; não prova que os 62 bancos derivados de Platinum façam
+boot nem que os construtores reais possam ser executados sem dependências
+adicionais.
