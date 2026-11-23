@@ -507,3 +507,33 @@ candidatos para 62/122 overlays. Os 60 restantes não possuem nem nomes de
 função correspondentes nem ponteiros static-init não nulos. Esta etapa
 descobre somente callbacks de inicialização: não afirma que os 62 módulos
 estejam totalmente cobertos, nem executa os construtores automaticamente.\n
+
+## Atualização 2026-11-23 — 33 novos bancos a partir dos ponteiros static-init
+
+Foram emitidos 33 bancos estáticos adicionais usando os ponteiros ARM/Thumb
+lidos das faixas `static_init_start..static_init_end` dos overlays. O overlay
+0017 tinha ponteiro static-init, mas já estava no conjunto de bancos
+existente; ele não foi contado novamente. A cobertura local subiu de
+29 para **62/122 overlays**, totalizando **10.673 funções**. Permanecem
+**60 overlays sem banco**.
+
+Os 33 novos bancos contêm 37 funções. Os 66 corpos/dispatch C passaram em
+66 verificações sintáticas C99 e o adaptador registrou 99 leituras e 5
+escritas. Os objetos equivalentes à seleção de fontes do CMake foram
+auditados em conjunto: 133 objetos (bancos principais, shards dos seis
+overlays antigos particionados, 23 bancos antigos monolíticos e 33 bancos
+novos). Resultado: **11.756 símbolos/referências resolvidos**, zero
+unresolved, zero allowlisted e zero provedores múltiplos.
+
+Os relatórios e os objetos continuam locais, fora do Git. A auditoria
+conjunta dos logs de 62 overlays ainda registra 570 alvos indiretos
+desconhecidos e 59 funções undefined pelo finder. São lacunas de descoberta
+de alvos guest, não símbolos de linker ausentes. As raízes static-init são
+construtores/callbacks, não entradas principais autoritativas; o runtime
+ainda não executa esses inicializadores nem integra o protocolo de carga/
+substituição do NitroSDK. Assim, a cobertura de 62 bancos é uma ampliação
+de recompilação estática, não um boot funcional de Pokémon Platinum.
+
+A CI `45234103186` concluiu com sucesso os quatro jobs. Essa execução
+testou a versão do código no Git, CMake e ferramentas com fixtures
+sintéticas; não compilou nem executou os bancos locais derivados da ROM.
