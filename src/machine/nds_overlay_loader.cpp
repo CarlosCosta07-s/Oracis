@@ -3,6 +3,7 @@
 #include "oracis/host/detail/sha1.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <limits>
 #include <new>
 #include <utility>
@@ -12,7 +13,7 @@ namespace {
 
 bool valid_sha1(const char *value) noexcept
 {
-    if (value == nullptr) return false;
+    if (value == nullptr || std::strlen(value) != 40u) return false;
     for (unsigned index = 0u; index < 40u; ++index) {
         const char byte = value[index];
         if (!((byte >= '0' && byte <= '9') ||
