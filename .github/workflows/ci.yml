@@ -41,6 +41,7 @@ jobs:
             tools/ndsrecomp/emit_platinum_banks.py \
             tools/ndsrecomp/audit_bank_symbols.py \
             tools/ndsrecomp/patch_memory_access_direction.py \
+            tools/ndsrecomp/split_generated_bank.py \
             tools/ndsrecomp/validate_platinum_bank_set.py
           python3 -m unittest discover \
             --start-directory tests/tools \

@@ -20,6 +20,14 @@
         "pokemon_platinum_usa_rev1_arm9.c": "09975472eb6951c195137bbc219f54a05205dc35",
         "pokemon_platinum_usa_rev1_arm9.h": "cbd8c095637b21e58815137a80ed78f5e6639529",
         "pokemon_platinum_usa_rev1_arm9_dispatch.c": "d6f5f7dea59d08de3506e073f2859be29753230e"
+      },
+      "shards": {
+        "directory": "pokemon_platinum_usa_rev1_arm9_shards",
+        "functions_per_shard": 512,
+        "function_count": 2,
+        "files": {
+          "bank_part_0000.c": "09975472eb6951c195137bbc219f54a05205dc35"
+        }
       }
     },
     "arm7": {
@@ -38,8 +46,16 @@
         "pokemon_platinum_usa_rev1_arm7.c": "f84fe0c4af7fedb2242a21389f89f0edf59bb90d",
         "pokemon_platinum_usa_rev1_arm7.h": "7dd62daa9c44291f2299604e29ddce9c314ab5a0",
         "pokemon_platinum_usa_rev1_arm7_dispatch.c": "012e618bd36593c4af0f286bbb9cac683e7a36e3"
+      },
+      "shards": {
+        "directory": "pokemon_platinum_usa_rev1_arm7_shards",
+        "functions_per_shard": 512,
+        "function_count": 1,
+        "files": {
+          "bank_part_0000.c": "f84fe0c4af7fedb2242a21389f89f0edf59bb90d"
+        }
       }
     }
   },
-  "notice": "Synthetic CI fixture. Contains no Pokémon Platinum code or data."
+  "notice": "Synthetic CI fixture only. Shard fixtures contain no Pokémon Platinum code or data."
 }
