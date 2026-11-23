@@ -135,6 +135,10 @@ class EmitPlatinumOverlayBanksTests(unittest.TestCase):
         self.assertEqual(report["results"][0]["indirect_unknown"], 1)
         self.assertEqual(report["results"][0]["stored_pointer_seeds"], 2)
         self.assertEqual(report["results"][0]["unreachable_indirect_region_sites"], 1)
+        self.assertEqual(report["audit_metrics_overlay_count"], 1)
+        self.assertEqual(report["audit_metrics_missing_overlay_ids"], [])
+        self.assertEqual(report["audit_totals"]["indirect_unknown"], 1)
+        self.assertEqual(report["audit_totals"]["finder_undefined"], 0)
         self.assertEqual(
             report["results"][0]["unreachable_indirect_regions"][0]["start"],
             "0x02010000",
@@ -198,6 +202,8 @@ class EmitPlatinumOverlayBanksTests(unittest.TestCase):
         self.assertEqual(report["compiled_overlay_count"], 2)
         self.assertEqual(report["emitted_this_run_count"], 1)
         self.assertEqual(report["reused_overlay_count"], 1)
+        self.assertEqual(report["audit_metrics_overlay_count"], 2)
+        self.assertEqual(report["audit_metrics_missing_overlay_ids"], [])
         reused = next(row for row in report["results"] if row["overlay_id"] == 6)
         self.assertTrue(reused["reused"])
         self.assertTrue((self.output_dir / "overlay_0006" / f"{bank}.c").is_file())
