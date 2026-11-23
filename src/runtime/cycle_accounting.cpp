@@ -376,13 +376,17 @@ static uint32_t runtime_mem_cycles_impl(
     }
     if (range_contains(addr, width, UINT32_C(0x06000000),
                        UINT32_C(0x00040000))) {
-        if (width >= 4u && sequential == 0u) {
-            timing_unavailable(
-                "ARM7 nonsequential 32-bit VRAM timing is not established",
-                addr, width, sequential, 0u);
-        }
+        /*
+         * GBATEK's NDS7/DATA table lists VRAM N32 as "1?" (uncertain),
+         * with S32=2 and N16/S16=1 on the 16-bit ARM7 VRAM-C/D bus.
+         * Use the documented provisional N32 value of one cycle so the
+         * retail startup's initial 32-bit VRAM stores can proceed. Keep this
+         * assumption explicit; replace it only with stronger hardware data.
+         */
+        constexpr uint32_t Arm7VramN32ProvisionalCycles = 1u;
         return select_bus_timing(
-            width, sequential, 1u, 2u, 1u, 1u);
+            width, sequential,
+            Arm7VramN32ProvisionalCycles, 2u, 1u, 1u);
     }
     if ((addr >= UINT32_C(0x04800000) &&
          addr < UINT32_C(0x04810000)) ||
