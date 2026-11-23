@@ -94,7 +94,10 @@ class EmitPlatinumOverlayBanksTests(unittest.TestCase):
             return "nds-codegen-v3\n"
         if "--audit" in command:
             return (
-                "[finder] functions=1 (arm=0 thumb=1) indirect=0 undefined=0\n"
+                "[finder] functions=1 (arm=0 thumb=1) indirect=1 undefined=0\n"
+                "[finder] indirect outcomes (non-return): resolved=1 known-unreachable=0 unknown=1 stored_ptr_seeds=2\n"
+                "[finder] unreachable indirect targets by 64K region (undeclared alias candidates):\n"
+                "    0x02010000..0x02020000  1 site(s)\n"
                 "[audit] decoded 4 instructions across 1 functions\n"
                 "[audit] codegen NOT-IMPLEMENTED ops (v4t gaps to close):\n"
                 "    (none)\n\n"
@@ -129,6 +132,13 @@ class EmitPlatinumOverlayBanksTests(unittest.TestCase):
         self.assertEqual(report["compiled_overlay_count"], 1)
         self.assertEqual(report["uncompiled_overlay_count"], 1)
         self.assertEqual(report["results"][0]["functions_total"], 1)
+        self.assertEqual(report["results"][0]["indirect_unknown"], 1)
+        self.assertEqual(report["results"][0]["stored_pointer_seeds"], 2)
+        self.assertEqual(report["results"][0]["unreachable_indirect_region_sites"], 1)
+        self.assertEqual(
+            report["results"][0]["unreachable_indirect_regions"][0]["start"],
+            "0x02010000",
+        )
         self.assertEqual(report["results"][0]["image_sha1"], self.image_sha1)
         self.assertEqual(report["direction_adapter"]["status"], "passed")
         bank_dir = self.output_dir / "overlay_0005"
@@ -206,7 +216,8 @@ class EmitPlatinumOverlayBanksTests(unittest.TestCase):
                 return "nds-codegen-v3\n"
             if "--audit" in command:
                 return (
-                    "[finder] functions=1 (arm=0 thumb=1) indirect=0 undefined=0\n"
+                    "[finder] functions=1 (arm=0 thumb=1) indirect=1 undefined=0\n"
+                    "[finder] indirect outcomes (non-return): resolved=0 known-unreachable=0 unknown=1 stored_ptr_seeds=0\n"
                     "[audit] decoded 4 instructions across 1 functions\n"
                     "[audit] codegen NOT-IMPLEMENTED ops (v4t gaps to close):\n"
                     "    undefined_opcode\n\n"
