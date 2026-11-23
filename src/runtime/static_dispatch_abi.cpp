@@ -80,15 +80,27 @@ struct OracisLinkSlotCache {
 };
 
 /*
+ * Generated slots retain guard values across epoch changes. Use one
+ * process-lifetime marker for mutable rows instead of exposing the address of
+ * a cache-owned object that may be destroyed when records are reclaimed.
+ * The actual per-callsite guard snapshot stays private in the map entry.
+ */
+const unsigned char g_mutable_link_guard_token = 0u;
+
+/*
  * Slot addresses are opaque callsite keys; the cache does not own slot storage.
- * unordered_map preserves references/pointers to elements across rehash, so
- * &cache.guard remains a stable token until that cache record is erased.
- * Registry/bank and epoch lifecycle hooks reclaim records. A stale slot->guard
- * value is only compared as an opaque token after a matching map entry exists;
- * it is never dereferenced through the generated slot.
+ * unordered_map preserves references/pointers to elements across rehash, while
+ * the externally visible guard marker has process lifetime and never dangles.
+ * Registry/bank and epoch lifecycle hooks reclaim private records; a marker in
+ * a stale slot is accepted only when a matching, current map entry exists.
  */
 std::unordered_map<const NdsLinkSlot *, OracisLinkSlotCache> g_link_slot_cache;
 uint32_t g_link_slot_cache_epoch = 0u;
+
+const void *mutable_link_guard_token() noexcept
+{
+    return static_cast<const void *>(&g_mutable_link_guard_token);
+}
 
 /*
  * Cache records own guard tokens referenced by generated NdsLinkSlots. Drop
@@ -133,7 +145,7 @@ bool link_slot_cache_hit(
     }
 
     if (cache.validation != nullptr) {
-        if (slot->guard != static_cast<const void *>(&cache.guard) ||
+        if (slot->guard != mutable_link_guard_token() ||
             cache.guard.key != key ||
             cache.guard.target_pc != cache.target_pc ||
             cache.guard.cpu != cpu ||
@@ -220,7 +232,7 @@ void dispatch_link_slot(NdsLinkSlot *slot, const char *kind)
             slot->fn = entry->fn;
             slot->key = key;
             slot->guard = entry->validation != nullptr
-                ? static_cast<const void *>(&cache.guard)
+                ? mutable_link_guard_token()
                 : nullptr;
         } catch (...) {
             /* Allocation failure is a safe cache miss, never a dispatch miss. */
