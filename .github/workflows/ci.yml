@@ -38,6 +38,7 @@ jobs:
           python3 -m py_compile \
             tools/ndsrecomp/build_recompiler.py \
             tools/ndsrecomp/extract_nds_programs.py \
+            tools/ndsrecomp/extract_nds_overlays.py \
             tools/ndsrecomp/emit_platinum_banks.py \
             tools/ndsrecomp/audit_bank_symbols.py \
             tools/ndsrecomp/patch_memory_access_direction.py \
