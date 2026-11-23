@@ -38,6 +38,16 @@ enum class NdsOverlayStatus : uint8_t {
  * image_sha1 is the SHA-1 recorded for that decompressed image by the
  * local Oracis extractor. The input buffer is copied before returning.
  */
+/*
+ * One validated function pointer read from an overlay's static-init table.
+ * address has bit 0 cleared; thumb preserves the execution state encoded by
+ * that bit. The order is the order stored in the guest table.
+ */
+struct NdsOverlayFunctionPointer {
+    uint32_t address = 0u;
+    bool thumb = false;
+};
+
 struct NdsOverlayImage {
     NdsCpu cpu = NDS_ARM9;
     uint32_t overlay_id = 0u;
@@ -76,6 +86,15 @@ public:
         uint32_t current_pc) noexcept;
 
     bool is_loaded(NdsCpu cpu, uint32_t overlay_id) const noexcept;
+
+    /*
+     * Return the validated static-initializer sequence for a loaded overlay,
+     * or nullptr when the overlay is not loaded. This describes callbacks;
+     * the loader does not execute them.
+     */
+    const std::vector<NdsOverlayFunctionPointer> *static_initializers(
+        NdsCpu cpu, uint32_t overlay_id) const noexcept;
+
     bool contains_address(
         NdsCpu cpu, uint32_t overlay_id, uint32_t address) const noexcept;
     std::size_t loaded_count() const noexcept { return loaded_.size(); }
@@ -90,6 +109,7 @@ private:
         uint32_t static_init_start = 0u;
         uint32_t static_init_end = 0u;
         std::string image_sha1;
+        std::vector<NdsOverlayFunctionPointer> static_initializers;
     };
 
     memory::GuestMemory &memory_;
