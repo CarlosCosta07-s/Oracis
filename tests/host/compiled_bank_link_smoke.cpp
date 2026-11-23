@@ -11,8 +11,10 @@ constexpr uint32_t kArm9Entry = UINT32_C(0x02001000);
 constexpr uint32_t kArm7Entry = UINT32_C(0x02381000);
 constexpr uint32_t kArm9MarkerAddress = UINT32_C(0x02002000);
 constexpr uint32_t kArm7MarkerAddress = UINT32_C(0x02002004);
+constexpr uint32_t kArm9LinkedMarkerAddress = UINT32_C(0x02002008);
 constexpr uint32_t kArm9Marker = UINT32_C(0xA9A90001);
 constexpr uint32_t kArm7Marker = UINT32_C(0xA7A70001);
+constexpr uint32_t kArm9LinkedMarker = UINT32_C(0xA9A90002);
 
 void registration_collision_entry(void)
 {
@@ -74,6 +76,7 @@ int main()
 
     /* Load tiny synthetic images at the exact PCs exported by the linked banks. */
     const uint8_t arm9_bytes[] = {
+        UINT8_C(0x00), UINT8_C(0x00), UINT8_C(0xA0), UINT8_C(0xE1),
         UINT8_C(0x00), UINT8_C(0x00), UINT8_C(0xA0), UINT8_C(0xE1)
     };
     const uint8_t arm7_bytes[] = {
@@ -126,9 +129,10 @@ int main()
     }
 
     if (bus_read_u32(kArm9MarkerAddress) != kArm9Marker ||
-        bus_read_u32(kArm7MarkerAddress) != kArm7Marker) {
+        bus_read_u32(kArm7MarkerAddress) != kArm7Marker ||
+        bus_read_u32(kArm9LinkedMarkerAddress) != kArm9LinkedMarker) {
         (void)oracis_host_runtime_shutdown();
-        return fail("static bank functions were not executed by the dual-core dispatcher");
+        return fail("compiled bank entrypoints or ARM9 link-slot target did not execute");
     }
 
     if (oracis_host_runtime_shutdown() != ORACIS_HOST_RUNTIME_OK ||
