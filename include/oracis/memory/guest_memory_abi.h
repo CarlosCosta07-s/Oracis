@@ -97,6 +97,17 @@ int oracis_bus_unbind_keypad_control(void *control);
  */
 void oracis_host_set_keypad_state(uint16_t pressed_keys);
 
+/* Bind a live ARM7-only NdsRtc (register 0x04000138); it needs no other device. */
+int oracis_bus_bind_rtc(void *rtc);
+int oracis_bus_unbind_rtc(void *rtc);
+
+/*
+ * Bind a live ARM7-only NdsSpiControl (SPICNT/SPIDATA) after its matching
+ * interrupt controller. Unbind is refused while a bound system clock drives it.
+ */
+int oracis_bus_bind_spi_control(void *control);
+int oracis_bus_unbind_spi_control(void *control);
+
 /*
  * Validation callback suitable for oracis_static_dispatch_set_validation_callback.
  * user is the live GuestMemory object that backs the generated CPU bus.

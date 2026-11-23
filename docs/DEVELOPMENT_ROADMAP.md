@@ -581,3 +581,40 @@ A execução real dos 62 bancos continua condicionada ao estágio de boot que
 estabeleça a pilha guest, às dependências de overlays e à validação dos
 serviços NitroSDK. O executor supervisionado é infraestrutura de inicialização,
 não é evidência de boot jogável.
+
+auditoria do linker passou.\n
+
+## Atualização 2026-11-23 — RTC e SPI do ARM7
+
+Foram acrescentados dois dispositivos seriais exclusivos do ARM7, ligados ao
+barramento e à `NdsMachine`: `NdsRtc` (`0x04000138`) e `NdsSpiControl`
+(`0x040001C0/C2`). Ambos recusam acesso do ARM9 (`CpuAccessDenied`) e usam o
+novo `Status::Unsupported` para comandos que o hardware aceita mas o Oracis
+não modela; nada é inventado em silêncio.
+
+- **RTC:** protocolo bit-bang (CS/CLK/DATA, LSB primeiro, comando `0110b`),
+  Status 1/2, Date/Time, Time, Alarm 1/2, Clock Adjust e registrador livre, em
+  BCD. O relógio não consulta o horário do host: `set_date_time()` e
+  `advance_seconds()` mantêm testes e replays determinísticos (anos bissextos,
+  virada 99→00). Alarme/IRQ de frequência e a linha INT não são modelados. O
+  tratamento do bit PM em modo 24 horas segue a descrição pública e ainda não
+  foi conferido em hardware.
+- **SPI:** firmware flash (somente leitura: READ 03h, RDSR 05h, WREN 06h,
+  WRDI 04h), power management (registradores 0–4, bit de desligamento
+  travado, bateria) e touchscreen (conversões de 12/8 bits, canais AUX/temp).
+  A duração da transferência (8/16 bits × divisor de baud) é consumida pelo
+  relógio do sistema e a IRQ de conclusão (bit 23) chega ao ARM7. Escrita em
+  SPIDATA com o barramento ocupado, JEDEC ID, programação/erase e conversões
+  sobrepostas falham fechado.
+- **Firmware:** nenhum conteúdo é embutido. O host precisa fornecer a imagem do
+  próprio usuário via `set_firmware_image()`; sem ela todo acesso ao flash é
+  recusado. Os valores de pen-up e dos canais Z/temperatura são suposições
+  pendentes de capturas de hardware.
+
+Testes novos: `oracis_nds_rtc_test`, `oracis_nds_spi_control_test` e
+`oracis_nds_machine_serial_test` (RTC e firmware pelo bus C ABI, temporização
+via relógio do sistema, IRQ somente no ARM7 e ciclo bind/unbind). O CTest local
+executou 60/60. Isso valida dispositivos sintéticos, não o boot de Pokémon
+Platinum. Ainda faltam: carregamento do firmware pelo host SDL/Android,
+entrada de toque (mapeamento mouse/toque → `set_touch`) e a seleção de
+arquivos no Android.

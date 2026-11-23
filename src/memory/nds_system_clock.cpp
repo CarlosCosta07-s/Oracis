@@ -90,6 +90,9 @@ NdsClockStatus NdsSystemClock::report_cpu_cycles(
             if (geometry_ != nullptr) {
                 geometry_->advance_bus_cycles(step);
             }
+            if (spi_ != nullptr) {
+                spi_->advance_bus_cycles(step);
+            }
             display_.advance_bus_cycles(step);
             cursor += step;
 
@@ -146,6 +149,7 @@ void NdsSystemClock::reset() noexcept
     global_bus_cycles_ = 0u;
     display_.reset_timing();
     if(game_card_!=nullptr)game_card_->reset_transfer();
+    if (spi_ != nullptr) spi_->reset_transfer();
 }
 
 } // namespace oracis::memory

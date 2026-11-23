@@ -31,9 +31,10 @@ NdsMachine::NdsMachine(memory::SharedWramMode initial_wram_mode) noexcept
       three_d_rasterizer_(geometry_engine_, three_d_texture_sampler_),
       timer_control_(memory_, interrupt_control_),
       keypad_control_(memory_, interrupt_control_),
+      spi_control_(interrupt_control_),
       system_clock_(
           timer_control_, display_control_, &game_card_control_,
-          &geometry_engine_)
+          &geometry_engine_, &spi_control_)
 {
     dma_control_.attach_display_control(display_control_);
     dma_control_.attach_game_card_control(game_card_control_);
@@ -1757,6 +1758,16 @@ NdsMachineStatus NdsMachine::initialize() noexcept
     }
     keypad_bound_ = true;
 
+    if (!oracis_bus_bind_rtc(&rtc_)) {
+        return rollback(NdsMachineStatus::BusBindingFailed);
+    }
+    rtc_bound_ = true;
+
+    if (!oracis_bus_bind_spi_control(&spi_control_)) {
+        return rollback(NdsMachineStatus::BusBindingFailed);
+    }
+    spi_bound_ = true;
+
     if (!oracis_bus_bind_system_clock(&system_clock_)) {
         return rollback(NdsMachineStatus::BusBindingFailed);
     }
@@ -2271,7 +2282,8 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
         post_flag_bound_ || display_control_bound_ ||
         geometry_engine_bound_ || interrupt_bound_ ||
         game_card_bound_ || ipc_bound_ || dma_bound_ || timer_bound_ ||
-        keypad_bound_ || clock_bound_ || validation_bound_;
+        keypad_bound_ || rtc_bound_ || spi_bound_ || clock_bound_ ||
+        validation_bound_;
     if (!owns_runtime && !initialized_) {
         return NdsMachineStatus::Ok;
     }
@@ -2308,6 +2320,18 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
             return NdsMachineStatus::ShutdownFailed;
         }
         clock_bound_ = false;
+    }
+    if (spi_bound_) {
+        if (!oracis_bus_unbind_spi_control(&spi_control_)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        spi_bound_ = false;
+    }
+    if (rtc_bound_) {
+        if (!oracis_bus_unbind_rtc(&rtc_)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        rtc_bound_ = false;
     }
     if (keypad_bound_) {
         if (!oracis_bus_unbind_keypad_control(&keypad_control_)) {

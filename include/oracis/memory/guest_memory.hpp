@@ -30,7 +30,9 @@ enum class Status : uint8_t {
     PermissionDenied,
     CpuAccessDenied,
     IdentityMismatch,
-    MissingWriteProvenance
+    MissingWriteProvenance,
+    /* Device input or command that hardware may accept but Oracis does not model. */
+    Unsupported
 };
 
 enum Permission : uint8_t {

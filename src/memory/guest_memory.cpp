@@ -960,6 +960,7 @@ const char *GuestMemory::status_name(Status status) noexcept
     case Status::CpuAccessDenied: return "CPU has no access to this memory region";
     case Status::IdentityMismatch: return "static code identity mismatch";
     case Status::MissingWriteProvenance: return "RAM bytes have no write provenance";
+    case Status::Unsupported: return "device operation not modeled";
     }
     return "unknown status";
 }
