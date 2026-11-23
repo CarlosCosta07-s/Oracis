@@ -113,7 +113,7 @@ def source_anchors(
         if source.is_symlink():
             raise ValueError("source directory must not be a symlink")
         source_digest = "directory-input-no-archive-hash"
-        for path in source.rglob("*.c"):
+        for path in source.rglob("*"):
             if path.is_symlink() or not path.is_file():
                 continue
             relative = path.relative_to(source).as_posix()
