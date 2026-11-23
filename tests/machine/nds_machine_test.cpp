@@ -1354,8 +1354,26 @@ int main()
     if (machine.load_program_segments(arm9_image, arm7_image) !=
             NdsMachineStatus::Ok ||
         !machine.program_loaded() ||
+        machine.cpu_state(NDS_ARM9)->R[12] != arm9_image.entry_pc ||
+        machine.cpu_state(NDS_ARM9)->R[13] != UINT32_C(0x03002F7C) ||
+        machine.cpu_state(NDS_ARM9)->R[14] != arm9_image.entry_pc ||
         machine.cpu_state(NDS_ARM9)->R[15] != arm9_image.entry_pc ||
+        machine.cpu_state(NDS_ARM9)->banked_sp[ARM_BANK_USER] !=
+            UINT32_C(0x03002F7C) ||
+        machine.cpu_state(NDS_ARM9)->banked_sp[ARM_BANK_IRQ] !=
+            UINT32_C(0x03003F80) ||
+        machine.cpu_state(NDS_ARM9)->banked_sp[ARM_BANK_SUPERVISOR] !=
+            UINT32_C(0x03003FC0) ||
+        machine.cpu_state(NDS_ARM7)->R[12] != arm7_image.entry_pc ||
+        machine.cpu_state(NDS_ARM7)->R[13] != UINT32_C(0x0380FD80) ||
+        machine.cpu_state(NDS_ARM7)->R[14] != arm7_image.entry_pc ||
         machine.cpu_state(NDS_ARM7)->R[15] != arm7_image.entry_pc ||
+        machine.cpu_state(NDS_ARM7)->banked_sp[ARM_BANK_USER] !=
+            UINT32_C(0x0380FD80) ||
+        machine.cpu_state(NDS_ARM7)->banked_sp[ARM_BANK_IRQ] !=
+            UINT32_C(0x0380FF80) ||
+        machine.cpu_state(NDS_ARM7)->banked_sp[ARM_BANK_SUPERVISOR] !=
+            UINT32_C(0x0380FFC0) ||
         (machine.cpu_state(NDS_ARM9)->cpsr & CPSR_T_BIT) != 0u ||
         (machine.cpu_state(NDS_ARM7)->cpsr & CPSR_T_BIT) == 0u ||
         machine.guest_memory().validate_identity(
@@ -1364,7 +1382,18 @@ int main()
         machine.guest_memory().validate_identity(
             NDS_ARM7, arm7_image.load_address, arm7_image.size,
             arm7_program) != oracis::memory::Status::Ok) {
-        return fail("valid ARM9/ARM7 segments were not loaded with correct entry modes");
+        return fail("segments or documented ARM9/ARM7 cartridge-entry state were incorrect");
+    }
+
+    for (uint32_t reg = 0u; reg < 12u; ++reg) {
+        if (machine.cpu_state(NDS_ARM9)->R[reg] != 0u ||
+            machine.cpu_state(NDS_ARM7)->R[reg] != 0u) {
+            return fail("cartridge-entry R0-R11 registers were not zeroed");
+        }
+    }
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9) ||
+        bus_read_u8(UINT32_C(0x04000300)) != 1u) {
+        return fail("cartridge-entry POSTFLG was not set to post-boot");
     }
     if (machine.load_program_segments(arm9_image, arm7_image) !=
         NdsMachineStatus::ProgramAlreadyLoaded) {
