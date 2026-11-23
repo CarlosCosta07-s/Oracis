@@ -1351,7 +1351,35 @@ int main()
         static_cast<uint32_t>(sizeof(arm7_program)),
         UINT32_C(0x02381000), true, arm7_program
     };
-    if (machine.load_program_segments(arm9_image, arm7_image) !=
+    std::array<uint8_t, 0x170> cartridge_header{};
+    cartridge_header[0x38] = 0x00u;
+    cartridge_header[0x39] = 0x00u;
+    cartridge_header[0x3A] = 0x38u;
+    cartridge_header[0x3B] = 0x02u;
+    cartridge_header[0x6C] = 0x34u;
+    cartridge_header[0x6D] = 0x12u;
+    cartridge_header[0x78] = 0x03u;
+    cartridge_header[0x79] = 0x00u;
+    uint16_t cartridge_header_crc = UINT16_C(0xFFFF);
+    for (uint32_t index = 0u; index < UINT32_C(0x15E); ++index) {
+        cartridge_header_crc = static_cast<uint16_t>(
+            cartridge_header_crc ^ cartridge_header[index]);
+        for (uint32_t bit = 0u; bit < 8u; ++bit) {
+            cartridge_header_crc = static_cast<uint16_t>(
+                (cartridge_header_crc >> 1u) ^
+                ((cartridge_header_crc & 1u) != 0u
+                    ? UINT16_C(0xA001) : UINT16_C(0)));
+        }
+    }
+    cartridge_header[0x15E] =
+        static_cast<uint8_t>(cartridge_header_crc);
+    cartridge_header[0x15F] =
+        static_cast<uint8_t>(cartridge_header_crc >> 8u);
+
+    if (machine.load_program_segments(
+            arm9_image, arm7_image,
+            cartridge_header.data(),
+            static_cast<uint32_t>(cartridge_header.size())) !=
             NdsMachineStatus::Ok ||
         !machine.program_loaded() ||
         machine.cpu_state(NDS_ARM9)->R[12] != arm9_image.entry_pc ||
@@ -1381,7 +1409,11 @@ int main()
             arm9_program) != oracis::memory::Status::Ok ||
         machine.guest_memory().validate_identity(
             NDS_ARM7, arm7_image.load_address, arm7_image.size,
-            arm7_program) != oracis::memory::Status::Ok) {
+            arm7_program) != oracis::memory::Status::Ok ||
+        machine.guest_memory().validate_identity(
+            NDS_ARM9, oracis::memory::NdsRetailRamMap::CartridgeHeaderRamAddress,
+            static_cast<uint32_t>(cartridge_header.size()),
+            cartridge_header.data()) != oracis::memory::Status::Ok) {
         return fail("segments or documented ARM9/ARM7 cartridge-entry state were incorrect");
     }
 
@@ -1394,6 +1426,66 @@ int main()
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9) ||
         bus_read_u8(UINT32_C(0x04000300)) != 1u) {
         return fail("cartridge-entry POSTFLG was not set to post-boot");
+    }
+
+    const auto boot_header_crc =
+        machine.guest_memory().read(NDS_ARM9, UINT32_C(0x027FF808), 2u);
+    const auto boot_secure_crc =
+        machine.guest_memory().read(NDS_ARM9, UINT32_C(0x027FF80A), 2u);
+    const auto boot_crc_status =
+        machine.guest_memory().read(NDS_ARM9, UINT32_C(0x027FF80C), 2u);
+    const auto boot_handler_task =
+        machine.guest_memory().read(NDS_ARM9, UINT32_C(0x027FF810), 2u);
+    const auto boot_secure_disable =
+        machine.guest_memory().read(NDS_ARM9, UINT32_C(0x027FF812), 2u);
+    const auto boot_arm7_bios_crc =
+        machine.guest_memory().read(NDS_ARM9, UINT32_C(0x027FF850), 2u);
+    const auto boot_arm7_load =
+        machine.guest_memory().read(NDS_ARM9, UINT32_C(0x027FF860), 4u);
+    const auto boot_message =
+        machine.guest_memory().read(NDS_ARM9, UINT32_C(0x027FF880), 4u);
+    const auto boot_task =
+        machine.guest_memory().read(NDS_ARM9, UINT32_C(0x027FF884), 4u);
+    const auto boot_mirror_header_crc =
+        machine.guest_memory().read(NDS_ARM9, UINT32_C(0x027FFC08), 2u);
+    const auto boot_mirror_bios_crc =
+        machine.guest_memory().read(NDS_ARM9, UINT32_C(0x027FFC10), 2u);
+    const auto boot_mirror_secure_disable =
+        machine.guest_memory().read(NDS_ARM9, UINT32_C(0x027FFC12), 2u);
+    const auto boot_indicator =
+        machine.guest_memory().read(NDS_ARM9, UINT32_C(0x027FFC40), 2u);
+    const auto arm7_firmware_magic =
+        machine.guest_memory().read(NDS_ARM7, UINT32_C(0x0380F980), 4u);
+
+    if (boot_header_crc.status != oracis::memory::Status::Ok ||
+        boot_header_crc.value != cartridge_header_crc ||
+        boot_secure_crc.status != oracis::memory::Status::Ok ||
+        boot_secure_crc.value != UINT32_C(0x1234) ||
+        boot_crc_status.status != oracis::memory::Status::Ok ||
+        boot_crc_status.value != 0u ||
+        boot_handler_task.status != oracis::memory::Status::Ok ||
+        boot_handler_task.value != UINT32_C(0xFFFF) ||
+        boot_secure_disable.status != oracis::memory::Status::Ok ||
+        boot_secure_disable.value != 3u ||
+        boot_arm7_bios_crc.status != oracis::memory::Status::Ok ||
+        boot_arm7_bios_crc.value != UINT32_C(0x5835) ||
+        boot_arm7_load.status != oracis::memory::Status::Ok ||
+        boot_arm7_load.value != UINT32_C(0x02380000) ||
+        boot_message.status != oracis::memory::Status::Ok ||
+        boot_message.value != 7u ||
+        boot_task.status != oracis::memory::Status::Ok ||
+        boot_task.value != 6u ||
+        boot_mirror_header_crc.status != oracis::memory::Status::Ok ||
+        boot_mirror_header_crc.value != cartridge_header_crc ||
+        boot_mirror_bios_crc.status != oracis::memory::Status::Ok ||
+        boot_mirror_bios_crc.value != UINT32_C(0x5835) ||
+        boot_mirror_secure_disable.status != oracis::memory::Status::Ok ||
+        boot_mirror_secure_disable.value != 3u ||
+        boot_indicator.status != oracis::memory::Status::Ok ||
+        boot_indicator.value != 1u ||
+        arm7_firmware_magic.status != oracis::memory::Status::Ok ||
+        arm7_firmware_magic.value != UINT32_C(0xFBDD37BB)) {
+        return fail("documented cartridge boot metadata was not populated");
     }
     if (machine.load_program_segments(arm9_image, arm7_image) !=
         NdsMachineStatus::ProgramAlreadyLoaded) {
