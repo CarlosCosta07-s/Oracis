@@ -20,6 +20,9 @@ int oracis_scheduler_begin_slice(NdsCpu cpu, uint64_t cycle_budget);
 void oracis_scheduler_end_slice(NdsCpu cpu);
 int oracis_scheduler_request_yield(NdsCpu cpu);
 int oracis_scheduler_set_unwinding(NdsCpu cpu, int unwinding);
+/* Once enabled for an active slice, a reached deadline immediately unwinds
+   generated C frames at their next runtime_unwinding() checkpoint. */
+int oracis_scheduler_enable_bounded_unwind(NdsCpu cpu);
 uint64_t oracis_scheduler_cycle_count(NdsCpu cpu);
 void oracis_scheduler_reset(NdsCpu cpu);
 
