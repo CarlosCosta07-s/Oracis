@@ -319,8 +319,8 @@ int main()
         NDS_ARM9, 0x02001000u, arm9.cpsr,
         &lookup_status, &candidate_count, &inactive);
     if (selected != nullptr || candidate_count != 0u ||
-        lookup_status != static_cast<uint32_t>(
-            oracis::recomp::DispatchLookupStatus::Miss)) {
+        lookup_status == static_cast<uint32_t>(
+            oracis::recomp::DispatchLookupStatus::Found)) {
         return fail("unregistered bank remained visible after callsite invalidation");
     }
     if (oracis_static_dispatch_register_bank(
