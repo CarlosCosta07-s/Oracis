@@ -30,7 +30,12 @@ enum class NdsOverlayStatus : uint8_t {
     WriteFailed,
     IdentityConflict,
     NotInitialized,
-    ProgramNotLoaded
+    ProgramNotLoaded,
+    InitializersAlreadyRun,
+    InitializerDispatchMissing,
+    InitializerBudgetExceeded,
+    InitializerExecutionFailed,
+    InvalidStack
 };
 
 /*
@@ -94,6 +99,14 @@ public:
      */
     const std::vector<NdsOverlayFunctionPointer> *static_initializers(
         NdsCpu cpu, uint32_t overlay_id) const noexcept;
+    uint32_t static_initializer_progress(
+        NdsCpu cpu, uint32_t overlay_id) const noexcept;
+    NdsOverlayStatus begin_static_initializers(
+        NdsCpu cpu, uint32_t overlay_id) noexcept;
+    NdsOverlayStatus complete_static_initializer(
+        NdsCpu cpu, uint32_t overlay_id) noexcept;
+    NdsOverlayStatus fail_static_initializers(
+        NdsCpu cpu, uint32_t overlay_id) noexcept;
 
     bool contains_address(
         NdsCpu cpu, uint32_t overlay_id, uint32_t address) const noexcept;
@@ -110,6 +123,10 @@ private:
         uint32_t static_init_end = 0u;
         std::string image_sha1;
         std::vector<NdsOverlayFunctionPointer> static_initializers;
+        uint32_t static_initializer_progress = 0u;
+        bool static_initializers_running = false;
+        bool static_initializers_complete = false;
+        bool static_initializers_failed = false;
     };
 
     memory::GuestMemory &memory_;
