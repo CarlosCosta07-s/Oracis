@@ -5,7 +5,6 @@
 
 #include "oracis/memory/guest_memory_abi.h"
 #include "oracis/host/runtime_bridge.h"
-#include "oracis/recomp/runtime_arm.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -351,52 +350,8 @@ static bool take_android_file_dialog_result(
     return ready;
 }
 
-static bool prepare_android_direct_entry_stacks(void)
-{
-    if (g_android_guest_stacks_prepared) return true;
-
-    /*
-     * These are temporary, RAM-valid stacks for the direct-entry experiment.
-     * They are not claimed to reproduce the retail BIOS power-on stack layout.
-     */
-    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) return false;
-    ArmCpuState *arm9 = oracis_arm_runtime_current_state();
-    if (arm9 == NULL) return false;
-    arm9->R[13] = UINT32_C(0x023FF000);
-    arm9->banked_sp[ARM_BANK_USER] = UINT32_C(0x023FF000);
-    arm9->banked_sp[ARM_BANK_SUPERVISOR] = UINT32_C(0x023FE000);
-    arm9->banked_sp[ARM_BANK_IRQ] = UINT32_C(0x023FD000);
-    arm9->banked_sp[ARM_BANK_ABORT] = UINT32_C(0x023FC000);
-    arm9->banked_sp[ARM_BANK_UNDEFINED] = UINT32_C(0x023FB000);
-    arm9->banked_sp[ARM_BANK_FIQ] = UINT32_C(0x023FA000);
-
-    if (!oracis_arm_runtime_select_cpu(NDS_ARM7)) return false;
-    ArmCpuState *arm7 = oracis_arm_runtime_current_state();
-    if (arm7 == NULL) return false;
-    arm7->R[13] = UINT32_C(0x0380FF00);
-    arm7->banked_sp[ARM_BANK_USER] = UINT32_C(0x0380FF00);
-    arm7->banked_sp[ARM_BANK_SUPERVISOR] = UINT32_C(0x0380FE00);
-    arm7->banked_sp[ARM_BANK_IRQ] = UINT32_C(0x0380FD00);
-    arm7->banked_sp[ARM_BANK_ABORT] = UINT32_C(0x0380FC00);
-    arm7->banked_sp[ARM_BANK_UNDEFINED] = UINT32_C(0x0380FB00);
-    arm7->banked_sp[ARM_BANK_FIQ] = UINT32_C(0x0380FA00);
-
-    g_android_guest_stacks_prepared = true;
-    SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
-        "Direct-entry diagnostic stacks seeded (ARM9 main RAM, ARM7 private WRAM); "
-        "these are temporary host choices, not retail BIOS boot state.");
-    return true;
-}
-
 static void log_android_entrypoint_preflight(void)
 {
-    if (!prepare_android_direct_entry_stacks()) {
-        g_android_guest_execution_enabled = false;
-        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
-            "Could not seed temporary Android direct-entry guest stacks.");
-        return;
-    }
-
     OracisHostRuntimeEntryPointReport arm9 = {0};
     OracisHostRuntimeEntryPointReport arm7 = {0};
     const int status = oracis_host_runtime_validate_entrypoints(
@@ -424,8 +379,9 @@ static void log_android_entrypoint_preflight(void)
     if (g_android_guest_execution_enabled) {
         g_android_last_cycle_report = oracis_host_runtime_global_bus_cycles();
         SDL_Log("Both native entry PCs resolve to registered static banks. "
-                "Starting a bounded native direct-entry attempt; retail BIOS "
-                "power-on is bypassed and compatibility is not yet established.");
+                "The machine loader has seeded the documented cartridge-entry "
+                "register/stack state and POSTFLG. BIOS/firmware power-on is "
+                "still bypassed; compatibility is not yet established.");
     } else {
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
             "Native direct-entry remains disabled because one or both entry PCs "
