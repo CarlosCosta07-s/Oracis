@@ -12,6 +12,7 @@ unsigned thumb_calls = 0u;
 unsigned arm7_thumb_calls = 0u;
 unsigned validated_calls = 0u;
 unsigned validation_callback_calls = 0u;
+unsigned replacement_calls = 0u;
 uint64_t dispatch_memory_generation = 1u;
 
 uint64_t read_dispatch_memory_generation(void *context)
@@ -26,6 +27,7 @@ void arm7_body(void) { ++arm7_calls; }
 void thumb_body(void) { ++thumb_calls; }
 void arm7_thumb_body(void) { ++arm7_thumb_calls; }
 void validated_body(void) { ++validated_calls; }
+void replacement_body(void) { ++replacement_calls; }
 
 const uint8_t expected_bytes[] = {0x12u, 0x34u, 0x56u, 0x78u};
 const NdsStaticValidation validation = {
@@ -79,6 +81,10 @@ int main()
     };
     const NdsDispatchEntry validated_table[] = {
         {0x02001000u, 0u, validated_body, &validation},
+    };
+
+    const NdsDispatchEntry replacement_table[] = {
+        {0x02001000u, 0u, replacement_body, &validation},
     };
 
     if (oracis_static_dispatch_register_bank(
@@ -295,6 +301,41 @@ int main()
         validation_callback_calls != validation_calls_before_link + 2u ||
         runtime_inline_leaf_admit(&guarded_slot, validated_body) != 1) {
         return fail("mutable link was not revalidated and guarded after mutation");
+    }
+
+    /*
+     * Removing a bank must revoke a live callsite snapshot. Re-registering a
+     * different table at the same guest PC must resolve the new function,
+     * rather than reusing the function pointer cached from the removed bank.
+     */
+    if (!oracis_static_dispatch_unregister_bank(
+            NDS_ARM9, validated_table, 1u)) {
+        return fail("cached validated bank unregister failed");
+    }
+    if (runtime_inline_leaf_admit(&guarded_slot, validated_body) != 0) {
+        return fail("unregistered bank left its cached inline leaf admitted");
+    }
+    selected = oracis_static_dispatch_lookup(
+        NDS_ARM9, 0x02001000u, arm9.cpsr,
+        &lookup_status, &candidate_count, &inactive);
+    if (selected != nullptr || candidate_count != 0u ||
+        lookup_status != static_cast<uint32_t>(
+            oracis::recomp::DispatchLookupStatus::Miss)) {
+        return fail("unregistered bank remained visible after callsite invalidation");
+    }
+    if (oracis_static_dispatch_register_bank(
+            NDS_ARM9, replacement_table, 1u, "replacement-validated-arm9") !=
+        static_cast<int>(oracis::recomp::RegisterBankStatus::Ok)) {
+        return fail("replacement bank registration failed");
+    }
+
+    const unsigned validation_calls_before_replacement = validation_callback_calls;
+    runtime_link_call(&guarded_slot);
+    if (replacement_calls != 1u || guarded_slot.fn != replacement_body ||
+        validation_callback_calls != validation_calls_before_replacement + 1u ||
+        runtime_inline_leaf_admit(&guarded_slot, replacement_body) != 1 ||
+        runtime_inline_leaf_admit(&guarded_slot, validated_body) != 0) {
+        return fail("callsite did not resolve the replacement bank after unregister");
     }
 
     const uint32_t before_clear_key =

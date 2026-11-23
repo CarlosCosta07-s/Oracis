@@ -80,11 +80,12 @@ struct OracisLinkSlotCache {
 };
 
 /*
- * Generated link slots have static callsite storage. unordered_map preserves
- * references/pointers to elements across rehash, so &cache.guard is a stable
- * opaque token for the lifetime of that callsite record. Stale records are
- * never dereferenced after their key stops matching; a reused slot address
- * simply replaces its previous snapshot.
+ * Slot addresses are opaque callsite keys; the cache does not own slot storage.
+ * unordered_map preserves references/pointers to elements across rehash, so
+ * &cache.guard remains a stable token until that cache record is erased.
+ * Registry/bank and epoch lifecycle hooks reclaim records. A stale slot->guard
+ * value is only compared as an opaque token after a matching map entry exists;
+ * it is never dereferenced through the generated slot.
  */
 std::unordered_map<const NdsLinkSlot *, OracisLinkSlotCache> g_link_slot_cache;
 uint32_t g_link_slot_cache_epoch = 0u;
