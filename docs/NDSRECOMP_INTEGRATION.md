@@ -275,3 +275,17 @@ configuração NDSRecomp por overlay, compilar os módulos, auditar símbolos e
 conectar a resolução de overlays/código dinâmico ao runtime. O host continua
 sem executar rounds do jogo até que essas dependências e os serviços/IRQ
 pendentes estejam validados.
+
+## 15. Registro dos bancos estáticos de overlays
+
+A opção local ORACIS_LOCAL_OVERLAY_BANK_DIR liga os bancos ARM9 de overlays emitidos separadamente ao lado dos bancos principais. Ela exige ORACIS_LOCAL_BANK_DIR, porque os dois bancos principais continuam sendo a base do programa. Exemplo:
+
+    cmake -S . -B build \
+      -DORACIS_LOCAL_BANK_DIR=.oracis/generated/pokemon-platinum-usa-rev1 \
+      -DORACIS_LOCAL_OVERLAY_BANK_DIR=.oracis/generated/pokemon-platinum-usa-rev1-overlays
+
+O diretório de overlays deve conter emission_report.json e uma pasta overlay_NNNN/ para cada resultado emitido, com o corpo C, header e tabela _dispatch.c. O gerador tools/ndsrecomp/generate_overlay_bank_registry.py valida o schema do relatório, o pin nds-codegen-v3, o adaptador de direção de memória e os arquivos esperados; calcula SHA-256 dos arquivos efetivamente ligados e gera um manifesto e um registrador C++ no diretório de build. Os bancos são compilados como objetos C99 e ligados ao oracis_machine.
+
+Na inicialização, oracis_host_runtime_register_compiled_banks() registra primeiro ARM9/ARM7 principais e depois os bancos de overlay. A operação é idempotente para tabelas já registradas e o registrador gerado desfaz apenas os overlays adicionados pela chamada que falhou. Todos os overlays desta primeira revisão são ARM9. Endereços iguais entre bancos são permitidos pelo registry; cada entrada mantém sua validação de bytes, então uma função de um overlay só pode ser selecionada quando a memória guest contém os bytes esperados por aquela entrada.
+
+**Limite importante:** registrar uma tabela não carrega o conteúdo do overlay na memória guest. O loader de overlays precisa copiar/descomprimir os bytes corretos para o endereço de RAM, inicializar BSS e estado relacionado, e respeitar o ciclo de vida/unload do módulo. Até essa integração existir e ser testada, os bancos podem estar ligados e registrados, mas não tornam os overlays executáveis por si só. O preflight dos entry points principais continua obrigatório e nenhum round do jogo deve ser habilitado apenas por causa do registro dos bancos.
