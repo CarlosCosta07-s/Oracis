@@ -169,5 +169,25 @@ void store_word(void) {
         self.assertEqual(patched.count("ORACIS_MEMORY_ACCESS_WRITE)"), 1)
 
 
+    def test_large_generated_function_is_rewritten_in_one_pass(self):
+        instruction_count = 2500
+        body = "".join(
+            f"    runtime_mem_cycles(address_{index}, 4u, 0u);\\n"
+            f"    value_{index} = bus_read_u32(address_{index});\\n"
+            for index in range(instruction_count)
+        )
+        source = "void bank(void) {\\n" + body + "}\\n"
+
+        patched, reads, writes = patcher.patch_generated_source(source)
+
+        self.assertEqual((reads, writes), (instruction_count, 0))
+        self.assertEqual(
+            patched.count("runtime_mem_cycles_ex("), instruction_count
+        )
+        self.assertEqual(
+            patched.count("ORACIS_MEMORY_ACCESS_READ)"), instruction_count
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

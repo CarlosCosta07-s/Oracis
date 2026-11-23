@@ -203,8 +203,11 @@ def patch_generated_source(source: str) -> tuple[str, int, int]:
     write_count = 0
     bus_cursors = [0 for _ in function_ranges]
 
+    line_starts = [0]
+    line_starts.extend(match.end() for match in re.finditer("\\n", source))
+
     for timing in timing_calls:
-        line = source.count("\n", 0, timing.start()) + 1
+        line = bisect_right(line_starts, timing.start())
         scope_index = _function_scope_index(
             timing.start(), function_ranges, function_starts
         )
@@ -249,21 +252,28 @@ def patch_generated_source(source: str) -> tuple[str, int, int]:
             direction_token,
         ))
 
-    result = source
-    for call_start, closing, direction_token in reversed(replacements):
-        result = (
-            result[:closing]
-            + ", "
-            + direction_token
-            + result[closing:]
-        )
-        result = (
-            result[:call_start]
-            + "runtime_mem_cycles_ex"
-            + result[call_start + len("runtime_mem_cycles"):]
-        )
+    # Apply all edits in one forward pass. Rebuilding the complete source
+    # string for every timing call scales quadratically on large generated banks.
+    edits: list[tuple[int, int, str]] = []
+    for call_start, closing, direction_token in replacements:
+        edits.append((
+            call_start,
+            call_start + len("runtime_mem_cycles"),
+            "runtime_mem_cycles_ex",
+        ))
+        edits.append((closing, closing, ", " + direction_token))
 
-    return result, read_count, write_count
+    result_parts: list[str] = []
+    cursor = 0
+    for edit_start, edit_end, replacement in sorted(edits):
+        if edit_start < cursor:
+            raise ValueError("overlapping timing-call edits in generated C")
+        result_parts.append(source[cursor:edit_start])
+        result_parts.append(replacement)
+        cursor = edit_end
+    result_parts.append(source[cursor:])
+
+    return "".join(result_parts), read_count, write_count
 
 
 if __name__ == "__main__":
