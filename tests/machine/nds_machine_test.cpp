@@ -1997,6 +1997,48 @@ int main()
     arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
     arm9->R[15] = UINT32_C(0x02006000);
     arm7->cpsr = ORACIS_ARM_MODE_SYSTEM;
+
+    constexpr uint32_t platinum_mpu_regions[8] = {
+        UINT32_C(0x04000033), UINT32_C(0x0200002D),
+        UINT32_C(0x027E0021), UINT32_C(0x08000035),
+        UINT32_C(0x027E001B), UINT32_C(0x0100002F),
+        UINT32_C(0xFFFF001D), UINT32_C(0x027FF017)
+    };
+    for (uint32_t region = 0u; region < 8u; ++region) {
+        runtime_coproc_write(
+            15u, 0u, 6u, region, 0u, platinum_mpu_regions[region]);
+    }
+    runtime_coproc_write(15u, 0u, 2u, 0u, 0u, UINT32_C(0x42));
+    runtime_coproc_write(15u, 0u, 2u, 0u, 1u, UINT32_C(0x42));
+    runtime_coproc_write(15u, 0u, 3u, 0u, 0u, UINT32_C(0x02));
+    runtime_coproc_write(15u, 0u, 5u, 0u, 2u, UINT32_C(0x05100011));
+    runtime_coproc_write(15u, 0u, 5u, 0u, 3u, UINT32_C(0x15111011));
+    constexpr uint32_t platinum_cp15_control = UINT32_C(0x0005707D);
+    runtime_coproc_write(
+        15u, 0u, 1u, 0u, 0u, platinum_cp15_control);
+
+    if (runtime_coproc_read(15u, 0u, 1u, 0u, 0u) !=
+            platinum_cp15_control ||
+        runtime_coproc_read(15u, 0u, 2u, 0u, 0u) != UINT32_C(0x42) ||
+        runtime_coproc_read(15u, 0u, 2u, 0u, 1u) != UINT32_C(0x42) ||
+        runtime_coproc_read(15u, 0u, 3u, 0u, 0u) != UINT32_C(0x02) ||
+        runtime_coproc_read(15u, 0u, 5u, 0u, 2u) != UINT32_C(0x05100011) ||
+        runtime_coproc_read(15u, 0u, 5u, 0u, 3u) != UINT32_C(0x15111011) ||
+        runtime_coproc_read(15u, 0u, 6u, 7u, 1u) !=
+            platinum_mpu_regions[7]) {
+        return fail("Platinum startup CP15 MPU registers did not retain their values");
+    }
+
+    constexpr uint32_t mpu_test_address = UINT32_C(0x02006000);
+    constexpr uint32_t mpu_test_value = UINT32_C(0x946E5A5A);
+    bus_write_u32(mpu_test_address, mpu_test_value);
+    if (bus_read_u32(mpu_test_address) != mpu_test_value) {
+        return fail("privileged ARM9 main-RAM bus access failed with MPU enabled");
+    }
+
+    arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
+    arm9->R[15] = UINT32_C(0x02006000);
+    arm7->cpsr = ORACIS_ARM_MODE_SYSTEM;
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
         return fail("ARM9 could not be selected for CP15 register access");
     }

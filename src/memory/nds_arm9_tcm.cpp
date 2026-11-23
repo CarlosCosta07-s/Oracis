@@ -179,6 +179,10 @@ bool NdsArm9Tcm::set_control(uint32_t value) noexcept
     constexpr uint32_t kSupportedControlMask =
         RequiredControlOnesMask |
         AlternateVectorSelectMask |
+        (UINT32_C(1) << 14u) | /* Round-robin replacement policy. */
+        (UINT32_C(1) << 12u) | /* Instruction cache enable. */
+        (UINT32_C(1) << 2u) |  /* Data cache enable. */
+        (UINT32_C(1) << 0u) |  /* MPU enable. */
         ItcmLoadModeMask |
         ItcmEnableMask |
         DtcmLoadModeMask |

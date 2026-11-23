@@ -18,6 +18,22 @@ extern "C" {
 int oracis_bus_bind_memory(void *memory);
 int oracis_bus_unbind_memory(void *memory);
 
+typedef enum OracisBusAccessKind {
+    ORACIS_BUS_ACCESS_DATA_READ = 0,
+    ORACIS_BUS_ACCESS_DATA_WRITE = 1,
+    ORACIS_BUS_ACCESS_INSTRUCTION = 2
+} OracisBusAccessKind;
+
+typedef int (*OracisBusArm9AccessCheck)(
+    void *context, NdsCpu cpu, uint32_t address, uint32_t size,
+    uint32_t access_kind, uint32_t privileged);
+
+/* Optional ARM9 MPU hook for guest bus transfers and static code admission. */
+int oracis_bus_bind_arm9_access_check(
+    void *context, OracisBusArm9AccessCheck callback);
+int oracis_bus_unbind_arm9_access_check(
+    void *context, OracisBusArm9AccessCheck callback);
+
 /* Bind a live NdsWramControl device after binding its GuestMemory object. */
 int oracis_bus_bind_wram_control(void *control);
 int oracis_bus_unbind_wram_control(void *control);

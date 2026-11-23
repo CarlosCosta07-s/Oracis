@@ -36,6 +36,8 @@ oracis::memory::NdsDmaControl *g_dma_control = nullptr;
 oracis::memory::NdsTimerControl *g_timer_control = nullptr;
 oracis::memory::NdsKeypadControl *g_keypad_control = nullptr;
 oracis::memory::NdsSystemClock *g_system_clock = nullptr;
+void *g_arm9_access_check_context = nullptr;
+OracisBusArm9AccessCheck g_arm9_access_check = nullptr;
 uint16_t g_host_keypad_pressed_keys = 0u;
 
 uint64_t bus_memory_generation(void *context) noexcept
@@ -73,9 +75,50 @@ oracis::memory::GuestMemory &bound_memory(const char *operation,
     return *g_guest_memory;
 }
 
+void validate_arm9_access(
+    const char *operation, uint32_t address, uint32_t width,
+    uint32_t access_kind)
+{
+    if (g_arm9_access_check == nullptr || g_nds_active != NDS_ARM9) return;
+    if (oracis_active_cpu_state == nullptr) {
+        bus_failure(operation, address, width,
+                    oracis::memory::Status::PermissionDenied);
+    }
+
+    const uint32_t mode =
+        oracis_active_cpu_state->cpsr & UINT32_C(0x1F);
+    uint32_t privileged = 0u;
+    switch (mode) {
+    case UINT32_C(0x10): /* User */
+        privileged = 0u;
+        break;
+    case UINT32_C(0x11): /* FIQ */
+    case UINT32_C(0x12): /* IRQ */
+    case UINT32_C(0x13): /* Supervisor */
+    case UINT32_C(0x17): /* Abort */
+    case UINT32_C(0x1B): /* Undefined */
+    case UINT32_C(0x1F): /* System */
+        privileged = 1u;
+        break;
+    default:
+        bus_failure(operation, address, width,
+                    oracis::memory::Status::PermissionDenied);
+    }
+
+    if (g_arm9_access_check(
+            g_arm9_access_check_context, g_nds_active,
+            address, width, access_kind, privileged) == 0) {
+        bus_failure(operation, address, width,
+                    oracis::memory::Status::PermissionDenied);
+    }
+}
+
+
 uint32_t read_bus(uint32_t address, uint32_t width, const char *operation)
 {
     auto &memory = bound_memory(operation, address, width);
+    validate_arm9_access(operation, address, width,
+                          ORACIS_BUS_ACCESS_DATA_READ);
     if (g_post_flag != nullptr) {
         const auto mmio = g_post_flag->read(g_nds_active, address, width);
         if (mmio.status != oracis::memory::Status::Unmapped) {
@@ -170,6 +213,8 @@ void write_bus(uint32_t address,
                const char *operation)
 {
     auto &memory = bound_memory(operation, address, width);
+    validate_arm9_access(operation, address, width,
+                          ORACIS_BUS_ACCESS_DATA_WRITE);
     if (g_post_flag != nullptr) {
         const auto mmio = g_post_flag->write(
             g_nds_active, address, width, value);
@@ -295,6 +340,33 @@ void write_bus(uint32_t address,
 
 } // namespace
 
+extern "C" int oracis_bus_bind_arm9_access_check(
+    void *context, OracisBusArm9AccessCheck callback)
+{
+    if (context == nullptr || callback == nullptr) return 0;
+    if (g_arm9_access_check != nullptr ||
+        g_arm9_access_check_context != nullptr) {
+        return g_arm9_access_check == callback &&
+               g_arm9_access_check_context == context ? 1 : 0;
+    }
+    g_arm9_access_check_context = context;
+    g_arm9_access_check = callback;
+    return 1;
+}
+
+extern "C" int oracis_bus_unbind_arm9_access_check(
+    void *context, OracisBusArm9AccessCheck callback)
+{
+    if (context == nullptr || callback == nullptr ||
+        g_arm9_access_check_context != context ||
+        g_arm9_access_check != callback) {
+        return 0;
+    }
+    g_arm9_access_check_context = nullptr;
+    g_arm9_access_check = nullptr;
+    return 1;
+}
+
 extern "C" int oracis_bus_bind_memory(void *memory)
 {
     if (memory == nullptr) return 0;
@@ -323,6 +395,8 @@ extern "C" int oracis_bus_unbind_memory(void *memory)
         g_display_control != nullptr ||
         g_geometry_engine != nullptr ||
         g_game_card_control != nullptr ||
+        g_arm9_access_check != nullptr ||
+        g_arm9_access_check_context != nullptr ||
         (g_interrupt_control != nullptr &&
          &g_interrupt_control->backing_memory() == g_guest_memory) ||
         (g_timer_control != nullptr &&

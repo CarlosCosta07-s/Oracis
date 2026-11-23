@@ -14,6 +14,7 @@
 #include "oracis/recomp/arm_cpu_state.h"
 #include "oracis/memory/guest_memory.hpp"
 #include "oracis/memory/nds_arm9_tcm.hpp"
+#include "oracis/memory/nds_arm9_protection_unit.hpp"
 #include "oracis/memory/nds_interrupt_control.hpp"
 #include "oracis/memory/nds_ipc_control.hpp"
 #include "oracis/memory/nds_game_card_control.hpp"
@@ -290,6 +291,9 @@ private:
         void *context, NdsCpu cpu, uint32_t is_write,
         uint32_t cp_num, uint32_t op1, uint32_t crn,
         uint32_t crm, uint32_t op2, uint32_t *value);
+    static int runtime_bus_access_check(
+        void *context, NdsCpu cpu, uint32_t address, uint32_t size,
+        uint32_t access_kind, uint32_t privileged);
     static int runtime_bios_memory_transfer_handler(
         void *context, NdsCpu cpu, uint32_t source, uint32_t destination,
         uint32_t count, uint32_t width, uint32_t fixed_source);
@@ -320,6 +324,7 @@ private:
     ArmCpuState arm9_state_{};
     ArmCpuState arm7_state_{};
     memory::NdsArm9Tcm arm9_tcm_;
+    memory::NdsArm9ProtectionUnit arm9_protection_unit_;
     memory::NdsWramControl wram_control_;
     memory::NdsVramControl vram_control_;
     memory::NdsVideoMemory video_memory_;
@@ -364,6 +369,7 @@ private:
     bool bios_huffman_handler_bound_ = false;
     bool bios_diff_handler_bound_ = false;
     bool memory_bound_ = false;
+    bool arm9_access_guard_bound_ = false;
     bool wram_bound_ = false;
     bool vram_bound_ = false;
     bool video_memory_bound_ = false;

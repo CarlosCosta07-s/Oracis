@@ -320,7 +320,12 @@ int NdsMachine::runtime_coprocessor_handler(
 
     if (crn == 1u && crm == 0u && op2 == 0u) {
         if (is_write != 0u) {
+            const bool enable_mpu = (*value & UINT32_C(1)) != 0u;
+            if (enable_mpu && !machine->arm9_protection_unit_.can_enable()) {
+                return 0;
+            }
             if (!machine->arm9_tcm_.set_control(*value)) return 0;
+            machine->arm9_protection_unit_.set_enabled(enable_mpu);
             machine->sync_arm9_tcm_timing_state();
             return 1;
         }
@@ -336,6 +341,69 @@ int NdsMachine::runtime_coprocessor_handler(
             return 1;
         }
         return machine->arm9_tcm_.read_region(instruction, *value) ? 1 : 0;
+    }
+
+    if (crn == 2u && crm == 0u && (op2 == 0u || op2 == 1u)) {
+        const bool instruction = op2 == 1u;
+        if (is_write != 0u) {
+            return machine->arm9_protection_unit_.write_cacheable(
+                instruction, *value) ? 1 : 0;
+        }
+        *value = machine->arm9_protection_unit_.read_cacheable(instruction);
+        return 1;
+    }
+
+    if (crn == 3u && crm == 0u && op2 == 0u) {
+        if (is_write != 0u) {
+            return machine->arm9_protection_unit_.write_bufferable(*value)
+                ? 1 : 0;
+        }
+        *value = machine->arm9_protection_unit_.read_bufferable();
+        return 1;
+    }
+
+    if (crn == 5u && crm == 0u && op2 <= 3u) {
+        const bool instruction = (op2 & 1u) != 0u;
+        const bool extended = op2 >= 2u;
+        if (is_write != 0u) {
+            return machine->arm9_protection_unit_.write_access_permissions(
+                instruction, extended, *value) ? 1 : 0;
+        }
+        *value = machine->arm9_protection_unit_.read_access_permissions(
+            instruction, extended);
+        return 1;
+    }
+
+    if (crn == 6u && crm < 8u) {
+        if (is_write != 0u) {
+            if (op2 != 0u ||
+                !machine->arm9_protection_unit_.write_region(crm, *value)) {
+                return 0;
+            }
+            return 1;
+        }
+        if (op2 != 1u) return 0;
+        return machine->arm9_protection_unit_.read_region(crm, *value) ? 1 : 0;
+    }
+
+    if (crn == 7u && is_write != 0u) {
+        /*
+         * Guest memory is coherent and bus writes complete synchronously.
+         * No resident cache lines or asynchronous write buffer exist in the
+         * current memory model; these maintenance operations are ordered no-ops.
+         */
+        const bool flush_instruction =
+            crm == 5u && (op2 == 0u || op2 == 1u);
+        const bool flush_data =
+            crm == 6u && (op2 == 0u || op2 == 1u);
+        const bool prefetch = crm == 13u && op2 == 1u;
+        const bool clean_data =
+            crm == 10u && (op2 == 1u || op2 == 4u);
+        const bool clean_invalidate_data = crm == 14u && op2 == 1u;
+        if (flush_instruction || flush_data || prefetch ||
+            clean_data || clean_invalidate_data) {
+            return 1;
+        }
     }
 
     /* MPU, cache maintenance/configuration and other CP15 registers fail closed. */
@@ -1175,6 +1243,68 @@ int NdsMachine::runtime_bios_diff_handler(
 }
 
 
+int NdsMachine::runtime_bus_access_check(
+    void *context, NdsCpu cpu, uint32_t address, uint32_t size,
+    uint32_t access_kind, uint32_t privileged)
+{
+    auto *machine = static_cast<NdsMachine *>(context);
+    if (machine == nullptr || !machine->initialized_ ||
+        !valid_cpu(cpu) || size == 0u || privileged > 1u ||
+        g_nds_active != cpu ||
+        machine->cpu_state(cpu) != oracis_active_cpu_state) {
+        return 0;
+    }
+    if (cpu == NDS_ARM7 || !machine->arm9_protection_unit_.enabled()) {
+        return 1;
+    }
+
+    memory::NdsArm9ProtectionUnit::AccessKind kind{};
+    switch (access_kind) {
+    case ORACIS_BUS_ACCESS_DATA_READ:
+        kind = memory::NdsArm9ProtectionUnit::AccessKind::DataRead;
+        break;
+    case ORACIS_BUS_ACCESS_DATA_WRITE:
+        kind = memory::NdsArm9ProtectionUnit::AccessKind::DataWrite;
+        break;
+    case ORACIS_BUS_ACCESS_INSTRUCTION:
+        kind = memory::NdsArm9ProtectionUnit::AccessKind::InstructionFetch;
+        break;
+    default:
+        return 0;
+    }
+
+    const memory::NdsArm9Tcm::TimingState tcm =
+        machine->arm9_tcm_.timing_state();
+    const uint64_t end =
+        static_cast<uint64_t>(address) + static_cast<uint64_t>(size);
+    if (end > UINT64_C(0x1'0000'0000)) return 0;
+
+    uint64_t current = address;
+    while (current < end) {
+        const uint32_t guest_address = static_cast<uint32_t>(current);
+        const bool in_itcm = tcm.itcm_window_size != 0u &&
+            current < tcm.itcm_window_size;
+        const bool in_dtcm = tcm.dtcm_window_size != 0u &&
+            current >= tcm.dtcm_base &&
+            current < static_cast<uint64_t>(tcm.dtcm_base) +
+                tcm.dtcm_window_size;
+        if (in_itcm || in_dtcm) {
+            const uint64_t tcm_end = in_itcm
+                ? tcm.itcm_window_size
+                : static_cast<uint64_t>(tcm.dtcm_base) +
+                    tcm.dtcm_window_size;
+            current = tcm_end < end ? tcm_end : end;
+            continue;
+        }
+        if (!machine->arm9_protection_unit_.check_access(
+                guest_address, 1u, kind, privileged != 0u)) {
+            return 0;
+        }
+        ++current;
+    }
+    return 1;
+}
+
 int NdsMachine::runtime_validate_dispatch_bytes(
     NdsCpu cpu,
     const NdsStaticValidation *validation,
@@ -1200,6 +1330,27 @@ int NdsMachine::runtime_validate_dispatch_bytes(
         static_cast<uint64_t>(pc) + instruction_size;
     if (pc < validation_begin || instruction_end > validation_end) {
         return 0;
+    }
+
+    if (cpu == NDS_ARM9) {
+        const uint32_t mode =
+            machine->cpu_state(cpu)->cpsr & UINT32_C(0x1F);
+        uint32_t privileged = 2u;
+        if (mode == UINT32_C(0x10)) {
+            privileged = 0u;
+        } else if (mode == UINT32_C(0x11) ||
+                   mode == UINT32_C(0x12) ||
+                   mode == UINT32_C(0x13) ||
+                   mode == UINT32_C(0x17) ||
+                   mode == UINT32_C(0x1B) ||
+                   mode == UINT32_C(0x1F)) {
+            privileged = 1u;
+        }
+        if (runtime_bus_access_check(
+                machine, cpu, validation->addr, validation->size,
+                ORACIS_BUS_ACCESS_INSTRUCTION, privileged) == 0) {
+            return 0;
+        }
     }
 
     if (guest_memory->validate_execute(
@@ -1348,6 +1499,12 @@ NdsMachineStatus NdsMachine::initialize() noexcept
         return rollback(NdsMachineStatus::BusBindingFailed);
     }
     memory_bound_ = true;
+
+    if (!oracis_bus_bind_arm9_access_check(
+            this, &NdsMachine::runtime_bus_access_check)) {
+        return rollback(NdsMachineStatus::BusBindingFailed);
+    }
+    arm9_access_guard_bound_ = true;
 
     if (!oracis_bus_bind_post_flag(&post_flag_)) {
         return rollback(NdsMachineStatus::BusBindingFailed);
@@ -1565,7 +1722,7 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
         bios_crc16_handler_bound_ || bios_bit_unpack_handler_bound_ ||
         bios_lz77_handler_bound_ || bios_rle_handler_bound_ ||
         bios_huffman_handler_bound_ || bios_diff_handler_bound_ ||
-        memory_bound_ ||
+        memory_bound_ || arm9_access_guard_bound_ ||
         wram_bound_ || vram_bound_ || video_memory_bound_ ||
         post_flag_bound_ || display_control_bound_ ||
         geometry_engine_bound_ || interrupt_bound_ ||
@@ -1665,6 +1822,13 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
             return NdsMachineStatus::ShutdownFailed;
         }
         wram_bound_ = false;
+    }
+    if (arm9_access_guard_bound_) {
+        if (!oracis_bus_unbind_arm9_access_check(
+                this, &NdsMachine::runtime_bus_access_check)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        arm9_access_guard_bound_ = false;
     }
     if (memory_bound_) {
         if (!oracis_bus_unbind_memory(&memory_)) {

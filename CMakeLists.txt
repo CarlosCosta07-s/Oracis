@@ -91,6 +91,7 @@ target_compile_features(oracis_arm_state PUBLIC cxx_std_20)
 add_library(oracis_memory STATIC
     src/memory/guest_memory.cpp
     src/memory/nds_arm9_tcm.cpp
+    src/memory/nds_arm9_protection_unit.cpp
     src/memory/bus_abi.cpp
     src/memory/nds_retail_map.cpp
     src/memory/nds_wram_control.cpp
@@ -290,6 +291,13 @@ if(BUILD_TESTING)
     )
     target_link_libraries(oracis_guest_memory_test PRIVATE oracis_memory)
     add_test(NAME oracis_guest_memory_test COMMAND oracis_guest_memory_test)
+
+    add_executable(oracis_nds_arm9_protection_unit_test
+        tests/memory/nds_arm9_protection_unit_test.cpp
+    )
+    target_link_libraries(oracis_nds_arm9_protection_unit_test PRIVATE oracis_memory)
+    add_test(NAME oracis_nds_arm9_protection_unit_test
+        COMMAND oracis_nds_arm9_protection_unit_test)
 
     add_executable(oracis_guest_memory_generation_test
         tests/memory/guest_memory_generation_test.cpp
