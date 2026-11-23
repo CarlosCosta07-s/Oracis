@@ -58,7 +58,7 @@ void test_load_copies_image_and_zeros_bss()
     const std::string digest = hash_of(image_bytes);
     const NdsOverlayImage image{
         NDS_ARM9, 12u, kRamBase, 8u, 4u,
-        kRamBase, kRamBase + 4u,
+        0u, 0u,
         image_bytes.data(), digest.c_str()
     };
 
@@ -167,6 +167,88 @@ void test_clear_zeros_all_modules_and_resets_inventory()
         std::vector<uint8_t>(12u, 0u)));
 }
 
+void write_u32_le(
+    std::vector<uint8_t> &bytes, std::size_t offset, uint32_t value)
+{
+    assert(offset <= bytes.size() && bytes.size() - offset >= 4u);
+    bytes[offset] = static_cast<uint8_t>(value);
+    bytes[offset + 1u] = static_cast<uint8_t>(value >> 8u);
+    bytes[offset + 2u] = static_cast<uint8_t>(value >> 16u);
+    bytes[offset + 3u] = static_cast<uint8_t>(value >> 24u);
+}
+
+void test_load_retains_static_initializer_order_and_arm_modes()
+{
+    GuestMemory memory = make_memory();
+    NdsOverlayLoader loader(memory);
+    constexpr uint32_t OverlayBase = kRamBase + 0x400u;
+    std::vector<uint8_t> image_bytes(0x20u, 0u);
+    write_u32_le(image_bytes, 0x18u, OverlayBase | 1u);
+    write_u32_le(image_bytes, 0x1Cu, OverlayBase + 4u);
+    const std::string digest = hash_of(image_bytes);
+    const NdsOverlayImage image{
+        NDS_ARM9, 40u, OverlayBase, 0x20u, 4u,
+        OverlayBase + 0x18u, OverlayBase + 0x20u,
+        image_bytes.data(), digest.c_str()
+    };
+
+    assert(loader.static_initializers(NDS_ARM9, 40u) == nullptr);
+    assert(loader.load(image) == NdsOverlayStatus::Ok);
+    const auto *initializers = loader.static_initializers(NDS_ARM9, 40u);
+    assert(initializers != nullptr);
+    assert(initializers->size() == 2u);
+    assert((*initializers)[0].address == OverlayBase);
+    assert((*initializers)[0].thumb);
+    assert((*initializers)[1].address == OverlayBase + 4u);
+    assert(!(*initializers)[1].thumb);
+    assert((read_bytes(memory, OverlayBase + 0x20u, 4u) ==
+        std::vector<uint8_t>(4u, 0u)));
+}
+
+void test_rejects_invalid_static_initializer_pointer_before_writing()
+{
+    GuestMemory memory = make_memory();
+    NdsOverlayLoader loader(memory);
+    constexpr uint32_t OverlayBase = kRamBase + 0x600u;
+    std::vector<uint8_t> image_bytes(0x10u, 0u);
+    write_u32_le(image_bytes, 8u, (OverlayBase + 0x20u) | 1u);
+    const std::string digest = hash_of(image_bytes);
+    const NdsOverlayImage image{
+        NDS_ARM9, 41u, OverlayBase, 0x10u, 4u,
+        OverlayBase + 8u, OverlayBase + 12u,
+        image_bytes.data(), digest.c_str()
+    };
+
+    assert(loader.load(image) == NdsOverlayStatus::InvalidMetadata);
+    assert(loader.loaded_count() == 0u);
+    assert(loader.static_initializers(NDS_ARM9, 41u) == nullptr);
+    assert((read_bytes(memory, OverlayBase, 0x14u) ==
+        std::vector<uint8_t>(0x14u, 0u)));
+}
+
+void test_zero_static_initializer_terminator_stops_the_sequence()
+{
+    GuestMemory memory = make_memory();
+    NdsOverlayLoader loader(memory);
+    constexpr uint32_t OverlayBase = kRamBase + 0x800u;
+    std::vector<uint8_t> image_bytes(0x20u, 0u);
+    write_u32_le(image_bytes, 0x18u, OverlayBase + 4u);
+    write_u32_le(image_bytes, 0x1Cu, UINT32_C(0));
+    const std::string digest = hash_of(image_bytes);
+    const NdsOverlayImage image{
+        NDS_ARM9, 42u, OverlayBase, 0x20u, 0u,
+        OverlayBase + 0x18u, OverlayBase + 0x20u,
+        image_bytes.data(), digest.c_str()
+    };
+
+    assert(loader.load(image) == NdsOverlayStatus::Ok);
+    const auto *initializers = loader.static_initializers(NDS_ARM9, 42u);
+    assert(initializers != nullptr);
+    assert(initializers->size() == 1u);
+    assert((*initializers)[0].address == OverlayBase + 4u);
+    assert((*initializers)[0].thumb);
+}
+
 void test_rejects_invalid_static_init_range()
 {
     GuestMemory memory = make_memory();
@@ -190,6 +272,9 @@ int main()
     test_duplicate_identity_and_overlapping_modules();
     test_unload_requires_quiescence_and_clears_memory();
     test_clear_zeros_all_modules_and_resets_inventory();
+    test_load_retains_static_initializer_order_and_arm_modes();
+    test_rejects_invalid_static_initializer_pointer_before_writing();
+    test_zero_static_initializer_terminator_stops_the_sequence();
     test_rejects_invalid_static_init_range();
     return 0;
 }
