@@ -70,6 +70,12 @@ void oracis_static_dispatch_set_memory_generation_provider(
     OracisDispatchMemoryGenerationFn provider,
     void *user);
 
+/* Scoped guest-dispatch miss recovery. Pass nullptr to restore fail-closed mode. */
+void oracis_static_dispatch_set_miss_handler(
+    OracisDispatchMissHandler handler,
+    void *user);
+
+
 const NdsDispatchEntry *oracis_static_dispatch_lookup(
     NdsCpu cpu,
     uint32_t target_pc,
