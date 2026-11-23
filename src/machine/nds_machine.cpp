@@ -2046,6 +2046,8 @@ NdsOverlayStatus NdsMachine::run_overlay_static_initializers(
             static_cast<uint32_t>(caller_call_stack.size()));
         runtime_call_push_return(SyntheticReturnPc);
 
+        const uint64_t slice_cycle_start =
+            oracis_scheduler_cycle_count(cpu);
         const NdsMachineStatus slice_begin =
             begin_cpu_slice(cpu, cycle_budget_per_initializer);
         if (slice_begin != NdsMachineStatus::Ok) {
@@ -2071,6 +2073,11 @@ NdsOverlayStatus NdsMachine::run_overlay_static_initializers(
 
         /* Capture all execution results before end_cpu_slice clears unwind. */
         const bool unwinding = bounded && runtime_unwinding();
+        const uint64_t slice_cycle_end = oracis_scheduler_cycle_count(cpu);
+        const bool budget_expired =
+            slice_cycle_end >= slice_cycle_start &&
+            slice_cycle_end - slice_cycle_start >=
+                cycle_budget_per_initializer;
         const bool returned_to_sentinel =
             state->R[15] == SyntheticReturnPc;
         const bool call_stack_balanced =
@@ -2093,7 +2100,7 @@ NdsOverlayStatus NdsMachine::run_overlay_static_initializers(
             !returned_to_sentinel || !call_stack_balanced) {
             (void)overlay_loader_.fail_static_initializers(cpu, overlay_id);
             if (miss.seen) return NdsOverlayStatus::InitializerDispatchMissing;
-            if (unwinding) return NdsOverlayStatus::InitializerBudgetExceeded;
+            if (budget_expired) return NdsOverlayStatus::InitializerBudgetExceeded;
             return NdsOverlayStatus::InitializerExecutionFailed;
         }
 
