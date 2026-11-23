@@ -403,3 +403,60 @@ A regressão `oracis_nds_overlay_loader_test` cobre cópia de imagem, BSS zerado
 rejeição de hash sem mutação, idempotência, colisões, validação do intervalo
 de inicialização e unload condicionado à quiescência. Esses testes não
 representam ainda o primeiro boot de Pokémon Platinum.
+
+## 17. Emissão incremental dos bancos estáticos de overlays
+
+O pipeline local completo está disponível em
+`tools/ndsrecomp/emit_platinum_overlay_banks.py`. Ele exige o executável
+NDSRecomp fixado em `nds-codegen-v3`, o manifesto/imagens produzidos por
+`extract_nds_overlays.py` e o relatório/TOMLs da descoberta de âncoras.
+Para cada overlay selecionado, confere os campos `[program]` e `[identity]`
+do TOML com a imagem extraída, executa `nds_recompile --audit`, recusa
+qualquer relatório que omita os resumos obrigatórios ou indique operações
+sem codegen, emite o banco com `--validate-live-bytes`, aplica o adaptador
+de direção de memória e divide o corpo em unidades C limitadas.
+
+Uso padrão, com todos os overlays que possuem configuração local:
+
+    python tools/ndsrecomp/emit_platinum_overlay_banks.py
+
+A emissão é feita em diretório de staging e publicada somente quando todos
+os overlays selecionados tiverem terminado. O relatório
+`emission_report.json` vincula os bancos à identidade SHA-1 das imagens,
+registra os hashes SHA-256 dos C/H/dispatch, os hashes SHA-1 das unidades
+shard, contagens de funções, resultados de audit e cobertura compilada/
+pendente. Nenhum conteúdo derivado da ROM é gravado em Git.
+
+Para atualizar apenas uma seleção sem repetir o trabalho dos demais bancos:
+
+    python tools/ndsrecomp/emit_platinum_overlay_banks.py \
+      --overlay-ids 5,6,22,61,62,70 \
+      --reuse-existing-bank-dir .oracis/generated/pokemon-platinum-usa-rev1-overlays
+
+O diretório anterior só é reutilizado quando a identidade ROM/codegen,
+SHA-1 de cada imagem, SHA-256 de cada C/H/dispatch e, quando existentes,
+hashes/conjunto completo dos shards conferem. Arquivos divergentes fazem a
+operação falhar; não são silenciosamente copiados. O resultado novo continua
+sendo um diretório autônomo com todos os bancos reutilizados e recém-emitidos.
+
+O CMake agora prefere os arquivos
+`overlay_NNNN/<bank>_shards/bank_part_NNNN.c` quando o relatório contém
+shards validados, compilando o corpo monolítico apenas para bancos antigos
+sem shards. Cada pasta de overlay entra no include path para que os shards
+encontrem o header gerado do banco. O gerador do registry rejeita shards
+ausentes, extras, com nome inesperado ou SHA-1 divergente.
+
+**Validação local em 23/11/2026:** a emissão incremental re-auditou e
+re-emitiu os overlays 0005, 0006, 0022, 0061, 0062 e 0070; os outros 23
+bancos foram reutilizados depois da verificação de identidade e hashes.
+O conjunto final contém 29/122 bancos e 10.636 funções. Os seis overlays
+re-auditados não reportaram gaps em `codegen NOT-IMPLEMENTED ops`.
+Foram compiladas 17 novas unidades C99 (shards e dispatch) e a auditoria
+combinada de 67 objetos (bancos principais e overlays) resolveu 11.719
+referências, com zero símbolos não resolvidos e zero allowlisted.
+
+Esses resultados confirmam a emissão/verificação estática e a ligação de
+símbolos; não confirmam execução guest, inicializadores estáticos,
+relocations, retorno seguro entre overlays nem boot jogável. Os 93 IDs sem
+âncoras seguem pendentes. Os entry points criados a partir dos nomes de
+arquivos permanecem candidatos provisórios, não pontos autoritativos.
