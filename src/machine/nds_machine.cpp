@@ -15,7 +15,8 @@
 namespace oracis::machine {
 
 NdsMachine::NdsMachine(memory::SharedWramMode initial_wram_mode) noexcept
-    : arm9_tcm_(memory_),
+    : overlay_loader_(memory_),
+      arm9_tcm_(memory_),
       wram_control_(memory_, initial_wram_mode),
       vram_control_(memory_),
       video_memory_(memory_),
@@ -1900,6 +1901,37 @@ NdsMachineStatus NdsMachine::load_program_segments(
     interrupt_wait_resume_pcs_.fill(0u);
     program_loaded_ = true;
     return NdsMachineStatus::Ok;
+}
+
+NdsOverlayStatus NdsMachine::load_overlay(
+    const NdsOverlayImage &image) noexcept
+{
+    if (!initialized_) return NdsOverlayStatus::InvalidMetadata;
+    if (!program_loaded_) return NdsOverlayStatus::InvalidMetadata;
+    if (slice_active_[0] || slice_active_[1]) {
+        return NdsOverlayStatus::Busy;
+    }
+    return overlay_loader_.load(image);
+}
+
+NdsOverlayStatus NdsMachine::unload_overlay(
+    NdsCpu cpu,
+    uint32_t overlay_id,
+    bool no_live_guest_references) noexcept
+{
+    if (!initialized_) return NdsOverlayStatus::InvalidMetadata;
+    if (!program_loaded_) return NdsOverlayStatus::InvalidMetadata;
+    if (!valid_cpu(cpu)) return NdsOverlayStatus::InvalidCpu;
+    if (slice_active_[0] || slice_active_[1]) {
+        return NdsOverlayStatus::Busy;
+    }
+    const ArmCpuState *state = cpu_state(cpu);
+    if (state == nullptr) return NdsOverlayStatus::InvalidCpu;
+    if (overlay_loader_.contains_address(cpu, overlay_id, state->R[15])) {
+        return NdsOverlayStatus::Busy;
+    }
+    return overlay_loader_.unload(
+        cpu, overlay_id, no_live_guest_references, state->R[15]);
 }
 
 NdsMachineStatus NdsMachine::shutdown() noexcept
