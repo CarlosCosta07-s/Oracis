@@ -1,6 +1,7 @@
 #include "oracis/memory/guest_memory.hpp"
 #include "oracis/memory/guest_memory_abi.h"
 #include "oracis/recomp/runtime_arm.h"
+#include "oracis/recomp/static_dispatch.hpp"
 #include "oracis/recomp/static_dispatch_abi.h"
 
 #include <cstdint>
@@ -53,6 +54,17 @@ int main()
     }
     if (!oracis_bus_bind_memory(&memory)) {
         return fail("memory binding failed");
+    }
+    const uint32_t initial_memory_link_key =
+        oracis::recomp::global_static_dispatch_registry().link_epoch_key(NDS_ARM9);
+    const uint64_t initial_memory_generation = memory.mutation_generation();
+    if (initial_memory_link_key == 0u ||
+        memory.write(NDS_ARM9, 0x0200000Cu, 4u, UINT32_C(0xA5A55A5A)) !=
+            Status::Ok ||
+        memory.mutation_generation() == initial_memory_generation ||
+        oracis::recomp::global_static_dispatch_registry().link_epoch_key(NDS_ARM9) ==
+            initial_memory_link_key) {
+        return fail("bound GuestMemory mutations did not advance global link keys");
     }
     if (oracis_bus_bind_memory(nullptr)) {
         return fail("null memory binding must be rejected");
@@ -150,6 +162,10 @@ int main()
     oracis_static_dispatch_clear();
     if (!oracis_bus_unbind_memory(&memory)) {
         return fail("correct guest-memory unbind failed");
+    }
+    if (oracis::recomp::global_static_dispatch_registry().link_epoch_key(NDS_ARM9) !=
+        0u) {
+        return fail("unbound GuestMemory still exposed a cacheable link key");
     }
     if (oracis_bus_unbind_memory(&memory)) {
         return fail("second unbind must fail");

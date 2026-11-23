@@ -11,6 +11,14 @@ unsigned arm7_calls = 0u;
 unsigned thumb_calls = 0u;
 unsigned arm7_thumb_calls = 0u;
 unsigned validated_calls = 0u;
+uint64_t dispatch_memory_generation = 1u;
+
+uint64_t read_dispatch_memory_generation(void *context)
+{
+    return context != nullptr
+        ? *static_cast<const uint64_t *>(context)
+        : 0u;
+}
 
 void arm9_body(void) { ++arm9_calls; }
 void arm7_body(void) { ++arm7_calls; }
@@ -56,6 +64,8 @@ int main()
 
     oracis_static_dispatch_clear();
     oracis_static_dispatch_set_validation_callback(nullptr, nullptr);
+    oracis_static_dispatch_set_memory_generation_provider(
+        read_dispatch_memory_generation, &dispatch_memory_generation);
 
     const NdsDispatchEntry arm9_table[] = {
         {0x02000000u, 0u, arm9_body, nullptr},
@@ -174,6 +184,15 @@ int main()
         return fail("validated row ran without an identity callback");
     }
 
+    const uint32_t before_memory_mutation_key =
+        oracis::recomp::global_static_dispatch_registry().link_epoch_key(NDS_ARM9);
+    ++dispatch_memory_generation;
+    const uint32_t after_memory_mutation_key =
+        oracis::recomp::global_static_dispatch_registry().link_epoch_key(NDS_ARM9);
+    if (after_memory_mutation_key == before_memory_mutation_key) {
+        return fail("GuestMemory mutation did not invalidate C ABI link keys");
+    }
+
     const uint32_t before_callback_key =
         oracis::recomp::global_static_dispatch_registry().link_epoch_key(NDS_ARM9);
     oracis_static_dispatch_set_validation_callback(
@@ -227,6 +246,8 @@ int main()
         before_reset_callback_key) {
         return fail("validation callback reset did not invalidate link keys");
     }
+
+    oracis_static_dispatch_set_memory_generation_provider(nullptr, nullptr);
 
     std::puts("C ABI static dispatch registration and runtime transfer passed");
     return 0;

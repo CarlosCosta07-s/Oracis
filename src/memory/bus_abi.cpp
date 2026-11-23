@@ -38,6 +38,13 @@ oracis::memory::NdsKeypadControl *g_keypad_control = nullptr;
 oracis::memory::NdsSystemClock *g_system_clock = nullptr;
 uint16_t g_host_keypad_pressed_keys = 0u;
 
+uint64_t bus_memory_generation(void *context) noexcept
+{
+    const auto *memory =
+        static_cast<const oracis::memory::GuestMemory *>(context);
+    return memory != nullptr ? memory->mutation_generation() : 0u;
+}
+
 [[noreturn]] void bus_failure(const char *operation,
                               uint32_t address,
                               uint32_t width,
@@ -295,6 +302,8 @@ extern "C" int oracis_bus_bind_memory(void *memory)
     if (g_guest_memory != nullptr && g_guest_memory != guest_memory) return 0;
 
     g_guest_memory = guest_memory;
+    oracis_static_dispatch_set_memory_generation_provider(
+        bus_memory_generation, guest_memory);
     oracis_static_dispatch_set_validation_callback(
         oracis_bus_validate_dispatch, guest_memory);
     return 1;
@@ -322,6 +331,8 @@ extern "C" int oracis_bus_unbind_memory(void *memory)
          &g_keypad_control->backing_memory() == g_guest_memory)) {
         return 0;
     }
+    /* Clear the provider before its GuestMemory context can expire. */
+    oracis_static_dispatch_set_memory_generation_provider(nullptr, nullptr);
     g_guest_memory = nullptr;
     oracis_static_dispatch_set_validation_callback(nullptr, nullptr);
     return 1;

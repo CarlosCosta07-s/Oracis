@@ -14,6 +14,11 @@ int arm9_entry_b_calls = 0;
 int arm7_entry_calls = 0;
 int thumb_entry_calls = 0;
 
+uint64_t read_generation(void *context)
+{
+    return context != nullptr ? *static_cast<const uint64_t *>(context) : 0u;
+}
+
 void arm9_entry_a(void) { ++arm9_entry_a_calls; }
 void arm9_entry_b(void) { ++arm9_entry_b_calls; }
 void arm7_entry(void) { ++arm7_entry_calls; }
@@ -84,11 +89,14 @@ bool validate_bytes(NdsCpu cpu,
 int main()
 {
     StaticDispatchRegistry registry;
+    uint64_t memory_generation = 1u;
+    registry.set_memory_generation_provider(
+        read_generation, &memory_generation);
     const uint32_t initial_arm9_link_key =
         registry.link_epoch_key(NDS_ARM9);
     const uint32_t initial_arm7_link_key =
         registry.link_epoch_key(NDS_ARM7);
-    if (initial_arm9_link_key != 2u || initial_arm7_link_key != 3u ||
+    if (initial_arm9_link_key != 4u || initial_arm7_link_key != 5u ||
         registry.link_epoch_key(static_cast<NdsCpu>(77)) != 0u) {
         return fail("initial NdsLinkSlot epoch keys are invalid");
     }
@@ -348,6 +356,43 @@ int main()
         registry.lookup(NDS_ARM9, 0x02000000u, 0u).status !=
             DispatchLookupStatus::CpuNotRegistered) {
         return fail("registry clear did not remove all banks");
+    }
+
+    const uint32_t before_memory_change_arm9 =
+        registry.link_epoch_key(NDS_ARM9);
+    const uint32_t before_memory_change_arm7 =
+        registry.link_epoch_key(NDS_ARM7);
+    ++memory_generation;
+    const uint32_t after_memory_change_arm9 =
+        registry.link_epoch_key(NDS_ARM9);
+    const uint32_t after_memory_change_arm7 =
+        registry.link_epoch_key(NDS_ARM7);
+    if (after_memory_change_arm9 == before_memory_change_arm9 ||
+        after_memory_change_arm7 == before_memory_change_arm7 ||
+        after_memory_change_arm7 != (after_memory_change_arm9 | 1u)) {
+        return fail("GuestMemory generation change did not invalidate both CPU keys");
+    }
+
+    memory_generation = 0u;
+    if (registry.link_epoch_key(NDS_ARM9) != 0u ||
+        registry.link_epoch_key(NDS_ARM7) != 0u) {
+        return fail("exhausted memory generation did not disable link keys");
+    }
+    memory_generation = 1u;
+    if (registry.link_epoch_key(NDS_ARM9) != 0u) {
+        return fail("exhausted memory generation unexpectedly became cacheable");
+    }
+
+    const uint32_t before_provider_rebind =
+        registry.link_epoch_key(NDS_ARM9);
+    uint64_t replacement_generation = 7u;
+    registry.set_memory_generation_provider(
+        read_generation, &replacement_generation);
+    const uint32_t after_provider_rebind =
+        registry.link_epoch_key(NDS_ARM9);
+    if (after_provider_rebind == 0u ||
+        after_provider_rebind == before_provider_rebind) {
+        return fail("new GuestMemory identity did not reset and invalidate the provider");
     }
 
     std::puts("static ARM9/ARM7 dispatch registry tests passed");

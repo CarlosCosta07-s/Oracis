@@ -21,6 +21,8 @@ typedef int (*OracisDispatchValidationFn)(
     uint32_t thumb,
     void *user);
 
+typedef uint64_t (*OracisDispatchMemoryGenerationFn)(void *user);
+
 typedef enum OracisDispatchRegisterStatus {
     ORACIS_DISPATCH_REGISTER_OK = 0,
     ORACIS_DISPATCH_REGISTER_INVALID_CPU = 1,
@@ -56,6 +58,10 @@ void oracis_static_dispatch_clear(void);
 
 void oracis_static_dispatch_set_validation_callback(
     OracisDispatchValidationFn callback,
+    void *user);
+
+void oracis_static_dispatch_set_memory_generation_provider(
+    OracisDispatchMemoryGenerationFn provider,
     void *user);
 
 const NdsDispatchEntry *oracis_static_dispatch_lookup(

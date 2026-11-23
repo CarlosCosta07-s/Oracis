@@ -103,6 +103,13 @@ extern "C" void oracis_static_dispatch_set_validation_callback(
     }
 }
 
+extern "C" void oracis_static_dispatch_set_memory_generation_provider(
+    OracisDispatchMemoryGenerationFn provider,
+    void *user)
+{
+    registry().set_memory_generation_provider(provider, user);
+}
+
 extern "C" const NdsDispatchEntry *oracis_static_dispatch_lookup(
     NdsCpu cpu,
     uint32_t target_pc,

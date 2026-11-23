@@ -261,9 +261,65 @@ void StaticDispatchRegistry::advance_link_epoch() noexcept
         : link_epoch_ + 1u;
 }
 
-uint32_t StaticDispatchRegistry::link_epoch_key(NdsCpu cpu) const noexcept
+void StaticDispatchRegistry::set_memory_generation_provider(
+    DispatchMemoryGenerationFn provider, void *user) noexcept
 {
-    if (!valid_cpu(cpu) || link_epoch_ == 0u) return 0u;
+    if (memory_generation_provider_ == provider &&
+        memory_generation_user_ == user) {
+        return;
+    }
+
+    memory_generation_provider_ = provider;
+    memory_generation_user_ = user;
+    observed_memory_generation_ = 0u;
+    memory_generation_observed_ = false;
+    memory_generation_exhausted_ = false;
+
+    if (memory_generation_provider_ != nullptr) {
+        const uint64_t generation =
+            memory_generation_provider_(memory_generation_user_);
+        if (generation == 0u) {
+            memory_generation_exhausted_ = true;
+        } else {
+            observed_memory_generation_ = generation;
+            memory_generation_observed_ = true;
+        }
+    }
+
+    /* A different provider context denotes a different GuestMemory identity. */
+    advance_link_epoch();
+}
+
+bool StaticDispatchRegistry::refresh_memory_generation() noexcept
+{
+    if (memory_generation_provider_ == nullptr ||
+        memory_generation_exhausted_) {
+        return false;
+    }
+
+    const uint64_t generation =
+        memory_generation_provider_(memory_generation_user_);
+    if (generation == 0u) {
+        memory_generation_observed_ = false;
+        memory_generation_exhausted_ = true;
+        return false;
+    }
+
+    if (!memory_generation_observed_) {
+        observed_memory_generation_ = generation;
+        memory_generation_observed_ = true;
+        advance_link_epoch();
+    } else if (generation != observed_memory_generation_) {
+        observed_memory_generation_ = generation;
+        advance_link_epoch();
+    }
+
+    return link_epoch_ != 0u;
+}
+
+uint32_t StaticDispatchRegistry::link_epoch_key(NdsCpu cpu) noexcept
+{
+    if (!valid_cpu(cpu) || !refresh_memory_generation()) return 0u;
     return (link_epoch_ << 1u) | static_cast<uint32_t>(cpu);
 }
 

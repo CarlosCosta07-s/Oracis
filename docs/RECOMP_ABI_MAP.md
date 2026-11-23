@@ -222,9 +222,9 @@ transferência.
 
 ## 15. Geração conservadora de mutações da memória guest
 
-`GuestMemory::mutation_generation()` expõe uma época global de mutação para a futura invalidação de links e código recompilado. O contador avança após cada operação bem-sucedida que altera o mapa (RAM, imagem, alias, mirror, overlay, substituição ou remoção), a visibilidade por CPU ou bytes do backing (escritas escalares e em bloco). Leituras, validações e operações recusadas não alteram a geração.
+`GuestMemory::mutation_generation()` expõe uma época global de mutação para a invalidação conservadora de links e código recompilado. O contador avança após cada operação bem-sucedida que altera o mapa (RAM, imagem, alias, mirror, overlay, substituição ou remoção), a visibilidade por CPU ou bytes do backing (escritas escalares e em bloco). Leituras, validações e operações recusadas não alteram a geração.
 
-A geração é global para ARM9 e ARM7: qualquer escrita invalida conservadoramente todos os snapshots, mesmo quando afeta apenas dados não executáveis. Essa granularidade reduz desempenho potencial, mas evita manter um link após uma mudança de bytes ou de resolução de endereço. O valor inicial é 1; zero é reservado para esgotamento por overflow e significa que nenhum cache pode ser considerado válido. A geração ainda não habilita cache: os link slots continuam passando pelo dispatcher com validação de identidade em cada transferência. O teste `oracis_guest_memory_generation_test` verifica avanços, ausência de avanço em falhas e propagação por aliases, mirrors e overlays.
+A geração é global para ARM9 e ARM7: qualquer escrita invalida conservadoramente todos os snapshots, mesmo quando afeta apenas dados não executáveis. Essa granularidade reduz desempenho potencial, mas evita manter um link após uma mudança de bytes ou de resolução de endereço. O valor inicial é 1; zero é reservado para esgotamento por overflow e significa que nenhum cache pode ser considerado válido. O provider do barramento agora conecta essa geração ao epoch global de dispatch; isso ainda não habilita cache, e os link slots continuam passando pelo dispatcher com validação de identidade em cada transferência. O teste `oracis_guest_memory_generation_test` verifica avanços, ausência de avanço em falhas e propagação por aliases, mirrors e overlays.
 
 
 ## 16. Época de invalidação do registry de dispatch
@@ -241,9 +241,17 @@ as chaves dos dois CPUs porque o conjunto de candidatos e a política de
 validação são globais. Operações recusadas e limpeza de registry vazio não
 avançam a época.
 
-Este epoch cobre apenas alterações na topologia do dispatch e no callback. Ele
-não substitui `GuestMemory::mutation_generation()`: antes de habilitar um
-link cache, o runtime ainda precisa observar a época da memória, associar a
-prova de conteúdo ao guard e validar que a função cacheada continua sendo a
-linha vencedora para o CPU/PC/modo. Os helpers `runtime_link_*` seguem no
-fallback completo e `runtime_inline_leaf_admit()` continua retornando falso.
+A chave também observa `GuestMemory::mutation_generation()` por meio de um
+provider explícito, separado do callback de validação. O provider recebe o
+ponteiro da instância de `GuestMemory` e é instalado/removido junto com o bind
+do barramento; a identidade do contexto também invalida a época. Em cada
+consulta de chave, uma nova geração avança o epoch global; ausência de provider
+ou geração zero retorna chave zero, desabilitando o cache. O provider é limpo
+antes de a memória ser desvinculada, evitando manter um contexto pendente.
+
+Essa integração ainda não habilita cache: o runtime continua precisando
+associar a prova de conteúdo ao guard e validar que a função cacheada continua
+sendo a linha vencedora para o CPU/PC/modo. Os helpers `runtime_link_*` seguem
+no fallback completo e `runtime_inline_leaf_admit()` continua retornando
+falso. Os testes de registry, ABI e barramento cobrem mudança de geração,
+esgotamento, troca de identidade e limpeza do provider.

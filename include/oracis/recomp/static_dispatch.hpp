@@ -46,6 +46,7 @@ using DispatchValidationFn = bool (*)(
     uint32_t pc,
     bool thumb,
     void *user);
+using DispatchMemoryGenerationFn = uint64_t (*)(void *user);
 
 struct DispatchLookupResult {
     DispatchLookupStatus status = DispatchLookupStatus::Miss;
@@ -93,9 +94,13 @@ public:
 
     void clear() noexcept;
 
+    /* Provider identity and value bind link validity to the live GuestMemory. */
+    void set_memory_generation_provider(
+        DispatchMemoryGenerationFn provider, void *user) noexcept;
+
     /* NdsLinkSlot.key format: (dispatch_epoch << 1) | cpu. Zero disables
        cached links and is reserved for unresolved slots. */
-    uint32_t link_epoch_key(NdsCpu cpu) const noexcept;
+    uint32_t link_epoch_key(NdsCpu cpu) noexcept;
     void invalidate_link_epoch() noexcept;
 
     /*
@@ -132,7 +137,13 @@ private:
         bool thumb) noexcept;
     static uint32_t candidate_rank(const NdsDispatchEntry &entry) noexcept;
     void advance_link_epoch() noexcept;
+    bool refresh_memory_generation() noexcept;
 
+    DispatchMemoryGenerationFn memory_generation_provider_ = nullptr;
+    void *memory_generation_user_ = nullptr;
+    uint64_t observed_memory_generation_ = 0u;
+    bool memory_generation_observed_ = false;
+    bool memory_generation_exhausted_ = false;
     uint32_t link_epoch_ = 1u;
     std::vector<Bank> arm9_banks_;
     std::vector<Bank> arm7_banks_;
