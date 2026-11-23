@@ -1919,8 +1919,8 @@ NdsOverlayStatus NdsMachine::unload_overlay(
     uint32_t overlay_id,
     bool no_live_guest_references) noexcept
 {
-    if (!initialized_) return NdsOverlayStatus::InvalidMetadata;
-    if (!program_loaded_) return NdsOverlayStatus::InvalidMetadata;
+    if (!initialized_) return NdsOverlayStatus::NotInitialized;
+    if (!program_loaded_) return NdsOverlayStatus::ProgramNotLoaded;
     if (!valid_cpu(cpu)) return NdsOverlayStatus::InvalidCpu;
     if (slice_active_[0] || slice_active_[1]) {
         return NdsOverlayStatus::Busy;
