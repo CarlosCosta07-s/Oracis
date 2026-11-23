@@ -331,3 +331,11 @@ bancos overlay ligados ao runtime ou dispatch dinâmico. A próxima etapa é
 executar o extrator sobre a cópia USA Rev 1 local, conferir os hashes e então
 construir os bancos estáticos por overlay sem habilitar a execução do jogo
 antes de resolver as dependências reais.
+
+## Atualização 2026-11-23 — ligação dos bancos de overlays
+
+Foi criado o gerador local tools/ndsrecomp/generate_overlay_bank_registry.py. Ele valida o relatório de emissão (schema e nds-codegen-v3), exige que o adaptador de direção de memória tenha passado, confere os arquivos C/H/dispatch de cada overlay emitido e calcula hashes SHA-256 dos arquivos efetivamente ligados. O gerador produz um registrador C++ e um manifesto no diretório de build; nenhum banco derivado da ROM é enviado ao Git.
+
+O CMake agora aceita ORACIS_LOCAL_OVERLAY_BANK_DIR, em conjunto obrigatório com ORACIS_LOCAL_BANK_DIR. Os corpos C e tabelas de dispatch dos overlays são compilados como objetos e ligados a oracis_machine. A ponte de runtime registra os overlays ARM9 depois dos bancos principais, com rollback dos bancos adicionados pela chamada quando ocorre erro. A descoberta de endereços duplicados permanece responsabilidade do registry, que valida cada candidato contra os bytes guest esperados.
+
+Validação local desta rodada: o relatório disponível contém 29 overlays ARM9 emitidos e 10.415 funções. O gerador local produziu um registrador para os 29 bancos e um manifesto com hashes SHA-256. Isso é uma validação do inventário/geração do registrador, não uma confirmação de que os objetos retail foram recompilados por esta nova configuração CMake ou executados em jogo. A integração ainda não carrega overlays na RAM guest; sem cópia do módulo, inicialização de BSS e unload sincronizado, as funções não podem ser consideradas executáveis. Nenhum round do jogo deve ser habilitado nesta etapa.
