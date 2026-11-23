@@ -289,3 +289,49 @@ O diretório de overlays deve conter emission_report.json e uma pasta overlay_NN
 Na inicialização, oracis_host_runtime_register_compiled_banks() registra primeiro ARM9/ARM7 principais e depois os bancos de overlay. A operação é idempotente para tabelas já registradas e o registrador gerado desfaz apenas os overlays adicionados pela chamada que falhou. Todos os overlays desta primeira revisão são ARM9. Endereços iguais entre bancos são permitidos pelo registry; cada entrada mantém sua validação de bytes, então uma função de um overlay só pode ser selecionada quando a memória guest contém os bytes esperados por aquela entrada.
 
 **Limite importante:** registrar uma tabela não carrega o conteúdo do overlay na memória guest. O loader de overlays precisa copiar/descomprimir os bytes corretos para o endereço de RAM, inicializar BSS e estado relacionado, e respeitar o ciclo de vida/unload do módulo. Até essa integração existir e ser testada, os bancos podem estar ligados e registrados, mas não tornam os overlays executáveis por si só. O preflight dos entry points principais continua obrigatório e nenhum round do jogo deve ser habilitado apenas por causa do registro dos bancos.
+
+## 16. Carregamento transacional dos overlays extraídos
+
+A classe `oracis::machine::NdsOverlayLoader` consome os campos de uma linha
+de `overlays/manifest.json` junto com o arquivo de imagem correspondente.
+O chamador deve fornecer uma imagem **já descomprimida**, com exatamente
+`ram_size` bytes e o `image_sha1` publicado pelo extrator. O loader valida
+CPU, ID, limites de 32 bits, BSS, intervalo de inicialização estática, SHA-1,
+permissões de escrita e execução e colisões com outros overlays ativos da
+mesma CPU.
+
+A escrita da imagem e a inicialização de BSS são preparadas em um buffer único
+e aplicadas por uma única chamada a `GuestMemory::write_bytes`. O registro do
+overlay só é publicado depois da confirmação de identidade dos bytes escritos.
+A geração de mutação do mapa de memória muda durante essa escrita e, portanto,
+invalida os links estáticos cacheados que dependem dos bytes guest. Uma imagem
+com hash incorreto, destino não mapeado ou sobreposição é rejeitada antes de
+ser considerada carregada.
+
+A API de máquina é `NdsMachine::load_overlay()` /
+`NdsMachine::unload_overlay()`. A ponte de host expõe as mesmas operações por
+`oracis_host_runtime_load_overlay()` e
+`oracis_host_runtime_unload_overlay()`; os dados podem ser obtidos
+diretamente do manifesto local e do arquivo `arm9_overlay_NNNN.bin` ou
+`arm7_overlay_NNNN.bin`. O runtime não lê a ROM nem faz parsing de JSON nessa
+API: a camada host deve selecionar os campos do manifesto e fornecer os bytes.
+
+O unload só é aceito fora de fatias ativas, quando o PC atual não está dentro
+do módulo e quando o host passa `no_live_guest_references=1`. Essa confirmação
+é necessária porque o runtime ainda não rastreia todos os endereços de retorno
+guardados em pilhas guest. O módulo é zerado e removido do inventário somente
+depois que a faixa inteira continua gravável. Não chame unload até que o
+gerenciador de overlays possa provar que não há retorno pendente para o módulo.
+
+O intervalo `static_init_start..static_init_end` é validado e preservado
+como metadado, mas **não é executado** pelo loader. A execução dos
+construtores/initializers, o protocolo específico de substituição usado pelo
+jogo e a resolução de dependências de overlays ainda precisam ser integrados.
+O carregador também não faz relocations nem converte funções compiladas
+ausentes em código executável: os bancos estáticos por overlay continuam
+sendo obrigatórios para dispatch nativo.
+
+A regressão `oracis_nds_overlay_loader_test` cobre cópia de imagem, BSS zerado,
+rejeição de hash sem mutação, idempotência, colisões, validação do intervalo
+de inicialização e unload condicionado à quiescência. Esses testes não
+representam ainda o primeiro boot de Pokémon Platinum.
