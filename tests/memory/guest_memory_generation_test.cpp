@@ -96,7 +96,7 @@ int main()
 
     if (memory.map_mirror(
             0x04000000u, 0x02000000u, 0x1000u, 0x2000u,
-            "code mirror") != Status::Ok ||
+            "code mirror", oracis::memory::CpuAccessInherit) != Status::Ok ||
         !advanced(memory, generation)) {
         return fail("mirror mapping did not advance the generation");
     }
