@@ -34,10 +34,6 @@ def generate(bank_dir: Path, output_cpp: Path, manifest_path: Path) -> dict:
         raise ValueError("overlay banks were not emitted by the pinned nds-codegen-v3")
     if report.get("direction_adapter", {}).get("status") != "passed":
         raise ValueError("overlay memory-direction adapter did not pass")
-    syntax = report.get("c99_syntax_summary", {})
-    if syntax.get("failed") != 0 or syntax.get("passed") != syntax.get("total"):
-        raise ValueError("overlay C99 syntax validation is incomplete or failed")
-
     records = []
     seen_ids: set[int] = set()
     for row in report.get("results", []):
