@@ -149,6 +149,45 @@ NdsOverlayStatus NdsOverlayLoader::load(
     }
 }
 
+NdsOverlayStatus NdsOverlayLoader::clear() noexcept
+{
+    if (loaded_.empty()) return NdsOverlayStatus::Ok;
+
+    uint32_t maximum_size = 0u;
+    for (const LoadedOverlay &item : loaded_) {
+        const uint64_t total =
+            static_cast<uint64_t>(item.ram_size) + item.bss_size;
+        if (total == 0u || total > UINT32_MAX ||
+            memory_.validate_write(
+                item.cpu, item.ram_address,
+                static_cast<uint32_t>(total)) != memory::Status::Ok) {
+            return NdsOverlayStatus::MemoryUnavailable;
+        }
+        if (total > maximum_size) {
+            maximum_size = static_cast<uint32_t>(total);
+        }
+    }
+
+    try {
+        const std::vector<uint8_t> zeros(maximum_size, 0u);
+        while (!loaded_.empty()) {
+            const LoadedOverlay &item = loaded_.back();
+            const uint32_t total_size = item.ram_size + item.bss_size;
+            if (memory_.write_bytes(
+                    item.cpu, item.ram_address,
+                    zeros.data(), total_size) != memory::Status::Ok) {
+                return NdsOverlayStatus::WriteFailed;
+            }
+            loaded_.pop_back();
+        }
+        return NdsOverlayStatus::Ok;
+    } catch (const std::bad_alloc &) {
+        return NdsOverlayStatus::WriteFailed;
+    } catch (...) {
+        return NdsOverlayStatus::WriteFailed;
+    }
+}
+
 NdsOverlayStatus NdsOverlayLoader::unload(
     NdsCpu cpu,
     uint32_t overlay_id,
