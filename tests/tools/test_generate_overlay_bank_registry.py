@@ -63,12 +63,29 @@ class GenerateOverlayBankRegistryTests(unittest.TestCase):
             "image_sha1": image_sha1,
             "image_sha256": image_sha256,
         })
+        body = folder / f"{bank}.c"
+        header = folder / f"{bank}.h"
+        dispatch = folder / f"{bank}_dispatch.c"
+        shard_dir = folder / f"{bank}_shards"
+        shard_dir.mkdir()
+        shard = shard_dir / "bank_part_0000.c"
+        shard.write_text("void generated_body(void) {}\\n", encoding="utf-8")
         return {
             "overlay_id": overlay_id,
             "bank": bank,
             "status": status,
             "functions_total": 12,
             "image_sha1": image_sha1,
+            "sha256": {
+                path.name: generator.sha256(path)
+                for path in (body, header, dispatch)
+            },
+            "shards": {
+                "directory": shard_dir.name,
+                "function_count": 12,
+                "functions_per_shard": 512,
+                "files": {shard.name: generator.sha1(shard)},
+            },
         }
 
     def write_report(self, rows: list[dict]) -> None:
@@ -119,6 +136,12 @@ class GenerateOverlayBankRegistryTests(unittest.TestCase):
         self.assertEqual(manifest["compiled_overlay_count"], 2)
         self.assertEqual(manifest["uncompiled_overlay_count"], 1)
         self.assertEqual(manifest["uncompiled_overlay_ids"], [7])
+        self.assertEqual(manifest["shard_source_count"], 2)
+        self.assertEqual(manifest["banks"][0]["shard_count"], 1)
+        self.assertEqual(len(manifest["banks"][0]["compile_sources"]), 1)
+        self.assertTrue(manifest["banks"][0]["compile_sources"][0].endswith(
+            "bank_part_0000.c"
+        ))
         self.assertEqual(
             manifest["banks"][0]["dispatch_sha256"],
             generator.sha256(
@@ -175,6 +198,32 @@ class GenerateOverlayBankRegistryTests(unittest.TestCase):
                 self.bank_dir, self.overlay_image_dir,
                 self.root / "registry.cpp", self.root / "manifest.json",
             )
+
+    def test_rejects_tampered_shard_source(self) -> None:
+        row = self.add_bank(5)
+        self.write_report([row])
+        shard = (
+            self.bank_dir / "overlay_0005"
+            / "pokemon_platinum_usa_rev1_arm9_overlay_0005_shards"
+            / "bank_part_0000.c"
+        )
+        shard.write_text("void tampered(void) {}\\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "shard SHA-1 mismatch"):
+            generator.generate(
+                self.bank_dir, self.overlay_image_dir,
+                self.root / "registry.cpp", self.root / "manifest.json",
+            )
+
+    def test_supports_legacy_monolithic_overlay_bank_without_shards(self) -> None:
+        row = self.add_bank(5)
+        row.pop("shards")
+        self.write_report([row])
+        result = generator.generate(
+            self.bank_dir, self.overlay_image_dir,
+            self.root / "registry.cpp", self.root / "manifest.json",
+        )
+        self.assertEqual(result["banks"][0]["shard_count"], 0)
+        self.assertTrue(result["banks"][0]["compile_sources"][0].endswith(".c"))
 
     def test_rejects_duplicate_overlay_ids(self) -> None:
         row = self.add_bank(5)
