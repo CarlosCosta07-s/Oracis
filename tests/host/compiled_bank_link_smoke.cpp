@@ -11,10 +11,12 @@ constexpr uint32_t kArm9Entry = UINT32_C(0x02001000);
 constexpr uint32_t kArm7Entry = UINT32_C(0x02381000);
 constexpr uint32_t kArm9MarkerAddress = UINT32_C(0x02002000);
 constexpr uint32_t kArm7MarkerAddress = UINT32_C(0x02002004);
-constexpr uint32_t kArm9LinkedMarkerAddress = UINT32_C(0x02002008);
+constexpr uint32_t kArm9LinkedCallCountAddress = UINT32_C(0x02002008);
+constexpr uint32_t kArm9LinkStateAddress = UINT32_C(0x02002010);
 constexpr uint32_t kArm9Marker = UINT32_C(0xA9A90001);
 constexpr uint32_t kArm7Marker = UINT32_C(0xA7A70001);
-constexpr uint32_t kArm9LinkedMarker = UINT32_C(0xA9A90002);
+constexpr uint32_t kArm9ExpectedLinkedCalls = 3u;
+constexpr uint32_t kArm9LinkStateMarker = UINT32_C(0xA9A90003);
 
 void registration_collision_entry(void)
 {
@@ -130,9 +132,10 @@ int main()
 
     if (bus_read_u32(kArm9MarkerAddress) != kArm9Marker ||
         bus_read_u32(kArm7MarkerAddress) != kArm7Marker ||
-        bus_read_u32(kArm9LinkedMarkerAddress) != kArm9LinkedMarker) {
+        bus_read_u32(kArm9LinkedCallCountAddress) != kArm9ExpectedLinkedCalls ||
+        bus_read_u32(kArm9LinkStateAddress) != kArm9LinkStateMarker) {
         (void)oracis_host_runtime_shutdown();
-        return fail("compiled bank entrypoints or ARM9 link-slot target did not execute");
+        return fail("validated ARM9 link slot did not hit, invalidate, and re-resolve");
     }
 
     if (oracis_host_runtime_shutdown() != ORACIS_HOST_RUNTIME_OK ||
