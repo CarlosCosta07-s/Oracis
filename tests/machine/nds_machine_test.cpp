@@ -2147,7 +2147,10 @@ int main()
             oracis::memory::Status::Ok) {
         return fail("Thumb Prefetch Abort fixture target is not executable");
     }
-    runtime_dispatch(prefetch_thumb_fault_pc | 1u);
+    NdsLinkSlot thumb_prefetch_slot = {
+        nullptr, 0u, prefetch_thumb_fault_pc | 1u, nullptr
+    };
+    runtime_link_branch(&thumb_prefetch_slot);
     if ((arm9->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_ABORT ||
         (arm9->cpsr & CPSR_I_BIT) == 0u ||
         (arm9->cpsr & CPSR_T_BIT) != 0u ||
@@ -2162,6 +2165,17 @@ int main()
     }
     arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
     arm9->R[15] = UINT32_C(0x02006000);
+
+    /*
+     * A mapped executable target that the current privileged MPU profile
+     * permits is a static-bank miss/dynamic-code issue, not a Prefetch Abort.
+     */
+    if (oracis_arm_runtime_try_prefetch_abort(prefetch_fault_pc) != 0 ||
+        arm9->cpsr != ORACIS_ARM_MODE_SYSTEM ||
+        arm9->R[15] != UINT32_C(0x02006000) ||
+        runtime_unwinding()) {
+        return fail("MPU-permitted dynamic code target was incorrectly converted into Prefetch Abort");
+    }
 
     const uint32_t saved_cpsr = arm9->cpsr;
     arm9->cpsr = (saved_cpsr & ~ORACIS_ARM_MODE_MASK) |
