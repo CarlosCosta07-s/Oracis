@@ -1950,9 +1950,7 @@ NdsOverlayStatus NdsMachine::run_overlay_static_initializers(
 
     const auto *available = overlay_loader_.static_initializers(cpu, overlay_id);
     if (available == nullptr) return NdsOverlayStatus::NotLoaded;
-    if (available->empty()) {
-        return overlay_loader_.begin_static_initializers(cpu, overlay_id);
-    }
+    if (available->empty()) return NdsOverlayStatus::Ok;
 
     ArmCpuState *state = cpu_state(cpu);
     if (state == nullptr) return NdsOverlayStatus::InvalidCpu;
@@ -2028,7 +2026,6 @@ NdsOverlayStatus NdsMachine::run_overlay_static_initializers(
     }
 
     constexpr uint32_t SyntheticReturnPc = UINT32_C(0xFFFFFFFC);
-    const unsigned index = cpu_index(cpu);
     for (const NdsOverlayFunctionPointer &initializer : initializers) {
         *state = caller_state;
         state->cpsr = (caller_state.cpsr & ~CPSR_T_BIT) |
@@ -2120,7 +2117,6 @@ NdsOverlayStatus NdsMachine::run_overlay_static_initializers(
         }
     }
 
-    (void)index;
     (void)oracis_arm_runtime_select_cpu(previous_cpu);
     return NdsOverlayStatus::Ok;
 }
