@@ -67,6 +67,16 @@ void initializer_two()
     test_bx_lr_return();
 }
 
+void initializer_three_thumb()
+{
+    g_initializer_order.push_back(3u);
+    if (g_machine != nullptr) {
+        (void)g_machine->guest_memory().write(
+            NDS_ARM9, kEffectAddress + 8u, 4u, UINT32_C(0x55667788));
+    }
+    test_bx_lr_return();
+}
+
 void initializer_over_budget()
 {
     runtime_tick(50u);
@@ -96,9 +106,10 @@ oracis::machine::NdsOverlayImage make_overlay(
     uint32_t overlay_id,
     uint32_t address,
     std::vector<uint8_t> &contents,
-    uint32_t initializer_count)
+    uint32_t initializer_count,
+    uint32_t static_table_offset = 8u)
 {
-    const uint32_t static_begin = address + 8u;
+    const uint32_t static_begin = address + static_table_offset;
     const uint32_t static_end = static_begin + initializer_count * 4u;
     const std::string digest = oracis::host::detail::sha1_hex(contents);
     /* Keep the image hash alive for the duration of load_overlay(). */
@@ -158,6 +169,7 @@ int main()
     const NdsDispatchEntry entries[] = {
         {kSuccessfulOverlayAddress, 0u, &initializer_one, nullptr},
         {kSuccessfulOverlayAddress + 4u, 0u, &initializer_two, nullptr},
+        {kSuccessfulOverlayAddress + 8u, 1u, &initializer_three_thumb, nullptr},
         {kBudgetOverlayAddress, 0u, &initializer_over_budget, nullptr},
         {kMissingOverlayAddress, 0u, &initializer_with_missing_nested_target, nullptr}
     };
@@ -167,11 +179,12 @@ int main()
         return fail("synthetic initializer dispatch bank registration failed");
     }
 
-    std::vector<uint8_t> success_image(16u, 0u);
-    put_u32_le(success_image, 8u, kSuccessfulOverlayAddress);
-    put_u32_le(success_image, 12u, kSuccessfulOverlayAddress + 4u);
+    std::vector<uint8_t> success_image(24u, 0u);
+    put_u32_le(success_image, 12u, kSuccessfulOverlayAddress);
+    put_u32_le(success_image, 16u, kSuccessfulOverlayAddress + 4u);
+    put_u32_le(success_image, 20u, (kSuccessfulOverlayAddress + 8u) | 1u);
     NdsOverlayImage success_overlay = make_overlay(
-        kSuccessfulOverlay, kSuccessfulOverlayAddress, success_image, 2u);
+        kSuccessfulOverlay, kSuccessfulOverlayAddress, success_image, 3u, 12u);
     if (machine.load_overlay(success_overlay) != NdsOverlayStatus::Ok) {
         return fail("successful initializer overlay failed to load");
     }
@@ -182,9 +195,9 @@ int main()
     const NdsOverlayStatus success = machine.run_overlay_static_initializers(
         NDS_ARM9, kSuccessfulOverlay, 100u);
     if (success != NdsOverlayStatus::Ok ||
-        g_initializer_order != std::vector<uint32_t>{1u, 2u} ||
+        g_initializer_order != std::vector<uint32_t>{1u, 2u, 3u} ||
         machine.overlay_loader().static_initializer_progress(
-            NDS_ARM9, kSuccessfulOverlay) != 2u ||
+            NDS_ARM9, kSuccessfulOverlay) != 3u ||
         arm9->R[15] != caller_state.R[15] ||
         arm9->R[13] != caller_state.R[13] ||
         arm9->cpsr != caller_state.cpsr) {
@@ -193,7 +206,9 @@ int main()
     if (machine.guest_memory().read(
             NDS_ARM9, kEffectAddress, 4u).value != UINT32_C(0xA1B2C3D4) ||
         machine.guest_memory().read(
-            NDS_ARM9, kEffectAddress + 4u, 4u).value != UINT32_C(0x10203040)) {
+            NDS_ARM9, kEffectAddress + 4u, 4u).value != UINT32_C(0x10203040) ||
+        machine.guest_memory().read(
+            NDS_ARM9, kEffectAddress + 8u, 4u).value != UINT32_C(0x55667788)) {
         return fail("constructor guest-memory side effects were not retained");
     }
     if (machine.run_overlay_static_initializers(
