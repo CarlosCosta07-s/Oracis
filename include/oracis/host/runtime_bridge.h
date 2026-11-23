@@ -31,7 +31,16 @@ typedef enum OracisHostRuntimeStatus {
     ORACIS_HOST_RUNTIME_INVALID_ARGUMENT = 12,
     ORACIS_HOST_RUNTIME_VIDEO_ERROR = 13,
     ORACIS_HOST_RUNTIME_GAME_CARD_ERROR = 14,
-    ORACIS_HOST_RUNTIME_ENTRYPOINT_UNRESOLVED = 15
+    ORACIS_HOST_RUNTIME_ENTRYPOINT_UNRESOLVED = 15,
+    ORACIS_HOST_RUNTIME_OVERLAY_ALREADY_LOADED = 16,
+    ORACIS_HOST_RUNTIME_OVERLAY_NOT_LOADED = 17,
+    ORACIS_HOST_RUNTIME_OVERLAY_INVALID = 18,
+    ORACIS_HOST_RUNTIME_OVERLAY_HASH_MISMATCH = 19,
+    ORACIS_HOST_RUNTIME_OVERLAY_MEMORY_UNAVAILABLE = 20,
+    ORACIS_HOST_RUNTIME_OVERLAY_OVERLAP = 21,
+    ORACIS_HOST_RUNTIME_OVERLAY_BUSY = 22,
+    ORACIS_HOST_RUNTIME_OVERLAY_WRITE_FAILED = 23,
+    ORACIS_HOST_RUNTIME_OVERLAY_IDENTITY_CONFLICT = 24
 } OracisHostRuntimeStatus;
 
 /* Result of checking the current ARM9/ARM7 start PCs against registered banks. */
@@ -156,6 +165,35 @@ int oracis_host_runtime_validate_entrypoints(
  * any guest memory is modified. This does not perform BIOS boot setup.
  */
 int oracis_host_runtime_load_local_platinum_segments(const char *directory);
+
+/*
+ * One locally extracted, already-decompressed overlay image. The caller
+ * obtains these fields from the Oracis overlays/manifest.json and supplies
+ * the matching image file. The runtime verifies image_sha1 before writing.
+ */
+typedef struct OracisHostOverlayImage {
+    uint32_t cpu;
+    uint32_t overlay_id;
+    uint32_t ram_address;
+    uint32_t ram_size;
+    uint32_t bss_size;
+    uint32_t static_init_start;
+    uint32_t static_init_end;
+    const uint8_t *contents;
+    const char *image_sha1;
+} OracisHostOverlayImage;
+
+/* Load one overlay after the two main program segments have been loaded. */
+int oracis_host_runtime_load_overlay(
+    const OracisHostOverlayImage *overlay);
+/*
+ * Unload only at a safe overlay-manager boundary. no_live_guest_references
+ * must be 1 only after the host has established that no saved guest return
+ * address or other live reference points into this module.
+ */
+int oracis_host_runtime_unload_overlay(
+    uint32_t cpu, uint32_t overlay_id,
+    uint32_t no_live_guest_references);
 
 /*
  * Register the locally linked Platinum ARM9/ARM7 dispatch tables. Returns
