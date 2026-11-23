@@ -60,6 +60,9 @@ public:
 
     NdsOverlayStatus load(const NdsOverlayImage &image) noexcept;
 
+    /* Zero all loaded modules and discard their records at machine shutdown. */
+    NdsOverlayStatus clear() noexcept;
+
     /*
      * no_live_guest_references is an explicit caller certificate: the loader
      * cannot inspect guest stack frames or saved return addresses. current_pc
