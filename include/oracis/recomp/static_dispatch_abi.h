@@ -23,6 +23,16 @@ typedef int (*OracisDispatchValidationFn)(
 
 typedef uint64_t (*OracisDispatchMemoryGenerationFn)(void *user);
 
+/*
+ * Optional scoped recovery hook for a caller that can roll back its guest
+ * context after a failed nested dispatch. Return nonzero to request generated
+ * C-frame unwind; ordinary runtime execution remains fail-closed when unset.
+ */
+typedef int (*OracisDispatchMissHandler)(
+    void *user, NdsCpu cpu, uint32_t target_pc, uint32_t cpsr,
+    uint32_t lookup_status, uint32_t candidate_count,
+    uint32_t has_inactive_candidate);
+
 typedef enum OracisDispatchRegisterStatus {
     ORACIS_DISPATCH_REGISTER_OK = 0,
     ORACIS_DISPATCH_REGISTER_INVALID_CPU = 1,
