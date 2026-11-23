@@ -129,6 +129,7 @@ target_compile_features(oracis_memory PUBLIC cxx_std_20)
 # Owns and binds one coherent NDS machine context over the runtime devices.
 add_library(oracis_machine STATIC
     src/machine/nds_machine.cpp
+    src/machine/nds_overlay_loader.cpp
     src/machine/host_runtime_bridge.cpp
     src/machine/sha1.cpp
 )
@@ -351,6 +352,13 @@ endif()
 include(CTest)
 
 if(BUILD_TESTING)
+    add_executable(oracis_nds_overlay_loader_test
+        tests/machine/nds_overlay_loader_test.cpp
+    )
+    target_link_libraries(oracis_nds_overlay_loader_test PRIVATE oracis_machine)
+    add_test(NAME oracis_nds_overlay_loader_test
+        COMMAND oracis_nds_overlay_loader_test)
+
     add_executable(oracis_guest_memory_test
         tests/memory/guest_memory_test.cpp
     )
