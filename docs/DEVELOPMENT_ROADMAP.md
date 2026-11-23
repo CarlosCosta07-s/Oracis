@@ -537,3 +537,20 @@ de recompilação estática, não um boot funcional de Pokémon Platinum.
 A CI `45234103186` concluiu com sucesso os quatro jobs. Essa execução
 testou a versão do código no Git, CMake e ferramentas com fixtures
 sintéticas; não compilou nem executou os bancos locais derivados da ROM.
+
+## Atualização 2026-11-23 — static-init decodificado pelo runtime, ainda não executado
+
+O loader agora lê a tabela static-init apenas depois que a imagem do overlay
+passa pela validação SHA-1. Ele preserva a ordem dos ponteiros, interpreta
+o bit 0 como estado Thumb/ARM, valida alinhamento e exige que a instrução
+inicial esteja integralmente na imagem do próprio overlay. Um ponteiro
+inválido faz a carga falhar antes de alterar a RAM. A primeira palavra zero
+encerra a sequência.
+
+Os callbacks validados ficam associados ao registro do overlay e podem ser
+consultados por `NdsOverlayLoader::static_initializers(cpu, overlay_id)`.
+O unload e o shutdown eliminam os descritores junto com o módulo. O loader
+continua sem invocar essas funções: falta uma camada de chamada guest segura,
+com contexto ARM/Thumb, retorno, tratamento de falhas e dependências entre
+módulos. Os testes cobrem ordem, dois modos, ponteiro fora da imagem e
+terminador zero.
