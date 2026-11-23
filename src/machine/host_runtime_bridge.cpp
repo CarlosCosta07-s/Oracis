@@ -154,6 +154,10 @@ int host_overlay_status(oracis::machine::NdsOverlayStatus status) noexcept
         return ORACIS_HOST_RUNTIME_OVERLAY_WRITE_FAILED;
     case NdsOverlayStatus::IdentityConflict:
         return ORACIS_HOST_RUNTIME_OVERLAY_IDENTITY_CONFLICT;
+    case NdsOverlayStatus::NotInitialized:
+        return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+    case NdsOverlayStatus::ProgramNotLoaded:
+        return ORACIS_HOST_RUNTIME_NO_PROGRAM_LOADED;
     }
     return ORACIS_HOST_RUNTIME_OVERLAY_INVALID;
 }
