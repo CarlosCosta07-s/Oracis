@@ -15,6 +15,13 @@ int fail(const char *message)
 
 int main(void)
 {
+    using CoprocessorDataProcessing = void (*)(
+        uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+    CoprocessorDataProcessing volatile cdp_provider = &runtime_coproc_cdp;
+    if (cdp_provider == nullptr) {
+        return fail("CDP ABI provider is not linked");
+    }
+
     ArmCpuState arm9 = {};
     ArmCpuState arm7 = {};
 

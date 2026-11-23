@@ -1018,6 +1018,36 @@ void runtime_coproc_write(
     }
 }
 
+void runtime_coproc_cdp(
+    uint32_t cp_num, uint32_t op1, uint32_t crn,
+    uint32_t crm, uint32_t op2)
+{
+    if (oracis_active_cpu_state == nullptr) {
+        abi_failure("runtime_coproc_cdp (no active CPU)");
+    }
+
+    /*
+     * The Nintendo DS ARM cores do not provide a general-purpose external
+     * coprocessor. ARM946E-S CP14/CP15 expose register transfers through
+     * MRC/MCR; CDP is not a supported CP15 operation. Until the machine
+     * delivers architectural Undefined exceptions from this dispatch point,
+     * fail closed instead of silently discarding the operation.
+     */
+    char operation[96] = {};
+    const int written = std::snprintf(
+        operation, sizeof(operation),
+        "unsupported CDP p%u,op1=%u,crn=%u,crm=%u,op2=%u",
+        static_cast<unsigned>(cp_num),
+        static_cast<unsigned>(op1),
+        static_cast<unsigned>(crn),
+        static_cast<unsigned>(crm),
+        static_cast<unsigned>(op2));
+    if (written < 0 || static_cast<size_t>(written) >= sizeof(operation)) {
+        abi_failure("runtime_coproc_cdp (diagnostic formatting failed)");
+    }
+    runtime_unimplemented_op(operation, g_cpu.R[15]);
+}
+
 void runtime_unimplemented_op(const char *op_name, uint32_t pc)
 {
     std::fprintf(stderr,
