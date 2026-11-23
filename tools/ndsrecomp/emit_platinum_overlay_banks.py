@@ -31,6 +31,13 @@ DECODE_SUMMARY = re.compile(r"\[audit\] decoded (\d+) instructions across (\d+) 
 UNDEFINED_SUMMARY = re.compile(
     r"\[audit\] UNDEFINED encodings \(distinct=(\d+) arm, (\d+) thumb\)"
 )
+INDIRECT_OUTCOMES_SUMMARY = re.compile(
+    r"\[finder\] indirect outcomes \(non-return\): "
+    r"resolved=(\d+) known-unreachable=(\d+) unknown=(\d+) stored_ptr_seeds=(\d+)"
+)
+INDIRECT_REGION = re.compile(
+    r"(?m)^\s+(0x[0-9A-Fa-f]{8})\.\.(0x[0-9A-Fa-f]{8})\s+(\d+)\s+site\(s\)\s*$"
+)
 
 
 def _load_helper(name: str, filename: str):
@@ -195,12 +202,38 @@ def parse_audit(log: str) -> dict:
         log,
     )
     not_implemented_text = not_implemented.group(1).strip() if not_implemented else "unknown"
+    indirect_outcomes = INDIRECT_OUTCOMES_SUMMARY.search(log)
+    region_section = re.search(
+        r"(?ms)^\[finder\] unreachable indirect targets by 64K region[^\n]*\n(.*?)(?=^\[|^\[emit\]|\Z)",
+        log,
+    )
+    regions = []
+    if region_section is not None:
+        for match in INDIRECT_REGION.finditer(region_section.group(1)):
+            start = int(match.group(1), 16)
+            end = int(match.group(2), 16)
+            sites = int(match.group(3))
+            if end <= start or sites <= 0:
+                raise ValueError("NDSRecomp audit emitted an invalid indirect-target region")
+            regions.append({
+                "start": match.group(1).lower(),
+                "end": match.group(2).lower(),
+                "sites": sites,
+            })
+    if indirect_outcomes is None:
+        raise ValueError("NDSRecomp audit omitted indirect-call outcome summary")
     return {
         "functions_total": int(finder.group(1)),
         "functions_arm": int(finder.group(2)),
         "functions_thumb": int(finder.group(3)),
         "indirect": int(finder.group(4)),
         "finder_undefined": int(finder.group(5)),
+        "indirect_resolved": int(indirect_outcomes.group(1)),
+        "indirect_known_unreachable": int(indirect_outcomes.group(2)),
+        "indirect_unknown": int(indirect_outcomes.group(3)),
+        "stored_pointer_seeds": int(indirect_outcomes.group(4)),
+        "unreachable_indirect_regions": regions,
+        "unreachable_indirect_region_sites": sum(row["sites"] for row in regions),
         "decoded_instructions": int(decoded.group(1)),
         "distinct_undefined_arm_encodings": int(undefined.group(1)),
         "distinct_undefined_thumb_encodings": int(undefined.group(2)),
