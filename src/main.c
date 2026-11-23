@@ -1,5 +1,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
+#include <SDL3/SDL_dialog.h>
+#include <SDL3/SDL_iostream.h>
 
 #include "oracis/memory/guest_memory_abi.h"
 #include "oracis/host/runtime_bridge.h"
@@ -105,37 +107,41 @@ static bool parse_game_card_chip_id(const char *text, uint32_t *chip_id)
     return true;
 }
 
+static bool read_exact_io(SDL_IOStream *stream, void *buffer, size_t size)
+{
+    size_t offset = 0u;
+    uint8_t *bytes = (uint8_t *)buffer;
+    while (offset < size) {
+        const size_t count = SDL_ReadIO(stream, bytes + offset, size - offset);
+        if (count == 0u) return false;
+        offset += count;
+    }
+    return true;
+}
+
 static bool mount_game_card_file(const char *path)
 {
-    FILE *file = fopen(path, "rb");
+    SDL_IOStream *file = SDL_IOFromFile(path, "rb");
     if (file == NULL) {
         SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
-            "Could not open Game Card image '%s'.", path);
+            "Could not open Game Card image '%s': %s", path, SDL_GetError());
         return false;
     }
 
-    if (fseek(file, 0L, SEEK_END) != 0) {
+    const Sint64 file_size = SDL_GetIOSize(file);
+    if (file_size < 0x200 || (Uint64)file_size > UINT64_C(0x20000000)) {
         SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
-            "Could not determine Game Card image size for '%s'.", path);
-        (void)fclose(file);
-        return false;
-    }
-
-    const long file_size = ftell(file);
-    if (file_size < 0x200L ||
-        (unsigned long)file_size > 0x20000000UL) {
-        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
-            "Game Card image '%s' has an invalid size (%ld bytes); "
+            "Game Card image '%s' has an invalid size (%lld bytes); "
             "expected 512 bytes through 512 MiB.",
-            path, file_size);
-        (void)fclose(file);
+            path, (long long)file_size);
+        (void)SDL_CloseIO(file);
         return false;
     }
 
-    if (fseek(file, 0L, SEEK_SET) != 0) {
+    if (SDL_SeekIO(file, 0, SDL_IO_SEEK_SET) < 0) {
         SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
-            "Could not rewind Game Card image '%s'.", path);
-        (void)fclose(file);
+            "Could not rewind Game Card image '%s': %s", path, SDL_GetError());
+        (void)SDL_CloseIO(file);
         return false;
     }
 
@@ -145,16 +151,16 @@ static bool mount_game_card_file(const char *path)
         SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
             "Could not allocate %zu bytes for Game Card image '%s'.",
             image_size, path);
-        (void)fclose(file);
+        (void)SDL_CloseIO(file);
         return false;
     }
 
-    const size_t bytes_read = fread(image, 1u, image_size, file);
-    const bool read_ok = bytes_read == image_size && ferror(file) == 0;
-    const int close_status = fclose(file);
-    if (!read_ok || close_status != 0) {
+    const bool read_ok = read_exact_io(file, image, image_size);
+    const bool close_ok = SDL_CloseIO(file);
+    if (!read_ok || !close_ok) {
         SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
-            "Could not read the complete Game Card image '%s'.", path);
+            "Could not read the complete Game Card image '%s': %s",
+            path, SDL_GetError());
         free(image);
         return false;
     }
@@ -168,49 +174,45 @@ static bool mount_game_card_file(const char *path)
         return false;
     }
 
-    SDL_Log("Mounted local Game Card image '%s' (%zu bytes). "
-            "KEY1 setup requires an optional user-supplied ARM7 BIOS; "
-            "the KEY1/KEY2 command handshake is not complete.",
+    SDL_Log("Mounted user Game Card image '%s' (%zu bytes). "
+            "KEY1/KEY2 command execution is still incomplete.",
             path, image_size);
     return true;
 }
 
 static bool load_arm7_bios_file(const char *path)
 {
-    FILE *file = fopen(path, "rb");
+    SDL_IOStream *file = SDL_IOFromFile(path, "rb");
     if (file == NULL) {
         SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
-            "Could not open NDS ARM7 BIOS '%s'.", path);
+            "Could not open NDS ARM7 BIOS '%s': %s", path, SDL_GetError());
         return false;
     }
-    if (fseek(file, 0L, SEEK_END) != 0) {
-        (void)fclose(file);
+
+    const Sint64 file_size = SDL_GetIOSize(file);
+    if (file_size != 0x4000 ||
+        SDL_SeekIO(file, 0, SDL_IO_SEEK_SET) < 0) {
+        (void)SDL_CloseIO(file);
         SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
-            "Could not determine NDS ARM7 BIOS size for '%s'.", path);
-        return false;
-    }
-    const long file_size = ftell(file);
-    if (file_size != 0x4000L || fseek(file, 0L, SEEK_SET) != 0) {
-        (void)fclose(file);
-        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
-            "NDS ARM7 BIOS '%s' must be exactly 16384 bytes.", path);
+            "NDS ARM7 BIOS '%s' must be exactly 16384 readable bytes.", path);
         return false;
     }
 
     uint8_t *bytes = (uint8_t *)malloc(0x4000u);
     if (bytes == NULL) {
-        (void)fclose(file);
+        (void)SDL_CloseIO(file);
         SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
             "Could not allocate memory for NDS ARM7 BIOS '%s'.", path);
         return false;
     }
-    const size_t read_count = fread(bytes, 1u, 0x4000u, file);
-    const bool read_ok = read_count == 0x4000u && ferror(file) == 0;
-    const int close_status = fclose(file);
-    if (!read_ok || close_status != 0) {
+
+    const bool read_ok = read_exact_io(file, bytes, 0x4000u);
+    const bool close_ok = SDL_CloseIO(file);
+    if (!read_ok || !close_ok) {
         free(bytes);
         SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
-            "Could not read the complete NDS ARM7 BIOS '%s'.", path);
+            "Could not read the complete NDS ARM7 BIOS '%s': %s",
+            path, SDL_GetError());
         return false;
     }
 
@@ -223,11 +225,157 @@ static bool load_arm7_bios_file(const char *path)
             status);
         return false;
     }
-    SDL_Log("Copied the KEY1 table from user-supplied ARM7 BIOS '%s' and "
-            "initialized it using the mounted Game Code. The KEY1 command "
-            "handshake is not enabled yet.", path);
+
+    SDL_Log("Loaded the KEY1 table from user-supplied ARM7 BIOS '%s'.", path);
     return true;
 }
+
+#ifdef __ANDROID__
+enum {
+    ORACIS_ANDROID_FILE_GAME_CARD = 1,
+    ORACIS_ANDROID_FILE_ARM7_BIOS = 2,
+    ORACIS_ANDROID_DIALOG_WAITING = 1,
+    ORACIS_ANDROID_DIALOG_SELECTED = 2,
+    ORACIS_ANDROID_DIALOG_CANCELLED = 3,
+    ORACIS_ANDROID_DIALOG_FAILED = 4
+};
+
+static SDL_Mutex *g_android_dialog_mutex = NULL;
+static int g_android_dialog_state = 0;
+static int g_android_dialog_kind = 0;
+static char *g_android_dialog_path = NULL;
+static char *g_android_game_card_uri = NULL;
+static char *g_android_arm7_bios_uri = NULL;
+
+static void SDLCALL android_file_dialog_callback(
+    void *userdata, const char * const *filelist, int filter)
+{
+    const int kind = (int)(intptr_t)userdata;
+    char *selected_path = NULL;
+    int result = ORACIS_ANDROID_DIALOG_FAILED;
+    (void)filter;
+
+    if (filelist != NULL) {
+        if (filelist[0] == NULL) {
+            result = ORACIS_ANDROID_DIALOG_CANCELLED;
+        } else if (filelist[1] == NULL) {
+            selected_path = SDL_strdup(filelist[0]);
+            result = selected_path != NULL
+                ? ORACIS_ANDROID_DIALOG_SELECTED
+                : ORACIS_ANDROID_DIALOG_FAILED;
+        }
+    }
+
+    if (g_android_dialog_mutex == NULL) {
+        SDL_free(selected_path);
+        return;
+    }
+
+    SDL_LockMutex(g_android_dialog_mutex);
+    SDL_free(g_android_dialog_path);
+    g_android_dialog_path = selected_path;
+    g_android_dialog_kind = kind;
+    g_android_dialog_state = result;
+    SDL_UnlockMutex(g_android_dialog_mutex);
+}
+
+static bool begin_android_file_dialog(SDL_Window *window, int kind)
+{
+    static const SDL_DialogFileFilter game_card_filter[] = {
+        { "Nintendo DS game image", "nds" }
+    };
+    static const SDL_DialogFileFilter arm7_bios_filter[] = {
+        { "Nintendo DS ARM7 BIOS", "bin" }
+    };
+
+    if (g_android_dialog_mutex == NULL) {
+        g_android_dialog_mutex = SDL_CreateMutex();
+        if (g_android_dialog_mutex == NULL) {
+            SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+                "Could not create Android file-dialog synchronization: %s",
+                SDL_GetError());
+            return false;
+        }
+    }
+
+    SDL_LockMutex(g_android_dialog_mutex);
+    if (g_android_dialog_state == ORACIS_ANDROID_DIALOG_WAITING) {
+        SDL_UnlockMutex(g_android_dialog_mutex);
+        return false;
+    }
+    g_android_dialog_state = ORACIS_ANDROID_DIALOG_WAITING;
+    g_android_dialog_kind = kind;
+    SDL_free(g_android_dialog_path);
+    g_android_dialog_path = NULL;
+    SDL_UnlockMutex(g_android_dialog_mutex);
+
+    if (kind == ORACIS_ANDROID_FILE_GAME_CARD) {
+        SDL_Log("Choose your own Pokémon Platinum USA Rev 1 .nds image.");
+        SDL_ShowOpenFileDialog(
+            android_file_dialog_callback, (void *)(intptr_t)kind,
+            window, game_card_filter, 1, NULL, false);
+    } else {
+        SDL_Log("Choose your own 16 KiB Nintendo DS ARM7 BIOS (bios7.bin).");
+        SDL_ShowOpenFileDialog(
+            android_file_dialog_callback, (void *)(intptr_t)kind,
+            window, arm7_bios_filter, 1, NULL, false);
+    }
+    return true;
+}
+
+static bool take_android_file_dialog_result(
+    int *kind, int *result, char **path)
+{
+    bool ready = false;
+    if (g_android_dialog_mutex == NULL ||
+        kind == NULL || result == NULL || path == NULL) {
+        return false;
+    }
+
+    SDL_LockMutex(g_android_dialog_mutex);
+    if (g_android_dialog_state != ORACIS_ANDROID_DIALOG_WAITING &&
+        g_android_dialog_state != 0) {
+        *kind = g_android_dialog_kind;
+        *result = g_android_dialog_state;
+        *path = g_android_dialog_path;
+        g_android_dialog_path = NULL;
+        g_android_dialog_state = 0;
+        g_android_dialog_kind = 0;
+        ready = true;
+    }
+    SDL_UnlockMutex(g_android_dialog_mutex);
+    return ready;
+}
+
+static void log_android_entrypoint_preflight(void)
+{
+    OracisHostRuntimeEntryPointReport arm9 = {0};
+    OracisHostRuntimeEntryPointReport arm7 = {0};
+    const int status = oracis_host_runtime_validate_entrypoints(
+        &arm9, &arm7);
+
+    if (status != ORACIS_HOST_RUNTIME_OK) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+            "Android static-entry preflight unavailable (bridge=%d, machine=%d).",
+            status, oracis_host_runtime_last_machine_status());
+        return;
+    }
+
+    SDL_Log("Android entry preflight: ARM9 PC=0x%08X resolved=%u "
+            "(lookup=%u candidates=%u inactive=%u); "
+            "ARM7 PC=0x%08X resolved=%u "
+            "(lookup=%u candidates=%u inactive=%u).",
+            arm9.pc, arm9.resolved, arm9.lookup_status,
+            arm9.candidate_count, arm9.has_inactive_candidate,
+            arm7.pc, arm7.resolved, arm7.lookup_status,
+            arm7.candidate_count, arm7.has_inactive_candidate);
+
+    if (arm9.resolved != 0u && arm7.resolved != 0u) {
+        SDL_Log("Both native entry PCs resolve to registered static banks. "
+                "BIOS handoff and guest execution are still gated.");
+    }
+}
+#endif
 
 static uint8_t expand_rgb555_channel(uint16_t channel)
 {
@@ -462,12 +610,30 @@ int main(int argc, char *argv[])
     }
     host_runtime_initialized = true;
 
+#ifdef __ANDROID__
+    if (game_card_path == NULL &&
+        !begin_android_file_dialog(window, ORACIS_ANDROID_FILE_GAME_CARD)) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not start the Android Game Card picker.");
+        goto cleanup;
+    }
+#endif
+
     if (game_card_path != NULL && !mount_game_card_file(game_card_path)) {
         goto cleanup;
     }
     if (arm7_bios_path != NULL && !load_arm7_bios_file(arm7_bios_path)) {
         goto cleanup;
     }
+#ifdef __ANDROID__
+    if (game_card_path != NULL && arm7_bios_path == NULL &&
+        !begin_android_file_dialog(window, ORACIS_ANDROID_FILE_ARM7_BIOS)) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not start the Android ARM7 BIOS picker.");
+        goto cleanup;
+    }
+#endif
+
     if (game_card_chip_id_set) {
         const int chip_status = oracis_host_runtime_set_game_card_chip_id(
             game_card_chip_id);
@@ -597,17 +763,17 @@ int main(int argc, char *argv[])
     }
 #else
     if (game_card_program_loaded) {
+        log_android_entrypoint_preflight();
         SDL_Log(
-            "User Game Card ARM9/ARM7 segments loaded with the Secure Area "
-            "prefix decrypted. Android CPU execution remains disabled.");
+            "Android ROM/BIOS data loaded and segment identity validated. "
+            "Native execution remains gated until BIOS-equivalent handoff "
+            "and required guest services are implemented.");
     } else if (game_card_path != NULL) {
-        SDL_Log(
-            "Game Card image mounted; supply --arm7-bios with a user-owned "
-            "16 KiB ARM7 BIOS to load the program segments.");
+        SDL_Log("Android Game Card mounted; waiting for the user-supplied "
+                "ARM7 BIOS selection.");
     } else {
-        SDL_Log(
-            "Local Platinum ARM9/ARM7 banks registered. Android file selection "
-            "and local program-image loading are not wired yet.");
+        SDL_Log("Android file picker opened. Select the user-owned .nds image, "
+                "then the user-owned 16 KiB ARM7 BIOS.");
     }
 #endif
 #else
@@ -649,6 +815,79 @@ int main(int argc, char *argv[])
             break;
         }
 
+#ifdef __ANDROID__
+        {
+            int selected_kind = 0;
+            int selected_result = 0;
+            char *selected_path = NULL;
+            if (take_android_file_dialog_result(
+                    &selected_kind, &selected_result, &selected_path)) {
+                if (selected_result == ORACIS_ANDROID_DIALOG_SELECTED &&
+                    selected_path != NULL) {
+                    if (selected_kind == ORACIS_ANDROID_FILE_GAME_CARD) {
+                        SDL_free(g_android_game_card_uri);
+                        g_android_game_card_uri = selected_path;
+                        game_card_path = g_android_game_card_uri;
+
+                        if (mount_game_card_file(game_card_path)) {
+                            if (arm7_bios_path != NULL) {
+                                if (load_arm7_bios_file(arm7_bios_path)) {
+                                    const int load_status =
+                                        oracis_host_runtime_load_mounted_game_card_program();
+                                    if (load_status == ORACIS_HOST_RUNTIME_OK) {
+                                        game_card_program_loaded = true;
+                                        log_android_entrypoint_preflight();
+                                    } else {
+                                        SDL_LogCritical(
+                                            SDL_LOG_CATEGORY_APPLICATION,
+                                            "Android program segment loading failed "
+                                            "(bridge=%d, machine=%d).",
+                                            load_status,
+                                            oracis_host_runtime_last_machine_status());
+                                    }
+                                }
+                            } else if (!begin_android_file_dialog(
+                                           window, ORACIS_ANDROID_FILE_ARM7_BIOS)) {
+                                SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+                                    "Could not start the Android ARM7 BIOS picker.");
+                            }
+                        }
+                    } else if (selected_kind == ORACIS_ANDROID_FILE_ARM7_BIOS) {
+                        SDL_free(g_android_arm7_bios_uri);
+                        g_android_arm7_bios_uri = selected_path;
+                        arm7_bios_path = g_android_arm7_bios_uri;
+
+                        if (load_arm7_bios_file(arm7_bios_path)) {
+                            const int load_status =
+                                oracis_host_runtime_load_mounted_game_card_program();
+                            if (load_status == ORACIS_HOST_RUNTIME_OK) {
+                                game_card_program_loaded = true;
+                                SDL_Log("Validated and loaded ARM9/ARM7 program "
+                                        "segments from the selected NDS image.");
+                                log_android_entrypoint_preflight();
+                            } else {
+                                SDL_LogCritical(
+                                    SDL_LOG_CATEGORY_APPLICATION,
+                                    "Android program segment loading failed "
+                                    "(bridge=%d, machine=%d).",
+                                    load_status,
+                                    oracis_host_runtime_last_machine_status());
+                            }
+                        }
+                    } else {
+                        SDL_free(selected_path);
+                    }
+                } else {
+                    SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                        "Android file selection was cancelled or failed "
+                        "(kind=%d, result=%d). Relaunch Oracis to choose again.",
+                        selected_kind, selected_result);
+                    SDL_free(selected_path);
+                }
+            }
+        }
+#endif
+
         if (draw_composed_screens(
                 renderer, screen_textures, screen_pixels)) {
             SDL_RenderPresent(renderer);
@@ -657,6 +896,20 @@ int main(int argc, char *argv[])
 
 cleanup:
     release_all_keys();
+#ifdef __ANDROID__
+    if (g_android_dialog_mutex != NULL) {
+        SDL_LockMutex(g_android_dialog_mutex);
+        SDL_free(g_android_dialog_path);
+        g_android_dialog_path = NULL;
+        SDL_UnlockMutex(g_android_dialog_mutex);
+        SDL_DestroyMutex(g_android_dialog_mutex);
+        g_android_dialog_mutex = NULL;
+    }
+    SDL_free(g_android_game_card_uri);
+    SDL_free(g_android_arm7_bios_uri);
+    g_android_game_card_uri = NULL;
+    g_android_arm7_bios_uri = NULL;
+#endif
     for (uint32_t engine = 0u; engine < 2u; ++engine) {
         if (screen_textures[engine] != NULL) {
             SDL_DestroyTexture(screen_textures[engine]);
