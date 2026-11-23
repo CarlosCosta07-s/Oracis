@@ -1398,6 +1398,81 @@ int NdsMachine::runtime_data_abort_handler(void *context, NdsCpu cpu)
     return 1;
 }
 
+int NdsMachine::runtime_prefetch_abort_handler(
+    void *context, NdsCpu cpu, uint32_t target_pc)
+{
+    auto *machine = static_cast<NdsMachine *>(context);
+    if (machine == nullptr || !machine->initialized_ ||
+        (cpu != NDS_ARM9 && cpu != NDS_ARM7) ||
+        g_nds_active != cpu ||
+        machine->cpu_state(cpu) != oracis_active_cpu_state) {
+        return -1;
+    }
+
+    /* ARM7 has no ARM9 MPU; its fetch faults remain outside this handler. */
+    if (cpu == NDS_ARM7) return 0;
+
+    ArmCpuState *state = machine->cpu_state(NDS_ARM9);
+    if (state == nullptr) return -1;
+
+    const bool thumb = (state->cpsr & CPSR_T_BIT) != 0u;
+    const uint32_t fault_pc = target_pc & ~UINT32_C(1);
+    const uint32_t instruction_size = thumb ? 2u : 4u;
+    const uint32_t alignment = thumb ? 2u : 4u;
+    if ((fault_pc % alignment) != 0u) return 0;
+
+    /*
+     * A dispatch miss is not itself a CPU abort. First require an existing
+     * readable guest mapping, then test the ARM9 instruction MPU. Unmapped
+     * and CPU-inaccessible addresses remain diagnostic dispatch failures.
+     */
+    if (machine->memory_.validate_read(
+            NDS_ARM9, fault_pc, instruction_size) != memory::Status::Ok) {
+        return 0;
+    }
+
+    const uint32_t mode = state->cpsr & UINT32_C(0x1F);
+    bool privileged = false;
+    switch (mode) {
+    case UINT32_C(0x10): /* User */
+        privileged = false;
+        break;
+    case UINT32_C(0x11): /* FIQ */
+    case UINT32_C(0x12): /* IRQ */
+    case UINT32_C(0x13): /* Supervisor */
+    case UINT32_C(0x17): /* Abort */
+    case UINT32_C(0x1B): /* Undefined */
+    case UINT32_C(0x1F): /* System */
+        privileged = true;
+        break;
+    default:
+        return -1;
+    }
+
+    if (machine->check_arm9_protection_access(
+            NDS_ARM9, fault_pc, instruction_size,
+            ORACIS_BUS_ACCESS_INSTRUCTION, privileged) != 0) {
+        return 0;
+    }
+
+    const uint64_t return_address =
+        static_cast<uint64_t>(fault_pc) + UINT64_C(4);
+    if (return_address > UINT32_MAX) return -1;
+
+    state->R[15] = fault_pc;
+    if (!oracis_arm_cpu_enter_exception(
+            state, ORACIS_ARM_EXCEPTION_PREFETCH_ABORT,
+            static_cast<uint32_t>(return_address),
+            machine->exception_vector_base(NDS_ARM9))) {
+        return -1;
+    }
+
+    std::fprintf(stderr,
+        "[Oracis ARM9] Prefetch Abort: PC=0x%08X vector=0x%08X\\n",
+        fault_pc, state->R[15]);
+    return 1;
+}
+
 
 int NdsMachine::runtime_validate_dispatch_bytes(
     NdsCpu cpu,
@@ -1535,6 +1610,12 @@ NdsMachineStatus NdsMachine::initialize() noexcept
         return rollback(NdsMachineStatus::RuntimeAlreadyBound);
     }
     data_abort_handler_bound_ = true;
+
+    if (!oracis_arm_runtime_bind_prefetch_abort_handler(
+            this, &NdsMachine::runtime_prefetch_abort_handler)) {
+        return rollback(NdsMachineStatus::RuntimeAlreadyBound);
+    }
+    prefetch_abort_handler_bound_ = true;
 
     if (!oracis_arm_runtime_bind_interrupt_wait_handler(
             this, &NdsMachine::runtime_interrupt_wait_handler)) {
@@ -1824,7 +1905,7 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
 {
     const bool owns_runtime =
         runtime_bound_ || power_handler_bound_ || irq_handler_bound_ ||
-        data_abort_handler_bound_ ||
+        data_abort_handler_bound_ || prefetch_abort_handler_bound_ ||
         interrupt_wait_handler_bound_ ||
         coprocessor_handler_bound_ || bios_memory_handler_bound_ ||
         bios_crc16_handler_bound_ || bios_bit_unpack_handler_bound_ ||
@@ -2007,6 +2088,13 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
             return NdsMachineStatus::ShutdownFailed;
         }
         interrupt_wait_handler_bound_ = false;
+    }
+    if (prefetch_abort_handler_bound_) {
+        if (!oracis_arm_runtime_unbind_prefetch_abort_handler(
+                this, &NdsMachine::runtime_prefetch_abort_handler)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        prefetch_abort_handler_bound_ = false;
     }
     if (data_abort_handler_bound_) {
         if (!oracis_arm_runtime_unbind_data_abort_handler(

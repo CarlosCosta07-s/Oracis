@@ -40,12 +40,21 @@ write-buffer-drain encodings are therefore ordered no-ops; they do not pretend
 to clean or invalidate cache lines that do not exist. Full-cache flush forms
 still enforce their required zero operand.
 
-ARM9 MPU permission violations are latched by the bus and consumed at the
-instruction retirement boundary. The machine restores the CPU snapshot taken
-at the failing transfer and enters the ARM946E-S Data Abort vector with the
-base-restored return link (faulting instruction address + 8). Further transfers
-in the same generated instruction are suppressed. This covers MPU permission
-faults; unmapped/failed MMIO bus accesses and Prefetch Abort delivery remain
-separate work. The abort vector itself is not backed by an ARM9 BIOS image in
-the current host, so the exception state can be verified but an ARM9 BIOS abort
-handler cannot yet run. Native game startup is still not claimed.
+ARM9 data-access permission violations are latched by the bus and consumed at
+the instruction retirement boundary. The machine restores the CPU snapshot
+taken at the failing transfer and enters the ARM946E-S Data Abort vector with
+the base-restored return link (faulting instruction address + 8). Further
+transfers in the same generated instruction are suppressed.
+
+A static-dispatch miss can also enter ARM9 Prefetch Abort, but only when the
+target instruction is backed by readable GuestMemory and the ARM9 instruction
+MPU explicitly denies that fetch. The handler uses the aborted instruction
+address + 4 for LR_abt and vector offset 0x0C. A missing bank, an unmapped or
+CPU-inaccessible address, or an MPU-permitted dynamic-code target is not
+relabelled as a Prefetch Abort: it remains a fail-closed dispatch diagnostic.
+ARM7 fetch faults and fetch failures outside the modeled MPU check are not yet
+architectural exceptions.
+
+The abort vectors themselves are not backed by an ARM9 BIOS image in the
+current host, so exception entry can be verified but an ARM9 BIOS abort handler
+cannot yet run. Native game startup is still not claimed.

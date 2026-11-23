@@ -1,5 +1,6 @@
 #include "oracis/recomp/static_dispatch_abi.h"
 #include "oracis/recomp/static_dispatch.hpp"
+#include "oracis/recomp/runtime_scheduler.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -53,6 +54,36 @@ bool validate_adapter(NdsCpu cpu,
         candidate_count,
         inactive ? "yes" : "no");
     std::abort();
+}
+
+bool deliver_prefetch_abort(uint32_t target_pc)
+{
+    const int result = oracis_arm_runtime_try_prefetch_abort(target_pc);
+    if (result < 0 || result > 1) {
+        dispatch_failure(
+            "Prefetch Abort callback integration failure",
+            g_nds_active,
+            target_pc,
+            oracis_active_cpu_state
+                ? oracis_active_cpu_state->cpsr : 0u,
+            static_cast<uint32_t>(result),
+            0u,
+            nullptr);
+    }
+    if (result == 0) return false;
+
+    if (!oracis_scheduler_set_unwinding(g_nds_active, 1)) {
+        dispatch_failure(
+            "Prefetch Abort could not request generated-code unwind",
+            g_nds_active,
+            target_pc,
+            oracis_active_cpu_state
+                ? oracis_active_cpu_state->cpsr : 0u,
+            0u,
+            0u,
+            nullptr);
+    }
+    return true;
 }
 
 /*
@@ -208,6 +239,7 @@ void dispatch_link_slot(NdsLinkSlot *slot, const char *kind)
         cpu, target_pc, oracis_active_cpu_state->cpsr,
         &status, &candidate_count, &inactive);
     if (entry == nullptr) {
+        if (deliver_prefetch_abort(target_pc)) return;
         dispatch_failure("static link dispatch miss", cpu, target_pc,
                          oracis_active_cpu_state->cpsr,
                          status, candidate_count, inactive);
@@ -356,6 +388,7 @@ extern "C" void runtime_dispatch(uint32_t target_pc)
         &inactive);
 
     if (entry == nullptr) {
+        if (deliver_prefetch_abort(target_pc)) return;
         dispatch_failure(
             "static dispatch miss",
             g_nds_active,
@@ -448,6 +481,7 @@ extern "C" void runtime_dispatch_miss(uint32_t target_pc)
 {
     const uint32_t cpsr = oracis_active_cpu_state
         ? oracis_active_cpu_state->cpsr : 0u;
+    if (deliver_prefetch_abort(target_pc)) return;
     dispatch_failure("explicit static dispatch miss", g_nds_active,
                      target_pc, cpsr,
                      static_cast<uint32_t>(

@@ -67,6 +67,14 @@ typedef int (*OracisArmRuntimeIrqHandler)(
 typedef int (*OracisArmRuntimeDataAbortHandler)(
     void *context, NdsCpu cpu);
 
+/*
+ * Called when a static dispatch target cannot be entered. Returns 1 only
+ * when a mapped ARM9 instruction fetch is explicitly denied by the MPU and
+ * Prefetch Abort was entered; 0 means this is not such a fault.
+ */
+typedef int (*OracisArmRuntimePrefetchAbortHandler)(
+    void *context, NdsCpu cpu, uint32_t target_pc);
+
 /* Dispatches implemented ARM9 CP15 transfers to the owning NdsMachine. */
 typedef int (*OracisArmRuntimeCoprocessorHandler)(
     void *context, NdsCpu cpu, uint32_t is_write,
@@ -125,6 +133,11 @@ int oracis_arm_runtime_bind_data_abort_handler(
 int oracis_arm_runtime_unbind_data_abort_handler(
     void *context, OracisArmRuntimeDataAbortHandler handler);
 int oracis_arm_runtime_check_data_abort(void);
+int oracis_arm_runtime_bind_prefetch_abort_handler(
+    void *context, OracisArmRuntimePrefetchAbortHandler handler);
+int oracis_arm_runtime_unbind_prefetch_abort_handler(
+    void *context, OracisArmRuntimePrefetchAbortHandler handler);
+int oracis_arm_runtime_try_prefetch_abort(uint32_t target_pc);
 int oracis_arm_runtime_bind_interrupt_wait_handler(
     void *context, OracisArmRuntimeInterruptWaitHandler handler);
 int oracis_arm_runtime_unbind_interrupt_wait_handler(

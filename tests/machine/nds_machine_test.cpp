@@ -2100,6 +2100,40 @@ int main()
         return fail("ARM9 could not be reselected after Data Abort test");
     }
 
+    /*
+     * A mapped branch target denied by the ARM9 instruction-permission
+     * register must enter Prefetch Abort, not terminate the host process.
+     */
+    constexpr uint32_t prefetch_fault_pc = UINT32_C(0x02006040);
+    arm9->cpsr = ORACIS_ARM_MODE_USER;
+    arm9->R[15] = UINT32_C(0x02006000);
+    const uint32_t prefetch_saved_cpsr = arm9->cpsr;
+    if (machine.guest_memory().validate_read(
+            NDS_ARM9, prefetch_fault_pc, 4u) !=
+            oracis::memory::Status::Ok) {
+        return fail("Prefetch Abort fixture target is not backed by readable guest memory");
+    }
+    const uint32_t dispatch_calls_before_prefetch = g_static_dispatch_calls[0];
+    runtime_dispatch(prefetch_fault_pc);
+    if ((arm9->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_ABORT ||
+        (arm9->cpsr & CPSR_I_BIT) == 0u ||
+        (arm9->cpsr & CPSR_T_BIT) != 0u ||
+        arm9->R[15] != UINT32_C(0xFFFF000C) ||
+        arm9->R[14] != prefetch_fault_pc + 4u ||
+        arm9->banked_spsr[ARM_BANK_ABORT] != prefetch_saved_cpsr ||
+        !runtime_unwinding() ||
+        g_static_dispatch_calls[0] != dispatch_calls_before_prefetch) {
+        return fail("ARM9 MPU instruction denial did not enter Prefetch Abort at the high vector");
+    }
+    if (oracis_arm_runtime_try_prefetch_abort(UINT32_C(0x0F000000)) != 0) {
+        return fail("an unmapped dispatch target was incorrectly converted into Prefetch Abort");
+    }
+    if (!oracis_scheduler_set_unwinding(NDS_ARM9, 0)) {
+        return fail("ARM9 Prefetch Abort unwind state could not be reset after the test");
+    }
+    arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
+    arm9->R[15] = UINT32_C(0x02006000);
+
     const uint32_t saved_cpsr = arm9->cpsr;
     arm9->cpsr = (saved_cpsr & ~ORACIS_ARM_MODE_MASK) |
         ORACIS_ARM_MODE_USER;

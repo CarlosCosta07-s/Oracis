@@ -298,6 +298,8 @@ private:
         NdsCpu cpu, uint32_t address, uint32_t size,
         uint32_t access_kind, bool privileged) const noexcept;
     static int runtime_data_abort_handler(void *context, NdsCpu cpu);
+    static int runtime_prefetch_abort_handler(
+        void *context, NdsCpu cpu, uint32_t target_pc);
     static int runtime_bios_memory_transfer_handler(
         void *context, NdsCpu cpu, uint32_t source, uint32_t destination,
         uint32_t count, uint32_t width, uint32_t fixed_source);
@@ -375,6 +377,7 @@ private:
     bool memory_bound_ = false;
     bool arm9_access_guard_bound_ = false;
     bool data_abort_handler_bound_ = false;
+    bool prefetch_abort_handler_bound_ = false;
     bool arm9_data_abort_pending_ = false;
     ArmCpuState arm9_data_abort_snapshot_{};
     uint32_t arm9_data_abort_address_ = 0u;

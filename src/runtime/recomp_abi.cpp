@@ -37,6 +37,8 @@ void *g_irq_context = nullptr;
 OracisArmRuntimeIrqHandler g_irq_handler = nullptr;
 void *g_data_abort_context = nullptr;
 OracisArmRuntimeDataAbortHandler g_data_abort_handler = nullptr;
+void *g_prefetch_abort_context = nullptr;
+OracisArmRuntimePrefetchAbortHandler g_prefetch_abort_handler = nullptr;
 void *g_interrupt_wait_context = nullptr;
 OracisArmRuntimeInterruptWaitHandler g_interrupt_wait_handler = nullptr;
 void *g_coprocessor_context = nullptr;
@@ -189,6 +191,47 @@ int oracis_arm_runtime_check_data_abort(void)
         return -1;
     }
     return g_data_abort_handler(g_data_abort_context, g_nds_active);
+}
+
+int oracis_arm_runtime_bind_prefetch_abort_handler(
+    void *context, OracisArmRuntimePrefetchAbortHandler handler)
+{
+    if (context == nullptr || handler == nullptr) return 0;
+    if (g_prefetch_abort_handler != nullptr ||
+        g_prefetch_abort_context != nullptr) {
+        return g_prefetch_abort_context == context &&
+               g_prefetch_abort_handler == handler ? 1 : 0;
+    }
+    g_prefetch_abort_context = context;
+    g_prefetch_abort_handler = handler;
+    return 1;
+}
+
+int oracis_arm_runtime_unbind_prefetch_abort_handler(
+    void *context, OracisArmRuntimePrefetchAbortHandler handler)
+{
+    if (context == nullptr || handler == nullptr ||
+        g_prefetch_abort_context != context ||
+        g_prefetch_abort_handler != handler) {
+        return 0;
+    }
+    g_prefetch_abort_context = nullptr;
+    g_prefetch_abort_handler = nullptr;
+    return 1;
+}
+
+int oracis_arm_runtime_try_prefetch_abort(uint32_t target_pc)
+{
+    if (g_prefetch_abort_handler == nullptr ||
+        g_prefetch_abort_context == nullptr) {
+        return 0;
+    }
+    if (oracis_active_cpu_state == nullptr ||
+        (g_nds_active != NDS_ARM9 && g_nds_active != NDS_ARM7)) {
+        return -1;
+    }
+    return g_prefetch_abort_handler(
+        g_prefetch_abort_context, g_nds_active, target_pc);
 }
 
 int oracis_arm_runtime_bind_interrupt_wait_handler(
