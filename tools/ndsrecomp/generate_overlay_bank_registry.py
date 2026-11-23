@@ -137,9 +137,50 @@ def generate(
         body = folder / f"{bank}.c"
         header = folder / f"{bank}.h"
         dispatch = folder / f"{bank}_dispatch.c"
-        for path in (body, header, dispatch):
-            if path.is_symlink() or not path.is_file() or path.stat().st_size == 0:
+        generated_paths = {
+            f"{bank}.c": body,
+            f"{bank}.h": header,
+            f"{bank}_dispatch.c": dispatch,
+        }
+        expected_hashes = row.get("sha256")
+        if not isinstance(expected_hashes, dict):
+            raise ValueError(f"overlay {overlay_id} has no generated-file SHA-256 inventory")
+        for filename, path in generated_paths.items():
+            if (path.is_symlink() or not path.is_file() or
+                    path.stat().st_size == 0):
                 raise ValueError(f"missing, empty, or unsafe overlay bank file: {path}")
+            if expected_hashes.get(filename) != sha256(path):
+                raise ValueError(f"overlay bank SHA-256 mismatch: {path}")
+
+        shard_sources: list[str] = []
+        shard_metadata = row.get("shards")
+        if shard_metadata is not None:
+            if not isinstance(shard_metadata, dict):
+                raise ValueError(f"overlay {overlay_id} has malformed shard metadata")
+            shard_directory_name = shard_metadata.get("directory")
+            shard_files = shard_metadata.get("files")
+            shard_function_count = shard_metadata.get("function_count")
+            if (shard_directory_name != f"{bank}_shards" or
+                    not isinstance(shard_files, dict) or not shard_files or
+                    type(shard_function_count) is not int or
+                    shard_function_count != row.get("functions_total")):
+                raise ValueError(f"overlay {overlay_id} has invalid shard inventory")
+            shard_directory = folder / shard_directory_name
+            if shard_directory.is_symlink() or not shard_directory.is_dir():
+                raise ValueError(f"overlay {overlay_id} shard directory is missing or unsafe")
+            declared_names = set(shard_files)
+            actual_names = {entry.name for entry in shard_directory.iterdir()}
+            if (actual_names != declared_names or
+                    any(SHARD_RE.fullmatch(name) is None for name in declared_names)):
+                raise ValueError(f"overlay {overlay_id} shard directory contents disagree with manifest")
+            for filename, expected_sha1 in sorted(shard_files.items()):
+                shard_path = shard_directory / filename
+                if (shard_path.is_symlink() or not shard_path.is_file() or
+                        not isinstance(expected_sha1, str) or
+                        not re.fullmatch(r"[0-9a-f]{40}", expected_sha1) or
+                        sha1(shard_path) != expected_sha1):
+                    raise ValueError(f"overlay {overlay_id} shard SHA-1 mismatch: {shard_path}")
+                shard_sources.append(str(shard_path))
         records.append({
             "overlay_id": overlay_id,
             "bank": bank,
@@ -149,6 +190,8 @@ def generate(
             "body_sha256": sha256(body),
             "header_sha256": sha256(header),
             "dispatch_sha256": sha256(dispatch),
+            "compile_sources": shard_sources if shard_sources else [str(body)],
+            "shard_count": len(shard_sources),
             "function_count": row.get("functions_total"),
         })
 
@@ -213,6 +256,7 @@ def generate(
         "uncompiled_overlay_ids": uncompiled_ids,
         "bank_count": len(records),
         "function_count": sum(x.get("function_count") or 0 for x in records),
+        "shard_source_count": sum(x.get("shard_count") or 0 for x in records),
         "banks": records,
         "registrar_sha256": sha256(output_cpp),
     }
