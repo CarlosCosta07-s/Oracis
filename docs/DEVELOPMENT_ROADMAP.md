@@ -370,3 +370,27 @@ de troca de overlays do NitroSDK. A camada host ainda precisa ler o manifesto
 local, selecionar o arquivo correto e chamar a API. Portanto, esta etapa
 conclui o mecanismo de cópia verificada para RAM guest, não a execução
 completa dos overlays nem um boot funcional do jogo.
+
+## Atualização 2026-11-23 — identidade e cobertura dos overlays recompilados
+
+O gerador do registry agora exige o diretório da extração local e o seu
+`manifest.json`. Ele valida o schema e a identidade da ROM, confere tamanho,
+SHA-1 e SHA-256 dos arquivos de imagem extraídos e compara o SHA-1 do overlay
+registrado no relatório do NDSRecomp com a imagem de origem daquele ID. Um
+banco emitido para outro conteúdo, mesmo com nome/ID compatíveis, é recusado.
+O CMake passa `ORACIS_LOCAL_OVERLAY_IMAGE_DIR` ao gerador; seu padrão é a
+pasta produzida por `extract_nds_overlays.py`.
+
+O manifesto de registry informa quantidade de overlays de origem, bancos
+compilados e IDs ainda sem recompilação. A auditoria dos arquivos locais
+disponíveis em 23/11/2026 encontrou 122 imagens ARM9 no manifesto e 29 bancos
+emitidos; os 93 IDs restantes ainda não têm bancos estáticos. Os hashes SHA-1
+dos 29 bancos emitidos coincidem com os hashes das imagens de origem. A
+validação local também confirmou os tamanhos e SHA-256 dos 122 arquivos e
+não encontrou inconsistência de metadados no manifesto.
+
+A verificação acima foi feita sobre os artefatos locais fornecidos, não sobre
+a compilação do novo gerador nem sobre a execução dos overlays no runtime.
+Os novos testes Python cobrem hash divergente entre emissão e extração,
+imagem extraída adulterada e relatório de cobertura; a CI deste commit ainda
+precisa concluir para confirmar os testes/build.
