@@ -1,0 +1,240 @@
+#include "oracis/machine/nds_overlay_loader.hpp"
+
+#include "oracis/host/detail/sha1.hpp"
+
+#include <algorithm>
+#include <limits>
+#include <new>
+#include <utility>
+
+namespace oracis::machine {
+namespace {
+
+bool valid_sha1(const char *value) noexcept
+{
+    if (value == nullptr) return false;
+    for (unsigned index = 0u; index < 40u; ++index) {
+        const char byte = value[index];
+        if (!((byte >= '0' && byte <= '9') ||
+              (byte >= 'a' && byte <= 'f'))) {
+            return false;
+        }
+    }
+    return value[40] == '\0';
+}
+
+bool valid_cpu(NdsCpu cpu) noexcept
+{
+    return cpu == NDS_ARM9 || cpu == NDS_ARM7;
+}
+
+bool ranges_overlap(
+    uint64_t left_begin, uint64_t left_end,
+    uint64_t right_begin, uint64_t right_end) noexcept
+{
+    return left_begin < right_end && right_begin < left_end;
+}
+
+} // namespace
+
+NdsOverlayStatus NdsOverlayLoader::load(
+    const NdsOverlayImage &image) noexcept
+{
+    if (!valid_cpu(image.cpu)) return NdsOverlayStatus::InvalidCpu;
+    if (image.contents == nullptr || !valid_sha1(image.image_sha1) ||
+        image.ram_size == 0u) {
+        return NdsOverlayStatus::InvalidMetadata;
+    }
+
+    const uint64_t begin = image.ram_address;
+    const uint64_t code_end = begin + image.ram_size;
+    const uint64_t total_size =
+        static_cast<uint64_t>(image.ram_size) + image.bss_size;
+    const uint64_t end = begin + total_size;
+    if (total_size == 0u || total_size > UINT32_MAX ||
+        code_end > UINT64_C(0x1'0000'0000) ||
+        end > UINT64_C(0x1'0000'0000)) {
+        return NdsOverlayStatus::InvalidMetadata;
+    }
+
+    const bool no_static_init =
+        image.static_init_start == 0u && image.static_init_end == 0u;
+    if (!no_static_init &&
+        (image.static_init_start == 0u ||
+         image.static_init_end == 0u ||
+         image.static_init_start < image.ram_address ||
+         image.static_init_end < image.static_init_start ||
+         static_cast<uint64_t>(image.static_init_end) > code_end ||
+         (image.static_init_start & 3u) != 0u ||
+         (image.static_init_end & 3u) != 0u)) {
+        return NdsOverlayStatus::InvalidMetadata;
+    }
+
+    for (const LoadedOverlay &loaded : loaded_) {
+        if (loaded.cpu != image.cpu) continue;
+        if (loaded.overlay_id == image.overlay_id) {
+            const bool same_identity =
+                loaded.ram_address == image.ram_address &&
+                loaded.ram_size == image.ram_size &&
+                loaded.bss_size == image.bss_size &&
+                loaded.static_init_start == image.static_init_start &&
+                loaded.static_init_end == image.static_init_end &&
+                loaded.image_sha1 == image.image_sha1;
+            return same_identity
+                ? NdsOverlayStatus::AlreadyLoaded
+                : NdsOverlayStatus::IdentityConflict;
+        }
+        const uint64_t loaded_begin = loaded.ram_address;
+        const uint64_t loaded_end = loaded_begin +
+            static_cast<uint64_t>(loaded.ram_size) + loaded.bss_size;
+        if (ranges_overlap(begin, end, loaded_begin, loaded_end)) {
+            return NdsOverlayStatus::Overlap;
+        }
+    }
+
+    const uint32_t writable_size = static_cast<uint32_t>(total_size);
+    if (memory_.validate_write(
+            image.cpu, image.ram_address, writable_size) !=
+            memory::Status::Ok ||
+        memory_.validate_execute(
+            image.cpu, image.ram_address, image.ram_size) !=
+            memory::Status::Ok) {
+        return NdsOverlayStatus::MemoryUnavailable;
+    }
+
+    try {
+        std::vector<uint8_t> source(
+            image.contents, image.contents + image.ram_size);
+        if (oracis::host::detail::sha1_hex(source) != image.image_sha1) {
+            return NdsOverlayStatus::ImageHashMismatch;
+        }
+
+        /* Prepare the complete RAM+BSS payload before touching guest memory. */
+        std::vector<uint8_t> staged(writable_size, 0u);
+        std::copy(source.begin(), source.end(), staged.begin());
+
+        /* Reserve before the write so publishing the record cannot allocate. */
+        loaded_.reserve(loaded_.size() + 1u);
+        LoadedOverlay record{
+            image.cpu,
+            image.overlay_id,
+            image.ram_address,
+            image.ram_size,
+            image.bss_size,
+            image.static_init_start,
+            image.static_init_end,
+            image.image_sha1
+        };
+
+        if (memory_.write_bytes(
+                image.cpu, image.ram_address, staged.data(), writable_size) !=
+            memory::Status::Ok) {
+            return NdsOverlayStatus::WriteFailed;
+        }
+        if (memory_.validate_identity(
+                image.cpu, image.ram_address, image.ram_size,
+                source.data()) != memory::Status::Ok) {
+            /* The validated one-range write is atomic; this indicates a
+               concurrent memory mutation, so do not publish a false record. */
+            return NdsOverlayStatus::WriteFailed;
+        }
+
+        loaded_.push_back(std::move(record));
+        return NdsOverlayStatus::Ok;
+    } catch (const std::bad_alloc &) {
+        return NdsOverlayStatus::WriteFailed;
+    } catch (...) {
+        return NdsOverlayStatus::WriteFailed;
+    }
+}
+
+NdsOverlayStatus NdsOverlayLoader::unload(
+    NdsCpu cpu,
+    uint32_t overlay_id,
+    bool no_live_guest_references,
+    uint32_t current_pc) noexcept
+{
+    if (!valid_cpu(cpu)) return NdsOverlayStatus::InvalidCpu;
+    auto found = std::find_if(
+        loaded_.begin(), loaded_.end(),
+        [cpu, overlay_id](const LoadedOverlay &item) {
+            return item.cpu == cpu && item.overlay_id == overlay_id;
+        });
+    if (found == loaded_.end()) return NdsOverlayStatus::NotLoaded;
+
+    const uint64_t begin = found->ram_address;
+    const uint64_t end = begin +
+        static_cast<uint64_t>(found->ram_size) + found->bss_size;
+    if (!no_live_guest_references ||
+        (static_cast<uint64_t>(current_pc) >= begin &&
+         static_cast<uint64_t>(current_pc) < end)) {
+        return NdsOverlayStatus::Busy;
+    }
+
+    const uint32_t total_size = found->ram_size + found->bss_size;
+    if (memory_.validate_write(cpu, found->ram_address, total_size) !=
+        memory::Status::Ok) {
+        return NdsOverlayStatus::MemoryUnavailable;
+    }
+
+    try {
+        const std::vector<uint8_t> cleared(total_size, 0u);
+        if (memory_.write_bytes(
+                cpu, found->ram_address, cleared.data(), total_size) !=
+            memory::Status::Ok) {
+            return NdsOverlayStatus::WriteFailed;
+        }
+        loaded_.erase(found);
+        return NdsOverlayStatus::Ok;
+    } catch (const std::bad_alloc &) {
+        return NdsOverlayStatus::WriteFailed;
+    } catch (...) {
+        return NdsOverlayStatus::WriteFailed;
+    }
+}
+
+bool NdsOverlayLoader::is_loaded(
+    NdsCpu cpu, uint32_t overlay_id) const noexcept
+{
+    return std::any_of(
+        loaded_.begin(), loaded_.end(),
+        [cpu, overlay_id](const LoadedOverlay &item) {
+            return item.cpu == cpu && item.overlay_id == overlay_id;
+        });
+}
+
+bool NdsOverlayLoader::contains_address(
+    NdsCpu cpu, uint32_t overlay_id, uint32_t address) const noexcept
+{
+    const auto found = std::find_if(
+        loaded_.begin(), loaded_.end(),
+        [cpu, overlay_id](const LoadedOverlay &item) {
+            return item.cpu == cpu && item.overlay_id == overlay_id;
+        });
+    if (found == loaded_.end()) return false;
+    const uint64_t begin = found->ram_address;
+    const uint64_t end = begin +
+        static_cast<uint64_t>(found->ram_size) + found->bss_size;
+    return static_cast<uint64_t>(address) >= begin &&
+           static_cast<uint64_t>(address) < end;
+}
+
+const char *overlay_status_name(NdsOverlayStatus status) noexcept
+{
+    switch (status) {
+    case NdsOverlayStatus::Ok: return "ok";
+    case NdsOverlayStatus::AlreadyLoaded: return "already-loaded";
+    case NdsOverlayStatus::NotLoaded: return "not-loaded";
+    case NdsOverlayStatus::InvalidCpu: return "invalid-cpu";
+    case NdsOverlayStatus::InvalidMetadata: return "invalid-metadata";
+    case NdsOverlayStatus::ImageHashMismatch: return "image-hash-mismatch";
+    case NdsOverlayStatus::MemoryUnavailable: return "memory-unavailable";
+    case NdsOverlayStatus::Overlap: return "overlap";
+    case NdsOverlayStatus::Busy: return "busy";
+    case NdsOverlayStatus::WriteFailed: return "write-failed";
+    case NdsOverlayStatus::IdentityConflict: return "identity-conflict";
+    }
+    return "unknown";
+}
+
+} // namespace oracis::machine
