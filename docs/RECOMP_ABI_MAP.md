@@ -218,3 +218,10 @@ contadores de destino independentes por CPU para que uma invocação Thumb em um
 core não contamine a asserção do outro. Nenhum ponteiro de função é cacheado;
 as verificações de identidade do dispatcher continuam sendo aplicadas em cada
 transferência.
+
+
+## 15. Geração conservadora de mutações da memória guest
+
+`GuestMemory::mutation_generation()` expõe uma época global de mutação para a futura invalidação de links e código recompilado. O contador avança após cada operação bem-sucedida que altera o mapa (RAM, imagem, alias, mirror, overlay, substituição ou remoção), a visibilidade por CPU ou bytes do backing (escritas escalares e em bloco). Leituras, validações e operações recusadas não alteram a geração.
+
+A geração é global para ARM9 e ARM7: qualquer escrita invalida conservadoramente todos os snapshots, mesmo quando afeta apenas dados não executáveis. Essa granularidade reduz desempenho potencial, mas evita manter um link após uma mudança de bytes ou de resolução de endereço. O valor inicial é 1; zero é reservado para esgotamento por overflow e significa que nenhum cache pode ser considerado válido. A geração ainda não habilita cache: os link slots continuam passando pelo dispatcher com validação de identidade em cada transferência. O teste `oracis_guest_memory_generation_test` verifica avanços, ausência de avanço em falhas e propagação por aliases, mirrors e overlays.

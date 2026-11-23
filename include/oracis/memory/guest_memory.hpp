@@ -188,6 +188,12 @@ public:
     static const char *status_name(Status status) noexcept;
     std::size_t region_count() const noexcept { return regions_.size(); }
 
+    /* Coarse epoch for conservative generated-code/link invalidation.
+       Zero means exhausted and permanently disables cache validity. */
+    uint64_t mutation_generation() const noexcept {
+        return mutation_generation_;
+    }
+
 private:
     struct Backing {
         explicit Backing(uint32_t size)
@@ -247,8 +253,10 @@ private:
                                AccessKind kind) noexcept;
     static uint32_t backing_index(const Region &region,
                                   uint32_t address_offset) noexcept;
+    void note_mutation() noexcept;
 
     std::vector<Region> regions_;
+    uint64_t mutation_generation_ = 1u;
 };
 
 } // namespace oracis::memory

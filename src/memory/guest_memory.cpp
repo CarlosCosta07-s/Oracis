@@ -31,6 +31,20 @@ uint8_t GuestMemory::cpu_access_bit(NdsCpu cpu) noexcept
     return cpu == NDS_ARM9 ? CpuAccessArm9 : CpuAccessArm7;
 }
 
+uint64_t GuestMemory::mutation_generation() const noexcept
+{
+    return mutation_generation_;
+}
+
+void GuestMemory::note_mutation() noexcept
+{
+    if (mutation_generation_ == 0u) return;
+    mutation_generation_ =
+        mutation_generation_ == std::numeric_limits<uint64_t>::max()
+            ? 0u
+            : mutation_generation_ + 1u;
+}
+
 bool GuestMemory::valid_cpu_access(uint8_t cpu_access) noexcept
 {
     return (cpu_access & ~kKnownCpuAccess) == 0u;
@@ -253,6 +267,7 @@ Status GuestMemory::map_ram(uint32_t base,
     } catch (...) {
         return Status::InvalidRegion;
     }
+    note_mutation();
     return Status::Ok;
 }
 
@@ -290,6 +305,7 @@ Status GuestMemory::map_image(uint32_t base,
     } catch (...) {
         return Status::InvalidRegion;
     }
+    note_mutation();
     return Status::Ok;
 }
 
@@ -335,6 +351,7 @@ Status GuestMemory::map_alias(uint32_t alias_base,
     } catch (...) {
         return Status::InvalidRegion;
     }
+    note_mutation();
     return Status::Ok;
 }
 
@@ -390,6 +407,7 @@ Status GuestMemory::map_mirror(uint32_t alias_base,
     } catch (...) {
         return Status::InvalidRegion;
     }
+    note_mutation();
     return Status::Ok;
 }
 
@@ -453,6 +471,7 @@ Status GuestMemory::map_mirror_overlay(
     } catch (...) {
         return Status::InvalidRegion;
     }
+    note_mutation();
     return Status::Ok;
 }
 
@@ -528,6 +547,7 @@ Status GuestMemory::replace_mirror_overlay(
     } catch (...) {
         return Status::InvalidRegion;
     }
+    note_mutation();
     return Status::Ok;
 }
 
@@ -539,6 +559,7 @@ bool GuestMemory::unmap_region(const std::string &name) noexcept
         [&name](const Region &region) { return region.name == name; });
     if (found == regions_.end()) return false;
     regions_.erase(found);
+    note_mutation();
     return true;
 }
 
@@ -643,6 +664,7 @@ Status GuestMemory::update_cpu_access(
             }
         }
     }
+    note_mutation();
     return Status::Ok;
 }
 
@@ -746,6 +768,7 @@ Status GuestMemory::write(NdsCpu cpu,
             static_cast<uint8_t>((value >> (index * 8u)) & 0xFFu);
         provenance[byte_index] = 1u;
     }
+    note_mutation();
     return Status::Ok;
 }
 
@@ -782,6 +805,7 @@ Status GuestMemory::write_bytes(
         const std::size_t end = begin + static_cast<std::size_t>(size);
         std::memcpy(bytes.data() + begin, contents, size);
         std::fill(provenance.begin() + begin, provenance.begin() + end, 1u);
+        note_mutation();
         return Status::Ok;
     }
 
@@ -814,6 +838,7 @@ Status GuestMemory::write_bytes(
         period_offset = 0u;
     }
 
+    note_mutation();
     return Status::Ok;
 }
 

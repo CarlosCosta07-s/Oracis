@@ -244,6 +244,12 @@ if(BUILD_TESTING)
     target_link_libraries(oracis_guest_memory_test PRIVATE oracis_memory)
     add_test(NAME oracis_guest_memory_test COMMAND oracis_guest_memory_test)
 
+    add_executable(oracis_guest_memory_generation_test
+        tests/memory/guest_memory_generation_test.cpp
+    )
+    target_link_libraries(oracis_guest_memory_generation_test PRIVATE oracis_memory)
+    add_test(NAME oracis_guest_memory_generation_test COMMAND oracis_guest_memory_generation_test)
+
     add_executable(oracis_nds_retail_map_test
         tests/memory/nds_retail_map_test.cpp
     )
