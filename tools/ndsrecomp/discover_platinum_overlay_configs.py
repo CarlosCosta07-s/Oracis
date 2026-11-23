@@ -13,6 +13,7 @@ import hashlib
 import json
 import re
 import sys
+import struct
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 
@@ -135,7 +136,66 @@ def source_anchors(
     return {key: sorted(value) for key, value in anchors.items()}, source_digest, matched_files
 
 
-def render_config(overlay_id: int, row: dict, entries: list[tuple[int, str]]) -> str:
+def static_init_seeds(
+    image_dir: Path,
+    overlay_id: int,
+    row: dict,
+) -> list[tuple[int, str, str, str]]:
+    """Read exact ARM/Thumb function pointers from the NDS overlay static-init table."""
+    start = row.get("static_init_start")
+    end = row.get("static_init_end")
+    if start == 0 and end == 0:
+        return []
+    load = row.get("ram_address")
+    size = row.get("ram_size")
+    if (type(start) is not int or type(end) is not int or
+            type(load) is not int or type(size) is not int or
+            size <= 0 or start < load or end < start or
+            end > load + size or (start & 3) != 0 or
+            (end & 3) != 0 or ((end - start) % 4) != 0):
+        raise ValueError(f"invalid static-init range in overlay {overlay_id}")
+
+    image_name = row.get("image_file")
+    if not isinstance(image_name, str) or Path(image_name).name != image_name:
+        raise ValueError(f"unsafe image filename for static-init overlay {overlay_id}")
+    image_path = image_dir / image_name
+    image = image_path.read_bytes()
+    if len(image) != size:
+        raise ValueError(f"static-init image size mismatch for overlay {overlay_id}")
+
+    offset = start - load
+    table_size = end - start
+    if offset < 0 or table_size > len(image) - offset:
+        raise ValueError(f"static-init table exceeds overlay image for ID {overlay_id}")
+
+    seeds: dict[tuple[int, str], tuple[int, str, str, str]] = {}
+    for index in range(table_size // 4):
+        pointer = struct.unpack_from("<I", image, offset + index * 4)[0]
+        if pointer == 0:
+            continue
+        thumb = (pointer & 1) != 0
+        address = pointer & ~1
+        mode = "thumb" if thumb else "arm"
+        alignment = 2 if thumb else 4
+        instruction_size = 2 if thumb else 4
+        if (address < load or address % alignment != 0 or
+                address + instruction_size > load + size):
+            raise ValueError(
+                f"static-init pointer {pointer:#010x} is outside/misaligned "
+                f"for overlay {overlay_id}"
+            )
+        name = f"ov{overlay_id}_{address:08X}"
+        seeds[(address, mode)] = (
+            address, name, mode, "overlay static-init pointer"
+        )
+    return [seeds[key] for key in sorted(seeds)]
+
+
+def render_config(
+    overlay_id: int,
+    row: dict,
+    entries: list[tuple[int, str, str, str]],
+) -> str:
     load = row["ram_address"]
     size = row["ram_size"]
     if (type(load) is not int or type(size) is not int or size <= 0 or
@@ -155,13 +215,19 @@ def render_config(overlay_id: int, row: dict, entries: list[tuple[int, str]]) ->
         f'sha1 = "{image_sha1}"',
         "",
     ]
-    for address, name in entries:
-        if not re.fullmatch(r"ov\d+_[0-9A-Fa-f]{8}", name):
-            raise ValueError(f"unsafe source-derived entry name {name!r}")
+    for address, name, mode, seed_source in entries:
+        if (not re.fullmatch(r"ov\d+_[0-9A-Fa-f]{8}", name) or
+                mode not in {"arm", "thumb"} or
+                seed_source not in {
+                    "source filename (provisional Thumb)",
+                    "overlay static-init pointer",
+                }):
+            raise ValueError(f"unsafe entry-point seed metadata: {name!r}")
         lines.extend([
+            f"# Seed source: {seed_source}",
             "[[entry_point]]",
             f"addr = 0x{address:08X}",
-            'mode = "thumb"',
+            f'mode = "{mode}"',
             f'name = "{name}"',
             "",
         ])
@@ -173,7 +239,9 @@ def discover(
     source: Path,
     output_dir: Path,
     include_function_pointer_headers: bool = False,
+    include_static_init_pointers: bool = False,
 ) -> dict:
+    image_dir = image_dir.expanduser().resolve(strict=True)
     records = load_overlay_records(image_dir)
     candidates, source_sha1, matched_files = source_anchors(
         source, include_function_pointer_headers
@@ -187,30 +255,52 @@ def discover(
         anchors = candidates.get(overlay_id, [])
         load = row["ram_address"]
         end = load + row["ram_size"]
-        invalid = [(address, name) for address, name in anchors if not load <= address < end]
+        invalid = [
+            (address, name) for address, name in anchors
+            if not load <= address < end or (address & 1) != 0
+        ]
         if invalid:
             results.append({
                 "overlay_id": overlay_id,
                 "status": "invalid-source-anchor",
                 "anchor_count": len(anchors),
+                "source_anchor_count": len(anchors),
+                "static_init_seed_count": 0,
                 "invalid_anchors": [
                     {"address": f"0x{address:08X}", "name": name}
                     for address, name in invalid
                 ],
             })
             continue
-        if not anchors:
+
+        static_seeds = (
+            static_init_seeds(image_dir, overlay_id, row)
+            if include_static_init_pointers else []
+        )
+        # Exact mode encoded by the NDS metadata takes precedence over the
+        # provisional Thumb assumption of address-named decomp source files.
+        unique_entries: dict[tuple[int, str], tuple[int, str, str, str]] = {}
+        for seed in static_seeds:
+            unique_entries[(seed[0], seed[2])] = seed
+        for address, name in anchors:
+            unique_entries.setdefault(
+                (address, "thumb"),
+                (address, name, "thumb", "source filename (provisional Thumb)"),
+            )
+        entries = sorted(
+            unique_entries.values(),
+            key=lambda item: (item[0], item[2], item[1]),
+        )
+        if not entries:
             results.append({
                 "overlay_id": overlay_id,
-                "status": "no-source-anchors",
+                "status": "no-entry-seeds",
                 "anchor_count": 0,
+                "source_anchor_count": 0,
+                "static_init_seed_count": 0,
             })
             continue
 
-        unique_addresses: dict[int, str] = {}
-        for address, name in anchors:
-            unique_addresses.setdefault(address, name)
-        entries = sorted(unique_addresses.items())
         config = output_dir / f"arm9_overlay_{overlay_id:04d}.toml"
         content = render_config(overlay_id, row, entries)
         if config.exists():
@@ -227,6 +317,17 @@ def discover(
             "overlay_id": overlay_id,
             "status": "config-ready",
             "anchor_count": len(entries),
+            "source_anchor_count": len(anchors),
+            "static_init_seed_count": len(static_seeds),
+            "static_init_only": len(anchors) == 0 and len(static_seeds) != 0,
+            "entry_point_seeds": [
+                {
+                    "address": f"0x{address:08X}",
+                    "mode": mode,
+                    "source": seed_source,
+                }
+                for address, _name, mode, seed_source in entries
+            ],
             "entry_pc": f"0x{entries[0][0]:08X}",
             "config": config.name,
             "image_sha1": row["image_sha1"],
@@ -239,11 +340,28 @@ def discover(
         "source_sha1": source_sha1,
         "source_matched_candidate_files": matched_files,
         "includes_function_pointer_headers": include_function_pointer_headers,
+        "includes_static_init_pointers": include_static_init_pointers,
         "source_only_overlay_ids": source_only_ids,
-        "mode_policy": "Thumb seeds are provisional filename-derived candidates, not authoritative entry-point metadata.",
+        "source_anchor_overlay_count": sum(bool(candidates.get(oid)) for oid in records),
+        "static_init_seed_overlay_count": sum(
+            item.get("static_init_seed_count", 0) > 0 for item in results
+        ),
+        "static_init_seed_count": sum(
+            item.get("static_init_seed_count", 0) for item in results
+        ),
+        "without_source_anchors": sum(
+            item.get("source_anchor_count", 0) == 0 for item in results
+        ),
+        "without_any_candidates": sum(
+            item["status"] == "no-entry-seeds" for item in results
+        ),
+        "mode_policy": (
+            "Source filenames use provisional Thumb; overlay static-init pointers "
+            "use the exact ARM/Thumb bit encoded in the pointer. All entry seeds "
+            "remain non-authoritative."
+        ),
         "overlay_count": len(records),
         "config_ready_count": sum(item["status"] == "config-ready" for item in results),
-        "without_source_anchors": sum(item["status"] == "no-source-anchors" for item in results),
         "invalid_anchor_overlays": sum(item["status"] == "invalid-source-anchor" for item in results),
         "results": results,
     }
@@ -273,6 +391,14 @@ def main() -> int:
         action="store_true",
         help="Also use funcptr_ovNNN_ADDRESS.h names as provisional indirect-call candidates.",
     )
+    parser.add_argument(
+        "--include-static-init-pointers",
+        action="store_true",
+        help=(
+            "Also seed exact ARM/Thumb entry candidates from the overlay table's "
+            "static_init_start..static_init_end function-pointer array."
+        ),
+    )
     args = parser.parse_args()
     try:
         report = discover(
@@ -280,6 +406,7 @@ def main() -> int:
             args.source,
             args.output_dir,
             include_function_pointer_headers=args.include_function_pointer_headers,
+            include_static_init_pointers=args.include_static_init_pointers,
         )
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -287,7 +414,10 @@ def main() -> int:
     print(
         f"overlay configs: {report['config_ready_count']}/{report['overlay_count']} ready; "
         f"{report['without_source_anchors']} have no source anchors; "
-        f"{report['invalid_anchor_overlays']} contain invalid anchors"
+        f"{report['static_init_seed_count']} static-init seeds across "
+        f"{report['static_init_seed_overlay_count']} overlays; "
+        f"{report['without_any_candidates']} without any entry candidates; "
+        f"{report['invalid_anchor_overlays']} contain invalid source anchors"
     )
     print(f"Local anchor discovery report: {(args.output_dir / 'anchor_discovery_report.json').resolve()}")
     return 0
