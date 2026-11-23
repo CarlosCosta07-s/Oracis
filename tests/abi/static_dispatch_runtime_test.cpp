@@ -61,6 +61,7 @@ int main()
     };
     const NdsDispatchEntry arm7_table[] = {
         {0x02380000u, 0u, arm7_body, nullptr},
+        {0x02380020u, 1u, thumb_body, nullptr},
     };
     const NdsDispatchEntry validated_table[] = {
         {0x02001000u, 0u, validated_body, &validation},
@@ -72,7 +73,7 @@ int main()
         return fail("ARM9 bank registration failed");
     }
     if (oracis_static_dispatch_register_bank(
-            NDS_ARM7, arm7_table, 1u, "runtime-arm7") !=
+            NDS_ARM7, arm7_table, 2u, "runtime-arm7") !=
         static_cast<int>(oracis::recomp::RegisterBankStatus::Ok)) {
         return fail("ARM7 bank registration failed");
     }
@@ -92,6 +93,24 @@ int main()
     runtime_dispatch(0x02380000u);
     if (arm7_calls != 1u || arm9_calls != 1u)
         return fail("ARM7 runtime dispatch invoked the wrong bank");
+
+    /* ARM7 must preserve its own CPSR.T across the same exchange fallback. */
+    runtime_dispatch_with_exchange(0x02380021u);
+    if (thumb_calls != 1u || (arm7.cpsr & CPSR_T_BIT) == 0u)
+        return fail("ARM7 Thumb exchange did not select its Thumb row");
+    NdsLinkSlot arm7_call_slot{};
+    arm7_call_slot.target_pc = 0x02380000u;
+    runtime_link_call(&arm7_call_slot);
+    if (arm7_calls != 2u || (arm7.cpsr & CPSR_T_BIT) != 0u)
+        return fail("ARM7 Thumb-to-ARM link-call did not exchange state");
+    NdsLinkSlot arm7_fallthrough_slot{};
+    arm7_fallthrough_slot.target_pc = 0x02380021u;
+    runtime_link_fallthrough(&arm7_fallthrough_slot);
+    if (thumb_calls != 2u || (arm7.cpsr & CPSR_T_BIT) == 0u)
+        return fail("ARM7 ARM-to-Thumb link-fallthrough did not exchange state");
+    runtime_dispatch_with_exchange(0x02380000u);
+    if ((arm7.cpsr & CPSR_T_BIT) != 0u)
+        return fail("ARM7 state was not restored after link-slot tests");
 
     /* Exchange takes the state from target bit zero before lookup. */
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9))
