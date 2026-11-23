@@ -126,8 +126,9 @@ public:
      * Preflight and load one ARM9 plus one ARM7 segment into existing retail
      * executable RAM mappings. When supplied, cartridge_header must contain
      * exactly the 0x170 bytes mirrored by NDS boot at 0x027FFE00.
-     * This still does not reproduce BIOS register/stack setup or imply that
-     * missing NitroSDK/timing services are ready to run.
+     * Seeds the documented cartridge-entry R12/R13/R14/R15, IRQ/SVC stacks
+     * and POSTFLG handoff state. It does not execute the BIOS/firmware boot
+     * sequence or establish that missing NitroSDK/timing services are ready.
      */
     NdsMachineStatus load_program_segments(
         const NdsProgramSegment &arm9,
