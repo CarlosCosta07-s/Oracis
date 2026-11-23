@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import importlib.util
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import sys
@@ -165,13 +165,24 @@ class GenerateOverlayBankRegistryTests(unittest.TestCase):
                 self.root / "registry.cpp", self.root / "manifest.json",
             )
 
+    def test_rejects_corrupted_extracted_image(self) -> None:
+        row = self.add_bank(5)
+        self.write_report([row])
+        image_path = self.overlay_image_dir / "arm9_overlay_0005.bin"
+        image_path.write_bytes(b"corrupted image")
+        with self.assertRaisesRegex(ValueError, "overlay image hash mismatch"):
+            generator.generate(
+                self.bank_dir, self.overlay_image_dir,
+                self.root / "registry.cpp", self.root / "manifest.json",
+            )
+
     def test_rejects_duplicate_overlay_ids(self) -> None:
         row = self.add_bank(5)
         self.write_report([row, dict(row)])
         with self.assertRaisesRegex(ValueError, "duplicate overlay ID"):
             generator.generate(
-                self.bank_dir, self.root / "registry.cpp",
-                self.root / "manifest.json",
+                self.bank_dir, self.overlay_image_dir,
+                self.root / "registry.cpp", self.root / "manifest.json",
             )
 
 
