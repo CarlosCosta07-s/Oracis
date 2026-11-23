@@ -217,6 +217,8 @@ def validate_output_destination(
 ) -> None:
     if output_dir.is_symlink():
         raise ValueError(f"overlay output directory must not be a symlink: {output_dir}")
+    if config_dir.is_symlink():
+        raise ValueError("overlay config directory must not be a symlink")
     output_resolved = output_dir.resolve()
     source_dirs = [image_dir.resolve(), config_dir.resolve()]
     if existing_bank_dir is not None:
@@ -546,10 +548,10 @@ def main() -> int:
             if len(selected_ids) != len(parts):
                 raise ValueError("--overlay-ids contains duplicate values")
         report = emit_overlay_banks(
-            args.recompiler.expanduser().resolve(),
-            args.overlay_image_dir.expanduser().resolve(),
-            args.config_dir.expanduser().resolve(),
-            args.output_dir.expanduser().resolve(),
+            args.recompiler.expanduser(),
+            args.overlay_image_dir.expanduser(),
+            args.config_dir.expanduser(),
+            args.output_dir.expanduser(),
             functions_per_shard=args.functions_per_shard,
             overlay_ids=selected_ids,
             existing_bank_dir=args.reuse_existing_bank_dir.expanduser() if args.reuse_existing_bank_dir else None,
