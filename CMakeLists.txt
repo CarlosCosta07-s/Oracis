@@ -322,27 +322,50 @@ if(ORACIS_LOCAL_OVERLAY_BANK_DIR)
     endif()
     message(STATUS "${_oracis_overlay_registry_stdout}")
 
-    file(GLOB _oracis_overlay_body_sources CONFIGURE_DEPENDS
-        "${ORACIS_LOCAL_OVERLAY_BANK_DIR}/overlay_[0-9][0-9][0-9][0-9]/pokemon_platinum_usa_rev1_arm9_overlay_[0-9][0-9][0-9][0-9].c")
+    file(GLOB _oracis_overlay_folders LIST_DIRECTORIES true CONFIGURE_DEPENDS
+        "${ORACIS_LOCAL_OVERLAY_BANK_DIR}/overlay_[0-9][0-9][0-9][0-9]")
     file(GLOB _oracis_overlay_dispatch_sources CONFIGURE_DEPENDS
         "${ORACIS_LOCAL_OVERLAY_BANK_DIR}/overlay_[0-9][0-9][0-9][0-9]/pokemon_platinum_usa_rev1_arm9_overlay_[0-9][0-9][0-9][0-9]_dispatch.c")
-    list(LENGTH _oracis_overlay_body_sources _oracis_overlay_body_count)
+    list(LENGTH _oracis_overlay_folders _oracis_overlay_folder_count)
     list(LENGTH _oracis_overlay_dispatch_sources _oracis_overlay_dispatch_count)
-    if(_oracis_overlay_body_count EQUAL 0 OR
-       NOT _oracis_overlay_body_count EQUAL _oracis_overlay_dispatch_count)
+    if(_oracis_overlay_folder_count EQUAL 0 OR
+       NOT _oracis_overlay_folder_count EQUAL _oracis_overlay_dispatch_count)
         message(FATAL_ERROR
-            "Overlay bank body/dispatch source count mismatch or no banks found.")
+            "Overlay bank folder/dispatch count mismatch or no banks found.")
     endif()
 
+    # Prefer bounded C shards when the emitter produced them. Older overlay
+    # sets without shard metadata remain supported through their single body.
+    set(_oracis_overlay_compile_sources)
+    set(_oracis_overlay_include_dirs)
+    foreach(overlay_folder IN LISTS _oracis_overlay_folders)
+        list(APPEND _oracis_overlay_include_dirs "${overlay_folder}")
+        file(GLOB overlay_shards CONFIGURE_DEPENDS
+            "${overlay_folder}/*_shards/bank_part_*.c")
+        if(overlay_shards)
+            list(APPEND _oracis_overlay_compile_sources ${overlay_shards})
+        else()
+            file(GLOB overlay_bodies CONFIGURE_DEPENDS
+                "${overlay_folder}/pokemon_platinum_usa_rev1_arm9_overlay_[0-9][0-9][0-9][0-9].c")
+            list(LENGTH overlay_bodies overlay_body_count)
+            if(NOT overlay_body_count EQUAL 1)
+                message(FATAL_ERROR
+                    "Overlay folder must contain exactly one monolithic body or a validated shard directory: ${overlay_folder}")
+            endif()
+            list(APPEND _oracis_overlay_compile_sources ${overlay_bodies})
+        endif()
+    endforeach()
+
     add_library(oracis_platinum_overlay_banks OBJECT
-        ${_oracis_overlay_body_sources}
+        ${_oracis_overlay_compile_sources}
         ${_oracis_overlay_dispatch_sources}
         "${_oracis_overlay_registrar}")
     target_link_libraries(oracis_platinum_overlay_banks PRIVATE
         oracis_generated_bank_abi)
     target_include_directories(oracis_platinum_overlay_banks PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
-        "${ORACIS_LOCAL_OVERLAY_BANK_DIR}")
+        "${ORACIS_LOCAL_OVERLAY_BANK_DIR}"
+        ${_oracis_overlay_include_dirs})
     target_sources(oracis_machine PRIVATE
         $<TARGET_OBJECTS:oracis_platinum_overlay_banks>)
     target_compile_definitions(oracis_machine PRIVATE
