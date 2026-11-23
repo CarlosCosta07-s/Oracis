@@ -50,7 +50,7 @@ int main()
 
     GuestMemory memory;
     NdsInterruptControl interrupts(memory);
-    NdsGeometryEngine geometry(interrupts);
+    static NdsGeometryEngine geometry(interrupts);
     if (geometry.install() != Status::Ok || !geometry.installed() ||
         geometry.install() != Status::InvalidRegion) {
         return fail("Geometry Engine install/reset failed");
@@ -630,7 +630,7 @@ int main()
      * (x,y,z,1) * (Position * Projection). Translation is deliberately
      * nonzero so a transposed matrix/vector implementation cannot pass.
      */
-    NdsGeometryEngine transform_geometry(interrupts);
+    static NdsGeometryEngine transform_geometry(interrupts);
     if (transform_geometry.install() != Status::Ok ||
         !write_command(transform_geometry, 0x10u, 1u) ||
         !write_command(transform_geometry, 0x15u)) {
@@ -682,7 +682,7 @@ int main()
      * VIEWPORT maps valid clip-space coordinates into the configured BG0
      * rectangle. DS viewport origin is bottom-left, so screen Y grows up.
      */
-    NdsGeometryEngine viewport_geometry(interrupts);
+    static NdsGeometryEngine viewport_geometry(interrupts);
     if (viewport_geometry.install() != Status::Ok) {
         return fail("viewport Geometry Engine installation failed");
     }
@@ -731,7 +731,7 @@ int main()
     }
 
     /* A partially outside triangle is clipped into a screen-ready polygon. */
-    NdsGeometryEngine outside_viewport_geometry(interrupts);
+    static NdsGeometryEngine outside_viewport_geometry(interrupts);
     if (outside_viewport_geometry.install() != Status::Ok ||
         !write_command(outside_viewport_geometry, 0x40u, UINT32_C(0))) {
         return fail("outside-viewport fixture setup failed");
@@ -894,7 +894,7 @@ int main()
         return true;
     };
 
-    NdsGeometryEngine front_only_geometry(interrupts);
+    static NdsGeometryEngine front_only_geometry(interrupts);
     if (!make_polygon(
             front_only_geometry, UINT32_C(1) << 7u,
             false, false, false)) {
@@ -908,7 +908,7 @@ int main()
         return fail("anti-clockwise triangle was not accepted as the front surface");
     }
 
-    NdsGeometryEngine back_hidden_geometry(interrupts);
+    static NdsGeometryEngine back_hidden_geometry(interrupts);
     if (!make_polygon(
             back_hidden_geometry, UINT32_C(1) << 7u,
             true, false, false)) {
@@ -921,7 +921,7 @@ int main()
         return fail("back-facing triangle ignored the front-only surface flag");
     }
 
-    NdsGeometryEngine back_visible_geometry(interrupts);
+    static NdsGeometryEngine back_visible_geometry(interrupts);
     if (!make_polygon(
             back_visible_geometry, UINT32_C(1) << 6u,
             true, false, false)) {
@@ -934,7 +934,7 @@ int main()
         return fail("back-facing triangle was not accepted by the back-surface flag");
     }
 
-    NdsGeometryEngine line_geometry(interrupts);
+    static NdsGeometryEngine line_geometry(interrupts);
     if (!make_polygon(line_geometry, 0u, false, false, true)) {
         return fail("line-segment polygon fixture setup failed");
     }
@@ -952,7 +952,7 @@ int main()
         (UINT32_C(1) << 11u) | (UINT32_C(1) << 14u) |
         (UINT32_C(1) << 15u) | (UINT32_C(17) << 16u) |
         (UINT32_C(0x2A) << 24u);
-    NdsGeometryEngine decoded_attributes_geometry(interrupts);
+    static NdsGeometryEngine decoded_attributes_geometry(interrupts);
     if (!make_polygon(
             decoded_attributes_geometry, kDecodedAttributes,
             false, false, false)) {
@@ -1002,7 +1002,7 @@ int main()
 
     constexpr uint32_t kBothFaces =
         (UINT32_C(1) << 6u) | (UINT32_C(1) << 7u);
-    NdsGeometryEngine one_dot_hidden_geometry(interrupts);
+    static NdsGeometryEngine one_dot_hidden_geometry(interrupts);
     if (!make_one_dot_triangle(
             one_dot_hidden_geometry, UINT16_C(7), kBothFaces)) {
         return fail("1-dot hidden triangle fixture setup failed");
@@ -1013,7 +1013,7 @@ int main()
         return fail("1-dot polygon beyond DISP_1DOT_DEPTH was not hidden");
     }
 
-    NdsGeometryEngine one_dot_visible_geometry(interrupts);
+    static NdsGeometryEngine one_dot_visible_geometry(interrupts);
     if (!make_one_dot_triangle(
             one_dot_visible_geometry, UINT16_C(8), kBothFaces)) {
         return fail("1-dot visible triangle fixture setup failed");
@@ -1024,7 +1024,7 @@ int main()
         return fail("1-dot polygon at the DISP_1DOT_DEPTH boundary was hidden");
     }
 
-    NdsGeometryEngine one_dot_bypass_geometry(interrupts);
+    static NdsGeometryEngine one_dot_bypass_geometry(interrupts);
     if (!make_one_dot_triangle(
             one_dot_bypass_geometry, UINT16_C(7),
             kBothFaces | (UINT32_C(1) << 13u))) {
@@ -1037,7 +1037,7 @@ int main()
     }
 
     /* POLYGON_ATTR bit 12 gates polygons which intersect the far clip plane. */
-    NdsGeometryEngine far_hidden_geometry(interrupts);
+    static NdsGeometryEngine far_hidden_geometry(interrupts);
     if (!make_polygon(
             far_hidden_geometry, UINT32_C(1) << 7u,
             false, true, false)) {
@@ -1050,7 +1050,7 @@ int main()
         return fail("far-plane crossing polygon ignored the disabled far-plane flag");
     }
 
-    NdsGeometryEngine far_visible_geometry(interrupts);
+    static NdsGeometryEngine far_visible_geometry(interrupts);
     if (!make_polygon(
             far_visible_geometry,
             (UINT32_C(1) << 7u) | (UINT32_C(1) << 12u),
@@ -1161,7 +1161,7 @@ int main()
      * A triangle with only two vertices is an incomplete polygon list.
      * END_VTXS is a dummy command and does not cure the incomplete primitive.
      */
-    NdsGeometryEngine locked_geometry(interrupts);
+    static NdsGeometryEngine locked_geometry(interrupts);
     if (locked_geometry.install() != Status::Ok ||
         !write_command(locked_geometry, 0x40u, UINT32_C(0))) {
         return fail("incomplete-triangle swap lockup fixture setup failed");

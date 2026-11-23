@@ -130,7 +130,7 @@ int main()
 
     GuestMemory memory;
     NdsInterruptControl interrupts(memory);
-    NdsGeometryEngine geometry(interrupts);
+    static NdsGeometryEngine geometry(interrupts);
     NdsVramControl vram(memory);
     NdsDisplayControl display(interrupts);
     if (geometry.install() != Status::Ok ||
@@ -342,8 +342,8 @@ int main()
      * is solid (alpha 31). Opaque polygons may use the ordinary depth test
      * without requiring the unsupported translucent Y-sort.
      */
-    Nds3dDepthBuffer auto_sort_depth{};
-    Nds3dColorBuffer auto_sort_color{};
+    static Nds3dDepthBuffer auto_sort_depth{};
+    static Nds3dColorBuffer auto_sort_color{};
     if (rasterizer.render_scanline_composited(
             96u, auto_sort_depth, auto_sort_color,
             true, false, 0u) != Nds3dRasterStatus::Ok ||
@@ -384,8 +384,8 @@ int main()
             UINT16_C(0x03E0)) != Status::Ok) {
         return fail("edge-marking control or edge-color setup failed");
     }
-    Nds3dDepthBuffer edge_depth{};
-    Nds3dColorBuffer edge_color{};
+    static Nds3dDepthBuffer edge_depth{};
+    static Nds3dColorBuffer edge_color{};
     if (rasterizer.render_scanline_composited(
             0u, edge_depth, edge_color, display) != Nds3dRasterStatus::Ok) {
         return fail("horizontal edge-marking scanline composition failed");
@@ -432,8 +432,8 @@ int main()
     }
 
     /* Equal depth must suppress an edge even when the neighbor ID differs. */
-    Nds3dColorBuffer edge_rule_color{};
-    Nds3dDepthBuffer edge_rule_depth{};
+    static Nds3dColorBuffer edge_rule_color{};
+    static Nds3dDepthBuffer edge_rule_depth{};
     edge_rule_color.clear(0u, 0u, 0u, 31u, 9u, false);
     edge_rule_depth.clear(100u);
     Nds3dColorPixel candidate_pixel{};
@@ -467,9 +467,9 @@ int main()
     }
 
     /* Cached output waits for the next row before exposing the previous one. */
-    Nds3dScanlineCache edge_cache{};
-    Nds3dDepthBuffer edge_cache_depth{};
-    Nds3dColorBuffer edge_cache_color{};
+    static Nds3dScanlineCache edge_cache{};
+    static Nds3dDepthBuffer edge_cache_depth{};
+    static Nds3dColorBuffer edge_cache_color{};
     if (edge_cache.reset(0u) != Nds3dScanlineCacheStatus::Ok ||
         rasterizer.initialize_rear_plane(
             edge_cache_color, edge_cache_depth, display) != Nds3dRasterStatus::Ok ||
@@ -537,8 +537,8 @@ int main()
         return fail("W-buffer/manual-sort mode was not retained with the second render buffer");
     }
 
-    Nds3dDepthBuffer alpha_test_depth{};
-    Nds3dColorBuffer alpha_test_color{};
+    static Nds3dDepthBuffer alpha_test_depth{};
+    static Nds3dColorBuffer alpha_test_color{};
     if (display.write(
             NDS_ARM9, NdsDisplayControl::Disp3dControlAddress, 2u,
             static_cast<uint32_t>(
@@ -585,8 +585,8 @@ int main()
         return fail("rear-plane clear register setup or depth expansion failed");
     }
 
-    Nds3dDepthBuffer depth{};
-    Nds3dColorBuffer color{};
+    static Nds3dDepthBuffer depth{};
+    static Nds3dColorBuffer color{};
     if (rasterizer.initialize_rear_plane(
             color, depth, display) != Nds3dRasterStatus::Ok) {
         return fail("uniform rear-plane initialization failed");
@@ -687,9 +687,9 @@ int main()
         return fail("opaque W-buffer fragment was not composited into RGB6/A5");
     }
 
-    Nds3dDepthBuffer cached_depth{};
-    Nds3dColorBuffer cached_color{};
-    Nds3dScanlineCache scanline_cache;
+    static Nds3dDepthBuffer cached_depth{};
+    static Nds3dColorBuffer cached_color{};
+    static Nds3dScanlineCache scanline_cache;
     if (rasterizer.initialize_rear_plane(
             cached_color, cached_depth, display) != Nds3dRasterStatus::Ok ||
         scanline_cache.reset(96u) != Nds3dScanlineCacheStatus::Ok ||
@@ -804,8 +804,8 @@ int main()
     geometry.notify_vblank();
     geometry.advance_bus_cycles(392u);
 
-    Nds3dDepthBuffer translucent_auto_sort_depth{};
-    Nds3dColorBuffer translucent_auto_sort_color{};
+    static Nds3dDepthBuffer translucent_auto_sort_depth{};
+    static Nds3dColorBuffer translucent_auto_sort_color{};
     if (geometry.render_polygon_count() != 1u ||
         geometry.render_swap_parameters() != 0u ||
         geometry.render_polygon_at(0u) == nullptr ||
@@ -876,8 +876,8 @@ int main()
         return fail("fog scanline fixture registers could not be configured");
     }
 
-    Nds3dDepthBuffer fog_depth{};
-    Nds3dColorBuffer fog_color_buffer{};
+    static Nds3dDepthBuffer fog_depth{};
+    static Nds3dColorBuffer fog_color_buffer{};
     fog_color_buffer.clear(0u, 0u, 63u, 31u, 0u, true);
     if (!fog_depth.write_depth(0u, 0u, UINT32_C(0x400) << 9u) ||
         !fog_depth.write_depth(1u, 0u, UINT32_C(0x600) << 9u) ||
@@ -924,7 +924,7 @@ int main()
         return fail("alpha-only fog changed RGB or failed to blend alpha");
     }
 
-    Nds3dColorBuffer fog_flag_buffer{};
+    static Nds3dColorBuffer fog_flag_buffer{};
     fog_flag_buffer.clear(0u, 0u, 0u, 31u, 0u, true);
     Nds3dFragment translucent_flag_fragment{};
     translucent_flag_fragment.x = 0u;
@@ -1000,8 +1000,8 @@ int main()
             0u) != Status::Ok) {
         return fail("Toon shading mode could not be selected");
     }
-    Nds3dDepthBuffer toon_depth{};
-    Nds3dColorBuffer toon_output{};
+    static Nds3dDepthBuffer toon_depth{};
+    static Nds3dColorBuffer toon_output{};
     if (rasterizer.render_scanline_composited(
             96u, toon_depth, toon_output, display) != Nds3dRasterStatus::Ok) {
         return fail("Toon shading scanline composition failed");
@@ -1094,9 +1094,9 @@ int main()
     geometry.notify_vblank();
     geometry.advance_bus_cycles(392u);
 
-    Nds3dShadowStencilBuffer shadow_stencil{};
-    Nds3dDepthBuffer shadow_depth{};
-    Nds3dColorBuffer shadow_output{};
+    static Nds3dShadowStencilBuffer shadow_stencil{};
+    static Nds3dDepthBuffer shadow_depth{};
+    static Nds3dColorBuffer shadow_output{};
     shadow_depth.clear();
     shadow_output.clear(40u, 40u, 40u, 31u, 5u, false);
     if (rasterizer.render_scanline_composited(
@@ -1211,8 +1211,8 @@ int main()
     geometry.advance_bus_cycles(1u);
     geometry.notify_vblank();
     geometry.advance_bus_cycles(392u);
-    Nds3dDepthBuffer manual_depth{};
-    Nds3dColorBuffer manual_output{};
+    static Nds3dDepthBuffer manual_depth{};
+    static Nds3dColorBuffer manual_output{};
     manual_depth.clear();
     manual_output.clear(0u, 0u, 0u, 31u, 0u, false);
     if (rasterizer.render_scanline_composited(
@@ -1271,8 +1271,8 @@ int main()
         return fail("wireframe frame did not retain automatic-sort settings");
     }
 
-    Nds3dDepthBuffer wireframe_depth{};
-    Nds3dColorBuffer wireframe_color{};
+    static Nds3dDepthBuffer wireframe_depth{};
+    static Nds3dColorBuffer wireframe_color{};
     wireframe_depth.clear();
     wireframe_color.clear(0u, 0u, 0u, 31u, 0u, false);
     if (rasterizer.render_scanline_composited(
@@ -1300,8 +1300,8 @@ int main()
     }
 
     /* Alpha-test threshold 31 must discard fixed-alpha wireframe edges. */
-    Nds3dDepthBuffer wireframe_alpha_depth{};
-    Nds3dColorBuffer wireframe_alpha_color{};
+    static Nds3dDepthBuffer wireframe_alpha_depth{};
+    static Nds3dColorBuffer wireframe_alpha_color{};
     wireframe_alpha_depth.clear();
     wireframe_alpha_color.clear(0u, 0u, 0u, 31u, 0u, false);
     if (rasterizer.render_scanline_composited(
@@ -1403,8 +1403,8 @@ int main()
         return fail("A3I5 final alpha was not classified as translucent");
     }
 
-    Nds3dDepthBuffer a3i5_depth{};
-    Nds3dColorBuffer a3i5_color{};
+    static Nds3dDepthBuffer a3i5_depth{};
+    static Nds3dColorBuffer a3i5_color{};
     a3i5_depth.clear();
     a3i5_color.clear(0u, 0u, 0u, 31u, 0u, false);
     if (rasterizer.render_scanline_composited(
@@ -1477,8 +1477,8 @@ int main()
         return fail("A5I3 final alpha was not classified as translucent");
     }
 
-    Nds3dDepthBuffer a5i3_depth{};
-    Nds3dColorBuffer a5i3_color{};
+    static Nds3dDepthBuffer a5i3_depth{};
+    static Nds3dColorBuffer a5i3_color{};
     a5i3_depth.clear();
     a5i3_color.clear(0u, 0u, 0u, 31u, 0u, false);
     if (rasterizer.render_scanline_composited(
@@ -1548,8 +1548,8 @@ int main()
         return fail("opaque Direct Color texel did not retain full final alpha");
     }
 
-    Nds3dDepthBuffer direct_color_depth{};
-    Nds3dColorBuffer direct_color_color{};
+    static Nds3dDepthBuffer direct_color_depth{};
+    static Nds3dColorBuffer direct_color_color{};
     direct_color_depth.clear();
     direct_color_color.clear(0u, 0u, 0u, 31u, 0u, false);
     if (rasterizer.render_scanline_composited(
