@@ -5,6 +5,7 @@
 
 #include "oracis/memory/guest_memory_abi.h"
 #include "oracis/host/runtime_bridge.h"
+#include "oracis/recomp/runtime_arm.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -247,6 +248,7 @@ static char *g_android_dialog_path = NULL;
 static char *g_android_game_card_uri = NULL;
 static char *g_android_arm7_bios_uri = NULL;
 static bool g_android_guest_execution_enabled = false;
+static bool g_android_guest_stacks_prepared = false;
 static uint64_t g_android_last_cycle_report = 0u;
 
 static void SDLCALL android_file_dialog_callback(
@@ -349,8 +351,52 @@ static bool take_android_file_dialog_result(
     return ready;
 }
 
+static bool prepare_android_direct_entry_stacks(void)
+{
+    if (g_android_guest_stacks_prepared) return true;
+
+    /*
+     * These are temporary, RAM-valid stacks for the direct-entry experiment.
+     * They are not claimed to reproduce the retail BIOS power-on stack layout.
+     */
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) return false;
+    ArmCpuState *arm9 = oracis_arm_runtime_current_state();
+    if (arm9 == NULL) return false;
+    arm9->R[13] = UINT32_C(0x023FF000);
+    arm9->banked_sp[ARM_BANK_USER] = UINT32_C(0x023FF000);
+    arm9->banked_sp[ARM_BANK_SUPERVISOR] = UINT32_C(0x023FE000);
+    arm9->banked_sp[ARM_BANK_IRQ] = UINT32_C(0x023FD000);
+    arm9->banked_sp[ARM_BANK_ABORT] = UINT32_C(0x023FC000);
+    arm9->banked_sp[ARM_BANK_UNDEFINED] = UINT32_C(0x023FB000);
+    arm9->banked_sp[ARM_BANK_FIQ] = UINT32_C(0x023FA000);
+
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM7)) return false;
+    ArmCpuState *arm7 = oracis_arm_runtime_current_state();
+    if (arm7 == NULL) return false;
+    arm7->R[13] = UINT32_C(0x0380FF00);
+    arm7->banked_sp[ARM_BANK_USER] = UINT32_C(0x0380FF00);
+    arm7->banked_sp[ARM_BANK_SUPERVISOR] = UINT32_C(0x0380FE00);
+    arm7->banked_sp[ARM_BANK_IRQ] = UINT32_C(0x0380FD00);
+    arm7->banked_sp[ARM_BANK_ABORT] = UINT32_C(0x0380FC00);
+    arm7->banked_sp[ARM_BANK_UNDEFINED] = UINT32_C(0x0380FB00);
+    arm7->banked_sp[ARM_BANK_FIQ] = UINT32_C(0x0380FA00);
+
+    g_android_guest_stacks_prepared = true;
+    SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+        "Direct-entry diagnostic stacks seeded (ARM9 main RAM, ARM7 private WRAM); "
+        "these are temporary host choices, not retail BIOS boot state.");
+    return true;
+}
+
 static void log_android_entrypoint_preflight(void)
 {
+    if (!prepare_android_direct_entry_stacks()) {
+        g_android_guest_execution_enabled = false;
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not seed temporary Android direct-entry guest stacks.");
+        return;
+    }
+
     OracisHostRuntimeEntryPointReport arm9 = {0};
     OracisHostRuntimeEntryPointReport arm7 = {0};
     const int status = oracis_host_runtime_validate_entrypoints(
@@ -901,17 +947,30 @@ int main(int argc, char *argv[])
 
 #ifdef __ANDROID__
         if (g_android_guest_execution_enabled && game_card_program_loaded) {
-            const int round_status = oracis_host_runtime_run_round(
-                UINT64_C(131072), NULL, NULL);
-            if (round_status != ORACIS_HOST_RUNTIME_OK) {
-                g_android_guest_execution_enabled = false;
-                SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
-                    "Native direct-entry stopped at bus cycle %llu "
-                    "(bridge=%d, machine=%d).",
-                    (unsigned long long)oracis_host_runtime_global_bus_cycles(),
-                    round_status,
-                    oracis_host_runtime_last_machine_status());
-            } else {
+            /*
+             * The generated-bank ABI dispatches linked guest blocks through
+             * nested host calls. Keep each scheduler slice short so loops
+             * unwind before the Android thread's native stack is exhausted.
+             * Aggregate work per presentation iteration remains 128 * 1024
+             * bus cycles, matching the previous 131072-cycle budget.
+             */
+            for (uint32_t round = 0u; round < 128u; ++round) {
+                const int round_status = oracis_host_runtime_run_round(
+                    UINT64_C(1024), NULL, NULL);
+                if (round_status != ORACIS_HOST_RUNTIME_OK) {
+                    g_android_guest_execution_enabled = false;
+                    SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+                        "Native direct-entry stopped at bus cycle %llu "
+                        "(round=%u, bridge=%d, machine=%d).",
+                        (unsigned long long)oracis_host_runtime_global_bus_cycles(),
+                        round,
+                        round_status,
+                        oracis_host_runtime_last_machine_status());
+                    break;
+                }
+            }
+
+            if (g_android_guest_execution_enabled) {
                 const uint64_t cycles = oracis_host_runtime_global_bus_cycles();
                 if (cycles - g_android_last_cycle_report >= UINT64_C(33554432)) {
                     SDL_Log("Native direct-entry is progressing: %llu bus cycles.",
