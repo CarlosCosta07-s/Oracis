@@ -213,5 +213,8 @@ ARM=0). Enquanto o cache de link direto permanece desativado, os três helpers
 que atualiza CPSR.T antes de consultar a tabela estática. O fallback não pode
 descartar o bit 0 e reutilizar acidentalmente o estado do chamador. A regressão
 usa slots sintéticos para as transições ARM→Thumb e Thumb→ARM em chamadas,
-branches e fallthrough. Nenhum ponteiro de função é cacheado; as verificações
-de identidade do dispatcher continuam sendo aplicadas em cada transferência.
+branches e fallthrough nos dois CPUs (ARM9 e ARM7). O teste C ABI mantém
+contadores de destino independentes por CPU para que uma invocação Thumb em um
+core não contamine a asserção do outro. Nenhum ponteiro de função é cacheado;
+as verificações de identidade do dispatcher continuam sendo aplicadas em cada
+transferência.

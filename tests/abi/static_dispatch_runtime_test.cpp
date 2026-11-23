@@ -105,14 +105,16 @@ int main()
     runtime_link_call(&arm7_call_slot);
     if (arm7_calls != 2u || (arm7.cpsr & CPSR_T_BIT) != 0u)
         return fail("ARM7 Thumb-to-ARM link-call did not exchange state");
-    NdsLinkSlot arm7_fallthrough_slot{};
-    arm7_fallthrough_slot.target_pc = 0x02380021u;
-    runtime_link_fallthrough(&arm7_fallthrough_slot);
+    NdsLinkSlot arm7_branch_slot{};
+    arm7_branch_slot.target_pc = 0x02380021u;
+    runtime_link_branch(&arm7_branch_slot);
     if (arm7_thumb_calls != 2u || (arm7.cpsr & CPSR_T_BIT) == 0u)
-        return fail("ARM7 ARM-to-Thumb link-fallthrough did not exchange state");
-    runtime_dispatch_with_exchange(0x02380000u);
-    if ((arm7.cpsr & CPSR_T_BIT) != 0u)
-        return fail("ARM7 state was not restored after link-slot tests");
+        return fail("ARM7 ARM-to-Thumb link-branch did not exchange state");
+    NdsLinkSlot arm7_fallthrough_slot{};
+    arm7_fallthrough_slot.target_pc = 0x02380000u;
+    runtime_link_fallthrough(&arm7_fallthrough_slot);
+    if (arm7_calls != 3u || (arm7.cpsr & CPSR_T_BIT) != 0u)
+        return fail("ARM7 Thumb-to-ARM link-fallthrough did not exchange state");
 
     /* Exchange takes the state from target bit zero before lookup. */
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9))
