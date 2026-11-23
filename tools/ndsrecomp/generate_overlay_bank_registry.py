@@ -14,6 +14,7 @@ from pathlib import Path
 
 
 BANK_RE = re.compile(r"pokemon_platinum_usa_rev1_arm9_overlay_(\d{4})\Z")
+SHARD_RE = re.compile(r"bank_part_[0-9]{4}\.c\Z")
 
 
 def sha256(path: Path) -> str:
