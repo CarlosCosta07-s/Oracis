@@ -256,24 +256,22 @@ int main()
     };
     const NdsOverlayStatus dtcm_load_status =
         machine.load_overlay(retail_dtcm_overlay);
-    const oracis::memory::Status dtcm_execute_status =
-        machine.guest_memory().validate_execute(
+    const oracis::memory::Status dtcm_write_status =
+        machine.guest_memory().validate_write(
+            NDS_ARM9, RetailDtcmOverlayAddress, 16u);
+    const oracis::memory::Status dtcm_read_status =
+        machine.guest_memory().validate_read(
             NDS_ARM9, RetailDtcmOverlayAddress,
             static_cast<uint32_t>(dtcm_image.size()));
-    const auto dtcm_timing = machine.arm9_tcm().timing_state();
     if (dtcm_load_status != NdsOverlayStatus::Ok ||
-        dtcm_execute_status != oracis::memory::Status::PermissionDenied) {
+        dtcm_write_status != oracis::memory::Status::Ok ||
+        dtcm_read_status != oracis::memory::Status::Ok) {
         std::fprintf(stderr,
-            "DTCM diagnostics: load=%u exec=%u dtcm_base=0x%08X "
-            "dtcm_size=0x%08X write=%u read=%u\\n",
+            "DTCM diagnostics: load=%u write=%u read=%u\\n",
             static_cast<unsigned>(dtcm_load_status),
-            static_cast<unsigned>(dtcm_execute_status),
-            dtcm_timing.dtcm_base, dtcm_timing.dtcm_window_size,
-            static_cast<unsigned>(machine.guest_memory().validate_write(
-                NDS_ARM9, RetailDtcmOverlayAddress, 16u)),
-            static_cast<unsigned>(machine.guest_memory().validate_read(
-                NDS_ARM9, RetailDtcmOverlayAddress, 8u)));
-        return fail("DTCM data overlay was rejected or made executable");
+            static_cast<unsigned>(dtcm_write_status),
+            static_cast<unsigned>(dtcm_read_status));
+        return fail("DTCM data overlay was rejected or data access failed");
     }
 
     const NdsDispatchEntry entries[] = {
