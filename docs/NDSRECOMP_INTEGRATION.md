@@ -162,8 +162,13 @@ O extrator só aceita a identidade de ROM documentada e grava os segmentos e met
 Quando `ORACIS_LOCAL_BANK_DIR` aponta para os bancos locais, o CMake compila os corpos e tabelas de dispatch como objetos e liga-os ao runtime. Na inicialização, o host pode registrar as tabelas por meio de `oracis_host_runtime_register_compiled_banks()`. O smoke test da CI valida essa ligação e o ciclo de registro/remoção com fixtures sintéticas.
 
 Antes de criar os alvos CMake, `validate_platinum_bank_set.py` confere o
-manifesto `oracis_banks.json`, a identidade USA Rev 1, a identidade do adaptador
-de memória e o SHA-1 de cada um dos seis arquivos C/H/dispatch. O diretório deve
+manifesto `oracis_banks.json`, a identidade USA Rev 1, a identidade exata do
+codegen (`nds-codegen-v3`), a identidade do adaptador de memória e o SHA-1 de
+cada um dos seis arquivos C/H/dispatch. O campo `codegen_identity` é escrito
+pelo emissor depois da consulta ao executável; a validação rejeita bancos
+retail emitidos por outra versão ou sem essa identidade. Fixtures sintéticas
+usam o marcador separado `synthetic-fixture`, que não pode ser usado para
+representar uma emissão retail. O diretório deve
 conter exatamente esses seis arquivos e o manifesto; symlinks, objetos antigos,
 arquivos extras, hashes divergentes ou metadados de outro segmento interrompem
 a configuração antes da compilação. Fixtures sintéticas usam

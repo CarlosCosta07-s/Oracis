@@ -81,6 +81,10 @@ class ValidatePlatinumBankSetTests(unittest.TestCase):
             "schema_version": 1,
             "source_kind": source_kind,
             "rom_sha1": validator.EXPECTED_ROM_SHA1 if source_kind == "retail-rom" else None,
+            "codegen_identity": (
+                validator.EXPECTED_CODEGEN_IDENTITY
+                if source_kind == "retail-rom" else "synthetic-fixture"
+            ),
             "banks": banks,
             "notice": "Synthetic test manifest only.",
         }
@@ -103,6 +107,13 @@ class ValidatePlatinumBankSetTests(unittest.TestCase):
         manifest["rom_sha1"] = "0" * 40
         self.update_manifest(manifest)
         with self.assertRaisesRegex(validator.BankSetError, "ROM SHA-1"):
+            validator.validate_bank_set(self.directory)
+
+    def test_rejects_unpinned_codegen_identity(self) -> None:
+        manifest = json.loads((self.directory / validator.MANIFEST_NAME).read_text())
+        manifest["codegen_identity"] = "nds-codegen-v2"
+        self.update_manifest(manifest)
+        with self.assertRaisesRegex(validator.BankSetError, "codegen identity"):
             validator.validate_bank_set(self.directory)
 
     def test_rejects_tampered_generated_source(self) -> None:
@@ -151,6 +162,15 @@ class ValidatePlatinumBankSetTests(unittest.TestCase):
             self.directory, allow_synthetic_fixture=True
         )
         self.assertEqual(manifest["source_kind"], "synthetic-fixture")
+
+    def test_synthetic_fixture_cannot_claim_retail_codegen_identity(self) -> None:
+        manifest = self.write_manifest("synthetic-fixture")
+        manifest["codegen_identity"] = validator.EXPECTED_CODEGEN_IDENTITY
+        self.update_manifest(manifest)
+        with self.assertRaisesRegex(validator.BankSetError, "codegen_identity marker"):
+            validator.validate_bank_set(
+                self.directory, allow_synthetic_fixture=True
+            )
 
     def test_synthetic_fixture_cannot_claim_retail_rom_identity(self) -> None:
         manifest = self.write_manifest("synthetic-fixture")

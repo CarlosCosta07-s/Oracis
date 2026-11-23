@@ -144,6 +144,7 @@ class EmitPlatinumBanksTests(unittest.TestCase):
             )
 
         self.assertEqual(result["source_kind"], "retail-rom")
+        self.assertEqual(result["codegen_identity"], EXPECTED_CODEGEN_IDENTITY)
         self.assertEqual(set(result["banks"]), {"arm9", "arm7"})
         self.assertEqual(
             result["banks"]["arm9"]["entry_mode"], "arm"

@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "source_kind": "synthetic-fixture",
+  "codegen_identity": "synthetic-fixture",
   "rom_sha1": null,
   "banks": {
     "arm9": {

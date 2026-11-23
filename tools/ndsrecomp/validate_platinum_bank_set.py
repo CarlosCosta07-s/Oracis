@@ -20,6 +20,7 @@ from emit_platinum_banks import (
     BANK_PREFIX,
     CPUS,
     EXPECTED_ROM_SHA1,
+    EXPECTED_CODEGEN_IDENTITY,
     EXPECTED_SEGMENTS,
 )
 
@@ -98,6 +99,8 @@ def validate_bank_set(
     _require(source_kind in ("retail-rom", "synthetic-fixture"),
              "Bank manifest source_kind must be retail-rom or synthetic-fixture")
     if source_kind == "synthetic-fixture":
+        _require(manifest.get("codegen_identity") == "synthetic-fixture",
+                 "Synthetic fixture codegen_identity marker is invalid")
         _require(allow_synthetic_fixture,
                  "Synthetic bank fixtures are disabled; set ORACIS_ALLOW_SYNTHETIC_BANKS=ON only for tests")
         _require(manifest.get("rom_sha1") is None,
@@ -105,6 +108,8 @@ def validate_bank_set(
     else:
         _require(manifest.get("rom_sha1") == EXPECTED_ROM_SHA1,
                  "Bank manifest ROM SHA-1 does not match Pokémon Platinum USA Rev 1")
+        _require(manifest.get("codegen_identity") == EXPECTED_CODEGEN_IDENTITY,
+                 "Bank manifest NDSRecomp codegen identity does not match the pinned compiler")
 
     banks = manifest.get("banks")
     _require(isinstance(banks, dict) and set(banks) == set(CPUS),
