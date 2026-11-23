@@ -136,11 +136,16 @@ int host_overlay_status(oracis::machine::NdsOverlayStatus status) noexcept
     case NdsOverlayStatus::Ok:
         return ORACIS_HOST_RUNTIME_OK;
     case NdsOverlayStatus::AlreadyLoaded:
+    case NdsOverlayStatus::InitializersAlreadyRun:
         return ORACIS_HOST_RUNTIME_OVERLAY_ALREADY_LOADED;
     case NdsOverlayStatus::NotLoaded:
         return ORACIS_HOST_RUNTIME_OVERLAY_NOT_LOADED;
     case NdsOverlayStatus::InvalidCpu:
     case NdsOverlayStatus::InvalidMetadata:
+    case NdsOverlayStatus::InitializerDispatchMissing:
+    case NdsOverlayStatus::InitializerBudgetExceeded:
+    case NdsOverlayStatus::InitializerExecutionFailed:
+    case NdsOverlayStatus::InvalidStack:
         return ORACIS_HOST_RUNTIME_OVERLAY_INVALID;
     case NdsOverlayStatus::ImageHashMismatch:
         return ORACIS_HOST_RUNTIME_OVERLAY_HASH_MISMATCH;
