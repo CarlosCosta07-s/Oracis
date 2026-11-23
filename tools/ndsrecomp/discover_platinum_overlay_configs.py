@@ -2,8 +2,9 @@
 """Discover verified per-overlay NDSRecomp configs from address-named source files.
 
 The user-supplied source tree is inspected only for C source filenames of the
-form src/overlayNNN/ovNNN_ADDRESS.c. No source file contents are copied or
-compiled. Extracted ROM-derived images and generated TOMLs stay local.
+form src/overlayNNN/ovNNN_ADDRESS.c, plus optional function-pointer header
+filenames. No source file contents are copied or compiled. Extracted ROM-derived
+images and generated TOMLs stay local.
 """
 from __future__ import annotations
 
