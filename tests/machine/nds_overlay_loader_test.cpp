@@ -139,6 +139,34 @@ void test_unload_requires_quiescence_and_clears_memory()
         std::vector<uint8_t>(12u, 0u)));
 }
 
+void test_clear_zeros_all_modules_and_resets_inventory()
+{
+    GuestMemory memory = make_memory();
+    NdsOverlayLoader loader(memory);
+    const std::vector<uint8_t> bytes_a(8u, 0x31u);
+    const std::vector<uint8_t> bytes_b(8u, 0x72u);
+    const std::string digest_a = hash_of(bytes_a);
+    const std::string digest_b = hash_of(bytes_b);
+    const NdsOverlayImage first{
+        NDS_ARM9, 30u, kRamBase + 0x200u, 8u, 4u,
+        0u, 0u, bytes_a.data(), digest_a.c_str()
+    };
+    const NdsOverlayImage second{
+        NDS_ARM9, 31u, kRamBase + 0x300u, 8u, 4u,
+        0u, 0u, bytes_b.data(), digest_b.c_str()
+    };
+
+    assert(loader.load(first) == NdsOverlayStatus::Ok);
+    assert(loader.load(second) == NdsOverlayStatus::Ok);
+    assert(loader.loaded_count() == 2u);
+    assert(loader.clear() == NdsOverlayStatus::Ok);
+    assert(loader.loaded_count() == 0u);
+    assert((read_bytes(memory, kRamBase + 0x200u, 12u) ==
+        std::vector<uint8_t>(12u, 0u)));
+    assert((read_bytes(memory, kRamBase + 0x300u, 12u) ==
+        std::vector<uint8_t>(12u, 0u)));
+}
+
 void test_rejects_invalid_static_init_range()
 {
     GuestMemory memory = make_memory();
@@ -161,6 +189,7 @@ int main()
     test_hash_failure_does_not_mutate_memory();
     test_duplicate_identity_and_overlapping_modules();
     test_unload_requires_quiescence_and_clears_memory();
+    test_clear_zeros_all_modules_and_resets_inventory();
     test_rejects_invalid_static_init_range();
     return 0;
 }
