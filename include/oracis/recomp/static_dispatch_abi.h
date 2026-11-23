@@ -56,6 +56,12 @@ int oracis_static_dispatch_unregister_bank(
 
 void oracis_static_dispatch_clear(void);
 
+/*
+ * A cached validated row may reuse this callback's previous proof only while
+ * callback/context identity and the bound memory-generation key stay stable.
+ * Callers with additional mutable validation state must invalidate the
+ * StaticDispatchRegistry link epoch when that state changes.
+ */
 void oracis_static_dispatch_set_validation_callback(
     OracisDispatchValidationFn callback,
     void *user);

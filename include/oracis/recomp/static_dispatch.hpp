@@ -40,6 +40,12 @@ enum class DispatchLookupStatus : uint8_t {
     MisalignedTarget
 };
 
+/*
+ * Validation is evaluated when a link is resolved. It must remain
+ * deterministic while its callback/context and the bound GuestMemory
+ * generation are unchanged. External state that affects the result must
+ * invalidate the link epoch before cached links can be reused.
+ */
 using DispatchValidationFn = bool (*)(
     NdsCpu cpu,
     const NdsStaticValidation *validation,

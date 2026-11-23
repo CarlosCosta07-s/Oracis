@@ -230,34 +230,43 @@ testes com bancos reais de Pokémon Platinum.
 
 `GuestMemory::mutation_generation()` expõe uma época global de mutação para a invalidação conservadora de links e código recompilado. O contador avança após cada operação bem-sucedida que altera o mapa (RAM, imagem, alias, mirror, overlay, substituição ou remoção), a visibilidade por CPU ou bytes do backing (escritas escalares e em bloco). Leituras, validações e operações recusadas não alteram a geração.
 
-A geração é global para ARM9 e ARM7: qualquer escrita invalida conservadoramente todos os snapshots, mesmo quando afeta apenas dados não executáveis. Essa granularidade reduz desempenho potencial, mas evita manter um link após uma mudança de bytes ou de resolução de endereço. O valor inicial é 1; zero é reservado para esgotamento por overflow e significa que nenhum cache pode ser considerado válido. O provider do barramento agora conecta essa geração ao epoch global de dispatch; isso ainda não habilita cache, e os link slots continuam passando pelo dispatcher com validação de identidade em cada transferência. O teste `oracis_guest_memory_generation_test` verifica avanços, ausência de avanço em falhas e propagação por aliases, mirrors e overlays.
+A geração é global para ARM9 e ARM7: qualquer escrita invalida conservadoramente todos os snapshots, mesmo quando afeta apenas dados não executáveis. Essa granularidade reduz desempenho potencial, mas evita manter um link após uma mudança de bytes ou de resolução de endereço. O valor inicial é 1; zero é reservado para esgotamento por overflow e significa que nenhum cache pode ser considerado válido. O provider do barramento conecta essa geração ao epoch global de dispatch; cada consulta de chave detecta uma geração nova e invalida conservadoramente os slots dos dois CPUs. O teste `oracis_guest_memory_generation_test` verifica avanços, ausência de avanço em falhas e propagação por aliases, mirrors e overlays.
 
 
 ## 16. Época de invalidação do registry de dispatch
 
-O registry mantém uma época global de dispatch e fornece
-`StaticDispatchRegistry::link_epoch_key(cpu)` no formato ABI do NDSRecomp:
-`(dispatch_epoch << 1) | cpu`. O valor zero é reservado para slots não
-resolvidos e também é retornado quando o epoch se esgota; nesse caso o cache
-fica permanentemente desabilitado, sem wrap-around para uma chave antiga.
+O registry mantém uma época global e produz a chave ABI
+`(dispatch_epoch << 1) | cpu`. Zero representa slot não resolvido e também
+desabilita cache quando o epoch ou a geração da memória se esgota, sem
+wrap-around para uma chave antiga.
 
-A época avança em registro e remoção bem-sucedidos de bancos, limpeza de um
-registry não vazio e substituição do callback de validação. Uma mutação afeta
-as chaves dos dois CPUs porque o conjunto de candidatos e a política de
-validação são globais. Operações recusadas e limpeza de registry vazio não
-avançam a época.
+A época avança em registro/remoção de bancos, limpeza de um registry não vazio,
+troca do callback de validação ou troca da identidade do provider de memória.
+O provider recebe o ponteiro da instância `GuestMemory` e é instalado/removido
+com o bind do barramento. A geração é consultada ao calcular a chave; quando
+muda, o epoch global avança e invalida conservadoramente ARM9 e ARM7.
 
-A chave também observa `GuestMemory::mutation_generation()` por meio de um
-provider explícito, separado do callback de validação. O provider recebe o
-ponteiro da instância de `GuestMemory` e é instalado/removido junto com o bind
-do barramento; a identidade do contexto também invalida a época. Em cada
-consulta de chave, uma nova geração avança o epoch global; ausência de provider
-ou geração zero retorna chave zero, desabilitando o cache. O provider é limpo
-antes de a memória ser desvinculada, evitando manter um contexto pendente.
+Cada `NdsLinkSlot` resolvido mantém um snapshot por callsite: CPU, PC/modo,
+função selecionada e chave. Para linhas mutáveis, `guard` aponta para um objeto
+opaco pertencente ao runtime Oracis, que confirma a identidade exata da linha
+de validação e do snapshot; linhas imutáveis usam `guard = nullptr`. O runtime
+não interpreta nem dereferencia guards de outros runtimes. Em cada transferência,
+`runtime_link_call/branch/fallthrough` calcula a chave atual e reutiliza a
+função apenas se chave, CPU, alvo, função e guarda coincidirem. Qualquer falha
+limpa os campos do slot e volta à consulta normal do registry, incluindo a
+prova dos bytes e dependências antes de executar a função.
 
-Essa integração ainda não habilita cache: o runtime continua precisando
-associar a prova de conteúdo ao guard e validar que a função cacheada continua
-sendo a linha vencedora para o CPU/PC/modo. Os helpers `runtime_link_*` seguem
-no fallback completo e `runtime_inline_leaf_admit()` continua retornando
-falso. Os testes de registry, ABI e barramento cobrem mudança de geração,
-esgotamento, troca de identidade e limpeza do provider.
+`runtime_inline_leaf_admit()` exige o mesmo snapshot válido, igualdade exata
+com a função esperada e concordância entre CPSR.T e o modo do alvo. Falso é
+sempre seguro e envia o callsite a `runtime_link_call()`, que resolve e valida
+novamente. Sem provider de memória, ou com geração zero, o cache fica
+desabilitado e o caminho normal continua funcionando.
+
+O callback de validação precisa ser determinístico enquanto sua identidade
+(callback/contexto) e a geração de `GuestMemory` permanecerem iguais. Se um
+validador depender de estado mutável externo não representado nessa geração,
+esse estado deve invalidar explicitamente o epoch antes de reutilizar slots.
+Os testes de registry, ABI e barramento cobrem cache imutável, guarda mutável,
+mudança de geração, troca de identidade, retargeting, função adulterada e
+limpeza do registry. Eles não provam o boot do jogo nem substituem testes com
+bancos reais de Pokémon Platinum.

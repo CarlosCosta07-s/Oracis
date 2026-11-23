@@ -172,7 +172,7 @@ void dispatch_link_slot(NdsLinkSlot *slot, const char *kind)
         cpu, target_pc, oracis_active_cpu_state->cpsr,
         &status, &candidate_count, &inactive);
     if (entry == nullptr) {
-        dispatch_failure(kind, cpu, target_pc,
+        dispatch_failure("static link dispatch miss", cpu, target_pc,
                          oracis_active_cpu_state->cpsr,
                          status, candidate_count, inactive);
     }
