@@ -359,6 +359,11 @@ guardadas nas pilhas guest ainda não está implementado.
 
 Foi adicionado o teste `oracis_nds_overlay_loader_test` para imagem, BSS,
 hash divergente, duplicidade, colisões, faixa de inicialização e unload.
+O shutdown da máquina também foi conectado ao loader: com as duas fatias
+encerradas e o barramento de memória ainda vinculado, todas as faixas de
+overlays registradas são zeradas e os registros são descartados. Se a
+limpeza não puder ser concluída, o shutdown retorna falha.
+
 O carregador **não** executa construtores estáticos, não faz relocations,
 não carrega automaticamente o manifesto do disco e não implementa a política
 de troca de overlays do NitroSDK. A camada host ainda precisa ler o manifesto
