@@ -440,3 +440,34 @@ foram enviados ao Git. A recompilação melhorada ainda não é prova de
 execução em jogo. A política de carregamento automático, inicializadores
 estáticos, dependências de overlays, referências de retorno e os 93 overlays
 sem âncoras continuam em aberto.
+
+## Atualização 2026-11-23 — emissor incremental versionado e shards no CMake
+
+Foi adicionada a ferramenta local
+`tools/ndsrecomp/emit_platinum_overlay_banks.py`. Ela valida os hashes das
+imagens extraídas e a identidade dos TOMLs, confirma `nds-codegen-v3`,
+executa a auditoria do NDSRecomp e recusa emitir bancos quando o audit relata
+operações sem codegen. Em seguida executa a emissão com validação de bytes
+ao vivo, aplica o adaptador de direção de memória e divide o corpo em shards
+C. A publicação usa diretório de staging, com inventário de hashes e
+cobertura de bancos compilados/pendentes.
+
+O pipeline aceita `--overlay-ids` e `--reuse-existing-bank-dir` para
+atualização incremental. Cada banco não selecionado só é reutilizado depois
+de verificar identidade da ROM/codegen, SHA-1 da imagem, SHA-256 dos três
+arquivos C/H/dispatch e, quando presentes, o conjunto exato e SHA-1 dos
+shards. O CMake e o gerador do registry agora validam/compilam shards quando
+existem, mantendo compatibilidade com bancos antigos monolíticos.
+
+A execução local re-auditou/re-emitiu seis overlays (0005, 0006, 0022, 0061,
+0062 e 0070) e reutilizou 23 bancos com hashes conferidos. O conjunto
+permanece em 29/122 overlays, com 10.636 funções. Os seis novos audits
+reportaram zero operações sem codegen; 17 unidades C99 novas foram
+compiladas. A auditoria combinada de 67 objetos dos bancos principais e
+overlays resolveu 11.719 referências: unresolved=0, allowlisted=0.
+
+Os artefatos C/OBJ/manifesto permanecem apenas em `.oracis` local. Os
+93 overlays sem âncoras não receberam entry points inventados. O sucesso de
+emissão, compilação C99 e resolução de símbolos não significa que o jogo
+já execute: faltam inicializadores estáticos, relocations, integração com
+o gerenciador NitroSDK, rastreamento de retornos guest e validação de boot.
