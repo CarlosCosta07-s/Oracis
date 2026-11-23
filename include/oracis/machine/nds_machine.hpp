@@ -68,7 +68,8 @@ enum class NdsMachineStatus : uint8_t {
     ProgramMemoryUnavailable,
     ProgramLoadAfterExecution,
     ProgramLoadFailed,
-    ShutdownFailed
+    ShutdownFailed,
+    OverlayInitializerFailed
 };
 
 /*
@@ -142,6 +143,16 @@ public:
      * every callback; guest memory/device side effects are retained.
      */
     NdsOverlayStatus run_overlay_static_initializers(
+        NdsCpu cpu, uint32_t overlay_id,
+        uint64_t cycle_budget_per_initializer) noexcept;
+    /*
+     * Request static initialization from an HLE/guest callback. When called
+     * inside the selected CPU's active slice, this records one pending request
+     * and asks the generated code to unwind at its next checkpoint. The
+     * constructors run only after the host closes that slice. Outside a slice,
+     * the request is executed immediately at the already-safe boundary.
+     */
+    NdsOverlayStatus request_overlay_static_initializers(
         NdsCpu cpu, uint32_t overlay_id,
         uint64_t cycle_budget_per_initializer) noexcept;
     NdsOverlayStatus unload_overlay(
@@ -275,6 +286,15 @@ public:
     const ArmCpuState *cpu_state(NdsCpu cpu) const noexcept;
 
 private:
+    struct PendingOverlayInitializers {
+        bool pending = false;
+        uint32_t overlay_id = 0u;
+        uint64_t cycle_budget_per_initializer = 0u;
+    };
+
+    NdsMachineStatus run_pending_overlay_static_initializers(
+        NdsCpu cpu) noexcept;
+
     struct OverlayDispatchMissCapture {
         NdsCpu cpu = NDS_ARM9;
         bool seen = false;
@@ -390,6 +410,7 @@ private:
     memory::NdsSystemClock system_clock_;
 
     std::array<bool, 2> slice_active_{};
+    std::array<PendingOverlayInitializers, 2> pending_overlay_initializers_{};
     std::array<NdsCpuRunState, 2> run_states_{};
     std::array<bool, 2> interrupt_wait_active_{};
     std::array<uint32_t, 2> interrupt_wait_masks_{};

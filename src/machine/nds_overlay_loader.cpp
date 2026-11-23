@@ -420,6 +420,7 @@ const char *overlay_status_name(NdsOverlayStatus status) noexcept
     case NdsOverlayStatus::InitializerBudgetExceeded: return "initializer-budget-exceeded";
     case NdsOverlayStatus::InitializerExecutionFailed: return "initializer-execution-failed";
     case NdsOverlayStatus::InvalidStack: return "invalid-stack";
+    case NdsOverlayStatus::InitializerPending: return "initializer-pending";
     }
     return "unknown";
 }

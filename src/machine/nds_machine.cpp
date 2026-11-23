@@ -2121,6 +2121,71 @@ NdsOverlayStatus NdsMachine::run_overlay_static_initializers(
     return NdsOverlayStatus::Ok;
 }
 
+NdsOverlayStatus NdsMachine::request_overlay_static_initializers(
+    NdsCpu cpu,
+    uint32_t overlay_id,
+    uint64_t cycle_budget_per_initializer) noexcept
+{
+    if (!initialized_) return NdsOverlayStatus::NotInitialized;
+    if (!program_loaded_) return NdsOverlayStatus::ProgramNotLoaded;
+    if (!valid_cpu(cpu)) return NdsOverlayStatus::InvalidCpu;
+    if (cycle_budget_per_initializer == 0u) {
+        return NdsOverlayStatus::InitializerBudgetExceeded;
+    }
+
+    const auto *initializers =
+        overlay_loader_.static_initializers(cpu, overlay_id);
+    if (initializers == nullptr) return NdsOverlayStatus::NotLoaded;
+    if (initializers->empty()) return NdsOverlayStatus::Ok;
+    if (overlay_loader_.static_initializer_progress(cpu, overlay_id) >=
+        initializers->size()) {
+        return NdsOverlayStatus::InitializersAlreadyRun;
+    }
+
+    const unsigned index = cpu_index(cpu);
+    PendingOverlayInitializers &pending = pending_overlay_initializers_[index];
+    if (pending.pending) return NdsOverlayStatus::Busy;
+
+    if (!slice_active_[index]) {
+        return run_overlay_static_initializers(
+            cpu, overlay_id, cycle_budget_per_initializer);
+    }
+
+    /* A deferred request must originate from the currently executing core. */
+    if (slice_active_[index ^ 1u] || g_nds_active != cpu ||
+        oracis_active_cpu_state != cpu_state(cpu)) {
+        return NdsOverlayStatus::Busy;
+    }
+
+    pending.pending = true;
+    pending.overlay_id = overlay_id;
+    pending.cycle_budget_per_initializer = cycle_budget_per_initializer;
+    if (!oracis_scheduler_request_yield(cpu)) {
+        pending = PendingOverlayInitializers{};
+        return NdsOverlayStatus::InitializerExecutionFailed;
+    }
+    return NdsOverlayStatus::InitializerPending;
+}
+
+NdsMachineStatus NdsMachine::run_pending_overlay_static_initializers(
+    NdsCpu cpu) noexcept
+{
+    if (!valid_cpu(cpu)) return NdsMachineStatus::InvalidCpu;
+    PendingOverlayInitializers &pending =
+        pending_overlay_initializers_[cpu_index(cpu)];
+    if (!pending.pending) return NdsMachineStatus::Ok;
+
+    const uint32_t overlay_id = pending.overlay_id;
+    const uint64_t cycle_budget = pending.cycle_budget_per_initializer;
+    pending = PendingOverlayInitializers{};
+
+    const NdsOverlayStatus result = run_overlay_static_initializers(
+        cpu, overlay_id, cycle_budget);
+    return result == NdsOverlayStatus::Ok
+        ? NdsMachineStatus::Ok
+        : NdsMachineStatus::OverlayInitializerFailed;
+}
+
 NdsOverlayStatus NdsMachine::unload_overlay(
     NdsCpu cpu,
     uint32_t overlay_id,
@@ -2170,6 +2235,8 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
         oracis_scheduler_end_slice(NDS_ARM7);
         slice_active_[1] = false;
     }
+
+    pending_overlay_initializers_.fill(PendingOverlayInitializers{});
 
     /*
      * Guest execution is stopped and the memory bus is still bound here.
@@ -2599,7 +2666,20 @@ NdsMachineStatus NdsMachine::run_dual_core_round(
 
             const NdsMachineStatus end = end_cpu_slice(cpu);
             if (end != NdsMachineStatus::Ok) return end;
-            if (!executed) return NdsMachineStatus::SliceExecutionFailed;
+            if (!executed) {
+                pending_overlay_initializers_[index] =
+                    PendingOverlayInitializers{};
+                return NdsMachineStatus::SliceExecutionFailed;
+            }
+
+            /*
+             * Generated guest frames have now unwound to the host. Run any
+             * overlay constructors requested by an HLE callback before this
+             * core resumes at its saved guest PC or the next core is scheduled.
+             */
+            const NdsMachineStatus overlay_status =
+                run_pending_overlay_static_initializers(cpu);
+            if (overlay_status != NdsMachineStatus::Ok) return overlay_status;
         }
 
         /*

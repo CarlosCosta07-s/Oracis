@@ -22,6 +22,8 @@ constexpr uint32_t kMissingOverlay = UINT32_C(72);
 constexpr uint32_t kSuccessfulOverlayAddress = UINT32_C(0x02008000);
 constexpr uint32_t kBudgetOverlayAddress = UINT32_C(0x02008100);
 constexpr uint32_t kMissingOverlayAddress = UINT32_C(0x02008200);
+constexpr uint32_t kDeferredOverlay = UINT32_C(73);
+constexpr uint32_t kDeferredOverlayAddress = UINT32_C(0x02008300);
 
 oracis::machine::NdsMachine *g_machine = nullptr;
 std::array<uint32_t, 3> g_initializer_order{};
@@ -99,6 +101,35 @@ void initializer_with_missing_nested_target()
     runtime_dispatch(missing_target);
     if (runtime_unwinding()) return;
     test_bx_lr_return();
+}
+
+void initializer_deferred()
+{
+    record_initializer(4u);
+    test_bx_lr_return();
+}
+
+struct DeferredRequestContext {
+    oracis::machine::NdsMachine *machine = nullptr;
+    uint32_t overlay_id = 0u;
+    oracis::machine::NdsOverlayStatus request_status =
+        oracis::machine::NdsOverlayStatus::Busy;
+};
+
+bool request_deferred_initializer(
+    void *opaque, NdsCpu cpu, ArmCpuState *state, uint64_t cycle_budget)
+{
+    (void)state;
+    (void)cycle_budget;
+    auto *context = static_cast<DeferredRequestContext *>(opaque);
+    if (context == nullptr || context->machine == nullptr) return false;
+    if (cpu != NDS_ARM9) return true;
+
+    context->request_status = context->machine->request_overlay_static_initializers(
+        cpu, context->overlay_id, 100u);
+    return context->request_status ==
+            oracis::machine::NdsOverlayStatus::InitializerPending &&
+        runtime_should_yield();
 }
 
 void put_u32_le(std::vector<uint8_t> &bytes, std::size_t offset, uint32_t value)
@@ -184,10 +215,11 @@ int main()
         {kSuccessfulOverlayAddress + 4u, 0u, &initializer_two, nullptr},
         {kSuccessfulOverlayAddress + 8u, 1u, &initializer_three_thumb, nullptr},
         {kBudgetOverlayAddress, 0u, &initializer_over_budget, nullptr},
-        {kMissingOverlayAddress, 0u, &initializer_with_missing_nested_target, nullptr}
+        {kMissingOverlayAddress, 0u, &initializer_with_missing_nested_target, nullptr},
+        {kDeferredOverlayAddress, 0u, &initializer_deferred, nullptr}
     };
     if (oracis_static_dispatch_register_bank(
-            NDS_ARM9, entries, 4u, "overlay-initializer-test") !=
+            NDS_ARM9, entries, 6u, "overlay-initializer-test") !=
         ORACIS_DISPATCH_REGISTER_OK) {
         return fail("synthetic initializer dispatch bank registration failed");
     }
@@ -269,8 +301,36 @@ int main()
         return fail("nested static-dispatch miss was not captured by the initializer boundary");
     }
 
+    std::vector<uint8_t> deferred_image(12u, 0u);
+    put_u32_le(deferred_image, 8u, kDeferredOverlayAddress);
+    NdsOverlayImage deferred_overlay = make_overlay(
+        kDeferredOverlay, kDeferredOverlayAddress, deferred_image, 1u);
+    if (machine.load_overlay(deferred_overlay) != NdsOverlayStatus::Ok) {
+        return fail("deferred-initializer overlay failed to load");
+    }
+
+    g_initializer_order.fill(0u);
+    g_initializer_order_count = 0u;
+    DeferredRequestContext deferred_context{&machine, kDeferredOverlay};
+    const ArmCpuState pre_round_state = *arm9;
+    const auto round_status = machine.run_dual_core_round(
+        10u, &request_deferred_initializer, nullptr, &deferred_context);
+    if (round_status != oracis::machine::NdsMachineStatus::Ok ||
+        deferred_context.request_status != NdsOverlayStatus::InitializerPending ||
+        g_initializer_order_count != 1u ||
+        g_initializer_order[0] != 4u ||
+        machine.overlay_loader().static_initializer_progress(
+            NDS_ARM9, kDeferredOverlay) != 1u ||
+        runtime_call_stack_depth() != 0u ||
+        arm9->R[13] != pre_round_state.R[13] ||
+        arm9->R[14] != pre_round_state.R[14] ||
+        arm9->R[15] != pre_round_state.R[15] ||
+        arm9->cpsr != pre_round_state.cpsr) {
+        return fail("deferred constructors did not run at the guest slice boundary");
+    }
+
     if (oracis_static_dispatch_unregister_bank(
-            NDS_ARM9, entries, 4u) == 0) {
+            NDS_ARM9, entries, 6u) == 0) {
         return fail("synthetic initializer dispatch bank could not be unregistered");
     }
     g_machine = nullptr;

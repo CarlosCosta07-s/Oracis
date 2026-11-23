@@ -45,7 +45,8 @@ typedef enum OracisHostRuntimeStatus {
     ORACIS_HOST_RUNTIME_OVERLAY_INITIALIZER_BUDGET_EXCEEDED = 26,
     ORACIS_HOST_RUNTIME_OVERLAY_INITIALIZER_EXECUTION_FAILED = 27,
     ORACIS_HOST_RUNTIME_OVERLAY_INITIALIZER_INVALID_STACK = 28,
-    ORACIS_HOST_RUNTIME_OVERLAY_INITIALIZERS_ALREADY_RUN = 29
+    ORACIS_HOST_RUNTIME_OVERLAY_INITIALIZERS_ALREADY_RUN = 29,
+    ORACIS_HOST_RUNTIME_OVERLAY_INITIALIZER_PENDING = 30
 } OracisHostRuntimeStatus;
 
 /* Result of checking the current ARM9/ARM7 start PCs against registered banks. */
@@ -198,6 +199,14 @@ int oracis_host_runtime_load_overlay(
  * are restored. The caller must have established a valid guest stack.
  */
 int oracis_host_runtime_run_overlay_static_initializers(
+    uint32_t cpu, uint32_t overlay_id,
+    uint64_t cycle_budget_per_initializer);
+/*
+ * Request constructors from inside a guest/HLE callback. When a CPU slice is
+ * active, returns OVERLAY_INITIALIZER_PENDING after requesting a cooperative
+ * unwind; execution occurs at the next host-owned slice boundary.
+ */
+int oracis_host_runtime_request_overlay_static_initializers(
     uint32_t cpu, uint32_t overlay_id,
     uint64_t cycle_budget_per_initializer);
 /*

@@ -35,7 +35,8 @@ enum class NdsOverlayStatus : uint8_t {
     InitializerDispatchMissing,
     InitializerBudgetExceeded,
     InitializerExecutionFailed,
-    InvalidStack
+    InvalidStack,
+    InitializerPending
 };
 
 /*
