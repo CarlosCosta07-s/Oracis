@@ -40,6 +40,7 @@ jobs:
             tools/ndsrecomp/extract_nds_programs.py \
             tools/ndsrecomp/extract_nds_overlays.py \
             tools/ndsrecomp/discover_platinum_overlay_configs.py \
+            tools/ndsrecomp/emit_platinum_overlay_banks.py \
             tools/ndsrecomp/generate_overlay_bank_registry.py \
             tools/ndsrecomp/emit_platinum_banks.py \
             tools/ndsrecomp/audit_bank_symbols.py \
