@@ -146,7 +146,8 @@ def validate_bank_set(
             _require(record.get("binary_sha1") == expected["sha1"],
                      f"{cpu.upper()} segment SHA-1 does not match the pinned segment")
             _require(record.get("memory_direction_adapter") == ADAPTER_IDENTITY,
-                     f"{cpu.upper()} bank was not processed by {ADAPTER_IDENTITY}")
+                     f"{cpu.upper()} memory direction adapter identity mismatch; "
+                     f"expected {ADAPTER_IDENTITY}")
         else:
             _require(record.get("entry_mode") in ("arm", "thumb"),
                      f"{cpu.upper()} synthetic fixture entry mode is invalid")
