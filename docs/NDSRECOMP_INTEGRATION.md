@@ -254,7 +254,12 @@ o rodapé, o comprimento da região comprimida, o padding **0xFF**, cada literal
 cada referência retroativa; também exige consumo exato dos bytes comprimidos.
 O manifesto local registra CPU, ID, endereço de carga, tamanho, BSS, intervalo
 de inicialização, ID FAT, flags, hash SHA-1 da origem e SHA-1/SHA-256 da imagem
-extraída.
+extraída. O registro estático exige também o diretório local dessa extração
+(`ORACIS_LOCAL_OVERLAY_IMAGE_DIR`, por padrão o diretório indicado pelo
+extrator), valida os bytes reais de todos os arquivos e compara o SHA-1
+registrado pelo emissor com a identidade da imagem extraída. Assim, uma tabela
+de dispatch não é aceita apenas por nome/ID: ela precisa corresponder à mesma
+imagem binária que será carregada na RAM guest.
 
 Uso, sempre com uma cópia da ROM fornecida pelo usuário:
 
@@ -282,7 +287,8 @@ A opção local ORACIS_LOCAL_OVERLAY_BANK_DIR liga os bancos ARM9 de overlays em
 
     cmake -S . -B build \
       -DORACIS_LOCAL_BANK_DIR=.oracis/generated/pokemon-platinum-usa-rev1 \
-      -DORACIS_LOCAL_OVERLAY_BANK_DIR=.oracis/generated/pokemon-platinum-usa-rev1-overlays
+      -DORACIS_LOCAL_OVERLAY_BANK_DIR=.oracis/generated/pokemon-platinum-usa-rev1-overlays \
+      -DORACIS_LOCAL_OVERLAY_IMAGE_DIR=.oracis/local/pokemon-platinum-usa-rev1/overlays
 
 O diretório de overlays deve conter emission_report.json e uma pasta overlay_NNNN/ para cada resultado emitido, com o corpo C, header e tabela _dispatch.c. O gerador tools/ndsrecomp/generate_overlay_bank_registry.py valida o schema do relatório, o pin nds-codegen-v3, o adaptador de direção de memória e os arquivos esperados; calcula SHA-256 dos arquivos efetivamente ligados e gera um manifesto e um registrador C++ no diretório de build. Os bancos são compilados como objetos C99 e ligados ao oracis_machine.
 
@@ -337,6 +343,13 @@ jogo e a resolução de dependências de overlays ainda precisam ser integrados.
 O carregador também não faz relocations nem converte funções compiladas
 ausentes em código executável: os bancos estáticos por overlay continuam
 sendo obrigatórios para dispatch nativo.
+
+O manifesto do registry informa total de overlays extraídos, quantidade
+recompilada e lista explícita de IDs ainda sem banco. Na extração local
+auditada em 23/11/2026, há 122 overlays ARM9 no manifesto e 29 bancos
+recompilados; os 93 IDs restantes ainda precisam de emissão e auditoria.
+Os hashes dos 29 bancos emitidos coincidem com as imagens correspondentes do
+manifesto local.
 
 A regressão `oracis_nds_overlay_loader_test` cobre cópia de imagem, BSS zerado,
 rejeição de hash sem mutação, idempotência, colisões, validação do intervalo
