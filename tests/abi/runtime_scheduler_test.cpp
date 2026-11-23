@@ -106,6 +106,31 @@ int main()
     if (runtime_unwinding())
         return fail("zero-budget slice left the CPU in unwind state after end");
 
+    if (!oracis_scheduler_begin_slice(NDS_ARM9, 3u) ||
+        !oracis_scheduler_enable_bounded_unwind(NDS_ARM9)) {
+        return fail("bounded guest-call slice could not be enabled");
+    }
+    runtime_tick(2u);
+    if (runtime_unwinding()) {
+        return fail("bounded guest call unwound before its deadline");
+    }
+    runtime_tick(1u);
+    if (!runtime_unwinding() || !runtime_should_yield() ||
+        oracis_scheduler_cycle_count(NDS_ARM9) != 23u) {
+        return fail("bounded guest call did not unwind at its exact instruction deadline");
+    }
+    oracis_scheduler_end_slice(NDS_ARM9);
+    if (runtime_unwinding() ||
+        !oracis_scheduler_begin_slice(NDS_ARM9, 2u) ||
+        !oracis_scheduler_enable_bounded_unwind(NDS_ARM9)) {
+        return fail("bounded-call mode leaked across slices");
+    }
+    runtime_tick(1u);
+    if (runtime_unwinding()) {
+        return fail("new bounded call inherited the previous deadline");
+    }
+    oracis_scheduler_end_slice(NDS_ARM9);
+
     if (oracis_scheduler_begin_slice(static_cast<NdsCpu>(9), 1u) ||
         oracis_scheduler_request_yield(static_cast<NdsCpu>(9)) ||
         oracis_scheduler_set_unwinding(static_cast<NdsCpu>(9), 1)) {
