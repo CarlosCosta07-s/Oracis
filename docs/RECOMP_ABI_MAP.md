@@ -208,16 +208,22 @@ registry.
 ### Transferência ARM/Thumb por link slots
 
 `NdsLinkSlot.target_pc` carrega o estado de destino no bit 0 (Thumb=1,
-ARM=0). Enquanto o cache de link direto permanece desativado, os três helpers
-`runtime_link_call/branch/fallthrough` passam o alvo pelo caminho de exchange,
-que atualiza CPSR.T antes de consultar a tabela estática. O fallback não pode
-descartar o bit 0 e reutilizar acidentalmente o estado do chamador. A regressão
-usa slots sintéticos para as transições ARM→Thumb e Thumb→ARM em chamadas,
-branches e fallthrough nos dois CPUs (ARM9 e ARM7). O teste C ABI mantém
-contadores de destino independentes por CPU para que uma invocação Thumb em um
-core não contamine a asserção do outro. Nenhum ponteiro de função é cacheado;
-as verificações de identidade do dispatcher continuam sendo aplicadas em cada
-transferência.
+ARM=0). Os helpers `runtime_link_call/branch/fallthrough` mantêm um snapshot
+por callsite com função, CPU, PC/modo, chave de época e, para linhas mutáveis,
+uma guarda privada do Oracis. Toda transferência consulta a época atual, que
+também observa a geração de mutações de `GuestMemory`. Um snapshot só é
+reutilizado se todos esses campos coincidirem; caso contrário, o slot é
+limpo e resolvido novamente pelo registry, que revalida os bytes e dependências
+antes de executar. A chave de época invalida conservadoramente ambos os CPUs
+em alterações de memória ou do registry.
+
+`runtime_inline_leaf_admit()` aplica os mesmos critérios e ainda exige
+identidade exata da função esperada e concordância entre CPSR.T e o modo do
+alvo. Qualquer falha retorna falso, deixando o callsite usar o caminho
+`runtime_link_call` normal. A cobertura sintética exercita transições ARM/Thumb,
+cache imutável, guarda mutável, mudança de geração, identidade da função e
+invalidação após limpeza do registry; ela não prova boot do jogo nem substitui
+testes com bancos reais de Pokémon Platinum.
 
 
 ## 15. Geração conservadora de mutações da memória guest

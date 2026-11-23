@@ -3,6 +3,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <unordered_map>
 
 namespace {
 
@@ -42,7 +43,7 @@ bool validate_adapter(NdsCpu cpu,
 {
     std::fprintf(stderr,
         "[Oracis dispatch] %s: CPU=%u target=0x%08X PC=0x%08X "
-        "CPSR=0x%08X status=%u candidates=%u inactive=%s\n",
+        "CPSR=0x%08X status=%u candidates=%u inactive=%s\\n",
         kind,
         static_cast<unsigned>(cpu),
         target_pc,
@@ -52,6 +53,160 @@ bool validate_adapter(NdsCpu cpu,
         candidate_count,
         inactive ? "yes" : "no");
     std::abort();
+}
+
+/*
+ * The guard is runner-owned and intentionally opaque to generated code.
+ * It snapshots the exact validation row/function under one global link key.
+ * GuestMemory's global mutation epoch makes the snapshot stale after any
+ * write or map/permission change, without dereferencing a foreign guard.
+ */
+struct OracisLinkGuard {
+    uint32_t key = 0u;
+    uint32_t target_pc = 0u;
+    NdsCpu cpu = NDS_ARM9;
+    const NdsStaticValidation *validation = nullptr;
+    void (*fn)(void) = nullptr;
+};
+
+struct OracisLinkSlotCache {
+    uint32_t key = 0u;
+    uint32_t target_pc = 0u;
+    NdsCpu cpu = NDS_ARM9;
+    const NdsStaticValidation *validation = nullptr;
+    void (*fn)(void) = nullptr;
+    OracisLinkGuard guard{};
+    bool resolved = false;
+};
+
+/*
+ * Generated link slots have static callsite storage. unordered_map preserves
+ * references/pointers to elements across rehash, so &cache.guard is a stable
+ * opaque token for the lifetime of that callsite record. Stale records are
+ * never dereferenced after their key stops matching; a reused slot address
+ * simply replaces its previous snapshot.
+ */
+std::unordered_map<const NdsLinkSlot *, OracisLinkSlotCache> g_link_slot_cache;
+
+bool link_slot_cache_hit(
+    const NdsLinkSlot *slot,
+    NdsCpu cpu,
+    uint32_t key,
+    const OracisLinkSlotCache **cache_out) noexcept
+{
+    if (slot == nullptr || key == 0u || slot->key != key ||
+        slot->fn == nullptr) {
+        return false;
+    }
+
+    const auto found = g_link_slot_cache.find(slot);
+    if (found == g_link_slot_cache.end()) return false;
+
+    const OracisLinkSlotCache &cache = found->second;
+    if (!cache.resolved || cache.key != key || cache.cpu != cpu ||
+        cache.target_pc != slot->target_pc || cache.fn != slot->fn ||
+        cache.fn == nullptr) {
+        return false;
+    }
+
+    if (cache.validation != nullptr) {
+        if (slot->guard != static_cast<const void *>(&cache.guard) ||
+            cache.guard.key != key ||
+            cache.guard.target_pc != cache.target_pc ||
+            cache.guard.cpu != cpu ||
+            cache.guard.validation != cache.validation ||
+            cache.guard.fn != cache.fn) {
+            return false;
+        }
+    } else if (slot->guard != nullptr) {
+        return false;
+    }
+
+    if (cache_out != nullptr) *cache_out = &cache;
+    return true;
+}
+
+void select_link_target_state(uint32_t target_pc) noexcept
+{
+    if ((target_pc & 1u) != 0u) {
+        oracis_active_cpu_state->cpsr |= CPSR_T_BIT;
+    } else {
+        oracis_active_cpu_state->cpsr &= ~CPSR_T_BIT;
+    }
+}
+
+void dispatch_link_slot(NdsLinkSlot *slot, const char *kind)
+{
+    if (slot == nullptr) {
+        dispatch_failure(kind, g_nds_active, 0u,
+                         oracis_active_cpu_state
+                             ? oracis_active_cpu_state->cpsr : 0u,
+                         0u, 0u, nullptr);
+    }
+    if (oracis_active_cpu_state == nullptr) {
+        dispatch_failure("link without active CPU state", g_nds_active,
+                         slot->target_pc, 0u, 0u, 0u, nullptr);
+    }
+
+    const NdsCpu cpu = g_nds_active;
+    const uint32_t target_pc = slot->target_pc;
+    const uint32_t key = registry().link_epoch_key(cpu);
+    const OracisLinkSlotCache *cached = nullptr;
+    if (link_slot_cache_hit(slot, cpu, key, &cached)) {
+        select_link_target_state(target_pc);
+        void (*const body)(void) = cached->fn;
+        body();
+        return;
+    }
+
+    /* Never expose an old function/guard while resolving a new epoch. */
+    slot->fn = nullptr;
+    slot->key = 0u;
+    slot->guard = nullptr;
+
+    select_link_target_state(target_pc);
+    uint32_t status = 0u;
+    uint32_t candidate_count = 0u;
+    const NdsDispatchEntry *inactive = nullptr;
+    const NdsDispatchEntry *entry = oracis_static_dispatch_lookup(
+        cpu, target_pc, oracis_active_cpu_state->cpsr,
+        &status, &candidate_count, &inactive);
+    if (entry == nullptr) {
+        dispatch_failure(kind, cpu, target_pc,
+                         oracis_active_cpu_state->cpsr,
+                         status, candidate_count, inactive);
+    }
+
+    if (key != 0u) {
+        try {
+            auto inserted = g_link_slot_cache.try_emplace(slot);
+            OracisLinkSlotCache &cache = inserted.first->second;
+            cache.key = key;
+            cache.target_pc = target_pc;
+            cache.cpu = cpu;
+            cache.validation = entry->validation;
+            cache.fn = entry->fn;
+            cache.resolved = true;
+            cache.guard.key = key;
+            cache.guard.target_pc = target_pc;
+            cache.guard.cpu = cpu;
+            cache.guard.validation = entry->validation;
+            cache.guard.fn = entry->fn;
+
+            slot->fn = entry->fn;
+            slot->key = key;
+            slot->guard = entry->validation != nullptr
+                ? static_cast<const void *>(&cache.guard)
+                : nullptr;
+        } catch (...) {
+            /* Allocation failure is a safe cache miss, never a dispatch miss. */
+            slot->fn = nullptr;
+            slot->key = 0u;
+            slot->guard = nullptr;
+        }
+    }
+
+    entry->fn();
 }
 
 } // namespace
@@ -201,55 +356,47 @@ extern "C" void runtime_dispatch_with_exchange(uint32_t target_pc)
 }
 
 /*
- * Direct-link slots are an ABI optimization. Until Oracis adds a resolved
- * slot cache with generation/content guards, these entry points deliberately
- * remain unresolved and route through the ordinary static dispatcher.
- *
- * The ABI stores the target execution state in target_pc bit zero. Preserve
- * that bit through the normal exchange path; stripping it before dispatch
- * would incorrectly reuse the caller's CPSR.T state for ARM/Thumb transfers.
+ * Link slots are a per-callsite cache. A nonzero key is accepted only when
+ * the live registry/memory epoch, CPU, target PC/ISA, function pointer and
+ * (for mutable rows) Oracis-owned content guard all match the snapshot.
+ * Failure always falls back to the ordinary validated table lookup.
  */
 extern "C" void runtime_link_call(NdsLinkSlot *slot)
 {
-    if (slot == nullptr) {
-        dispatch_failure("null call link slot", g_nds_active, 0u,
-                         oracis_active_cpu_state
-                             ? oracis_active_cpu_state->cpsr : 0u,
-                         0u, 0u, nullptr);
-    }
-    runtime_dispatch_with_exchange(slot->target_pc);
+    dispatch_link_slot(slot, "null call link slot");
 }
 
 extern "C" void runtime_link_branch(NdsLinkSlot *slot)
 {
-    if (slot == nullptr) {
-        dispatch_failure("null branch link slot", g_nds_active, 0u,
-                         oracis_active_cpu_state
-                             ? oracis_active_cpu_state->cpsr : 0u,
-                         0u, 0u, nullptr);
-    }
-    runtime_dispatch_with_exchange(slot->target_pc);
+    dispatch_link_slot(slot, "null branch link slot");
 }
 
 extern "C" void runtime_link_fallthrough(NdsLinkSlot *slot)
 {
-    if (slot == nullptr) {
-        dispatch_failure("null fallthrough link slot", g_nds_active, 0u,
-                         oracis_active_cpu_state
-                             ? oracis_active_cpu_state->cpsr : 0u,
-                         0u, 0u, nullptr);
-    }
-    runtime_dispatch_with_exchange(slot->target_pc);
+    dispatch_link_slot(slot, "null fallthrough link slot");
 }
 
 extern "C" int runtime_inline_leaf_admit(
     const NdsLinkSlot *slot,
     void (*expected)(void))
 {
-    (void)slot;
-    (void)expected;
-    /* No direct-link cache exists yet, so inline copies are never admitted. */
-    return 0;
+    if (slot == nullptr || expected == nullptr ||
+        oracis_active_cpu_state == nullptr) {
+        return 0;
+    }
+
+    const NdsCpu cpu = g_nds_active;
+    const uint32_t key = registry().link_epoch_key(cpu);
+    const OracisLinkSlotCache *cached = nullptr;
+    if (!link_slot_cache_hit(slot, cpu, key, &cached)) return 0;
+
+    /* Inline code is compiled for one ISA state; never admit across BX/BLX. */
+    const bool slot_thumb = (slot->target_pc & 1u) != 0u;
+    const bool active_thumb =
+        (oracis_active_cpu_state->cpsr & CPSR_T_BIT) != 0u;
+    if (slot_thumb != active_thumb) return 0;
+
+    return cached->fn == expected ? 1 : 0;
 }
 
 extern "C" void runtime_dispatch_miss(uint32_t target_pc)

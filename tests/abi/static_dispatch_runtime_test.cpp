@@ -160,9 +160,15 @@ int main()
     if (thumb_calls != 3u || (arm9.cpsr & CPSR_T_BIT) == 0u) {
         return fail("Thumb link-fallthrough did not select Thumb state and row");
     }
-    if (runtime_inline_leaf_admit(&call_slot, thumb_body) != 0) {
-        return fail("inline leaf was admitted without a resolved link cache");
+    if (runtime_inline_leaf_admit(&call_slot, thumb_body) != 1 ||
+        runtime_inline_leaf_admit(&call_slot, arm9_body) != 0) {
+        return fail("resolved Thumb leaf did not enforce exact function identity");
     }
+    arm9.cpsr &= ~CPSR_T_BIT;
+    if (runtime_inline_leaf_admit(&call_slot, thumb_body) != 0) {
+        return fail("inline leaf was admitted with a mismatched CPSR.T state");
+    }
+    arm9.cpsr |= CPSR_T_BIT;
 
     /* Restore the ARM caller state before checking the ARM validation row. */
     runtime_dispatch_with_exchange(0x02000000u);
@@ -192,6 +198,15 @@ int main()
     if (after_memory_mutation_key == before_memory_mutation_key) {
         return fail("GuestMemory mutation did not invalidate C ABI link keys");
     }
+    arm9.cpsr |= CPSR_T_BIT;
+    if (runtime_inline_leaf_admit(&call_slot, thumb_body) != 0) {
+        return fail("memory generation change left a stale inline leaf admitted");
+    }
+    runtime_link_call(&call_slot);
+    if (runtime_inline_leaf_admit(&call_slot, thumb_body) != 1) {
+        return fail("link slot did not re-resolve after memory generation change");
+    }
+    runtime_dispatch_with_exchange(0x02000000u);
 
     const uint32_t before_callback_key =
         oracis::recomp::global_static_dispatch_registry().link_epoch_key(NDS_ARM9);
@@ -232,6 +247,24 @@ int main()
         return fail("registry clear unexpectedly removed the memory validator");
     }
 
+    NdsLinkSlot guarded_slot{};
+    guarded_slot.target_pc = 0x02001000u;
+    runtime_link_call(&guarded_slot);
+    if (validated_calls != 3u || guarded_slot.fn != validated_body ||
+        guarded_slot.key == 0u || guarded_slot.guard == nullptr ||
+        runtime_inline_leaf_admit(&guarded_slot, validated_body) != 1) {
+        return fail("validated link did not cache its guarded winning row");
+    }
+    ++dispatch_memory_generation;
+    if (runtime_inline_leaf_admit(&guarded_slot, validated_body) != 0) {
+        return fail("mutable link guard survived a guest-memory generation change");
+    }
+    runtime_link_call(&guarded_slot);
+    if (validated_calls != 4u ||
+        runtime_inline_leaf_admit(&guarded_slot, validated_body) != 1) {
+        return fail("mutable link was not revalidated and guarded after mutation");
+    }
+
     const uint32_t before_clear_key =
         oracis::recomp::global_static_dispatch_registry().link_epoch_key(NDS_ARM9);
     oracis_static_dispatch_clear();
@@ -239,6 +272,9 @@ int main()
         oracis::recomp::global_static_dispatch_registry().link_epoch_key(NDS_ARM9);
     if (after_clear_key == before_clear_key) {
         return fail("C ABI registry clear did not invalidate link keys");
+    }
+    if (runtime_inline_leaf_admit(&guarded_slot, validated_body) != 0) {
+        return fail("registry clear left a guarded inline leaf admitted");
     }
     const uint32_t before_reset_callback_key = after_clear_key;
     oracis_static_dispatch_set_validation_callback(nullptr, nullptr);
