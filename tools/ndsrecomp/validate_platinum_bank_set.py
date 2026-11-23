@@ -69,23 +69,6 @@ def validate_bank_set(
     _require(not bank_dir.is_symlink(), f"Bank directory must not be a symlink: {bank_dir}")
     _require(bank_dir.is_dir(), f"Bank directory does not exist or is not a directory: {bank_dir}")
 
-    entries = list(bank_dir.iterdir())
-    symlinks = [entry.name for entry in entries if entry.is_symlink()]
-    _require(not symlinks, f"Bank directory contains symlinks: {', '.join(sorted(symlinks))}")
-    _require(
-        all(entry.is_file() for entry in entries),
-        "Bank directory may contain only regular generated files",
-    )
-
-    expected_names = {MANIFEST_NAME}
-    for cpu in CPUS:
-        expected_names.update(_expected_files(cpu))
-    actual_names = {entry.name for entry in entries}
-    missing = sorted(expected_names - actual_names)
-    unexpected = sorted(actual_names - expected_names)
-    _require(not missing, f"Bank set is incomplete; missing: {', '.join(missing)}")
-    _require(not unexpected, f"Bank directory contains unexpected files: {', '.join(unexpected)}")
-
     manifest_path = bank_dir / MANIFEST_NAME
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -115,6 +98,76 @@ def validate_bank_set(
     _require(isinstance(banks, dict) and set(banks) == set(CPUS),
              "Bank manifest must contain exactly ARM9 and ARM7")
 
+    # The monolithic source is retained for diagnostics, but CMake builds the
+    # declared shards when present. Validate directory names before trusting
+    # any manifest-provided path.
+    expected_names = {MANIFEST_NAME}
+    shard_metadata_by_cpu: dict[str, dict] = {}
+    for cpu in CPUS:
+        bank_name = f"{BANK_PREFIX}_{cpu}"
+        expected_names.update(_expected_files(cpu))
+        record = banks[cpu]
+        _require(isinstance(record, dict), f"{cpu.upper()} bank metadata must be an object")
+        shards = record.get("shards")
+        if shards is None:
+            continue
+        _require(
+            isinstance(shards, dict)
+            and set(shards) == {
+                "directory", "functions_per_shard", "function_count", "files"
+            },
+            f"{cpu.upper()} shard metadata is malformed",
+        )
+        expected_directory = f"{bank_name}_shards"
+        _require(
+            shards.get("directory") == expected_directory,
+            f"{cpu.upper()} shard directory name mismatch",
+        )
+        per_shard = _require_int(
+            shards.get("functions_per_shard"),
+            f"{cpu.upper()} functions per shard",
+            1,
+        )
+        function_count = _require_int(
+            shards.get("function_count"),
+            f"{cpu.upper()} sharded function count",
+            1,
+        )
+        shard_files = shards.get("files")
+        expected_shard_count = (function_count + per_shard - 1) // per_shard
+        expected_shard_names = {
+            f"bank_part_{index:04d}.c" for index in range(expected_shard_count)
+        }
+        _require(
+            isinstance(shard_files, dict)
+            and set(shard_files) == expected_shard_names,
+            f"{cpu.upper()} shard file set does not match its function count",
+        )
+        for filename, recorded_hash in shard_files.items():
+            _require(
+                _valid_sha1(recorded_hash),
+                f"{cpu.upper()} manifest has an invalid SHA-1 for shard {filename}",
+            )
+        shard_metadata_by_cpu[cpu] = shards
+        expected_names.add(expected_directory)
+
+    entries = list(bank_dir.iterdir())
+    symlinks = [entry.name for entry in entries if entry.is_symlink()]
+    _require(not symlinks, f"Bank directory contains symlinks: {', '.join(sorted(symlinks))}")
+    actual_names = {entry.name for entry in entries}
+    missing = sorted(expected_names - actual_names)
+    unexpected = sorted(actual_names - expected_names)
+    _require(not missing, f"Bank set is incomplete; missing: {', '.join(missing)}")
+    _require(not unexpected, f"Bank directory contains unexpected files: {', '.join(unexpected)}")
+    expected_directories = {
+        metadata["directory"] for metadata in shard_metadata_by_cpu.values()
+    }
+    for entry in entries:
+        if entry.name in expected_directories:
+            _require(entry.is_dir(), f"Shard directory is missing or unsafe: {entry.name}")
+        else:
+            _require(entry.is_file(), f"Bank directory contains an unexpected directory: {entry.name}")
+
     for cpu in CPUS:
         record = banks[cpu]
         _require(isinstance(record, dict), f"{cpu.upper()} bank metadata must be an object")
@@ -131,6 +184,42 @@ def validate_bank_set(
             actual_hash = sha1_file(bank_dir / filename)
             _require(actual_hash == recorded_hash,
                      f"Generated bank file hash mismatch: {filename}")
+
+        shards = shard_metadata_by_cpu.get(cpu)
+        if shards is not None:
+            shard_dir = bank_dir / shards["directory"]
+            _require(
+                not shard_dir.is_symlink() and shard_dir.is_dir(),
+                f"{cpu.upper()} shard directory is missing or unsafe",
+            )
+            shard_entries = list(shard_dir.iterdir())
+            shard_symlinks = [entry.name for entry in shard_entries if entry.is_symlink()]
+            _require(
+                not shard_symlinks,
+                f"{cpu.upper()} shard directory contains symlinks: {', '.join(sorted(shard_symlinks))}",
+            )
+            _require(
+                all(entry.is_file() for entry in shard_entries),
+                f"{cpu.upper()} shard directory may contain only regular files",
+            )
+            actual_shard_names = {entry.name for entry in shard_entries}
+            expected_shard_names = set(shards["files"])
+            missing_shards = sorted(expected_shard_names - actual_shard_names)
+            unexpected_shards = sorted(actual_shard_names - expected_shard_names)
+            _require(
+                not missing_shards,
+                f"{cpu.upper()} shard set is incomplete; missing: {', '.join(missing_shards)}",
+            )
+            _require(
+                not unexpected_shards,
+                f"{cpu.upper()} shard directory contains unexpected files: {', '.join(unexpected_shards)}",
+            )
+            for filename, recorded_hash in shards["files"].items():
+                actual_hash = sha1_file(shard_dir / filename)
+                _require(
+                    actual_hash == recorded_hash,
+                    f"Generated bank shard hash mismatch: {shards['directory']}/{filename}",
+                )
 
         calls = record.get("memory_direction_calls")
         _require(isinstance(calls, dict) and set(calls) == {"reads", "writes"},

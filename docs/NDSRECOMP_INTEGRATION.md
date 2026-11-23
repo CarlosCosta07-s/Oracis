@@ -161,17 +161,30 @@ O extrator só aceita a identidade de ROM documentada e grava `header.bin` junto
 
 Quando `ORACIS_LOCAL_BANK_DIR` aponta para os bancos locais, o CMake compila os corpos e tabelas de dispatch como objetos e liga-os ao runtime. Na inicialização, o host pode registrar as tabelas por meio de `oracis_host_runtime_register_compiled_banks()`. O smoke test da CI valida essa ligação e o ciclo de registro/remoção com fixtures sintéticas.
 
+Para bancos grandes, o emissor também separa cada corpo C em unidades menores
+em `<bank>_shards/bank_part_NNNN.c`, por padrão com até 512 funções por
+unidade. O arquivo monolítico original e o header permanecem no diretório local
+para auditoria; o manifesto registra contagem, limite por unidade e SHA-1 de
+cada shard. O validador confere nomes, quantidade, ausência de symlinks,
+conteúdo exato do diretório e hashes antes da configuração CMake. O CMake
+compila os shards quando existem e usa o corpo monolítico apenas para saídas
+antigas sem shards. O limite pode ser ajustado com
+`python tools/ndsrecomp/emit_platinum_banks.py --functions-per-shard 256`.
+Esse particionamento não altera funções nem endereços do dispatch: cada unidade
+inclui o mesmo header público gerado, que declara as funções do banco inteiro.
+
 Antes de criar os alvos CMake, `validate_platinum_bank_set.py` confere o
 manifesto `oracis_banks.json`, a identidade USA Rev 1, a identidade exata do
-codegen (`nds-codegen-v3`), a identidade do adaptador de memória e o SHA-1 de
-cada um dos seis arquivos C/H/dispatch. O campo `codegen_identity` é escrito
+codegen (`nds-codegen-v3`), a identidade do adaptador de memória e o SHA-1 dos
+arquivos C/H/dispatch e de cada shard declarado. O campo `codegen_identity` é escrito
 pelo emissor depois da consulta ao executável; a validação rejeita bancos
 retail emitidos por outra versão ou sem essa identidade. Fixtures sintéticas
 usam o marcador separado `synthetic-fixture`, que não pode ser usado para
-representar uma emissão retail. O diretório deve
-conter exatamente esses seis arquivos e o manifesto; symlinks, objetos antigos,
-arquivos extras, hashes divergentes ou metadados de outro segmento interrompem
-a configuração antes da compilação. Fixtures sintéticas usam
+representar uma emissão retail. O diretório deve conter exatamente os seis arquivos-base, o manifesto
+e apenas os diretórios de shards declarados; cada shard deve ser um arquivo C
+regular com nome/hash esperado. Symlinks, objetos antigos, arquivos extras,
+hashes divergentes ou metadados de outro segmento interrompem a configuração
+antes da compilação. Fixtures sintéticas usam
 `source_kind=synthetic-fixture` e exigem a opção explícita
 `ORACIS_ALLOW_SYNTHETIC_BANKS=ON`; essa opção existe apenas para a prova de
 integração e não transforma fixtures em bancos de Pokémon Platinum.

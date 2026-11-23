@@ -103,10 +103,11 @@ class EmitPlatinumBanksTests(unittest.TestCase):
                 raise RuntimeError(f"synthetic {bank} emission failure")
             output = Path(command[command.index("--out") + 1])
             (output / f"{bank}.c").write_text(
-                "/* synthetic bank body */\n", encoding="utf-8"
+                f"void {bank}_entry(void) {{\n    (void)0;\n}}\n",
+                encoding="utf-8",
             )
             (output / f"{bank}.h").write_text(
-                "/* synthetic bank header */\n", encoding="utf-8"
+                f"void {bank}_entry(void);\n", encoding="utf-8"
             )
             if not (omit_dispatch and bank.endswith("_arm7")):
                 (output / f"{bank}_dispatch.c").write_text(
@@ -164,6 +165,11 @@ class EmitPlatinumBanksTests(unittest.TestCase):
                 f"{BANK_PREFIX}_arm9_dispatch.c",
             },
         )
+        self.assertEqual(result["banks"]["arm9"]["shards"]["function_count"], 1)
+        self.assertEqual(
+            set(result["banks"]["arm9"]["shards"]["files"]),
+            {"bank_part_0000.c"},
+        )
 
     def test_rejects_changed_segment_before_invoking_recompiler(self) -> None:
         (self.extracted / "arm7.bin").write_bytes(b"ZZ")
@@ -220,7 +226,10 @@ class EmitPlatinumBanksTests(unittest.TestCase):
         expected = {"oracis_banks.json"}
         for cpu in ("arm9", "arm7"):
             bank = f"{BANK_PREFIX}_{cpu}"
-            expected.update({f"{bank}.c", f"{bank}.h", f"{bank}_dispatch.c"})
+            expected.update({
+                f"{bank}.c", f"{bank}.h", f"{bank}_dispatch.c",
+                f"{bank}_shards",
+            })
         self.assertEqual({entry.name for entry in self.output.iterdir()}, expected)
         self.assertNotIn("old ARM9 body", (self.output / f"{BANK_PREFIX}_arm9.c").read_text())
 

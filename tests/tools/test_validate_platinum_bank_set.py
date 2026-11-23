@@ -182,5 +182,45 @@ class ValidatePlatinumBankSetTests(unittest.TestCase):
             )
 
 
+    def add_arm9_shard(self) -> tuple[dict, Path]:
+        manifest = json.loads(
+            (self.directory / validator.MANIFEST_NAME).read_text(encoding="utf-8")
+        )
+        bank_name = f"{validator.BANK_PREFIX}_arm9"
+        shard_dir = self.directory / f"{bank_name}_shards"
+        shard_dir.mkdir()
+        payload = b"void synthetic_shard_entry(void) {}\n"
+        shard_path = shard_dir / "bank_part_0000.c"
+        shard_path.write_bytes(payload)
+        manifest["banks"]["arm9"]["shards"] = {
+            "directory": f"{bank_name}_shards",
+            "functions_per_shard": 512,
+            "function_count": 1,
+            "files": {"bank_part_0000.c": hashlib.sha1(payload).hexdigest()},
+        }
+        self.update_manifest(manifest)
+        return manifest, shard_path
+
+    def test_accepts_declared_shards_after_verifying_hashes(self) -> None:
+        manifest, _shard = self.add_arm9_shard()
+        validated = validator.validate_bank_set(self.directory)
+        self.assertEqual(
+            validated["banks"]["arm9"]["shards"],
+            manifest["banks"]["arm9"]["shards"],
+        )
+
+    def test_rejects_tampered_shard_content(self) -> None:
+        _manifest, shard = self.add_arm9_shard()
+        shard.write_bytes(b"tampered shard")
+        with self.assertRaisesRegex(validator.BankSetError, "shard hash mismatch"):
+            validator.validate_bank_set(self.directory)
+
+    def test_rejects_unlisted_shard_file(self) -> None:
+        self.add_arm9_shard()
+        (self.directory / f"{validator.BANK_PREFIX}_arm9_shards" /
+         "bank_part_0001.c").write_text("void extra(void) {}\n", encoding="utf-8")
+        with self.assertRaisesRegex(validator.BankSetError, "unexpected files"):
+            validator.validate_bank_set(self.directory)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -179,11 +179,33 @@ if(ORACIS_LOCAL_BANK_DIR)
         endforeach()
     endforeach()
 
+    # Large retail banks can exceed compiler memory limits as one C file.
+    # The local emitter therefore creates hash-validated function shards.
+    # Keep compatibility with older local output by falling back to the
+    # monolithic body when no shard directory is declared/present.
+    file(GLOB _oracis_arm9_shards CONFIGURE_DEPENDS
+        "${ORACIS_LOCAL_BANK_DIR}/${ORACIS_ARM9_BANK_NAME}_shards/bank_part_*.c")
+    file(GLOB _oracis_arm7_shards CONFIGURE_DEPENDS
+        "${ORACIS_LOCAL_BANK_DIR}/${ORACIS_ARM7_BANK_NAME}_shards/bank_part_*.c")
+
+    if(_oracis_arm9_shards)
+        set(_oracis_arm9_bank_sources ${_oracis_arm9_shards})
+    else()
+        set(_oracis_arm9_bank_sources
+            "${ORACIS_LOCAL_BANK_DIR}/${ORACIS_ARM9_BANK_NAME}.c")
+    endif()
+    if(_oracis_arm7_shards)
+        set(_oracis_arm7_bank_sources ${_oracis_arm7_shards})
+    else()
+        set(_oracis_arm7_bank_sources
+            "${ORACIS_LOCAL_BANK_DIR}/${ORACIS_ARM7_BANK_NAME}.c")
+    endif()
+
     add_library(oracis_platinum_arm9_bank OBJECT
-        "${ORACIS_LOCAL_BANK_DIR}/${ORACIS_ARM9_BANK_NAME}.c"
+        ${_oracis_arm9_bank_sources}
         "${ORACIS_LOCAL_BANK_DIR}/${ORACIS_ARM9_BANK_NAME}_dispatch.c")
     add_library(oracis_platinum_arm7_bank OBJECT
-        "${ORACIS_LOCAL_BANK_DIR}/${ORACIS_ARM7_BANK_NAME}.c"
+        ${_oracis_arm7_bank_sources}
         "${ORACIS_LOCAL_BANK_DIR}/${ORACIS_ARM7_BANK_NAME}_dispatch.c")
 
     foreach(bank_target IN ITEMS

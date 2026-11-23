@@ -30,6 +30,16 @@ _PATCHER_SPEC.loader.exec_module(_PATCHER)
 ADAPTER_IDENTITY = _PATCHER.ADAPTER_IDENTITY
 patch_generated_source = _PATCHER.patch_generated_source
 
+_SPLITTER_PATH = Path(__file__).with_name("split_generated_bank.py")
+_SPLITTER_SPEC = importlib.util.spec_from_file_location(
+    "oracis_generated_bank_splitter", _SPLITTER_PATH
+)
+if _SPLITTER_SPEC is None or _SPLITTER_SPEC.loader is None:
+    raise RuntimeError(f"Cannot load generated-bank splitter: {_SPLITTER_PATH}")
+_SPLITTER = importlib.util.module_from_spec(_SPLITTER_SPEC)
+_SPLITTER_SPEC.loader.exec_module(_SPLITTER)
+split_generated_bank = _SPLITTER.split_generated_bank
+
 ROOT = Path(__file__).resolve().parents[2]
 EXPECTED_ROM_SHA1 = "0862ec35b24de5c7e2dcb88c9eea0873110d755c"
 EXPECTED_CODEGEN_IDENTITY = "nds-codegen-v3"
@@ -213,23 +223,40 @@ def validate_output_destination(extracted_dir: Path, output_dir: Path) -> None:
                 f"Generated output destination is not a directory: {output_resolved}"
             )
 
-        # Replacing the directory is necessary to remove stale output files.
-        # Never remove unrelated user data or descend through a nested/symlinked
-        # entry merely because the caller selected an unsafe destination.
-        allowed_names = {"oracis_banks.json"}
+        # Preserve only the known flat generated files and declared shard
+        # directories. Never descend through symlinks or unrelated user data.
+        allowed_files = {"oracis_banks.json"}
+        allowed_directories = {
+            f"{BANK_PREFIX}_{cpu}_shards" for cpu in CPUS
+        }
         for cpu in CPUS:
             bank = f"{BANK_PREFIX}_{cpu}"
-            allowed_names.update({
+            allowed_files.update({
                 f"{bank}.c",
                 f"{bank}.h",
                 f"{bank}_dispatch.c",
             })
         for entry in output_resolved.iterdir():
-            if entry.is_symlink() or not entry.is_file() or entry.name not in allowed_names:
+            if entry.is_symlink():
                 raise ValueError(
                     "Generated output directory contains unrelated or unsafe content: "
                     f"{entry}. Choose a dedicated empty Oracis output directory."
                 )
+            if entry.is_file() and entry.name in allowed_files:
+                continue
+            if entry.is_dir() and entry.name in allowed_directories:
+                for shard in entry.iterdir():
+                    if (shard.is_symlink() or not shard.is_file()
+                            or re.fullmatch(r"bank_part_[0-9]{4}\.c", shard.name) is None):
+                        raise ValueError(
+                            "Generated output directory contains unrelated or unsafe content: "
+                            f"{shard}. Choose a dedicated empty Oracis output directory."
+                        )
+                continue
+            raise ValueError(
+                "Generated output directory contains unrelated or unsafe content: "
+                f"{entry}. Choose a dedicated empty Oracis output directory."
+            )
 
 
 def publish_output_directory(staging_dir: Path, output_dir: Path) -> None:
@@ -262,6 +289,7 @@ def emit_banks(
     extracted_dir: Path,
     output_dir: Path,
     runner: Callable[[list[str]], str] = run_command,
+    functions_per_shard: int = 512,
 ) -> dict:
     if not recompiler.is_file():
         raise FileNotFoundError(f"NDSRecomp executable not found: {recompiler}")
@@ -333,6 +361,14 @@ def emit_banks(
                 "writes": write_calls,
             }
 
+            shard_metadata = split_generated_bank(
+                bank_source,
+                staging_dir / f"{bank_name}.h",
+                staging_dir,
+                bank_name,
+                functions_per_shard=functions_per_shard,
+            )
+
             for filename in expected_files:
                 generated = staging_dir / filename
                 file_hashes[filename] = sha1_file(generated)
@@ -360,6 +396,7 @@ def emit_banks(
                 "memory_direction_adapter": ADAPTER_IDENTITY,
                 "memory_direction_calls": emitted_direction_counts,
                 "files": file_hashes,
+                "shards": shard_metadata,
             }
 
         result = {
@@ -401,6 +438,12 @@ def main() -> int:
         default=ROOT / ".oracis" / "generated" / "pokemon-platinum-usa-rev1",
         help="Local C-bank output directory",
     )
+    parser.add_argument(
+        "--functions-per-shard",
+        type=int,
+        default=512,
+        help="Maximum generated functions per C translation unit (default: 512)",
+    )
     args = parser.parse_args()
 
     try:
@@ -408,6 +451,7 @@ def main() -> int:
             args.recompiler.expanduser().resolve(),
             args.extracted_dir.expanduser().resolve(),
             args.output_dir.expanduser().resolve(),
+            functions_per_shard=args.functions_per_shard,
         )
     except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
