@@ -456,6 +456,19 @@ Foram compiladas 17 novas unidades C99 (shards e dispatch) e a auditoria
 combinada de 67 objetos (bancos principais e overlays) resolveu 11.719
 referências, com zero símbolos não resolvidos e zero allowlisted.
 
+Os logs locais dos 29 audits registram ainda 8.966 chamadas indiretas
+analisadas: 34 destinos resolvidos pelo finder, 39 classificados como
+sabidamente inalcançáveis e **570 com destino desconhecido**. Há 62 seeds
+de ponteiros armazenados e 39 sites distribuídos em 24 regiões de 64 KiB
+marcadas como possíveis candidatos a alias não declarado. O finder também
+marcou 59 alvos como undefined. Essas métricas não são erros de link C:
+a auditoria dos 67 objetos nativos continua com zero símbolos unresolved.
+Elas significam que a descoberta estática ainda não explica todos os
+destinos de chamadas guest indiretas. O emissor agora preserva esses
+contadores e regiões por overlay, além de somar apenas os audits que
+efetivamente contêm tais métricas; bancos antigos reutilizados sem esses
+campos são listados como cobertura de diagnóstico ausente, nunca como zero.
+
 Esses resultados confirmam a emissão/verificação estática e a ligação de
 símbolos; não confirmam execução guest, inicializadores estáticos,
 relocations, retorno seguro entre overlays nem boot jogável. Os 93 IDs sem
