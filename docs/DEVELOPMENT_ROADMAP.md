@@ -339,3 +339,29 @@ Foi criado o gerador local tools/ndsrecomp/generate_overlay_bank_registry.py. El
 O CMake agora aceita ORACIS_LOCAL_OVERLAY_BANK_DIR, em conjunto obrigatório com ORACIS_LOCAL_BANK_DIR. Os corpos C e tabelas de dispatch dos overlays são compilados como objetos e ligados a oracis_machine. A ponte de runtime registra os overlays ARM9 depois dos bancos principais, com rollback dos bancos adicionados pela chamada quando ocorre erro. A descoberta de endereços duplicados permanece responsabilidade do registry, que valida cada candidato contra os bytes guest esperados.
 
 Validação local desta rodada: o relatório disponível contém 29 overlays ARM9 emitidos e 10.415 funções. O gerador local produziu um registrador para os 29 bancos e um manifesto com hashes SHA-256. Isso é uma validação do inventário/geração do registrador, não uma confirmação de que os objetos retail foram recompilados por esta nova configuração CMake ou executados em jogo. A integração ainda não carrega overlays na RAM guest; sem cópia do módulo, inicialização de BSS e unload sincronizado, as funções não podem ser consideradas executáveis. Nenhum round do jogo deve ser habilitado nesta etapa.
+
+## Atualização 2026-11-23 — primeiro carregador de overlays integrado
+
+Foi implementado `NdsOverlayLoader` e conectado à `NdsMachine`. A nova API
+recebe a imagem extraída já descomprimida e o SHA-1 do campo
+`image_sha1` do manifesto local. Antes de escrever, valida CPU/ID, tamanho,
+overflow de endereço, faixa de inicialização estática, hash, permissões de
+execução e escrita e ausência de colisão com overlays ativos da mesma CPU.
+A imagem e o BSS são preparados em um único buffer e enviados a
+`GuestMemory::write_bytes`; o inventário só é atualizado após a validação
+dos bytes guest.
+
+A ponte C do host agora oferece carga e descarga de módulos individuais.
+O unload exige fatias encerradas, PC fora da faixa e a declaração explícita
+de que não existem endereços de retorno/referências guest pendentes. O runtime
+não consegue provar essa última condição: o rastreamento de referências
+guardadas nas pilhas guest ainda não está implementado.
+
+Foi adicionado o teste `oracis_nds_overlay_loader_test` para imagem, BSS,
+hash divergente, duplicidade, colisões, faixa de inicialização e unload.
+O carregador **não** executa construtores estáticos, não faz relocations,
+não carrega automaticamente o manifesto do disco e não implementa a política
+de troca de overlays do NitroSDK. A camada host ainda precisa ler o manifesto
+local, selecionar o arquivo correto e chamar a API. Portanto, esta etapa
+conclui o mecanismo de cópia verificada para RAM guest, não a execução
+completa dos overlays nem um boot funcional do jogo.
