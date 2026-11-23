@@ -2,6 +2,7 @@
 
 #include "oracis/host/detail/sha1.hpp"
 #include "oracis/recomp/runtime_arm.h"
+#include "oracis/recomp/runtime_scheduler.h"
 #include "oracis/recomp/static_dispatch_abi.h"
 
 #include <array>
