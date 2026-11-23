@@ -173,7 +173,7 @@ int main()
     using oracis::machine::NdsMachine;
     using oracis::machine::NdsOverlayImage;
     using oracis::machine::NdsOverlayStatus;
-    using oracis::machine::SharedWramMode;
+    using oracis::memory::SharedWramMode;
 
     NdsMachine machine(SharedWramMode::Arm9All32K);
     if (prepare_machine(machine) != 0) return 1;
