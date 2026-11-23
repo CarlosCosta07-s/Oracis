@@ -43,7 +43,7 @@ bool validate_adapter(NdsCpu cpu,
 {
     std::fprintf(stderr,
         "[Oracis dispatch] %s: CPU=%u target=0x%08X PC=0x%08X "
-        "CPSR=0x%08X status=%u candidates=%u inactive=%s\\n",
+        "CPSR=0x%08X status=%u candidates=%u inactive=%s\n",
         kind,
         static_cast<unsigned>(cpu),
         target_pc,

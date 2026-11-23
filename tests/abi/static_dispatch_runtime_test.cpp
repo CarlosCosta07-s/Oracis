@@ -160,6 +160,26 @@ int main()
     if (thumb_calls != 3u || (arm9.cpsr & CPSR_T_BIT) == 0u) {
         return fail("Thumb link-fallthrough did not select Thumb state and row");
     }
+
+    call_slot.fn = arm9_body;
+    if (runtime_inline_leaf_admit(&call_slot, thumb_body) != 0) {
+        return fail("tampered slot function was accepted for inline execution");
+    }
+    runtime_link_call(&call_slot);
+    if (call_slot.fn != thumb_body || thumb_calls != 4u) {
+        return fail("tampered slot function was not re-resolved");
+    }
+
+    call_slot.target_pc = 0x02000000u;
+    runtime_link_call(&call_slot);
+    if (call_slot.fn != arm9_body || (arm9.cpsr & CPSR_T_BIT) != 0u) {
+        return fail("changed slot target did not resolve the ARM row");
+    }
+    call_slot.target_pc = 0x02000021u;
+    runtime_link_call(&call_slot);
+    if (call_slot.fn != thumb_body || (arm9.cpsr & CPSR_T_BIT) == 0u) {
+        return fail("retargeted slot did not resolve the Thumb row");
+    }
     if (runtime_inline_leaf_admit(&call_slot, thumb_body) != 1 ||
         runtime_inline_leaf_admit(&call_slot, arm9_body) != 0) {
         return fail("resolved Thumb leaf did not enforce exact function identity");
