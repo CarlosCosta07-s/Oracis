@@ -15,6 +15,8 @@ oracis::recomp::StaticDispatchRegistry &registry() noexcept
 
 OracisDispatchValidationFn g_validation_callback = nullptr;
 void *g_validation_user = nullptr;
+OracisDispatchMissHandler g_dispatch_miss_handler = nullptr;
+void *g_dispatch_miss_user = nullptr;
 
 struct ValidationContext {
     OracisDispatchValidationFn callback;
@@ -54,6 +56,42 @@ bool validate_adapter(NdsCpu cpu,
         candidate_count,
         inactive ? "yes" : "no");
     std::abort();
+}
+
+bool recover_dispatch_miss(
+    NdsCpu cpu,
+    uint32_t target_pc,
+    uint32_t cpsr,
+    uint32_t status,
+    uint32_t candidate_count,
+    const NdsDispatchEntry *inactive) noexcept
+{
+    if (g_dispatch_miss_handler == nullptr) return false;
+    int handled = 0;
+    try {
+        handled = g_dispatch_miss_handler(
+            g_dispatch_miss_user,
+            cpu,
+            target_pc,
+            cpsr,
+            status,
+            candidate_count,
+            inactive != nullptr ? 1u : 0u);
+    } catch (...) {
+        handled = 0;
+    }
+    if (handled == 0) return false;
+    if (!oracis_scheduler_set_unwinding(cpu, 1)) {
+        dispatch_failure(
+            "dispatch miss handler could not request guest unwind",
+            cpu,
+            target_pc,
+            cpsr,
+            status,
+            candidate_count,
+            inactive);
+    }
+    return true;
 }
 
 bool deliver_prefetch_abort(uint32_t target_pc)
@@ -239,10 +277,14 @@ void dispatch_link_slot(NdsLinkSlot *slot, const char *kind)
         cpu, target_pc, oracis_active_cpu_state->cpsr,
         &status, &candidate_count, &inactive);
     if (entry == nullptr) {
+        const uint32_t cpsr = oracis_active_cpu_state->cpsr;
         if (deliver_prefetch_abort(target_pc)) return;
+        if (recover_dispatch_miss(
+                cpu, target_pc, cpsr, status, candidate_count, inactive)) {
+            return;
+        }
         dispatch_failure("static link dispatch miss", cpu, target_pc,
-                         oracis_active_cpu_state->cpsr,
-                         status, candidate_count, inactive);
+                         cpsr, status, candidate_count, inactive);
     }
 
     if (key != 0u) {
@@ -341,6 +383,14 @@ extern "C" void oracis_static_dispatch_set_memory_generation_provider(
     clear_link_slot_cache();
 }
 
+extern "C" void oracis_static_dispatch_set_miss_handler(
+    OracisDispatchMissHandler handler,
+    void *user)
+{
+    g_dispatch_miss_handler = handler;
+    g_dispatch_miss_user = handler != nullptr ? user : nullptr;
+}
+
 extern "C" const NdsDispatchEntry *oracis_static_dispatch_lookup(
     NdsCpu cpu,
     uint32_t target_pc,
@@ -388,12 +438,18 @@ extern "C" void runtime_dispatch(uint32_t target_pc)
         &inactive);
 
     if (entry == nullptr) {
+        const uint32_t cpsr = oracis_active_cpu_state->cpsr;
         if (deliver_prefetch_abort(target_pc)) return;
+        if (recover_dispatch_miss(
+                g_nds_active, target_pc, cpsr,
+                status, candidate_count, inactive)) {
+            return;
+        }
         dispatch_failure(
             "static dispatch miss",
             g_nds_active,
             target_pc,
-            oracis_active_cpu_state->cpsr,
+            cpsr,
             status,
             candidate_count,
             inactive);
