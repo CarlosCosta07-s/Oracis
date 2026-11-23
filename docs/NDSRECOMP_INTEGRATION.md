@@ -431,7 +431,8 @@ Para atualizar apenas uma seleção sem repetir o trabalho dos demais bancos:
 
     python tools/ndsrecomp/emit_platinum_overlay_banks.py \
       --overlay-ids 5,6,22,61,62,70 \
-      --reuse-existing-bank-dir .oracis/generated/pokemon-platinum-usa-rev1-overlays
+      --reuse-existing-bank-dir .oracis/generated/pokemon-platinum-usa-rev1-overlays \
+      --output-dir .oracis/generated/pokemon-platinum-usa-rev1-overlays-next
 
 O diretório anterior só é reutilizado quando a identidade ROM/codegen,
 SHA-1 de cada imagem, SHA-256 de cada C/H/dispatch e, quando existentes,
