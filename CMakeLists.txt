@@ -16,6 +16,8 @@ option(ORACIS_BUILD_HOST "Build the SDL3 desktop/Android host" ON)
 option(ORACIS_FETCH_SDL3 "Download and build the pinned SDL3 release" ON)
 set(ORACIS_LOCAL_BANK_DIR "" CACHE PATH
     "Optional local directory containing emitted Platinum ARM9/ARM7 C banks")
+set(ORACIS_LOCAL_OVERLAY_BANK_DIR "" CACHE PATH
+    "Optional local directory containing emitted Platinum ARM9 overlay C banks")
 option(ORACIS_ALLOW_SYNTHETIC_BANKS
     "Allow explicitly marked synthetic bank fixtures (tests only)" OFF)
 set(ORACIS_BANK_SYMBOL_ALLOWLIST "" CACHE FILEPATH
@@ -270,6 +272,69 @@ if(ORACIS_LOCAL_BANK_DIR)
             oracis_arm_state
         VERBATIM
     )
+endif()
+
+# Overlay banks are an independent optional local input. They are registered
+# alongside the main ARM9/ARM7 banks, but remain inactive until live guest bytes
+# match each row's embedded validation data.
+if(ORACIS_LOCAL_OVERLAY_BANK_DIR)
+    if(NOT ORACIS_LOCAL_BANK_DIR)
+        message(FATAL_ERROR
+            "ORACIS_LOCAL_OVERLAY_BANK_DIR requires ORACIS_LOCAL_BANK_DIR; "
+            "the main Platinum ARM9/ARM7 banks are required too.")
+    endif()
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    get_filename_component(ORACIS_LOCAL_OVERLAY_BANK_DIR
+        "${ORACIS_LOCAL_OVERLAY_BANK_DIR}" ABSOLUTE)
+    set(_oracis_overlay_registrar
+        "${CMAKE_CURRENT_BINARY_DIR}/oracis_generated_overlay_registry.cpp")
+    execute_process(
+        COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/ndsrecomp/generate_overlay_bank_registry.py"
+            --bank-dir "${ORACIS_LOCAL_OVERLAY_BANK_DIR}"
+            --output-cpp "${_oracis_overlay_registrar}"
+            --manifest "${CMAKE_CURRENT_BINARY_DIR}/oracis_overlay_registry.json"
+        RESULT_VARIABLE _oracis_overlay_registry_result
+        OUTPUT_VARIABLE _oracis_overlay_registry_stdout
+        ERROR_VARIABLE _oracis_overlay_registry_stderr
+    )
+    if(NOT _oracis_overlay_registry_result EQUAL 0)
+        message(FATAL_ERROR
+            "Local overlay registry generation failed.\n"
+            "${_oracis_overlay_registry_stdout}"
+            "${_oracis_overlay_registry_stderr}")
+    endif()
+    message(STATUS "${_oracis_overlay_registry_stdout}")
+
+    file(GLOB _oracis_overlay_body_sources CONFIGURE_DEPENDS
+        "${ORACIS_LOCAL_OVERLAY_BANK_DIR}/overlay_[0-9][0-9][0-9][0-9]/pokemon_platinum_usa_rev1_arm9_overlay_[0-9][0-9][0-9][0-9].c")
+    file(GLOB _oracis_overlay_dispatch_sources CONFIGURE_DEPENDS
+        "${ORACIS_LOCAL_OVERLAY_BANK_DIR}/overlay_[0-9][0-9][0-9][0-9]/pokemon_platinum_usa_rev1_arm9_overlay_[0-9][0-9][0-9][0-9]_dispatch.c")
+    list(LENGTH _oracis_overlay_body_sources _oracis_overlay_body_count)
+    list(LENGTH _oracis_overlay_dispatch_sources _oracis_overlay_dispatch_count)
+    if(_oracis_overlay_body_count EQUAL 0 OR
+       NOT _oracis_overlay_body_count EQUAL _oracis_overlay_dispatch_count)
+        message(FATAL_ERROR
+            "Overlay bank body/dispatch source count mismatch or no banks found.")
+    endif()
+
+    add_library(oracis_platinum_overlay_banks OBJECT
+        ${_oracis_overlay_body_sources}
+        ${_oracis_overlay_dispatch_sources}
+        "${_oracis_overlay_registrar}")
+    target_link_libraries(oracis_platinum_overlay_banks PRIVATE
+        oracis_generated_bank_abi)
+    target_include_directories(oracis_platinum_overlay_banks PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${ORACIS_LOCAL_OVERLAY_BANK_DIR}")
+    target_sources(oracis_machine PRIVATE
+        $<TARGET_OBJECTS:oracis_platinum_overlay_banks>)
+    target_compile_definitions(oracis_machine PRIVATE
+        ORACIS_WITH_PLATINUM_OVERLAY_BANKS=1)
+    if(ORACIS_BUILD_HOST)
+        target_compile_definitions(${ORACIS_RUNTIME_TARGET} PRIVATE
+            ORACIS_WITH_PLATINUM_OVERLAY_BANKS=1)
+    endif()
 endif()
 
 # The SDL host consumes the independent machine/runtime libraries.
