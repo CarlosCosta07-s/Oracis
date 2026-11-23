@@ -293,10 +293,33 @@ desassemblagem antes de habilitar execução.
 
 Na cópia de Poképlatinum fornecida para a auditoria de 23/11/2026, foram
 encontrados arquivos-fonte com nomes de endereço para 29 dos 122 overlays
-ARM9. A ferramenta gerou/conferiu 29 TOMLs e identificou 93 overlays sem
+ARM9. A execução padrão gerou/conferiu 29 TOMLs e identificou 93 overlays sem
 âncoras correspondentes nessa árvore. Esses 93 módulos continuam pendentes:
 não são inicializados com endereços inventados nem inferidos apenas de
 `load_address` ou `static_init_start`.
+
+A árvore também possui sete headers com nomes
+`include/overlayNNN/funcptr_ovNNN_ADDRESS.h`. Eles descrevem tipos de callback,
+não implementação C; por isso são candidatos opcionais, não entry points
+autoritativos. Para incluí-los sem sobrescrever os TOMLs anteriores, use outro
+diretório de saída:
+
+    python tools/ndsrecomp/discover_platinum_overlay_configs.py \
+      --overlay-image-dir .oracis/local/pokemon-platinum-usa-rev1/overlays \
+      --source /caminho/pokeplatinum-main.zip \
+      --output-dir .oracis/local/pokemon-platinum-usa-rev1/overlays-with-funcptr \
+      --include-function-pointer-headers
+
+A auditoria NDSRecomp local desses sete candidatos terminou sem falhas de
+decodificação nos seis overlays afetados. A descoberta aumentou o total
+agregado de funções dos 29 bancos de **10.415 para 10.636** (+221):
+overlay 0005 +202, 0006 +1, 0022 +0, 0061 +1, 0062 +11 e 0070 +6. Os corpos C
+e tabelas de dispatch atualizados desses seis overlays foram compilados como
+objetos C99 com Clang. A auditoria conjunta dos objetos dos dois bancos
+principais e dos 29 overlays resolveu **11.719 referências**, sem símbolos
+não resolvidos nem allowlist. Isso valida compilação e resolução de símbolos,
+não a execução funcional dos módulos em jogo. A hipótese Thumb continua
+provisória e requer conferência byte-level antes de ativar execução.
 
 **Limite desta etapa:** extrair e validar um overlay não significa recompilá-lo.
 O manifesto não inventa um entry point para o módulo. Ainda é necessário
