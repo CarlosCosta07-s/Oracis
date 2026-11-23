@@ -115,6 +115,7 @@ add_library(oracis_memory STATIC
     src/memory/nds_dma_control.cpp
     src/memory/nds_timer_control.cpp
     src/memory/nds_keypad_control.cpp
+    src/memory/nds_ext_key_input.cpp
     src/memory/nds_rtc.cpp
     src/memory/nds_spi_control.cpp
     src/memory/nds_system_clock.cpp
@@ -447,6 +448,12 @@ if(BUILD_TESTING)
     )
     target_link_libraries(oracis_nds_rtc_test PRIVATE oracis_memory)
     add_test(NAME oracis_nds_rtc_test COMMAND oracis_nds_rtc_test)
+
+    add_executable(oracis_nds_touch_input_test
+        tests/memory/nds_touch_input_test.cpp
+    )
+    target_link_libraries(oracis_nds_touch_input_test PRIVATE oracis_memory)
+    add_test(NAME oracis_nds_touch_input_test COMMAND oracis_nds_touch_input_test)
 
     add_executable(oracis_nds_spi_control_test
         tests/memory/nds_spi_control_test.cpp

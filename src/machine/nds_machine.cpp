@@ -1410,6 +1410,11 @@ NdsMachineStatus NdsMachine::initialize() noexcept
     }
     keypad_bound_ = true;
 
+    if (!oracis_bus_bind_ext_key_input(&ext_key_input_)) {
+        return rollback(NdsMachineStatus::BusBindingFailed);
+    }
+    ext_key_bound_ = true;
+
     if (!oracis_bus_bind_rtc(&rtc_)) {
         return rollback(NdsMachineStatus::BusBindingFailed);
     }
@@ -1551,7 +1556,7 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
         post_flag_bound_ || display_control_bound_ ||
         geometry_engine_bound_ || interrupt_bound_ ||
         game_card_bound_ || ipc_bound_ || dma_bound_ || timer_bound_ ||
-        keypad_bound_ || rtc_bound_ || spi_bound_ || clock_bound_ ||
+        keypad_bound_ || ext_key_bound_ || rtc_bound_ || spi_bound_ || clock_bound_ ||
         validation_bound_;
     if (!owns_runtime && !initialized_) {
         return NdsMachineStatus::Ok;
@@ -1589,6 +1594,12 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
             return NdsMachineStatus::ShutdownFailed;
         }
         rtc_bound_ = false;
+    }
+    if (ext_key_bound_) {
+        if (!oracis_bus_unbind_ext_key_input(&ext_key_input_)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        ext_key_bound_ = false;
     }
     if (keypad_bound_) {
         if (!oracis_bus_unbind_keypad_control(&keypad_control_)) {

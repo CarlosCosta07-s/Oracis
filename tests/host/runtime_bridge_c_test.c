@@ -151,6 +151,9 @@ int main(void)
 {
     /* Host input can arrive before NdsMachine binds its keypad device. */
     oracis_host_set_keypad_state(UINT16_C(1));
+    /* Pen and X/Y input follow the same retain-until-bound rule. */
+    oracis_host_set_touch_state(1, 10, 10);
+    oracis_host_set_extra_keys(UINT8_C(3));
 
     if (oracis_host_runtime_is_initialized() != 0) {
         fprintf(stderr, "host runtime was initialized before the test\n");
@@ -839,6 +842,8 @@ int main(void)
     }
 
     oracis_host_set_keypad_state(0u);
+    oracis_host_set_touch_state(0, 0, 0);
+    oracis_host_set_extra_keys(0u);
     puts("C host runtime bridge lifecycle/keypad/2D scanline/ARM9-ARM7 IRQ tests passed");
     return 0;
 }

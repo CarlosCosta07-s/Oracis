@@ -26,6 +26,7 @@
 #include "oracis/memory/nds_vram_control.hpp"
 #include "oracis/memory/nds_video_memory.hpp"
 #include "oracis/memory/nds_post_flag.hpp"
+#include "oracis/memory/nds_ext_key_input.hpp"
 #include "oracis/memory/nds_rtc.hpp"
 #include "oracis/memory/nds_spi_control.hpp"
 #include "oracis/memory/nds_display_control.hpp"
@@ -248,6 +249,7 @@ public:
     memory::NdsKeypadControl &keypad_control() noexcept {
         return keypad_control_;
     }
+    memory::NdsExtKeyInput &ext_key_input() noexcept { return ext_key_input_; }
     memory::NdsRtc &rtc() noexcept { return rtc_; }
     memory::NdsSpiControl &spi_control() noexcept { return spi_control_; }
     memory::NdsSystemClock &system_clock() noexcept { return system_clock_; }
@@ -342,6 +344,7 @@ private:
     bool three_d_edge_marking_pipeline_active_ = false;
     memory::NdsTimerControl timer_control_;
     memory::NdsKeypadControl keypad_control_;
+    memory::NdsExtKeyInput ext_key_input_;
     memory::NdsRtc rtc_;
     memory::NdsSpiControl spi_control_;
     memory::NdsSystemClock system_clock_;
@@ -379,6 +382,7 @@ private:
     bool dma_bound_ = false;
     bool timer_bound_ = false;
     bool keypad_bound_ = false;
+    bool ext_key_bound_ = false;
     bool rtc_bound_ = false;
     bool spi_bound_ = false;
     bool clock_bound_ = false;

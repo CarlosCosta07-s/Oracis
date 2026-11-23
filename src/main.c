@@ -55,12 +55,46 @@ static const OracisKeyBinding ORACIS_KEY_BINDINGS[] = {
     { SDLK_Q, ORACIS_KEY_L }
 };
 
+/* X and Y live outside KEYINPUT; S/A follow the common emulator layout. */
+enum {
+    ORACIS_EXTRA_KEY_X = 1u << 0u,
+    ORACIS_EXTRA_KEY_Y = 1u << 1u
+};
+
+static const OracisKeyBinding ORACIS_EXTRA_KEY_BINDINGS[] = {
+    { SDLK_S, ORACIS_EXTRA_KEY_X },
+    { SDLK_A, ORACIS_EXTRA_KEY_Y }
+};
+
 static uint16_t g_pressed_keys = 0u;
+static uint16_t g_pressed_extra_keys = 0u;
+static bool g_pen_down = false;
 
 static void update_keypad_key(SDL_Keycode key, bool pressed)
 {
     const size_t binding_count =
         sizeof(ORACIS_KEY_BINDINGS) / sizeof(ORACIS_KEY_BINDINGS[0]);
+
+    const size_t extra_count =
+        sizeof(ORACIS_EXTRA_KEY_BINDINGS) / sizeof(ORACIS_EXTRA_KEY_BINDINGS[0]);
+
+    for (size_t index = 0u; index < extra_count; ++index) {
+        if (ORACIS_EXTRA_KEY_BINDINGS[index].key == key) {
+            const uint16_t mask = ORACIS_EXTRA_KEY_BINDINGS[index].mask;
+            const uint16_t previous = g_pressed_extra_keys;
+
+            if (pressed) {
+                g_pressed_extra_keys = (uint16_t)(g_pressed_extra_keys | mask);
+            } else {
+                g_pressed_extra_keys =
+                    (uint16_t)(g_pressed_extra_keys & (uint16_t)~mask);
+            }
+            if (g_pressed_extra_keys != previous) {
+                oracis_host_set_extra_keys((uint8_t)g_pressed_extra_keys);
+            }
+            return;
+        }
+    }
 
     for (size_t index = 0u; index < binding_count; ++index) {
         if (ORACIS_KEY_BINDINGS[index].key == key) {
@@ -81,11 +115,69 @@ static void update_keypad_key(SDL_Keycode key, bool pressed)
     }
 }
 
+static void release_pen(void)
+{
+    if (g_pen_down) {
+        g_pen_down = false;
+        oracis_host_set_touch_state(0, 0, 0);
+    }
+}
+
 static void release_all_keys(void)
 {
     if (g_pressed_keys != 0u) {
         g_pressed_keys = 0u;
         oracis_host_set_keypad_state(0u);
+    }
+    if (g_pressed_extra_keys != 0u) {
+        g_pressed_extra_keys = 0u;
+        oracis_host_set_extra_keys(0u);
+    }
+    release_pen();
+}
+
+/*
+ * Maps a mouse position (window pixels) to a bottom-screen pixel through the
+ * renderer's letterbox transform. Returns false when the pointer is outside
+ * the bottom screen; the pen is lifted in that case.
+ */
+static bool bottom_screen_point(
+    SDL_Renderer *renderer, SDL_Event *event, int *screen_x, int *screen_y)
+{
+    float x = 0.0f;
+    float y = 0.0f;
+
+    if (event->type == SDL_EVENT_MOUSE_MOTION) {
+        x = event->motion.x;
+        y = event->motion.y;
+    } else {
+        x = event->button.x;
+        y = event->button.y;
+    }
+    if (!SDL_RenderCoordinatesFromWindow(renderer, x, y, &x, &y)) {
+        return false;
+    }
+
+    const float top = (float)(ORACIS_SCREEN_HEIGHT + ORACIS_SCREEN_GAP);
+    if (x < 0.0f || x >= (float)ORACIS_SCREEN_WIDTH ||
+        y < top || y >= top + (float)ORACIS_SCREEN_HEIGHT) {
+        return false;
+    }
+    *screen_x = (int)x;
+    *screen_y = (int)(y - top);
+    return true;
+}
+
+static void update_pen(SDL_Renderer *renderer, SDL_Event *event, bool pressed)
+{
+    int screen_x = 0;
+    int screen_y = 0;
+
+    if (pressed && bottom_screen_point(renderer, event, &screen_x, &screen_y)) {
+        g_pen_down = true;
+        oracis_host_set_touch_state(1, screen_x, screen_y);
+    } else {
+        release_pen();
     }
 }
 
@@ -364,6 +456,8 @@ int main(int argc, char *argv[])
     bool game_card_program_loaded = false;
 
     oracis_host_set_keypad_state(0u);
+    oracis_host_set_extra_keys(0u);
+    oracis_host_set_touch_state(0, 0, 0);
 
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         SDL_LogCritical(
@@ -640,6 +734,15 @@ int main(int argc, char *argv[])
                 }
             } else if (event.type == SDL_EVENT_KEY_UP) {
                 update_keypad_key(event.key.key, false);
+            } else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
+                       event.button.button == SDL_BUTTON_LEFT) {
+                update_pen(renderer, &event, true);
+            } else if (event.type == SDL_EVENT_MOUSE_BUTTON_UP &&
+                       event.button.button == SDL_BUTTON_LEFT) {
+                release_pen();
+            } else if (event.type == SDL_EVENT_MOUSE_MOTION &&
+                       (event.motion.state & SDL_BUTTON_LMASK) != 0u) {
+                update_pen(renderer, &event, true);
             } else if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
                 release_all_keys();
             }

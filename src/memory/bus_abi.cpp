@@ -10,7 +10,9 @@
 #include "oracis/memory/nds_interrupt_control.hpp"
 #include "oracis/memory/nds_timer_control.hpp"
 #include "oracis/memory/nds_keypad_control.hpp"
+#include "oracis/memory/nds_ext_key_input.hpp"
 #include "oracis/memory/nds_rtc.hpp"
+#include "oracis/memory/nds_touch_mapping.hpp"
 #include "oracis/memory/nds_spi_control.hpp"
 #include "oracis/memory/nds_ipc_control.hpp"
 #include "oracis/memory/nds_game_card_control.hpp"
@@ -38,9 +40,14 @@ oracis::memory::NdsDmaControl *g_dma_control = nullptr;
 oracis::memory::NdsTimerControl *g_timer_control = nullptr;
 oracis::memory::NdsKeypadControl *g_keypad_control = nullptr;
 oracis::memory::NdsRtc *g_rtc = nullptr;
+oracis::memory::NdsExtKeyInput *g_ext_key_input = nullptr;
 oracis::memory::NdsSpiControl *g_spi_control = nullptr;
 oracis::memory::NdsSystemClock *g_system_clock = nullptr;
 uint16_t g_host_keypad_pressed_keys = 0u;
+/* Host touch/extra-key state survives until the matching devices are bound. */
+bool g_host_pen_down = false;
+oracis::memory::NdsTouchPoint g_host_touch_adc{};
+uint8_t g_host_ext_buttons = 0u;
 
 uint64_t bus_memory_generation(void *context) noexcept
 {
@@ -113,6 +120,13 @@ uint32_t read_bus(uint32_t address, uint32_t width, const char *operation)
     }
     if (g_rtc != nullptr) {
         const auto mmio = g_rtc->read(g_nds_active, address, width);
+        if (mmio.status != oracis::memory::Status::Unmapped) {
+            if (!mmio) bus_failure(operation, address, width, mmio.status);
+            return mmio.value;
+        }
+    }
+    if (g_ext_key_input != nullptr) {
+        const auto mmio = g_ext_key_input->read(g_nds_active, address, width);
         if (mmio.status != oracis::memory::Status::Unmapped) {
             if (!mmio) bus_failure(operation, address, width, mmio.status);
             return mmio.value;
@@ -230,6 +244,16 @@ void write_bus(uint32_t address,
     }
     if (g_rtc != nullptr) {
         const auto mmio = g_rtc->write(g_nds_active, address, width, value);
+        if (mmio != oracis::memory::Status::Unmapped) {
+            if (mmio != oracis::memory::Status::Ok) {
+                bus_failure(operation, address, width, mmio);
+            }
+            return;
+        }
+    }
+    if (g_ext_key_input != nullptr) {
+        const auto mmio = g_ext_key_input->write(
+            g_nds_active, address, width, value);
         if (mmio != oracis::memory::Status::Unmapped) {
             if (mmio != oracis::memory::Status::Ok) {
                 bus_failure(operation, address, width, mmio);
@@ -711,6 +735,50 @@ extern "C" int oracis_bus_unbind_keypad_control(void *control)
     return 1;
 }
 
+extern "C" int oracis_bus_bind_ext_key_input(void *input)
+{
+    if (input == nullptr || g_ext_key_input != nullptr) return 0;
+    g_ext_key_input = static_cast<oracis::memory::NdsExtKeyInput *>(input);
+    g_ext_key_input->set_pressed_buttons(g_host_ext_buttons);
+    g_ext_key_input->set_pen_down(g_host_pen_down);
+    return 1;
+}
+
+extern "C" int oracis_bus_unbind_ext_key_input(void *input)
+{
+    if (input == nullptr ||
+        g_ext_key_input != static_cast<oracis::memory::NdsExtKeyInput *>(input)) {
+        return 0;
+    }
+    g_ext_key_input = nullptr;
+    return 1;
+}
+
+extern "C" void oracis_host_set_touch_state(int pressed, int screen_x, int screen_y)
+{
+    g_host_pen_down = pressed != 0;
+    if (g_host_pen_down) {
+        g_host_touch_adc =
+            oracis::memory::nds_touch_adc_from_screen(screen_x, screen_y);
+    }
+    if (g_spi_control != nullptr) {
+        g_spi_control->set_touch(
+            g_host_pen_down, g_host_touch_adc.x12, g_host_touch_adc.y12);
+    }
+    if (g_ext_key_input != nullptr) {
+        g_ext_key_input->set_pen_down(g_host_pen_down);
+    }
+}
+
+extern "C" void oracis_host_set_extra_keys(uint8_t pressed_mask)
+{
+    g_host_ext_buttons = static_cast<uint8_t>(
+        pressed_mask & oracis::memory::NdsExtKeyInput::HostButtonMask);
+    if (g_ext_key_input != nullptr) {
+        g_ext_key_input->set_pressed_buttons(g_host_ext_buttons);
+    }
+}
+
 extern "C" int oracis_bus_bind_rtc(void *rtc)
 {
     if (rtc == nullptr || g_rtc != nullptr) return 0;
@@ -737,6 +805,8 @@ extern "C" int oracis_bus_bind_spi_control(void *control)
         return 0;
     }
     g_spi_control = device;
+    g_spi_control->set_touch(
+        g_host_pen_down, g_host_touch_adc.x12, g_host_touch_adc.y12);
     return 1;
 }
 

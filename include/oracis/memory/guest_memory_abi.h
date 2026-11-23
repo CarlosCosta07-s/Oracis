@@ -81,6 +81,18 @@ int oracis_bus_unbind_keypad_control(void *control);
  */
 void oracis_host_set_keypad_state(uint16_t pressed_keys);
 
+/*
+ * Host touch and extra-key input, retained until the devices are bound.
+ * Touch uses bottom-screen pixels (0-255, 0-191); the pen releases when
+ * pressed is 0. Extra keys: bit 0 = X, bit 1 = Y, bit 2 = debug.
+ */
+void oracis_host_set_touch_state(int pressed, int screen_x, int screen_y);
+void oracis_host_set_extra_keys(uint8_t pressed_mask);
+
+/* Bind a live ARM7-only NdsExtKeyInput (EXTKEYIN at 0x04000136). */
+int oracis_bus_bind_ext_key_input(void *input);
+int oracis_bus_unbind_ext_key_input(void *input);
+
 /* Bind a live ARM7-only NdsRtc (register 0x04000138); it needs no other device. */
 int oracis_bus_bind_rtc(void *rtc);
 int oracis_bus_unbind_rtc(void *rtc);

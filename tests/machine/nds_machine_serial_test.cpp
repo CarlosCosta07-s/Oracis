@@ -74,6 +74,10 @@ uint16_t spi_control(uint8_t device, bool hold, bool irq)
 
 int main()
 {
+    /* Host input can arrive before the devices exist; it must be retained. */
+    oracis_host_set_touch_state(1, 128, 96);
+    oracis_host_set_extra_keys(0x01u); /* X */
+
     NdsMachine machine(SharedWramMode::Arm9All32K);
     if (machine.initialize() != NdsMachineStatus::Ok) {
         return fail("machine initialization failed with the serial devices bound");
@@ -153,9 +157,57 @@ int main()
     }
     (void)spi_byte(0x00u, false, false); /* release the flash select */
 
+    /* EXTKEYIN reflects the retained pen and X button (both active-low). */
+    constexpr uint32_t ExtKeyAddress = 0x04000136u;
+    if (bus_read_u16(ExtKeyAddress) != 0x003Eu) {
+        return fail("retained pen/X input did not reach EXTKEYIN");
+    }
+
+    /* Touch coordinates through the SPI touchscreen controller. */
+    const auto touch_byte = [&](uint8_t value, bool hold) -> int {
+        bus_write_u16(NdsSpiControl::ControlAddress,
+                      spi_control(NdsSpiControl::DeviceTouch, hold, false));
+        bus_write_u16(NdsSpiControl::DataAddress, value);
+        if (!advance(machine, 64u)) return -1;
+        return static_cast<int>(bus_read_u16(NdsSpiControl::DataAddress) & 0xFFu);
+    };
+    const auto touch_read = [&](uint8_t control) -> int {
+        if (touch_byte(control, true) < 0) return -1;
+        const int high = touch_byte(0u, true);
+        const int low = touch_byte(0u, false);
+        if (high < 0 || low < 0) return -1;
+        return (high << 5) | (low >> 3);
+    };
+    if (touch_read(0xD0u) != 0x800 || touch_read(0x90u) != 0x600) {
+        return fail("retained touch position did not reach the SPI controller");
+    }
+
+    /* Moving the pen updates both paths; lifting it restores pen-up values. */
+    oracis_host_set_touch_state(1, 255, 191);
+    if (touch_read(0xD0u) != 0xFF0 || touch_read(0x90u) != 0xBF0) {
+        return fail("pen move did not update the SPI coordinates");
+    }
+    oracis_host_set_touch_state(0, 0, 0);
+    if (bus_read_u16(ExtKeyAddress) != 0x007Eu) {
+        return fail("pen release did not set EXTKEYIN bit 6");
+    }
+    if (touch_read(0xD0u) != 0x000 || touch_read(0x90u) != 0xFFF) {
+        return fail("pen release did not restore pen-up SPI values");
+    }
+    oracis_host_set_extra_keys(0x03u);
+    if (bus_read_u16(ExtKeyAddress) != 0x007Cu) {
+        return fail("X and Y together did not clear bits 0 and 1");
+    }
+
+    /* The device object owned by the machine holds the same host state. */
+    if (machine.ext_key_input().pressed_buttons() != 0x03u) {
+        return fail("ext-key device lost the host button state");
+    }
+
     if (machine.shutdown() != NdsMachineStatus::Ok) {
         return fail("machine did not shut down with the serial devices bound");
     }
+    oracis_host_set_extra_keys(0u);
 
     /* A second machine can bind the same process-global bus slots again. */
     NdsMachine second(SharedWramMode::Arm9All32K);
