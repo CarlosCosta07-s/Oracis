@@ -190,9 +190,7 @@ public:
 
     /* Coarse epoch for conservative generated-code/link invalidation.
        Zero means exhausted and permanently disables cache validity. */
-    uint64_t mutation_generation() const noexcept {
-        return mutation_generation_;
-    }
+    uint64_t mutation_generation() const noexcept;
 
 private:
     struct Backing {
