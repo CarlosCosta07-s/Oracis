@@ -394,3 +394,26 @@ a compilação do novo gerador nem sobre a execução dos overlays no runtime.
 Os novos testes Python cobrem hash divergente entre emissão e extração,
 imagem extraída adulterada e relatório de cobertura; a CI deste commit ainda
 precisa concluir para confirmar os testes/build.
+
+## Atualização 2026-11-23 — descoberta reproduzível das âncoras de overlays
+
+Foi adicionada a ferramenta
+`tools/ndsrecomp/discover_platinum_overlay_configs.py`. Ela aceita o ZIP ou
+diretório local da árvore Poképlatinum e examina somente os nomes dos arquivos
+C no padrão `src/overlayNNN/ovNNN_ADDRESS.c`. O conteúdo dos arquivos-fonte
+não é lido, copiado ou compilado. Cada candidato é validado contra o intervalo
+de RAM e os hashes da imagem extraída; a ferramenta produz TOMLs locais e um
+relatório com os overlays sem âncoras. Se um TOML preexistente tiver conteúdo
+diferente, a ferramenta recusa sobrescrevê-lo.
+
+Execução com os artefatos locais desta sessão: **29/122** overlays ARM9
+possuem candidatos de entrada na árvore Poképlatinum fornecida; **93/122**
+não possuem nomes de função correspondentes naquela árvore. Os 29 TOMLs
+gerados coincidem com os arquivos locais já existentes. A hipótese Thumb é
+explicitamente provisória e os entry points continuam não autoritativos.
+Não foram criadas âncoras artificiais para os 93 módulos restantes.
+
+Os cinco testes da ferramenta passaram localmente: descoberta ZIP/diretório,
+relatório de ausência de âncoras, endereço fora da faixa, recusa de
+sobrescrita e integridade dos binários extraídos. A CI agora executa a
+compilação sintática do script e a descoberta automática desses testes.
