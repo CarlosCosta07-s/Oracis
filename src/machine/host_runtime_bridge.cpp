@@ -143,10 +143,13 @@ int host_overlay_status(oracis::machine::NdsOverlayStatus status) noexcept
     case NdsOverlayStatus::InvalidCpu:
     case NdsOverlayStatus::InvalidMetadata:
     case NdsOverlayStatus::InitializerDispatchMissing:
+        return ORACIS_HOST_RUNTIME_OVERLAY_INITIALIZER_DISPATCH_MISSING;
     case NdsOverlayStatus::InitializerBudgetExceeded:
+        return ORACIS_HOST_RUNTIME_OVERLAY_INITIALIZER_BUDGET_EXCEEDED;
     case NdsOverlayStatus::InitializerExecutionFailed:
+        return ORACIS_HOST_RUNTIME_OVERLAY_INITIALIZER_EXECUTION_FAILED;
     case NdsOverlayStatus::InvalidStack:
-        return ORACIS_HOST_RUNTIME_OVERLAY_INVALID;
+        return ORACIS_HOST_RUNTIME_OVERLAY_INITIALIZER_INVALID_STACK;
     case NdsOverlayStatus::ImageHashMismatch:
         return ORACIS_HOST_RUNTIME_OVERLAY_HASH_MISMATCH;
     case NdsOverlayStatus::MemoryUnavailable:
@@ -856,6 +859,24 @@ extern "C" int oracis_host_runtime_load_overlay(
         overlay->image_sha1
     };
     return host_overlay_status(machine.load_overlay(image));
+}
+
+extern "C" int oracis_host_runtime_run_overlay_static_initializers(
+    uint32_t cpu,
+    uint32_t overlay_id,
+    uint64_t cycle_budget_per_initializer)
+{
+    auto &machine = host_machine();
+    if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+    if (!machine.program_loaded()) return ORACIS_HOST_RUNTIME_NO_PROGRAM_LOADED;
+    if (cpu > static_cast<uint32_t>(NDS_ARM7) ||
+        cycle_budget_per_initializer == 0u) {
+        return ORACIS_HOST_RUNTIME_INVALID_ARGUMENT;
+    }
+    return host_overlay_status(machine.run_overlay_static_initializers(
+        static_cast<NdsCpu>(cpu),
+        overlay_id,
+        cycle_budget_per_initializer));
 }
 
 extern "C" int oracis_host_runtime_unload_overlay(
