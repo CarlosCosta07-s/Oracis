@@ -70,6 +70,19 @@ jobs:
           ctest --test-dir build -R oracis_compiled_bank_link_smoke --output-on-failure
           cmake --build build --target oracis_audit_platinum_bank_symbols --parallel
 
+      - name: Upload native runtime archives for local ABI audits
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oracis-runtime-linux-x86_64
+          path: |
+            build/liboracis_machine.a
+            build/liboracis_memory.a
+            build/liboracis_arm_state.a
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
   runtime-tests:
     name: ARM runtime tests (no SDL3 dependency)
     runs-on: ubuntu-24.04
