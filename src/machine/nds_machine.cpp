@@ -1422,11 +1422,12 @@ int NdsMachine::runtime_prefetch_abort_handler(
     if ((fault_pc % alignment) != 0u) return 0;
 
     /*
-     * A dispatch miss is not itself a CPU abort. First require an existing
-     * readable guest mapping, then test the ARM9 instruction MPU. Unmapped
-     * and CPU-inaccessible addresses remain diagnostic dispatch failures.
+     * A dispatch miss is not itself a CPU abort. First require a backing
+     * region that GuestMemory permits for instruction fetch, then test the
+     * ARM9 instruction MPU. Unmapped and non-executable mappings remain
+     * diagnostic dispatch failures.
      */
-    if (machine->memory_.validate_read(
+    if (machine->memory_.validate_execute(
             NDS_ARM9, fault_pc, instruction_size) != memory::Status::Ok) {
         return 0;
     }

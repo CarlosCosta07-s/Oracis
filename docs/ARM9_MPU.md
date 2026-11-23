@@ -47,13 +47,14 @@ the base-restored return link (faulting instruction address + 8). Further
 transfers in the same generated instruction are suppressed.
 
 A static-dispatch miss can also enter ARM9 Prefetch Abort, but only when the
-target instruction is backed by readable GuestMemory and the ARM9 instruction
-MPU explicitly denies that fetch. The handler uses the aborted instruction
+target instruction is backed by an executable GuestMemory mapping and the
+ARM9 instruction MPU explicitly denies that fetch. The handler uses the aborted instruction
 address + 4 for LR_abt and vector offset 0x0C. A missing bank, an unmapped or
 CPU-inaccessible address, or an MPU-permitted dynamic-code target is not
 relabelled as a Prefetch Abort: it remains a fail-closed dispatch diagnostic.
 ARM7 fetch faults and fetch failures outside the modeled MPU check are not yet
-architectural exceptions.
+architectural exceptions. ARM and Thumb denied-fetch paths are covered
+separately, including Thumb's saved CPSR.T and the common Prefetch Abort LR.
 
 The abort vectors themselves are not backed by an ARM9 BIOS image in the
 current host, so exception entry can be verified but an ARM9 BIOS abort handler

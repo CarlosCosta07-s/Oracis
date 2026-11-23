@@ -2108,10 +2108,10 @@ int main()
     arm9->cpsr = ORACIS_ARM_MODE_USER;
     arm9->R[15] = UINT32_C(0x02006000);
     const uint32_t prefetch_saved_cpsr = arm9->cpsr;
-    if (machine.guest_memory().validate_read(
+    if (machine.guest_memory().validate_execute(
             NDS_ARM9, prefetch_fault_pc, 4u) !=
             oracis::memory::Status::Ok) {
-        return fail("Prefetch Abort fixture target is not backed by readable guest memory");
+        return fail("Prefetch Abort fixture target is not backed by executable guest memory");
     }
     const uint32_t dispatch_calls_before_prefetch = g_static_dispatch_calls[0];
     runtime_dispatch(prefetch_fault_pc);
@@ -2130,6 +2130,35 @@ int main()
     }
     if (!oracis_scheduler_set_unwinding(NDS_ARM9, 0)) {
         return fail("ARM9 Prefetch Abort unwind state could not be reset after the test");
+    }
+    arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
+    arm9->R[15] = UINT32_C(0x02006000);
+
+    /*
+     * Thumb targets use a two-byte fetch, but Prefetch Abort still clears T
+     * for the vector and saves the original Thumb CPSR in SPSR_abt.
+     */
+    constexpr uint32_t prefetch_thumb_fault_pc = UINT32_C(0x02006042);
+    arm9->cpsr = ORACIS_ARM_MODE_USER | CPSR_T_BIT;
+    arm9->R[15] = UINT32_C(0x02006000);
+    const uint32_t prefetch_thumb_saved_cpsr = arm9->cpsr;
+    if (machine.guest_memory().validate_execute(
+            NDS_ARM9, prefetch_thumb_fault_pc, 2u) !=
+            oracis::memory::Status::Ok) {
+        return fail("Thumb Prefetch Abort fixture target is not executable");
+    }
+    runtime_dispatch(prefetch_thumb_fault_pc | 1u);
+    if ((arm9->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_ABORT ||
+        (arm9->cpsr & CPSR_I_BIT) == 0u ||
+        (arm9->cpsr & CPSR_T_BIT) != 0u ||
+        arm9->R[15] != UINT32_C(0xFFFF000C) ||
+        arm9->R[14] != prefetch_thumb_fault_pc + 4u ||
+        arm9->banked_spsr[ARM_BANK_ABORT] != prefetch_thumb_saved_cpsr ||
+        !runtime_unwinding()) {
+        return fail("Thumb MPU instruction denial did not preserve Thumb state in Prefetch Abort SPSR/LR");
+    }
+    if (!oracis_scheduler_set_unwinding(NDS_ARM9, 0)) {
+        return fail("Thumb Prefetch Abort unwind state could not be reset");
     }
     arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
     arm9->R[15] = UINT32_C(0x02006000);
