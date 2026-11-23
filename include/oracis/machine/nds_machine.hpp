@@ -13,6 +13,7 @@
 
 #include "oracis/recomp/arm_cpu_state.h"
 #include "oracis/memory/guest_memory.hpp"
+#include "oracis/machine/nds_overlay_loader.hpp"
 #include "oracis/memory/nds_arm9_tcm.hpp"
 #include "oracis/memory/nds_arm9_protection_unit.hpp"
 #include "oracis/memory/nds_interrupt_control.hpp"
@@ -131,6 +132,15 @@ public:
         const uint8_t *cartridge_header = nullptr,
         uint32_t cartridge_header_size = 0u) noexcept;
     bool program_loaded() const noexcept { return program_loaded_; }
+
+    /* Overlay images are supplied already extracted and decompressed. */
+    NdsOverlayStatus load_overlay(const NdsOverlayImage &image) noexcept;
+    NdsOverlayStatus unload_overlay(
+        NdsCpu cpu, uint32_t overlay_id,
+        bool no_live_guest_references) noexcept;
+    const NdsOverlayLoader &overlay_loader() const noexcept {
+        return overlay_loader_;
+    }
 
     /* Unbinds devices in reverse dependency order. Safe to call more than once. */
     NdsMachineStatus shutdown() noexcept;
@@ -327,6 +337,7 @@ private:
         uint32_t pc, uint32_t thumb, void *context);
 
     memory::GuestMemory memory_;
+    NdsOverlayLoader overlay_loader_;
     ArmCpuState arm9_state_{};
     ArmCpuState arm7_state_{};
     memory::NdsArm9Tcm arm9_tcm_;
