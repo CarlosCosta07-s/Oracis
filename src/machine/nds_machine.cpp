@@ -1906,8 +1906,8 @@ NdsMachineStatus NdsMachine::load_program_segments(
 NdsOverlayStatus NdsMachine::load_overlay(
     const NdsOverlayImage &image) noexcept
 {
-    if (!initialized_) return NdsOverlayStatus::InvalidMetadata;
-    if (!program_loaded_) return NdsOverlayStatus::InvalidMetadata;
+    if (!initialized_) return NdsOverlayStatus::NotInitialized;
+    if (!program_loaded_) return NdsOverlayStatus::ProgramNotLoaded;
     if (slice_active_[0] || slice_active_[1]) {
         return NdsOverlayStatus::Busy;
     }
