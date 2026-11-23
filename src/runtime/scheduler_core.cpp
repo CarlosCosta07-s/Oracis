@@ -20,6 +20,7 @@ struct CpuSliceState {
     bool slice_active = false;
     bool yield_requested = false;
     bool unwinding = false;
+    bool bounded_unwind = false;
 };
 
 std::array<CpuSliceState, 2> g_cpu_slice{};
@@ -121,6 +122,19 @@ extern "C" int oracis_scheduler_set_unwinding(
     return 1;
 }
 
+extern "C" int oracis_scheduler_enable_bounded_unwind(NdsCpu cpu)
+{
+    if (!valid_cpu(cpu)) return 0;
+    CpuSliceState &state = g_cpu_slice[cpu_index(cpu)];
+    if (!state.slice_active) return 0;
+    state.bounded_unwind = true;
+    if (state.cycles >= state.deadline) {
+        state.yield_requested = true;
+        state.unwinding = true;
+    }
+    return 1;
+}
+
 extern "C" uint64_t oracis_scheduler_cycle_count(NdsCpu cpu)
 {
     if (!valid_cpu(cpu)) return 0u;
@@ -146,6 +160,7 @@ extern "C" void runtime_tick(uint32_t cycles)
 
     if (state.slice_active && state.cycles >= state.deadline) {
         state.yield_requested = true;
+        if (state.bounded_unwind) state.unwinding = true;
     }
 
     /*
