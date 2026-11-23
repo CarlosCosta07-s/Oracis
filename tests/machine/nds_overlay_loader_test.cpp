@@ -2,6 +2,7 @@
 #include "oracis/host/detail/sha1.hpp"
 
 #include <cassert>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -231,13 +232,14 @@ void test_zero_static_initializer_terminator_stops_the_sequence()
     GuestMemory memory = make_memory();
     NdsOverlayLoader loader(memory);
     constexpr uint32_t OverlayBase = kRamBase + 0x800u;
-    std::vector<uint8_t> image_bytes(0x20u, 0u);
-    write_u32_le(image_bytes, 0x18u, OverlayBase + 4u);
+    std::vector<uint8_t> image_bytes(0x28u, 0u);
+    write_u32_le(image_bytes, 0x18u, (OverlayBase + 4u) | 1u);
     write_u32_le(image_bytes, 0x1Cu, UINT32_C(0));
+    write_u32_le(image_bytes, 0x20u, OverlayBase + 0x24u);
     const std::string digest = hash_of(image_bytes);
     const NdsOverlayImage image{
-        NDS_ARM9, 42u, OverlayBase, 0x20u, 0u,
-        OverlayBase + 0x18u, OverlayBase + 0x20u,
+        NDS_ARM9, 42u, OverlayBase, 0x28u, 0u,
+        OverlayBase + 0x18u, OverlayBase + 0x24u,
         image_bytes.data(), digest.c_str()
     };
 
