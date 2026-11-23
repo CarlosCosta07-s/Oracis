@@ -52,7 +52,7 @@ class GenerateOverlayBankRegistryTests(unittest.TestCase):
         report = {
             "schema": "oracis-overlay-bank-emission-v1",
             "codegen": "nds-codegen-v3",
-            "rom_sha1": "0" * 40,
+            "rom_sha1": "0862ec35b24de5c7e2dcb88c9eea0873110d755c",
             "direction_adapter": {"status": "passed"},
             "results": rows,
         }
@@ -105,7 +105,6 @@ class GenerateOverlayBankRegistryTests(unittest.TestCase):
             )
 
     def test_rejects_missing_or_empty_dispatch_source(self) -> None:
-        self.add_bank(5)
         self.write_report([self.add_bank(5)])
         dispatch = (
             self.bank_dir / "overlay_0005"
