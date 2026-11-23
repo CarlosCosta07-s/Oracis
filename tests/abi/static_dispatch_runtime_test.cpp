@@ -13,6 +13,7 @@ unsigned arm7_thumb_calls = 0u;
 unsigned validated_calls = 0u;
 unsigned validation_callback_calls = 0u;
 unsigned replacement_calls = 0u;
+unsigned higher_rank_calls = 0u;
 uint64_t dispatch_memory_generation = 1u;
 
 uint64_t read_dispatch_memory_generation(void *context)
@@ -28,10 +29,18 @@ void thumb_body(void) { ++thumb_calls; }
 void arm7_thumb_body(void) { ++arm7_thumb_calls; }
 void validated_body(void) { ++validated_calls; }
 void replacement_body(void) { ++replacement_calls; }
+void higher_rank_body(void) { ++higher_rank_calls; }
 
 const uint8_t expected_bytes[] = {0x12u, 0x34u, 0x56u, 0x78u};
 const NdsStaticValidation validation = {
     0x02001000u, sizeof(expected_bytes), expected_bytes, nullptr, 0u
+};
+const uint8_t higher_rank_expected_bytes[] = {
+    0x12u, 0x34u, 0x56u, 0x78u, 0x90u, 0xABu, 0xCDu, 0xEFu
+};
+const NdsStaticValidation higher_rank_validation = {
+    0x02001000u, sizeof(higher_rank_expected_bytes),
+    higher_rank_expected_bytes, nullptr, 0u
 };
 
 int accept_expected_validation(
@@ -44,6 +53,22 @@ int accept_expected_validation(
     ++validation_callback_calls;
     return cpu == NDS_ARM9 &&
            candidate == user &&
+           pc == 0x02001000u &&
+           thumb == 0u;
+}
+
+int accept_higher_rank_validation(
+    NdsCpu cpu,
+    const NdsStaticValidation *candidate,
+    uint32_t pc,
+    uint32_t thumb,
+    void *user)
+{
+    ++validation_callback_calls;
+    return cpu == NDS_ARM9 &&
+           candidate == user &&
+           candidate != nullptr &&
+           candidate->size == sizeof(higher_rank_expected_bytes) &&
            pc == 0x02001000u &&
            thumb == 0u;
 }
@@ -85,6 +110,9 @@ int main()
 
     const NdsDispatchEntry replacement_table[] = {
         {0x02001000u, 0u, replacement_body, &validation},
+    };
+    const NdsDispatchEntry higher_rank_table[] = {
+        {0x02001000u, 0u, higher_rank_body, &higher_rank_validation},
     };
 
     if (oracis_static_dispatch_register_bank(
@@ -336,6 +364,45 @@ int main()
         runtime_inline_leaf_admit(&guarded_slot, replacement_body) != 1 ||
         runtime_inline_leaf_admit(&guarded_slot, validated_body) != 0) {
         return fail("callsite did not resolve the replacement bank after unregister");
+    }
+
+    /*
+     * Register a second active row at the same PC with a larger verified
+     * span. The registry's winner policy must invalidate the old callsite
+     * cache and choose the more specific candidate; removing it must reveal
+     * the previous bank again.
+     */
+    oracis_static_dispatch_set_validation_callback(
+        accept_higher_rank_validation,
+        const_cast<NdsStaticValidation *>(&higher_rank_validation));
+    if (oracis_static_dispatch_register_bank(
+            NDS_ARM9, higher_rank_table, 1u, "higher-rank-validated-arm9") !=
+        static_cast<int>(oracis::recomp::RegisterBankStatus::Ok)) {
+        return fail("higher-rank candidate bank registration failed");
+    }
+    const unsigned validation_calls_before_higher_rank = validation_callback_calls;
+    runtime_link_call(&guarded_slot);
+    if (higher_rank_calls != 1u || guarded_slot.fn != higher_rank_body ||
+        validation_callback_calls != validation_calls_before_higher_rank + 2u ||
+        runtime_inline_leaf_admit(&guarded_slot, higher_rank_body) != 1 ||
+        runtime_inline_leaf_admit(&guarded_slot, replacement_body) != 0) {
+        return fail("new higher-rank candidate did not replace the cached link target");
+    }
+
+    if (!oracis_static_dispatch_unregister_bank(
+            NDS_ARM9, higher_rank_table, 1u) ||
+        runtime_inline_leaf_admit(&guarded_slot, higher_rank_body) != 0) {
+        return fail("higher-rank bank removal did not revoke its cached link");
+    }
+    oracis_static_dispatch_set_validation_callback(
+        accept_expected_validation,
+        const_cast<NdsStaticValidation *>(&validation));
+    const unsigned validation_calls_before_lower_rank = validation_callback_calls;
+    runtime_link_call(&guarded_slot);
+    if (replacement_calls != 2u || guarded_slot.fn != replacement_body ||
+        validation_callback_calls != validation_calls_before_lower_rank + 2u ||
+        runtime_inline_leaf_admit(&guarded_slot, replacement_body) != 1) {
+        return fail("lower-rank candidate was not restored after winner removal");
     }
 
     const uint32_t before_clear_key =

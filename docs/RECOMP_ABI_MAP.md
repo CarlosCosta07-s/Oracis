@@ -276,5 +276,9 @@ Os testes de registry, ABI e barramento cobrem cache imutável, guarda mutável,
 mudança de geração, troca de identidade, retargeting, função adulterada e
 limpeza do registry. O teste de runtime também remove um banco com um slot
 mutável resolvido, confirma que a admissão inline é revogada e registra outro
-banco no mesmo PC para provar que a função antiga não é reutilizada. Eles não
-provam o boot do jogo nem substituem testes com bancos reais de Pokémon Platinum.
+banco no mesmo PC para provar que a função antiga não é reutilizada. Um segundo
+candidato de maior extensão validada é registrado no mesmo PC para confirmar
+que ele substitui o alvo cacheado; sua remoção restaura a linha elegível anterior.
+O smoke host sintético também testa uma escrita real em GuestMemory invalidando
+um link validado e forçando nova resolução. Esses testes não provam o boot do
+jogo nem substituem testes com bancos reais de Pokémon Platinum.
