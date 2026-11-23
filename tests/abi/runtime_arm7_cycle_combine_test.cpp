@@ -150,6 +150,24 @@ int main()
         return fail("VRAM/WRAM timing was incorrect");
     }
 
+    /*
+     * ARM7 plain-CPU VRAM C/D DATA uses a 16-bit bus. GBATEK marks
+     * nonsequential N32 as provisional "1?", while S32=2 and N16/S16=1.
+     */
+    if (!begin_instruction(arm7, UINT32_C(0x02000000), false)) {
+        return fail("main/VRAM instruction context failed");
+    }
+    if (!check("VRAM N32 provisional", 1u,
+               runtime_mem_cycles(UINT32_C(0x06000000), 4u, 0u)) ||
+        !check("VRAM S32", 2u,
+               runtime_mem_cycles(UINT32_C(0x06000000), 4u, 1u)) ||
+        !check("VRAM N16", 1u,
+               runtime_mem_cycles(UINT32_C(0x06000000), 2u, 0u)) ||
+        !check("VRAM S16", 1u,
+               runtime_mem_cycles(UINT32_C(0x06000000), 2u, 1u))) {
+        return fail("ARM7 VRAM data wait-state timing was incorrect");
+    }
+
     /* Thumb main-RAM CODE uses N16=8, not the ARM N32=9. */
     if (!begin_instruction(arm7, UINT32_C(0x02000000), true)) {
         return fail("main Thumb instruction context failed");
