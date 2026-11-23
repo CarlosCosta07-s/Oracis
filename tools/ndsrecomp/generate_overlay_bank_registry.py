@@ -39,6 +39,8 @@ def load_source_overlay_manifest(image_dir: Path) -> dict[int, dict]:
     if source_manifest_path.is_symlink() or not source_manifest_path.is_file():
         raise ValueError("extracted overlay manifest is missing or unsafe")
     manifest = json.loads(source_manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        raise ValueError("extracted overlay manifest root must be an object")
     if manifest.get("schema") != "oracis-nds-overlays-v1":
         raise ValueError("unsupported or missing extracted overlay manifest schema")
     if manifest.get("rom_sha1") != "0862ec35b24de5c7e2dcb88c9eea0873110d755c":
@@ -83,22 +85,35 @@ def load_source_overlay_manifest(image_dir: Path) -> dict[int, dict]:
     return records
 
 
-def generate(bank_dir: Path, overlay_image_dir: Path, output_cpp: Path, manifest_path: Path) -> dict:
+def generate(
+    bank_dir: Path,
+    overlay_image_dir: Path,
+    output_cpp: Path,
+    manifest_path: Path,
+) -> dict:
     bank_dir = bank_dir.resolve(strict=True)
     source_overlays = load_source_overlay_manifest(overlay_image_dir)
     report_path = bank_dir / "emission_report.json"
     report = json.loads(report_path.read_text(encoding="utf-8"))
+    if not isinstance(report, dict):
+        raise ValueError("overlay emission report root must be an object")
     if report.get("schema") != "oracis-overlay-bank-emission-v1":
         raise ValueError("unsupported or missing overlay emission report schema")
     if report.get("codegen") != "nds-codegen-v3":
         raise ValueError("overlay banks were not emitted by the pinned nds-codegen-v3")
     if report.get("rom_sha1") != "0862ec35b24de5c7e2dcb88c9eea0873110d755c":
         raise ValueError("overlay banks do not match Pokémon Platinum USA Rev 1")
-    if report.get("direction_adapter", {}).get("status") != "passed":
+    adapter = report.get("direction_adapter")
+    if not isinstance(adapter, dict) or adapter.get("status") != "passed":
         raise ValueError("overlay memory-direction adapter did not pass")
+    results = report.get("results")
+    if not isinstance(results, list):
+        raise ValueError("overlay emission report results must be a list")
     records = []
     seen_ids: set[int] = set()
-    for row in report.get("results", []):
+    for row in results:
+        if not isinstance(row, dict):
+            raise ValueError("overlay emission report contains a non-object result")
         if row.get("status") != "emitted":
             continue
         bank = row.get("bank", "")
@@ -214,7 +229,12 @@ def main() -> int:
     parser.add_argument("--manifest", type=Path, required=True)
     args = parser.parse_args()
     try:
-        result = generate(args.bank_dir, args.overlay_image_dir, args.output_cpp, args.manifest)
+        result = generate(
+            args.bank_dir,
+            args.overlay_image_dir,
+            args.output_cpp,
+            args.manifest,
+        )
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         parser.error(str(exc))
     print(
