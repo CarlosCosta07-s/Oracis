@@ -1899,14 +1899,45 @@ NdsMachineStatus NdsMachine::load_program_segments(
         return NdsMachineStatus::ProgramLoadFailed;
     }
 
+    /*
+     * Seed the documented NDS cartridge-entry CPU context. This reproduces
+     * the register/stack handoff visible after the BIOS/firmware boot path;
+     * it does not reproduce that path's firmware, card-authentication,
+     * memory-initialization or CP15 side effects.
+     *
+     * GBATEK "BIOS RAM Usage" records R12/LR/PC at the image entry point,
+     * User/System and IRQ/SVC stack tops, and zero R0-R11 plus IRQ/SVC
+     * LR/SPSR at cartridge handoff.
+     */
     arm9_state_ = {};
     arm7_state_ = {};
     arm9_state_.cpsr = ORACIS_ARM_MODE_SYSTEM |
         (arm9.entry_thumb ? CPSR_T_BIT : 0u);
     arm7_state_.cpsr = ORACIS_ARM_MODE_SYSTEM |
         (arm7.entry_thumb ? CPSR_T_BIT : 0u);
+
+    arm9_state_.R[12] = arm9.entry_pc;
+    arm9_state_.R[13] = UINT32_C(0x03002F7C);
+    arm9_state_.R[14] = arm9.entry_pc;
     arm9_state_.R[15] = arm9.entry_pc;
+    arm9_state_.banked_sp[ARM_BANK_USER] = UINT32_C(0x03002F7C);
+    arm9_state_.banked_sp[ARM_BANK_IRQ] = UINT32_C(0x03003F80);
+    arm9_state_.banked_sp[ARM_BANK_SUPERVISOR] = UINT32_C(0x03003FC0);
+
+    arm7_state_.R[12] = arm7.entry_pc;
+    arm7_state_.R[13] = UINT32_C(0x0380FD80);
+    arm7_state_.R[14] = arm7.entry_pc;
     arm7_state_.R[15] = arm7.entry_pc;
+    arm7_state_.banked_sp[ARM_BANK_USER] = UINT32_C(0x0380FD80);
+    arm7_state_.banked_sp[ARM_BANK_IRQ] = UINT32_C(0x0380FF80);
+    arm7_state_.banked_sp[ARM_BANK_SUPERVISOR] = UINT32_C(0x0380FFC0);
+
+    if (post_flag_.write_from_bios(
+            NDS_ARM9, memory::NdsPostFlag::PostBootMask) !=
+        memory::Status::Ok) {
+        return NdsMachineStatus::ProgramLoadFailed;
+    }
+
     run_states_.fill(NdsCpuRunState::Running);
     interrupt_wait_active_.fill(false);
     interrupt_wait_masks_.fill(0u);
