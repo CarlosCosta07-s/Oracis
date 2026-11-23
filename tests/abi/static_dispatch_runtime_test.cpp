@@ -9,11 +9,13 @@ namespace {
 unsigned arm9_calls = 0u;
 unsigned arm7_calls = 0u;
 unsigned thumb_calls = 0u;
+unsigned arm7_thumb_calls = 0u;
 unsigned validated_calls = 0u;
 
 void arm9_body(void) { ++arm9_calls; }
 void arm7_body(void) { ++arm7_calls; }
 void thumb_body(void) { ++thumb_calls; }
+void arm7_thumb_body(void) { ++arm7_thumb_calls; }
 void validated_body(void) { ++validated_calls; }
 
 const uint8_t expected_bytes[] = {0x12u, 0x34u, 0x56u, 0x78u};
@@ -61,7 +63,7 @@ int main()
     };
     const NdsDispatchEntry arm7_table[] = {
         {0x02380000u, 0u, arm7_body, nullptr},
-        {0x02380020u, 1u, thumb_body, nullptr},
+        {0x02380020u, 1u, arm7_thumb_body, nullptr},
     };
     const NdsDispatchEntry validated_table[] = {
         {0x02001000u, 0u, validated_body, &validation},
@@ -96,7 +98,7 @@ int main()
 
     /* ARM7 must preserve its own CPSR.T across the same exchange fallback. */
     runtime_dispatch_with_exchange(0x02380021u);
-    if (thumb_calls != 1u || (arm7.cpsr & CPSR_T_BIT) == 0u)
+    if (arm7_thumb_calls != 1u || (arm7.cpsr & CPSR_T_BIT) == 0u)
         return fail("ARM7 Thumb exchange did not select its Thumb row");
     NdsLinkSlot arm7_call_slot{};
     arm7_call_slot.target_pc = 0x02380000u;
@@ -106,7 +108,7 @@ int main()
     NdsLinkSlot arm7_fallthrough_slot{};
     arm7_fallthrough_slot.target_pc = 0x02380021u;
     runtime_link_fallthrough(&arm7_fallthrough_slot);
-    if (thumb_calls != 2u || (arm7.cpsr & CPSR_T_BIT) == 0u)
+    if (arm7_thumb_calls != 2u || (arm7.cpsr & CPSR_T_BIT) == 0u)
         return fail("ARM7 ARM-to-Thumb link-fallthrough did not exchange state");
     runtime_dispatch_with_exchange(0x02380000u);
     if ((arm7.cpsr & CPSR_T_BIT) != 0u)
