@@ -548,3 +548,28 @@ A CI `45234103186` passou nos quatro jobs (Linux desktop, ARM runtime,
 Android ARM64 e compilador estático). Ela valida o código versionado,
 testes sintéticos e build das plataformas; não recebe os 62 bancos locais
 nem prova a execução da ROM fornecida pelo usuário.
+
+## 19. Decodificação segura da sequência static-init no loader
+
+Depois de validar o SHA-1 da imagem descomprimida, o
+`NdsOverlayLoader` percorre a faixa
+`static_init_start..static_init_end` em palavras little-endian de 32 bits.
+A primeira palavra zero encerra a sequência. Para cada ponteiro não nulo,
+o loader preserva a ordem original, remove o bit 0 do endereço e registra
+se o destino usa ARM ou Thumb conforme esse bit. O endereço da instrução e
+seu alinhamento (4 bytes ARM, 2 bytes Thumb) precisam permanecer dentro da
+imagem executável do mesmo overlay; qualquer ponteiro inválido rejeita a
+carga antes de escrever na RAM guest.
+
+A sequência fica disponível por
+`NdsOverlayLoader::static_initializers(cpu, overlay_id)`, que retorna os
+descritores validados `{ address, thumb }` para um overlay carregado. A
+lista desaparece junto com o registro em unload/shutdown. O loader **não
+executa** os construtores: a execução ordenada ainda precisa de uma camada
+do runtime que crie o contexto de chamada guest, escolha a CPU correta,
+acompanhe retornos/erros e respeite dependências de outros overlays.
+
+A regressão adicional cobre uma sequência ARM+Thumb ordenada, ponteiro fora
+da imagem rejeitado sem qualquer escrita e o zero como terminador da tabela.
+Isso valida a interpretação do metadado e a sua preservação; não demonstra
+execução dos inicializadores nem boot do jogo.
