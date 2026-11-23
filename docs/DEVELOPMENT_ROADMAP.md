@@ -417,3 +417,26 @@ Os cinco testes da ferramenta passaram localmente: descoberta ZIP/diretório,
 relatório de ausência de âncoras, endereço fora da faixa, recusa de
 sobrescrita e integridade dos binários extraídos. A CI agora executa a
 compilação sintática do script e a descoberta automática desses testes.
+
+## Atualização 2026-11-23 — candidatos de callbacks e recompilação expandida
+
+A descoberta de âncoras recebeu a opção
+`--include-function-pointer-headers`, que considera os nomes
+`funcptr_ovNNN_ADDRESS.h` da árvore de Poképlatinum como candidatos separados.
+Os arquivos header não são lidos nem copiados. Eles permanecem opcionais porque
+tipos de função indicam callbacks, mas não provam isoladamente todos os
+detalhes de estado ARM/Thumb.
+
+Na extração local, sete candidatos adicionais afetaram seis overlays
+(0005, 0006, 0022, 0061, 0062 e 0070). A auditoria do NDSRecomp para esses
+candidatos aumentou a descoberta total de 10.415 para 10.636 funções (+221).
+Os corpos C e dispatch atualizados foram compilados como objetos C99 com
+Clang. A auditoria combinada dos objetos dos bancos ARM9/ARM7 principais,
+dos 29 overlays e das bibliotecas locais do runtime resolveu 11.719
+referências; unresolved=0, allowlisted=0 e providers duplicados=0.
+
+Essas validações continuam locais: imagens e bancos derivados da ROM não
+foram enviados ao Git. A recompilação melhorada ainda não é prova de
+execução em jogo. A política de carregamento automático, inicializadores
+estáticos, dependências de overlays, referências de retorno e os 93 overlays
+sem âncoras continuam em aberto.
