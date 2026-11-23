@@ -35,7 +35,10 @@ def sha1(path: Path) -> str:
 
 def load_source_overlay_manifest(image_dir: Path) -> dict[int, dict]:
     image_dir = image_dir.resolve(strict=True)
-    manifest = json.loads((image_dir / "manifest.json").read_text(encoding="utf-8"))
+    source_manifest_path = image_dir / "manifest.json"
+    if source_manifest_path.is_symlink() or not source_manifest_path.is_file():
+        raise ValueError("extracted overlay manifest is missing or unsafe")
+    manifest = json.loads(source_manifest_path.read_text(encoding="utf-8"))
     if manifest.get("schema") != "oracis-nds-overlays-v1":
         raise ValueError("unsupported or missing extracted overlay manifest schema")
     if manifest.get("rom_sha1") != "0862ec35b24de5c7e2dcb88c9eea0873110d755c":
@@ -49,7 +52,7 @@ def load_source_overlay_manifest(image_dir: Path) -> dict[int, dict]:
         if not isinstance(row, dict) or row.get("cpu") != "arm9":
             raise ValueError("the current compiled overlay registry accepts ARM9 records only")
         overlay_id = row.get("overlay_id")
-        if not isinstance(overlay_id, int) or not 0 <= overlay_id <= 0xFFFFFFFF:
+        if type(overlay_id) is not int or not 0 <= overlay_id <= 0xFFFFFFFF:
             raise ValueError("extracted overlay manifest contains an invalid overlay ID")
         if overlay_id in records:
             raise ValueError(f"duplicate extracted ARM9 overlay ID {overlay_id}")
@@ -64,7 +67,7 @@ def load_source_overlay_manifest(image_dir: Path) -> dict[int, dict]:
         image_size = row.get("image_size")
         image_sha1 = row.get("image_sha1")
         image_sha256 = row.get("image_sha256")
-        if (not isinstance(image_size, int) or image_size <= 0 or
+        if (type(image_size) is not int or image_size <= 0 or
                 not isinstance(image_sha1, str) or
                 not re.fullmatch(r"[0-9a-f]{40}", image_sha1) or
                 not isinstance(image_sha256, str) or
