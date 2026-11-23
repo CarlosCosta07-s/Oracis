@@ -640,10 +640,17 @@ O teste sintético pede um construtor durante a fatia ARM9, verifica o unwind, c
 
 ## 22. Inventário por região e descarga conservadora
 
-O gerenciamento de overlays ARM9 agora segue as três regiões observadas em `src/game_overlay.c` de Pokémon Platinum: `MAIN`, `ITCM` e `DTCM`. Cada par CPU/região admite no máximo oito overlays ativos, e os conflitos de faixa são verificados dentro da região. A classificação ARM9 usa as janelas TCM efetivamente habilitadas pelo estado CP15 modelado pela máquina; imagens que atravessam o limite de uma janela TCM são rejeitadas. ARM7 permanece na região principal.
+O gerenciamento de overlays ARM9 agora segue as três regiões observadas em `src/game_overlay.c` de Pokémon Platinum: `MAIN`, `ITCM` e `DTCM`. Cada par CPU/região admite no máximo oito overlays ativos, e os conflitos de faixa são verificados dentro da região. A classificação ARM9 reproduz a janela ITCM do NitroSDK (`HW_ITCM_IMAGE=0x01000000` até `HW_ITCM_END=0x02000000`) e identifica DTCM pela base e janela CP15 ativas modeladas pela máquina; imagens que atravessam o limite efetivo de uma janela TCM são rejeitadas. ARM7 permanece na região principal.
 
 A região é parte do registro local do loader, não um campo confiado ao manifesto/ROM. DTCM é uma região de dados: seu carregamento exige escrita válida, mas não exige permissão de execução. Para ponteiros de inicialização em overlays DTCM, a validação estrutural mantém alinhamento e faixa de endereço; a resolução/executabilidade do alvo fica a cargo do dispatch estático validado antes da chamada.
 
 A descarga também passou a falhar fechada quando o overlay já iniciou uma sequência de inicializadores não vazia. O NitroSDK documenta que `FS_UnloadOverlayImage` chama `FS_EndOverlay`, que executa o uninitializer estático antes de liberar a imagem. O Oracis ainda não tem um formato/manifesto de finalizadores verificado nem executor bounded para destrutores; limpar o overlay nesse estado omitiria efeitos guest observáveis. A API retorna `ORACIS_HOST_RUNTIME_OVERLAY_FINALIZERS_UNAVAILABLE` em vez de fingir que a descarga terminou corretamente. Um overlay carregado mas ainda não iniciado continua elegível para descarga em fronteira segura.
 
 Os testes sintéticos cobrem o limite de oito slots por região, independência entre regiões, carregamento DTCM sem permissão execute e bloqueio de descarga de overlay após construtores. A classificação de regiões depende do estado CP15 TCM: não prova que o boot atual do jogo já configurou esses registradores nem que a política completa de DMA/FS do NitroSDK foi reproduzida.
+
+
+## 23. Janela ITCM observada na revisão USA Rev 1
+
+A região ITCM não é equivalente apenas ao endereço baixo de 32 KiB do armazenamento físico. O código original do gerenciador usa a janela NitroSDK `HW_ITCM_IMAGE..HW_ITCM_END` (`0x01000000..0x02000000`) para classificar overlays. O Oracis agora exige que o estado CP15 tenha uma janela ITCM ativa que cubra o endereço e o tamanho RAM+BSS do overlay; caso contrário, a carga retorna `MemoryUnavailable`, em vez de classificar a imagem como MAIN.
+
+A tabela ARM9 da ROM USA Rev 1 fornecida contém 122 registros. A inspeção local encontrou o overlay ID 3 em `0x01FF8660`, com tamanho de imagem `0x20`, dentro dessa janela ITCM. O teste de integração configura o TCM com a janela de 32 MB e carrega uma fixture de 32 bytes nesse endereço; também configura DTCM em `0x027C0000` e verifica que a imagem de dados pode ser carregada sem receber permissão de execução. Esses testes verificam a classificação e permissões; não demonstram execução do overlay 3 retail nem boot do jogo.

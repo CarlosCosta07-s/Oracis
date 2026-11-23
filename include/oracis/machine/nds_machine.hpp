@@ -261,6 +261,7 @@ public:
     }
 
     memory::GuestMemory &guest_memory() noexcept { return memory_; }
+    memory::NdsArm9Tcm &arm9_tcm() noexcept { return arm9_tcm_; }
     memory::NdsWramControl &wram_control() noexcept { return wram_control_; }
     memory::NdsVramControl &vram_control() noexcept { return vram_control_; }
     memory::NdsVideoMemory &video_memory() noexcept { return video_memory_; }

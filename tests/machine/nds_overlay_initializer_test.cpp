@@ -211,6 +211,57 @@ int main()
     if (prepare_machine(machine) != 0) return 1;
     g_machine = &machine;
 
+    /* Match the retail NitroSDK overlay address regions and CP15 windows. */
+    constexpr uint32_t ItcmRegionControl = UINT32_C(16) << 1u;
+    constexpr uint32_t DtcmRegionControl =
+        UINT32_C(0x027C0000) | (UINT32_C(5) << 1u);
+    const uint32_t TcmControl =
+        oracis::memory::NdsArm9Tcm::ResetControl |
+        oracis::memory::NdsArm9Tcm::ItcmEnableMask |
+        oracis::memory::NdsArm9Tcm::DtcmEnableMask;
+    if (!machine.arm9_tcm().write_region(true, ItcmRegionControl) ||
+        !machine.arm9_tcm().write_region(false, DtcmRegionControl) ||
+        !machine.arm9_tcm().set_control(TcmControl)) {
+        return fail("retail ITCM/DTCM windows could not be configured");
+    }
+
+    const std::array<uint8_t, 0x20> itcm_image{};
+    const std::vector<uint8_t> itcm_bytes(
+        itcm_image.begin(), itcm_image.end());
+    const std::string itcm_digest =
+        oracis::host::detail::sha1_hex(itcm_bytes);
+    constexpr uint32_t RetailItcmOverlayAddress = UINT32_C(0x01FF8660);
+    const NdsOverlayImage retail_itcm_overlay{
+        NDS_ARM9, 300u, RetailItcmOverlayAddress,
+        static_cast<uint32_t>(itcm_image.size()), 0u,
+        0u, 0u, itcm_image.data(), itcm_digest.c_str()
+    };
+    if (machine.load_overlay(retail_itcm_overlay) != NdsOverlayStatus::Ok ||
+        machine.guest_memory().validate_execute(
+            NDS_ARM9, RetailItcmOverlayAddress,
+            static_cast<uint32_t>(itcm_image.size())) !=
+            oracis::memory::Status::Ok) {
+        return fail("NitroSDK ITCM overlay aperture was not classified and loaded");
+    }
+
+    constexpr uint32_t RetailDtcmOverlayAddress = UINT32_C(0x027C0000);
+    const std::array<uint8_t, 8> dtcm_image{};
+    const std::vector<uint8_t> dtcm_bytes(dtcm_image.begin(), dtcm_image.end());
+    const std::string dtcm_digest =
+        oracis::host::detail::sha1_hex(dtcm_bytes);
+    const NdsOverlayImage retail_dtcm_overlay{
+        NDS_ARM9, 301u, RetailDtcmOverlayAddress,
+        static_cast<uint32_t>(dtcm_image.size()), 8u, 0u, 0u,
+        dtcm_image.data(), dtcm_digest.c_str()
+    };
+    if (machine.load_overlay(retail_dtcm_overlay) != NdsOverlayStatus::Ok ||
+        machine.guest_memory().validate_execute(
+            NDS_ARM9, RetailDtcmOverlayAddress,
+            static_cast<uint32_t>(dtcm_image.size())) !=
+            oracis::memory::Status::PermissionDenied) {
+        return fail("DTCM data overlay was rejected or made executable");
+    }
+
     const NdsDispatchEntry entries[] = {
         {kSuccessfulOverlayAddress, 0u, &initializer_one, nullptr},
         {kSuccessfulOverlayAddress + 4u, 0u, &initializer_two, nullptr},

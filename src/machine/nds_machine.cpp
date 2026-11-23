@@ -1923,10 +1923,17 @@ NdsOverlayStatus NdsMachine::load_overlay(
         const uint64_t image_end =
             static_cast<uint64_t>(image.ram_address) + total_size;
 
-        if (tcm.itcm_window_size != 0u &&
-            image.ram_address < tcm.itcm_window_size) {
-            if (image_end > tcm.itcm_window_size) {
-                return NdsOverlayStatus::InvalidMetadata;
+        /* NitroSDK game_overlay.c classifies the ITCM image aperture as
+           HW_ITCM_IMAGE..HW_ITCM_END (0x01000000..0x02000000). The active
+           CP15 ITCM window must cover the complete image+BSS before the
+           overlay loader can safely write the TCM mirror. */
+        constexpr uint32_t NitroItcmImageBase = UINT32_C(0x01000000);
+        constexpr uint32_t NitroItcmEnd = UINT32_C(0x02000000);
+        if (image.ram_address >= NitroItcmImageBase &&
+            image.ram_address <= NitroItcmEnd) {
+            if (tcm.itcm_window_size == 0u ||
+                image_end > tcm.itcm_window_size) {
+                return NdsOverlayStatus::MemoryUnavailable;
             }
             classified.region = NdsOverlayRegion::Itcm;
         } else if (tcm.dtcm_window_size != 0u &&
