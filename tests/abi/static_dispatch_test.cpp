@@ -84,6 +84,14 @@ bool validate_bytes(NdsCpu cpu,
 int main()
 {
     StaticDispatchRegistry registry;
+    const uint32_t initial_arm9_link_key =
+        registry.link_epoch_key(NDS_ARM9);
+    const uint32_t initial_arm7_link_key =
+        registry.link_epoch_key(NDS_ARM7);
+    if (initial_arm9_link_key != 2u || initial_arm7_link_key != 3u ||
+        registry.link_epoch_key(static_cast<NdsCpu>(77)) != 0u) {
+        return fail("initial NdsLinkSlot epoch keys are invalid");
+    }
 
     const NdsDispatchEntry arm9_table[] = {
         {0x02000000u, 0u, arm9_entry_a, nullptr},
@@ -98,9 +106,21 @@ int main()
         RegisterBankStatus::Ok) {
         return fail("ARM9 bank registration failed");
     }
+    const uint32_t after_arm9_registration =
+        registry.link_epoch_key(NDS_ARM9);
+    if (after_arm9_registration == initial_arm9_link_key ||
+        registry.link_epoch_key(NDS_ARM7) == initial_arm7_link_key) {
+        return fail("ARM9 registration did not invalidate both CPU link keys");
+    }
     if (registry.register_bank(NDS_ARM7, arm7_table, 1u, "arm7-main") !=
         RegisterBankStatus::Ok) {
         return fail("ARM7 bank registration failed");
+    }
+    const uint32_t after_arm7_registration =
+        registry.link_epoch_key(NDS_ARM9);
+    if (after_arm7_registration == after_arm9_registration ||
+        registry.link_epoch_key(NDS_ARM7) == 0u) {
+        return fail("ARM7 registration did not advance the global link epoch");
     }
     if (registry.bank_count(NDS_ARM9) != 1u ||
         registry.bank_count(NDS_ARM7) != 1u) {
@@ -290,10 +310,15 @@ int main()
         return fail("same dispatch table was registered twice under different names");
     }
 
+    const uint32_t before_unregister_key =
+        registry.link_epoch_key(NDS_ARM9);
     if (!registry.unregister_bank(NDS_ARM9, same_address_modes, 2u) ||
         registry.unregister_bank(NDS_ARM9, same_address_modes, 2u) ||
         registry.unregister_bank(static_cast<NdsCpu>(77), same_address_modes, 2u)) {
         return fail("dispatch bank unregister accepted invalid state");
+    }
+    if (registry.link_epoch_key(NDS_ARM9) == before_unregister_key) {
+        return fail("successful unregister did not invalidate cached link keys");
     }
     if (registry.bank_count(NDS_ARM9) != 3u) {
         return fail("dispatch bank count did not decrease after unregister");
@@ -308,7 +333,16 @@ int main()
         return fail("bank name was not reusable after unregister");
     }
 
+    const uint32_t before_clear_key = registry.link_epoch_key(NDS_ARM9);
     registry.clear();
+    const uint32_t after_clear_key = registry.link_epoch_key(NDS_ARM9);
+    if (after_clear_key == before_clear_key) {
+        return fail("registry clear did not invalidate cached link keys");
+    }
+    registry.clear();
+    if (registry.link_epoch_key(NDS_ARM9) != after_clear_key) {
+        return fail("clearing an empty registry changed the link epoch");
+    }
     if (registry.bank_count(NDS_ARM9) != 0u ||
         registry.bank_count(NDS_ARM7) != 0u ||
         registry.lookup(NDS_ARM9, 0x02000000u, 0u).status !=

@@ -95,8 +95,12 @@ extern "C" void oracis_static_dispatch_set_validation_callback(
     OracisDispatchValidationFn callback,
     void *user)
 {
-    g_validation_callback = callback;
-    g_validation_user = user;
+    if (g_validation_callback != callback ||
+        g_validation_user != user) {
+        g_validation_callback = callback;
+        g_validation_user = user;
+        registry().invalidate_link_epoch();
+    }
 }
 
 extern "C" const NdsDispatchEntry *oracis_static_dispatch_lookup(

@@ -174,9 +174,16 @@ int main()
         return fail("validated row ran without an identity callback");
     }
 
+    const uint32_t before_callback_key =
+        oracis::recomp::global_static_dispatch_registry().link_epoch_key(NDS_ARM9);
     oracis_static_dispatch_set_validation_callback(
         accept_expected_validation,
         const_cast<NdsStaticValidation *>(&validation));
+    const uint32_t after_callback_key =
+        oracis::recomp::global_static_dispatch_registry().link_epoch_key(NDS_ARM9);
+    if (after_callback_key == before_callback_key) {
+        return fail("validation callback replacement did not invalidate link keys");
+    }
     runtime_dispatch(0x02001000u);
     if (validated_calls != 1u)
         return fail("accepted validated row was not invoked");
@@ -206,8 +213,20 @@ int main()
         return fail("registry clear unexpectedly removed the memory validator");
     }
 
+    const uint32_t before_clear_key =
+        oracis::recomp::global_static_dispatch_registry().link_epoch_key(NDS_ARM9);
     oracis_static_dispatch_clear();
+    const uint32_t after_clear_key =
+        oracis::recomp::global_static_dispatch_registry().link_epoch_key(NDS_ARM9);
+    if (after_clear_key == before_clear_key) {
+        return fail("C ABI registry clear did not invalidate link keys");
+    }
+    const uint32_t before_reset_callback_key = after_clear_key;
     oracis_static_dispatch_set_validation_callback(nullptr, nullptr);
+    if (oracis::recomp::global_static_dispatch_registry().link_epoch_key(NDS_ARM9) ==
+        before_reset_callback_key) {
+        return fail("validation callback reset did not invalidate link keys");
+    }
 
     std::puts("C ABI static dispatch registration and runtime transfer passed");
     return 0;

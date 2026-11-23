@@ -93,6 +93,11 @@ public:
 
     void clear() noexcept;
 
+    /* NdsLinkSlot.key format: (dispatch_epoch << 1) | cpu. Zero disables
+       cached links and is reserved for unresolved slots. */
+    uint32_t link_epoch_key(NdsCpu cpu) const noexcept;
+    void invalidate_link_epoch() noexcept;
+
     /*
      * Look up the target address with ARM/Thumb state taken from CPSR.T.
      * The low bit of target_pc is stripped like the generated-bank contract;
@@ -126,7 +131,9 @@ private:
         uint32_t entry_address,
         bool thumb) noexcept;
     static uint32_t candidate_rank(const NdsDispatchEntry &entry) noexcept;
+    void advance_link_epoch() noexcept;
 
+    uint32_t link_epoch_ = 1u;
     std::vector<Bank> arm9_banks_;
     std::vector<Bank> arm7_banks_;
 };

@@ -152,6 +152,7 @@ RegisterBankStatus StaticDispatchRegistry::register_bank(
     } catch (...) {
         return RegisterBankStatus::InvalidTable;
     }
+    advance_link_epoch();
     return RegisterBankStatus::Ok;
 }
 
@@ -172,13 +173,16 @@ bool StaticDispatchRegistry::unregister_bank(
     if (found == banks.end()) return false;
 
     banks.erase(found);
+    advance_link_epoch();
     return true;
 }
 
 void StaticDispatchRegistry::clear() noexcept
 {
+    if (arm9_banks_.empty() && arm7_banks_.empty()) return;
     arm9_banks_.clear();
     arm7_banks_.clear();
+    advance_link_epoch();
 }
 
 DispatchLookupResult StaticDispatchRegistry::lookup(
@@ -245,6 +249,27 @@ DispatchLookupResult StaticDispatchRegistry::lookup(
         ? DispatchLookupStatus::Found
         : DispatchLookupStatus::Miss;
     return result;
+}
+
+void StaticDispatchRegistry::advance_link_epoch() noexcept
+{
+    if (link_epoch_ == 0u) return;
+    /* key stores epoch in 31 bits and CPU in bit zero. On exhaustion, zero
+       permanently disables caching instead of wrapping into a live key. */
+    link_epoch_ = link_epoch_ >= UINT32_C(0x7FFFFFFF)
+        ? 0u
+        : link_epoch_ + 1u;
+}
+
+uint32_t StaticDispatchRegistry::link_epoch_key(NdsCpu cpu) const noexcept
+{
+    if (!valid_cpu(cpu) || link_epoch_ == 0u) return 0u;
+    return (link_epoch_ << 1u) | static_cast<uint32_t>(cpu);
+}
+
+void StaticDispatchRegistry::invalidate_link_epoch() noexcept
+{
+    advance_link_epoch();
 }
 
 std::size_t StaticDispatchRegistry::bank_count(NdsCpu cpu) const noexcept
