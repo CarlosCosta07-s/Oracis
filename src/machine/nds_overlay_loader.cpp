@@ -273,6 +273,8 @@ const char *overlay_status_name(NdsOverlayStatus status) noexcept
     case NdsOverlayStatus::Busy: return "busy";
     case NdsOverlayStatus::WriteFailed: return "write-failed";
     case NdsOverlayStatus::IdentityConflict: return "identity-conflict";
+    case NdsOverlayStatus::NotInitialized: return "not-initialized";
+    case NdsOverlayStatus::ProgramNotLoaded: return "program-not-loaded";
     }
     return "unknown";
 }
