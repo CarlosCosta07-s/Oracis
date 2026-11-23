@@ -211,6 +211,67 @@ class DiscoverPlatinumOverlayConfigsTests(unittest.TestCase):
                 include_static_init_pointers=True,
             )
 
+    def test_static_init_pointers_seed_exact_arm_and_thumb_modes(self) -> None:
+        row = self.rows[0]
+        image_path = self.image_dir / row["image_file"]
+        image = bytearray(image_path.read_bytes())
+        struct.pack_into(
+            "<II", image, 8,
+            row["ram_address"] | 1,
+            row["ram_address"] + 4,
+        )
+        image_path.write_bytes(image)
+        row["static_init_start"] = row["ram_address"] + 8
+        row["static_init_end"] = row["ram_address"] + 16
+        row["image_sha1"] = hashlib.sha1(image).hexdigest()
+        row["image_sha256"] = hashlib.sha256(image).hexdigest()
+        self.write_manifest()
+        self.write_source_zip([])
+
+        output = self.root / "static-init-configs"
+        report = discovery.discover(
+            self.image_dir,
+            self.source_zip,
+            output,
+            include_static_init_pointers=True,
+        )
+        self.assertEqual(report["config_ready_count"], 1)
+        self.assertEqual(report["without_source_anchors"], 2)
+        self.assertEqual(report["static_init_seed_count"], 2)
+        self.assertEqual(report["static_init_seed_overlay_count"], 1)
+        self.assertEqual(report["without_any_candidates"], 1)
+        item = report["results"][0]
+        self.assertTrue(item["static_init_only"])
+        self.assertEqual(item["source_anchor_count"], 0)
+        self.assertEqual(item["static_init_seed_count"], 2)
+        modes = {seed["mode"] for seed in item["entry_point_seeds"]}
+        self.assertEqual(modes, {"arm", "thumb"})
+        config = (output / "arm9_overlay_0005.toml").read_text(encoding="utf-8")
+        self.assertIn('mode = "arm"', config)
+        self.assertIn('mode = "thumb"', config)
+        self.assertIn("# Seed source: overlay static-init pointer", config)
+        self.assertIn("authoritative_entry_points = false", config)
+
+    def test_rejects_static_init_pointer_outside_overlay_ram(self) -> None:
+        row = self.rows[0]
+        image_path = self.image_dir / row["image_file"]
+        image = bytearray(image_path.read_bytes())
+        struct.pack_into("<I", image, 8, row["ram_address"] + 0x20)
+        image_path.write_bytes(image)
+        row["static_init_start"] = row["ram_address"] + 8
+        row["static_init_end"] = row["ram_address"] + 12
+        row["image_sha1"] = hashlib.sha1(image).hexdigest()
+        row["image_sha256"] = hashlib.sha256(image).hexdigest()
+        self.write_manifest()
+        self.write_source_zip([])
+        with self.assertRaisesRegex(ValueError, "static-init pointer.*outside/misaligned"):
+            discovery.discover(
+                self.image_dir,
+                self.source_zip,
+                self.root / "invalid-static-init",
+                include_static_init_pointers=True,
+            )
+
     def test_directory_source_matches_filename_contract(self) -> None:
         source_dir = self.root / "source-tree"
         target = (
