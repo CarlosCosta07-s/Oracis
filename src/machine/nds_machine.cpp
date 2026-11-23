@@ -1856,11 +1856,20 @@ NdsMachineStatus NdsMachine::load_program_segments(
     }
 
     if (has_cartridge_header &&
-        memory_.validate_write(
-            NDS_ARM9,
-            memory::NdsRetailRamMap::CartridgeHeaderRamAddress,
-            memory::NdsRetailRamMap::CartridgeHeaderStoredSize) !=
-            memory::Status::Ok) {
+        (memory_.validate_write(
+             NDS_ARM9,
+             memory::NdsRetailRamMap::CartridgeHeaderRamAddress,
+             memory::NdsRetailRamMap::CartridgeHeaderStoredSize) !=
+             memory::Status::Ok ||
+         memory_.validate_write(
+             NDS_ARM9, UINT32_C(0x027FF800), UINT32_C(0x94)) !=
+             memory::Status::Ok ||
+         memory_.validate_write(
+             NDS_ARM9, UINT32_C(0x027FFC00), UINT32_C(0x42)) !=
+             memory::Status::Ok ||
+         memory_.validate_write(
+             NDS_ARM7, UINT32_C(0x0380F980), 4u) !=
+             memory::Status::Ok)) {
         return NdsMachineStatus::ProgramMemoryUnavailable;
     }
 
@@ -1881,6 +1890,88 @@ NdsMachineStatus NdsMachine::load_program_segments(
              cartridge_header, cartridge_header_size) !=
              memory::Status::Ok)) {
         return NdsMachineStatus::ProgramLoadFailed;
+    }
+
+    /*
+     * Populate deterministic cartridge-boot RAM metadata when the caller
+     * supplies the cartridge header. Firmware-derived Wi-Fi settings,
+     * random RTC handshake bytes, physical Chip ID and BIOS code fragments
+     * are intentionally left untouched (the fresh retail RAM map is zeroed).
+     *
+     * GBATEK "NDS BIOS RAM Usage" documents these addresses and values.
+     */
+    if (has_cartridge_header) {
+        const auto read_u16_le = [](const uint8_t *bytes) noexcept {
+            return static_cast<uint16_t>(
+                static_cast<uint16_t>(bytes[0]) |
+                (static_cast<uint16_t>(bytes[1]) << 8u));
+        };
+        const auto read_u32_le = [](const uint8_t *bytes) noexcept {
+            return static_cast<uint32_t>(bytes[0]) |
+                (static_cast<uint32_t>(bytes[1]) << 8u) |
+                (static_cast<uint32_t>(bytes[2]) << 16u) |
+                (static_cast<uint32_t>(bytes[3]) << 24u);
+        };
+        uint16_t header_crc = UINT16_C(0xFFFF);
+        for (uint32_t index = 0u; index < UINT32_C(0x15E); ++index) {
+            header_crc = static_cast<uint16_t>(
+                header_crc ^ cartridge_header[index]);
+            for (uint32_t bit = 0u; bit < 8u; ++bit) {
+                header_crc = static_cast<uint16_t>(
+                    (header_crc >> 1u) ^
+                    ((header_crc & 1u) != 0u
+                        ? UINT16_C(0xA001) : UINT16_C(0)));
+            }
+        }
+
+        const uint16_t stored_header_crc =
+            read_u16_le(cartridge_header + UINT32_C(0x15E));
+        const uint16_t secure_area_crc =
+            read_u16_le(cartridge_header + UINT32_C(0x6C));
+        const uint16_t secure_disable =
+            read_u16_le(cartridge_header + UINT32_C(0x78));
+        const uint16_t header_crc_bad =
+            header_crc == stored_header_crc ? 0u : 1u;
+        const uint32_t arm7_load_address =
+            read_u32_le(cartridge_header + UINT32_C(0x38));
+
+        const bool boot_metadata_written =
+            memory_.write(NDS_ARM9, UINT32_C(0x027FF808), 2u,
+                          stored_header_crc) == memory::Status::Ok &&
+            memory_.write(NDS_ARM9, UINT32_C(0x027FF80A), 2u,
+                          secure_area_crc) == memory::Status::Ok &&
+            memory_.write(NDS_ARM9, UINT32_C(0x027FF80C), 2u,
+                          header_crc_bad) == memory::Status::Ok &&
+            memory_.write(NDS_ARM9, UINT32_C(0x027FF810), 2u,
+                          UINT32_C(0xFFFF)) == memory::Status::Ok &&
+            memory_.write(NDS_ARM9, UINT32_C(0x027FF812), 2u,
+                          secure_disable) == memory::Status::Ok &&
+            memory_.write(NDS_ARM9, UINT32_C(0x027FF850), 2u,
+                          UINT32_C(0x5835)) == memory::Status::Ok &&
+            memory_.write(NDS_ARM9, UINT32_C(0x027FF860), 4u,
+                          arm7_load_address) == memory::Status::Ok &&
+            memory_.write(NDS_ARM9, UINT32_C(0x027FF880), 4u,
+                          UINT32_C(7)) == memory::Status::Ok &&
+            memory_.write(NDS_ARM9, UINT32_C(0x027FF884), 4u,
+                          UINT32_C(6)) == memory::Status::Ok &&
+            memory_.write(NDS_ARM9, UINT32_C(0x027FFC08), 2u,
+                          stored_header_crc) == memory::Status::Ok &&
+            memory_.write(NDS_ARM9, UINT32_C(0x027FFC0A), 2u,
+                          secure_area_crc) == memory::Status::Ok &&
+            memory_.write(NDS_ARM9, UINT32_C(0x027FFC0C), 2u,
+                          header_crc_bad) == memory::Status::Ok &&
+            memory_.write(NDS_ARM9, UINT32_C(0x027FFC10), 2u,
+                          UINT32_C(0x5835)) == memory::Status::Ok &&
+            memory_.write(NDS_ARM9, UINT32_C(0x027FFC12), 2u,
+                          secure_disable) == memory::Status::Ok &&
+            memory_.write(NDS_ARM9, UINT32_C(0x027FFC40), 2u,
+                          UINT32_C(1)) == memory::Status::Ok &&
+            memory_.write(NDS_ARM7, UINT32_C(0x0380F980), 4u,
+                          UINT32_C(0xFBDD37BB)) == memory::Status::Ok;
+
+        if (!boot_metadata_written) {
+            return NdsMachineStatus::ProgramLoadFailed;
+        }
     }
 
     /* Confirm that both program images and the optional boot header are live. */
