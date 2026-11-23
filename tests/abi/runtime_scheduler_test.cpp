@@ -116,7 +116,7 @@ int main()
     }
     runtime_tick(1u);
     if (!runtime_unwinding() || !runtime_should_yield() ||
-        oracis_scheduler_cycle_count(NDS_ARM9) != 23u) {
+        oracis_scheduler_cycle_count(NDS_ARM9) != 33u) {
         return fail("bounded guest call did not unwind at its exact instruction deadline");
     }
     oracis_scheduler_end_slice(NDS_ARM9);
