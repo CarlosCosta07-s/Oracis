@@ -508,3 +508,43 @@ símbolos; não confirmam execução guest, inicializadores estáticos,
 relocations, retorno seguro entre overlays nem boot jogável. Os 93 IDs sem
 âncoras seguem pendentes. Os entry points criados a partir dos nomes de
 arquivos permanecem candidatos provisórios, não pontos autoritativos.
+
+## 18. Emissão dos overlays encontrados pela tabela static-init
+
+Depois da descoberta dos ponteiros de inicialização, os 33 overlays ARM9
+novos (IDs 0001, 0016, 0026–0055 e 0076) foram auditados e emitidos localmente.
+O ID 0017 também possui ponteiro static-init, mas já estava entre os 29
+bancos anteriores, portanto não foi contado duas vezes. O conjunto local
+unificado contém **62/122 overlays** e **10.673 funções**; permanecem
+**60 overlays sem banco estático**.
+
+Os 33 novos bancos produziram 37 funções no total. Os 66 arquivos C gerados
+(um corpo e um dispatch por overlay) passaram em **66/66 verificações C99**.
+O adaptador de direção de memória passou em todos e identificou 99 leituras
+e 5 escritas nessas funções. Os arquivos foram mantidos sob
+`.oracis/local`/diretórios locais ignorados pelo Git; nenhum C, objeto,
+ROM ou imagem extraída foi adicionado ao repositório.
+
+A seleção equivalente à usada pelo CMake também foi auditada: 17 objetos
+vindos dos shards dos seis bancos antigos particionados, 46 objetos dos
+23 bancos antigos monolíticos, 66 objetos dos 33 novos bancos e 4 objetos
+dos dois bancos principais ARM9/ARM7. Total: **133 objetos**. A auditoria
+conjunta encontrou **11.756 referências resolvidas**, zero símbolos
+unresolved, zero allowlisted e zero provedores duplicados. O relatório
+local está em `generated-overlays-static-init/symbol_audit_cmake_source_set.json`.
+
+A compilação desses 33 novos bancos não transforma as entradas static-init
+em entradas principais do overlay. Elas são funções de inicialização
+apontadas pela tabela NDS, continuam marcadas como não autoritativas e ainda
+não são chamadas por um gerenciador NitroSDK integrado. Também permanecem
+570 destinos de chamadas indiretas desconhecidos nos audits agregados e
+59 funções marcadas como undefined pelo finder; esses números descrevem
+incerteza de descoberta/dispatch guest, não símbolos C sem provedor. Os
+**60 overlays sem banco** seguem como lacuna de cobertura. Portanto, 62
+bancos compilados e 11.756 referências de linker resolvidas não significam
+que todos os caminhos de execução estejam cobertos ou que o jogo já dê boot.
+
+A CI `45234103186` passou nos quatro jobs (Linux desktop, ARM runtime,
+Android ARM64 e compilador estático). Ela valida o código versionado,
+testes sintéticos e build das plataformas; não recebe os 62 bancos locais
+nem prova a execução da ROM fornecida pelo usuário.
