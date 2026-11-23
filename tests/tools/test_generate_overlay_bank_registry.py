@@ -192,7 +192,9 @@ class GenerateOverlayBankRegistryTests(unittest.TestCase):
         row = self.add_bank(5)
         self.write_report([row])
         image_path = self.overlay_image_dir / "arm9_overlay_0005.bin"
-        image_path.write_bytes(b"corrupted image")
+        corrupted = bytearray(image_path.read_bytes())
+        corrupted[0] ^= 0xFF
+        image_path.write_bytes(corrupted)
         with self.assertRaisesRegex(ValueError, "overlay image hash mismatch"):
             generator.generate(
                 self.bank_dir, self.overlay_image_dir,
