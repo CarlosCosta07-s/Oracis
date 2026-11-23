@@ -246,6 +246,8 @@ static int g_android_dialog_kind = 0;
 static char *g_android_dialog_path = NULL;
 static char *g_android_game_card_uri = NULL;
 static char *g_android_arm7_bios_uri = NULL;
+static bool g_android_guest_execution_enabled = false;
+static uint64_t g_android_last_cycle_report = 0u;
 
 static void SDLCALL android_file_dialog_callback(
     void *userdata, const char * const *filelist, int filter)
@@ -355,6 +357,7 @@ static void log_android_entrypoint_preflight(void)
         &arm9, &arm7);
 
     if (status != ORACIS_HOST_RUNTIME_OK) {
+        g_android_guest_execution_enabled = false;
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
             "Android static-entry preflight unavailable (bridge=%d, machine=%d).",
             status, oracis_host_runtime_last_machine_status());
@@ -370,9 +373,17 @@ static void log_android_entrypoint_preflight(void)
             arm7.pc, arm7.resolved, arm7.lookup_status,
             arm7.candidate_count, arm7.has_inactive_candidate);
 
-    if (arm9.resolved != 0u && arm7.resolved != 0u) {
+    g_android_guest_execution_enabled =
+        arm9.resolved != 0u && arm7.resolved != 0u;
+    if (g_android_guest_execution_enabled) {
+        g_android_last_cycle_report = oracis_host_runtime_global_bus_cycles();
         SDL_Log("Both native entry PCs resolve to registered static banks. "
-                "BIOS handoff and guest execution are still gated.");
+                "Starting a bounded native direct-entry attempt; retail BIOS "
+                "power-on is bypassed and compatibility is not yet established.");
+    } else {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+            "Native direct-entry remains disabled because one or both entry PCs "
+            "do not resolve to compiled static banks.");
     }
 }
 #endif
@@ -883,6 +894,29 @@ int main(int argc, char *argv[])
                         "(kind=%d, result=%d). Relaunch Oracis to choose again.",
                         selected_kind, selected_result);
                     SDL_free(selected_path);
+                }
+            }
+        }
+#endif
+
+#ifdef __ANDROID__
+        if (g_android_guest_execution_enabled && game_card_program_loaded) {
+            const int round_status = oracis_host_runtime_run_round(
+                UINT64_C(131072), NULL, NULL);
+            if (round_status != ORACIS_HOST_RUNTIME_OK) {
+                g_android_guest_execution_enabled = false;
+                SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+                    "Native direct-entry stopped at bus cycle %llu "
+                    "(bridge=%d, machine=%d).",
+                    (unsigned long long)oracis_host_runtime_global_bus_cycles(),
+                    round_status,
+                    oracis_host_runtime_last_machine_status());
+            } else {
+                const uint64_t cycles = oracis_host_runtime_global_bus_cycles();
+                if (cycles - g_android_last_cycle_report >= UINT64_C(33554432)) {
+                    SDL_Log("Native direct-entry is progressing: %llu bus cycles.",
+                        (unsigned long long)cycles);
+                    g_android_last_cycle_report = cycles;
                 }
             }
         }
