@@ -17,6 +17,12 @@
 
 namespace oracis::machine {
 
+enum class NdsOverlayRegion : uint8_t {
+    Main = 0,
+    Itcm,
+    Dtcm
+};
+
 enum class NdsOverlayStatus : uint8_t {
     Ok = 0,
     AlreadyLoaded,
@@ -36,7 +42,9 @@ enum class NdsOverlayStatus : uint8_t {
     InitializerBudgetExceeded,
     InitializerExecutionFailed,
     InvalidStack,
-    InitializerPending
+    InitializerPending,
+    RegionCapacityExceeded,
+    FinalizersUnavailable
 };
 
 /*
@@ -64,10 +72,12 @@ struct NdsOverlayImage {
     uint32_t static_init_end = 0u;
     const uint8_t *contents = nullptr;
     const char *image_sha1 = nullptr;
+    NdsOverlayRegion region = NdsOverlayRegion::Main;
 };
 
 class NdsOverlayLoader final {
 public:
+    static constexpr uint32_t MaxOverlaysPerRegion = 8u;
     explicit NdsOverlayLoader(memory::GuestMemory &memory) noexcept
         : memory_(memory) {}
 
@@ -102,6 +112,8 @@ public:
         NdsCpu cpu, uint32_t overlay_id) const noexcept;
     uint32_t static_initializer_progress(
         NdsCpu cpu, uint32_t overlay_id) const noexcept;
+    bool static_initializers_started(
+        NdsCpu cpu, uint32_t overlay_id) const noexcept;
     NdsOverlayStatus begin_static_initializers(
         NdsCpu cpu, uint32_t overlay_id) noexcept;
     NdsOverlayStatus complete_static_initializer(
@@ -116,6 +128,7 @@ public:
 private:
     struct LoadedOverlay {
         NdsCpu cpu = NDS_ARM9;
+        NdsOverlayRegion region = NdsOverlayRegion::Main;
         uint32_t overlay_id = 0u;
         uint32_t ram_address = 0u;
         uint32_t ram_size = 0u;

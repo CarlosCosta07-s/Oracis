@@ -270,6 +270,11 @@ int main()
         NdsOverlayStatus::InitializersAlreadyRun) {
         return fail("completed constructor sequence was allowed to run twice");
     }
+    if (machine.unload_overlay(
+            NDS_ARM9, kSuccessfulOverlay, true) !=
+        NdsOverlayStatus::FinalizersUnavailable) {
+        return fail("started overlay was unloaded without static finalization");
+    }
 
     std::vector<uint8_t> budget_image(12u, 0u);
     put_u32_le(budget_image, 8u, kBudgetOverlayAddress);

@@ -1912,7 +1912,37 @@ NdsOverlayStatus NdsMachine::load_overlay(
     if (slice_active_[0] || slice_active_[1]) {
         return NdsOverlayStatus::Busy;
     }
-    return overlay_loader_.load(image);
+
+    NdsOverlayImage classified = image;
+    classified.region = NdsOverlayRegion::Main;
+    if (image.cpu == NDS_ARM9) {
+        const memory::NdsArm9Tcm::TimingState tcm =
+            arm9_tcm_.timing_state();
+        const uint64_t total_size =
+            static_cast<uint64_t>(image.ram_size) + image.bss_size;
+        const uint64_t image_end =
+            static_cast<uint64_t>(image.ram_address) + total_size;
+
+        if (tcm.itcm_window_size != 0u &&
+            image.ram_address < tcm.itcm_window_size) {
+            if (image_end > tcm.itcm_window_size) {
+                return NdsOverlayStatus::InvalidMetadata;
+            }
+            classified.region = NdsOverlayRegion::Itcm;
+        } else if (tcm.dtcm_window_size != 0u &&
+                   image.ram_address >= tcm.dtcm_base &&
+                   static_cast<uint64_t>(image.ram_address) <
+                       static_cast<uint64_t>(tcm.dtcm_base) +
+                           tcm.dtcm_window_size) {
+            const uint64_t dtcm_end =
+                static_cast<uint64_t>(tcm.dtcm_base) + tcm.dtcm_window_size;
+            if (image_end > dtcm_end) {
+                return NdsOverlayStatus::InvalidMetadata;
+            }
+            classified.region = NdsOverlayRegion::Dtcm;
+        }
+    }
+    return overlay_loader_.load(classified);
 }
 
 int NdsMachine::runtime_overlay_dispatch_miss_handler(
@@ -2201,6 +2231,19 @@ NdsOverlayStatus NdsMachine::unload_overlay(
     if (state == nullptr) return NdsOverlayStatus::InvalidCpu;
     if (overlay_loader_.contains_address(cpu, overlay_id, state->R[15])) {
         return NdsOverlayStatus::Busy;
+    }
+    if (overlay_loader_.static_initializers_started(cpu, overlay_id)) {
+        const auto *initializers =
+            overlay_loader_.static_initializers(cpu, overlay_id);
+        if (initializers != nullptr && !initializers->empty()) {
+            /*
+             * NitroSDK FS_UnloadOverlayImage runs FS_EndOverlay before the
+             * image is released. Until Oracis has a verified finalizer table
+             * and bounded destructor executor, refuse to clear a started
+             * overlay rather than silently skipping its static teardown.
+             */
+            return NdsOverlayStatus::FinalizersUnavailable;
+        }
     }
     return overlay_loader_.unload(
         cpu, overlay_id, no_live_guest_references, state->R[15]);

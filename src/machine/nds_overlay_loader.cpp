@@ -37,6 +37,13 @@ bool valid_cpu(NdsCpu cpu) noexcept
     return cpu == NDS_ARM9 || cpu == NDS_ARM7;
 }
 
+bool valid_region(NdsOverlayRegion region) noexcept
+{
+    return region == NdsOverlayRegion::Main ||
+           region == NdsOverlayRegion::Itcm ||
+           region == NdsOverlayRegion::Dtcm;
+}
+
 bool ranges_overlap(
     uint64_t left_begin, uint64_t left_end,
     uint64_t right_begin, uint64_t right_end) noexcept
@@ -50,6 +57,7 @@ NdsOverlayStatus NdsOverlayLoader::load(
     const NdsOverlayImage &image) noexcept
 {
     if (!valid_cpu(image.cpu)) return NdsOverlayStatus::InvalidCpu;
+    if (!valid_region(image.region)) return NdsOverlayStatus::InvalidMetadata;
     if (image.contents == nullptr || !valid_sha1(image.image_sha1) ||
         image.ram_size == 0u) {
         return NdsOverlayStatus::InvalidMetadata;
@@ -79,10 +87,12 @@ NdsOverlayStatus NdsOverlayLoader::load(
         return NdsOverlayStatus::InvalidMetadata;
     }
 
+    uint32_t region_entry_count = 0u;
     for (const LoadedOverlay &loaded : loaded_) {
         if (loaded.cpu != image.cpu) continue;
         if (loaded.overlay_id == image.overlay_id) {
             const bool same_identity =
+                loaded.region == image.region &&
                 loaded.ram_address == image.ram_address &&
                 loaded.ram_size == image.ram_size &&
                 loaded.bss_size == image.bss_size &&
@@ -93,6 +103,8 @@ NdsOverlayStatus NdsOverlayLoader::load(
                 ? NdsOverlayStatus::AlreadyLoaded
                 : NdsOverlayStatus::IdentityConflict;
         }
+        if (loaded.region != image.region) continue;
+        ++region_entry_count;
         const uint64_t loaded_begin = loaded.ram_address;
         const uint64_t loaded_end = loaded_begin +
             static_cast<uint64_t>(loaded.ram_size) + loaded.bss_size;
@@ -100,14 +112,18 @@ NdsOverlayStatus NdsOverlayLoader::load(
             return NdsOverlayStatus::Overlap;
         }
     }
+    if (region_entry_count >= MaxOverlaysPerRegion) {
+        return NdsOverlayStatus::RegionCapacityExceeded;
+    }
 
     const uint32_t writable_size = static_cast<uint32_t>(total_size);
     if (memory_.validate_write(
             image.cpu, image.ram_address, writable_size) !=
             memory::Status::Ok ||
-        memory_.validate_execute(
-            image.cpu, image.ram_address, image.ram_size) !=
-            memory::Status::Ok) {
+        (image.region != NdsOverlayRegion::Dtcm &&
+         memory_.validate_execute(
+             image.cpu, image.ram_address, image.ram_size) !=
+             memory::Status::Ok)) {
         return NdsOverlayStatus::MemoryUnavailable;
     }
 
@@ -147,9 +163,13 @@ NdsOverlayStatus NdsOverlayLoader::load(
                 const uint64_t instruction_size = thumb ? 2u : 4u;
                 const uint64_t instruction_end =
                     static_cast<uint64_t>(address) + instruction_size;
-                if (static_cast<uint64_t>(address) < begin ||
+                const bool local_code_target =
+                    image.region != NdsOverlayRegion::Dtcm;
+                if ((local_code_target &&
+                     (static_cast<uint64_t>(address) < begin ||
+                      instruction_end > code_end)) ||
                     (address % alignment) != 0u ||
-                    instruction_end > code_end) {
+                    instruction_end > UINT64_C(0x1'0000'0000)) {
                     return NdsOverlayStatus::InvalidMetadata;
                 }
                 static_initializers.push_back({address, thumb});
@@ -166,6 +186,7 @@ NdsOverlayStatus NdsOverlayLoader::load(
         loaded_.reserve(loaded_.size() + 1u);
         LoadedOverlay record{
             image.cpu,
+            image.region,
             image.overlay_id,
             image.ram_address,
             image.ram_size,
@@ -308,6 +329,20 @@ NdsOverlayLoader::static_initializers(
     return found == loaded_.end() ? nullptr : &found->static_initializers;
 }
 
+bool NdsOverlayLoader::static_initializers_started(
+    NdsCpu cpu, uint32_t overlay_id) const noexcept
+{
+    const auto found = std::find_if(
+        loaded_.begin(), loaded_.end(),
+        [cpu, overlay_id](const LoadedOverlay &item) {
+            return item.cpu == cpu && item.overlay_id == overlay_id;
+        });
+    return found != loaded_.end() &&
+        (found->static_initializers_running ||
+         found->static_initializers_complete ||
+         found->static_initializers_failed);
+}
+
 uint32_t NdsOverlayLoader::static_initializer_progress(
     NdsCpu cpu, uint32_t overlay_id) const noexcept
 {
@@ -421,6 +456,8 @@ const char *overlay_status_name(NdsOverlayStatus status) noexcept
     case NdsOverlayStatus::InitializerExecutionFailed: return "initializer-execution-failed";
     case NdsOverlayStatus::InvalidStack: return "invalid-stack";
     case NdsOverlayStatus::InitializerPending: return "initializer-pending";
+    case NdsOverlayStatus::RegionCapacityExceeded: return "region-capacity-exceeded";
+    case NdsOverlayStatus::FinalizersUnavailable: return "finalizers-unavailable";
     }
     return "unknown";
 }

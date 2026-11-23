@@ -15,7 +15,7 @@ using oracis::memory::GuestMemory;
 namespace {
 
 constexpr uint32_t kRamBase = UINT32_C(0x02000000);
-constexpr uint32_t kRamSize = UINT32_C(0x2000);
+constexpr uint32_t kRamSize = UINT32_C(0x10000);
 
 GuestMemory make_memory()
 {
@@ -74,6 +74,64 @@ void test_load_copies_image_and_zeros_bss()
         }));
     assert(memory.validate_execute(NDS_ARM9, kRamBase, 8u) ==
         oracis::memory::Status::Ok);
+}
+
+void test_region_slot_capacity_is_eight_and_independent()
+{
+    GuestMemory memory = make_memory();
+    NdsOverlayLoader loader(memory);
+    const std::vector<uint8_t> bytes(8u, 0xA7u);
+    const std::string digest = hash_of(bytes);
+
+    for (uint32_t index = 0u; index < NdsOverlayLoader::MaxOverlaysPerRegion;
+         ++index) {
+        const NdsOverlayImage image{
+            NDS_ARM9, index, kRamBase + index * 0x100u, 8u, 0u,
+            0u, 0u, bytes.data(), digest.c_str(),
+            oracis::machine::NdsOverlayRegion::Main
+        };
+        assert(loader.load(image) == NdsOverlayStatus::Ok);
+    }
+
+    const NdsOverlayImage ninth_main{
+        NDS_ARM9, 8u, kRamBase + 0x800u, 8u, 0u,
+        0u, 0u, bytes.data(), digest.c_str(),
+        oracis::machine::NdsOverlayRegion::Main
+    };
+    assert(loader.load(ninth_main) == NdsOverlayStatus::RegionCapacityExceeded);
+
+    for (uint32_t index = 0u; index < NdsOverlayLoader::MaxOverlaysPerRegion;
+         ++index) {
+        const NdsOverlayImage image{
+            NDS_ARM9, 100u + index, kRamBase + 0x2000u + index * 0x100u,
+            8u, 0u, 0u, 0u, bytes.data(), digest.c_str(),
+            oracis::machine::NdsOverlayRegion::Itcm
+        };
+        assert(loader.load(image) == NdsOverlayStatus::Ok);
+    }
+    assert(loader.loaded_count() == 16u);
+}
+
+void test_dtcm_data_overlay_does_not_require_execute_permissions()
+{
+    GuestMemory memory;
+    assert(memory.map_ram(
+        kRamBase, kRamSize,
+        oracis::memory::Readable | oracis::memory::Writable,
+        "overlay-test-dtcm-data", oracis::memory::CpuAccessArm9) ==
+        oracis::memory::Status::Ok);
+    NdsOverlayLoader loader(memory);
+    const std::vector<uint8_t> bytes(8u, 0xC1u);
+    const std::string digest = hash_of(bytes);
+    const NdsOverlayImage image{
+        NDS_ARM9, 88u, kRamBase + 0x9000u, 8u, 8u,
+        0u, 0u, bytes.data(), digest.c_str(),
+        oracis::machine::NdsOverlayRegion::Dtcm
+    };
+    assert(loader.load(image) == NdsOverlayStatus::Ok);
+    assert(loader.is_loaded(NDS_ARM9, 88u));
+    assert(memory.validate_execute(NDS_ARM9, kRamBase + 0x9000u, 8u) ==
+        oracis::memory::Status::PermissionDenied);
 }
 
 void test_hash_failure_does_not_mutate_memory()
@@ -270,6 +328,8 @@ void test_rejects_invalid_static_init_range()
 int main()
 {
     test_load_copies_image_and_zeros_bss();
+    test_region_slot_capacity_is_eight_and_independent();
+    test_dtcm_data_overlay_does_not_require_execute_permissions();
     test_hash_failure_does_not_mutate_memory();
     test_duplicate_identity_and_overlapping_modules();
     test_unload_requires_quiescence_and_clears_memory();

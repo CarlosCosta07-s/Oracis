@@ -636,3 +636,14 @@ Se a solicitação vier de uma fronteira sem fatia ativa, a API executa imediata
 O teste sintético pede um construtor durante a fatia ARM9, verifica o unwind, comprova que o callback só roda depois do fechamento da fatia e confirma progresso e restauração do estado de CPU.
 
 **Limite ainda aberto:** isto implementa o mecanismo de suspensão até a fronteira e retomada pelo PC guest salvo; não liga ainda a API a `Overlay_LoadByID`/`Overlay_UnloadByID`, nem resolve a aquisição/descompressão/identidade das imagens no HLE. O carregamento da imagem continua sendo uma operação externa em fronteira segura. Também não é evidência de boot do jogo.
+
+
+## 22. Inventário por região e descarga conservadora
+
+O gerenciamento de overlays ARM9 agora segue as três regiões observadas em `src/game_overlay.c` de Pokémon Platinum: `MAIN`, `ITCM` e `DTCM`. Cada par CPU/região admite no máximo oito overlays ativos, e os conflitos de faixa são verificados dentro da região. A classificação ARM9 usa as janelas TCM efetivamente habilitadas pelo estado CP15 modelado pela máquina; imagens que atravessam o limite de uma janela TCM são rejeitadas. ARM7 permanece na região principal.
+
+A região é parte do registro local do loader, não um campo confiado ao manifesto/ROM. DTCM é uma região de dados: seu carregamento exige escrita válida, mas não exige permissão de execução. Para ponteiros de inicialização em overlays DTCM, a validação estrutural mantém alinhamento e faixa de endereço; a resolução/executabilidade do alvo fica a cargo do dispatch estático validado antes da chamada.
+
+A descarga também passou a falhar fechada quando o overlay já iniciou uma sequência de inicializadores não vazia. O NitroSDK documenta que `FS_UnloadOverlayImage` chama `FS_EndOverlay`, que executa o uninitializer estático antes de liberar a imagem. O Oracis ainda não tem um formato/manifesto de finalizadores verificado nem executor bounded para destrutores; limpar o overlay nesse estado omitiria efeitos guest observáveis. A API retorna `ORACIS_HOST_RUNTIME_OVERLAY_FINALIZERS_UNAVAILABLE` em vez de fingir que a descarga terminou corretamente. Um overlay carregado mas ainda não iniciado continua elegível para descarga em fronteira segura.
+
+Os testes sintéticos cobrem o limite de oito slots por região, independência entre regiões, carregamento DTCM sem permissão execute e bloqueio de descarga de overlay após construtores. A classificação de regiões depende do estado CP15 TCM: não prova que o boot atual do jogo já configurou esses registradores nem que a política completa de DMA/FS do NitroSDK foi reproduzida.
