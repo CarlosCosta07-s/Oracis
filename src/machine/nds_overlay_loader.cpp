@@ -156,6 +156,8 @@ NdsOverlayStatus NdsOverlayLoader::load(
             }
         }
 
+        const bool has_static_initializers = !static_initializers.empty();
+
         /* Prepare the complete RAM+BSS payload before touching guest memory. */
         std::vector<uint8_t> staged(writable_size, 0u);
         std::copy(source.begin(), source.end(), staged.begin());
@@ -171,7 +173,11 @@ NdsOverlayStatus NdsOverlayLoader::load(
             image.static_init_start,
             image.static_init_end,
             image.image_sha1,
-            std::move(static_initializers)
+            std::move(static_initializers),
+            0u,
+            false,
+            !has_static_initializers,
+            false
         };
 
         if (memory_.write_bytes(
@@ -302,6 +308,81 @@ NdsOverlayLoader::static_initializers(
     return found == loaded_.end() ? nullptr : &found->static_initializers;
 }
 
+uint32_t NdsOverlayLoader::static_initializer_progress(
+    NdsCpu cpu, uint32_t overlay_id) const noexcept
+{
+    const auto found = std::find_if(
+        loaded_.begin(), loaded_.end(),
+        [cpu, overlay_id](const LoadedOverlay &item) {
+            return item.cpu == cpu && item.overlay_id == overlay_id;
+        });
+    return found == loaded_.end() ? 0u : found->static_initializer_progress;
+}
+
+NdsOverlayStatus NdsOverlayLoader::begin_static_initializers(
+    NdsCpu cpu, uint32_t overlay_id) noexcept
+{
+    if (!valid_cpu(cpu)) return NdsOverlayStatus::InvalidCpu;
+    const auto found = std::find_if(
+        loaded_.begin(), loaded_.end(),
+        [cpu, overlay_id](const LoadedOverlay &item) {
+            return item.cpu == cpu && item.overlay_id == overlay_id;
+        });
+    if (found == loaded_.end()) return NdsOverlayStatus::NotLoaded;
+    if (found->static_initializers_failed) {
+        return NdsOverlayStatus::InitializerExecutionFailed;
+    }
+    if (found->static_initializers_complete) {
+        return NdsOverlayStatus::InitializersAlreadyRun;
+    }
+    if (found->static_initializers_running ||
+        found->static_initializer_progress != 0u) {
+        return NdsOverlayStatus::Busy;
+    }
+    found->static_initializers_running = true;
+    return NdsOverlayStatus::Ok;
+}
+
+NdsOverlayStatus NdsOverlayLoader::complete_static_initializer(
+    NdsCpu cpu, uint32_t overlay_id) noexcept
+{
+    if (!valid_cpu(cpu)) return NdsOverlayStatus::InvalidCpu;
+    const auto found = std::find_if(
+        loaded_.begin(), loaded_.end(),
+        [cpu, overlay_id](const LoadedOverlay &item) {
+            return item.cpu == cpu && item.overlay_id == overlay_id;
+        });
+    if (found == loaded_.end()) return NdsOverlayStatus::NotLoaded;
+    if (!found->static_initializers_running ||
+        found->static_initializers_failed ||
+        found->static_initializer_progress >= found->static_initializers.size()) {
+        return NdsOverlayStatus::InvalidMetadata;
+    }
+
+    ++found->static_initializer_progress;
+    if (found->static_initializer_progress ==
+        found->static_initializers.size()) {
+        found->static_initializers_running = false;
+        found->static_initializers_complete = true;
+    }
+    return NdsOverlayStatus::Ok;
+}
+
+NdsOverlayStatus NdsOverlayLoader::fail_static_initializers(
+    NdsCpu cpu, uint32_t overlay_id) noexcept
+{
+    if (!valid_cpu(cpu)) return NdsOverlayStatus::InvalidCpu;
+    const auto found = std::find_if(
+        loaded_.begin(), loaded_.end(),
+        [cpu, overlay_id](const LoadedOverlay &item) {
+            return item.cpu == cpu && item.overlay_id == overlay_id;
+        });
+    if (found == loaded_.end()) return NdsOverlayStatus::NotLoaded;
+    found->static_initializers_running = false;
+    found->static_initializers_failed = true;
+    return NdsOverlayStatus::InitializerExecutionFailed;
+}
+
 bool NdsOverlayLoader::contains_address(
     NdsCpu cpu, uint32_t overlay_id, uint32_t address) const noexcept
 {
@@ -334,6 +415,11 @@ const char *overlay_status_name(NdsOverlayStatus status) noexcept
     case NdsOverlayStatus::IdentityConflict: return "identity-conflict";
     case NdsOverlayStatus::NotInitialized: return "not-initialized";
     case NdsOverlayStatus::ProgramNotLoaded: return "program-not-loaded";
+    case NdsOverlayStatus::InitializersAlreadyRun: return "initializers-already-run";
+    case NdsOverlayStatus::InitializerDispatchMissing: return "initializer-dispatch-missing";
+    case NdsOverlayStatus::InitializerBudgetExceeded: return "initializer-budget-exceeded";
+    case NdsOverlayStatus::InitializerExecutionFailed: return "initializer-execution-failed";
+    case NdsOverlayStatus::InvalidStack: return "invalid-stack";
     }
     return "unknown";
 }
