@@ -24,7 +24,15 @@ constexpr uint32_t kBudgetOverlayAddress = UINT32_C(0x02008100);
 constexpr uint32_t kMissingOverlayAddress = UINT32_C(0x02008200);
 
 oracis::machine::NdsMachine *g_machine = nullptr;
-std::vector<uint32_t> g_initializer_order;
+std::array<uint32_t, 3> g_initializer_order{};
+std::size_t g_initializer_order_count = 0u;
+
+void record_initializer(uint32_t value)
+{
+    if (g_initializer_order_count < g_initializer_order.size()) {
+        g_initializer_order[g_initializer_order_count++] = value;
+    }
+}
 
 int fail(const char *message)
 {
@@ -49,7 +57,7 @@ void test_bx_lr_return()
 
 void initializer_one()
 {
-    g_initializer_order.push_back(1u);
+    record_initializer(1u);
     if (g_machine != nullptr) {
         (void)g_machine->guest_memory().write(
             NDS_ARM9, kEffectAddress, 4u, UINT32_C(0xA1B2C3D4));
@@ -59,7 +67,7 @@ void initializer_one()
 
 void initializer_two()
 {
-    g_initializer_order.push_back(2u);
+    record_initializer(2u);
     if (g_machine != nullptr) {
         (void)g_machine->guest_memory().write(
             NDS_ARM9, kEffectAddress + 4u, 4u, UINT32_C(0x10203040));
@@ -69,7 +77,7 @@ void initializer_two()
 
 void initializer_three_thumb()
 {
-    g_initializer_order.push_back(3u);
+    record_initializer(3u);
     if (g_machine != nullptr) {
         (void)g_machine->guest_memory().write(
             NDS_ARM9, kEffectAddress + 8u, 4u, UINT32_C(0x55667788));
@@ -149,6 +157,11 @@ int prepare_machine(oracis::machine::NdsMachine &machine)
         return fail("machine initialization or synthetic program load failed");
     }
     machine.cpu_state(NDS_ARM9)->R[13] = kGuestStackPointer;
+    machine.cpu_state(NDS_ARM9)->R[0] = UINT32_C(0x11112222);
+    machine.cpu_state(NDS_ARM9)->R[1] = UINT32_C(0x33334444);
+    machine.cpu_state(NDS_ARM9)->R[2] = UINT32_C(0x55556666);
+    machine.cpu_state(NDS_ARM9)->R[3] = UINT32_C(0x77778888);
+    machine.cpu_state(NDS_ARM9)->R[14] = UINT32_C(0x02001234);
     machine.cpu_state(NDS_ARM9)->cpsr = ORACIS_ARM_MODE_SYSTEM;
     return 0;
 }
@@ -189,17 +202,25 @@ int main()
         return fail("successful initializer overlay failed to load");
     }
 
-    g_initializer_order.clear();
+    g_initializer_order.fill(0u);
+    g_initializer_order_count = 0u;
     ArmCpuState *arm9 = machine.cpu_state(NDS_ARM9);
     const ArmCpuState caller_state = *arm9;
     const NdsOverlayStatus success = machine.run_overlay_static_initializers(
         NDS_ARM9, kSuccessfulOverlay, 100u);
     if (success != NdsOverlayStatus::Ok ||
-        g_initializer_order != std::vector<uint32_t>{1u, 2u, 3u} ||
+        g_initializer_order_count != 3u ||
+        g_initializer_order != std::array<uint32_t, 3>{1u, 2u, 3u} ||
         machine.overlay_loader().static_initializer_progress(
             NDS_ARM9, kSuccessfulOverlay) != 3u ||
-        arm9->R[15] != caller_state.R[15] ||
+        runtime_call_stack_depth() != 0u ||
+        arm9->R[0] != caller_state.R[0] ||
+        arm9->R[1] != caller_state.R[1] ||
+        arm9->R[2] != caller_state.R[2] ||
+        arm9->R[3] != caller_state.R[3] ||
         arm9->R[13] != caller_state.R[13] ||
+        arm9->R[14] != caller_state.R[14] ||
+        arm9->R[15] != caller_state.R[15] ||
         arm9->cpsr != caller_state.cpsr) {
         return fail("constructors did not execute in order or preserve CPU context");
     }
