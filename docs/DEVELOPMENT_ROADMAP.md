@@ -305,3 +305,29 @@ com o bit 15 definido continua opaco e pode gerar candidatos no perímetro;
 com o bit 15 limpo, o fragmento totalmente transparente é descartado antes
 da entrega ao compositor. Os casos usam triângulos sintéticos submetidos pelo
 Geometry Engine e SWAP_BUFFERS manual, sem ROM ou dados extraídos de jogo.
+
+
+## Atualização 2026-11-23 — base de extração dos overlays
+
+Foi adicionado **tools/ndsrecomp/extract_nds_overlays.py** para inventariar as
+tabelas de overlays ARM9/ARM7 da ROM USA Rev 1, resolver os **file_id** pela FAT
+e extrair localmente as imagens executáveis. O parser valida limites, IDs,
+faixas de RAM/BSS, metadados de inicialização e flags. Overlays marcados como
+BLZ passam por um decodificador backwards-LZ com validação estrita do rodapé,
+do tamanho final e do consumo do fluxo. O manifesto local registra os hashes
+da origem e da imagem de RAM.
+
+A regressão nova usa ROMs sintéticas sem conteúdo comercial e cobre imagens
+comprimidas e não comprimidas, prefixo não comprimido, padding BLZ, erro de
+tamanho, referência inválida, identidade de ROM divergente, referência
+corrompida e proteção contra sobrescrita de arquivos que não pertencem ao
+extrator. A ferramenta foi adicionada à etapa de py_compile e seus testes
+entram na descoberta normal de tests/tools.
+
+Isso conclui somente a **extração e o inventário verificáveis** dos overlays.
+Nenhum overlay real de Platinum foi extraído nesta sessão; ainda não há
+configuração de recompilação por overlay, análise de entry points/targets,
+bancos overlay ligados ao runtime ou dispatch dinâmico. A próxima etapa é
+executar o extrator sobre a cópia USA Rev 1 local, conferir os hashes e então
+construir os bancos estáticos por overlay sem habilitar a execução do jogo
+antes de resolver as dependências reais.
