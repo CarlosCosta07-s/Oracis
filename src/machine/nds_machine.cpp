@@ -6,6 +6,7 @@
 #include "oracis/recomp/runtime_scheduler.h"
 #include "oracis/recomp/static_dispatch_abi.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <exception>
 #include <limits>
@@ -1912,6 +1913,209 @@ NdsOverlayStatus NdsMachine::load_overlay(
         return NdsOverlayStatus::Busy;
     }
     return overlay_loader_.load(image);
+}
+
+int NdsMachine::runtime_overlay_dispatch_miss_handler(
+    void *context,
+    NdsCpu cpu,
+    uint32_t target_pc,
+    uint32_t cpsr,
+    uint32_t lookup_status,
+    uint32_t candidate_count,
+    uint32_t has_inactive_candidate)
+{
+    auto *capture = static_cast<OverlayDispatchMissCapture *>(context);
+    if (capture == nullptr || capture->cpu != cpu) return 0;
+    capture->seen = true;
+    capture->target_pc = target_pc;
+    capture->cpsr = cpsr;
+    capture->lookup_status = lookup_status;
+    capture->candidate_count = candidate_count;
+    capture->has_inactive_candidate = has_inactive_candidate;
+    return 1;
+}
+
+NdsOverlayStatus NdsMachine::run_overlay_static_initializers(
+    NdsCpu cpu,
+    uint32_t overlay_id,
+    uint64_t cycle_budget_per_initializer) noexcept
+{
+    if (!initialized_) return NdsOverlayStatus::NotInitialized;
+    if (!program_loaded_) return NdsOverlayStatus::ProgramNotLoaded;
+    if (!valid_cpu(cpu)) return NdsOverlayStatus::InvalidCpu;
+    if (slice_active_[0] || slice_active_[1]) return NdsOverlayStatus::Busy;
+    if (cycle_budget_per_initializer == 0u) {
+        return NdsOverlayStatus::InitializerBudgetExceeded;
+    }
+
+    const auto *available = overlay_loader_.static_initializers(cpu, overlay_id);
+    if (available == nullptr) return NdsOverlayStatus::NotLoaded;
+    if (available->empty()) {
+        return overlay_loader_.begin_static_initializers(cpu, overlay_id);
+    }
+
+    ArmCpuState *state = cpu_state(cpu);
+    if (state == nullptr) return NdsOverlayStatus::InvalidCpu;
+
+    /* BIOS normally establishes this stack. Refuse to call guest code when
+       the current machine state does not yet expose a safe, writable AAPCS
+       stack window. This avoids fabricating a stack for the game. */
+    constexpr uint32_t StackSafetyWindow = UINT32_C(0x100);
+    const uint32_t stack_pointer = state->R[13];
+    if ((stack_pointer & 7u) != 0u ||
+        stack_pointer < StackSafetyWindow ||
+        memory_.validate_write(
+            cpu, stack_pointer - StackSafetyWindow,
+            StackSafetyWindow) != memory::Status::Ok) {
+        return NdsOverlayStatus::InvalidStack;
+    }
+
+    const NdsCpu previous_cpu = g_nds_active;
+    if (!oracis_arm_runtime_select_cpu(cpu)) {
+        return NdsOverlayStatus::InitializerExecutionFailed;
+    }
+
+    const ArmCpuState caller_state = *state;
+
+    /* Resolve every constructor before entering the first one. A missing
+       table row is retryable after the corresponding bank has been registered;
+       once guest code starts, any failure permanently marks this sequence. */
+    for (const NdsOverlayFunctionPointer &initializer : *available) {
+        uint32_t lookup_status = UINT32_MAX;
+        uint32_t candidate_count = 0u;
+        const NdsDispatchEntry *inactive = nullptr;
+        const uint32_t initializer_cpsr =
+            (caller_state.cpsr & ~CPSR_T_BIT) |
+            (initializer.thumb ? CPSR_T_BIT : 0u);
+        const NdsDispatchEntry *entry = oracis_static_dispatch_lookup(
+            cpu,
+            initializer.address,
+            initializer_cpsr,
+            &lookup_status,
+            &candidate_count,
+            &inactive);
+        if (entry == nullptr) {
+            (void)oracis_arm_runtime_select_cpu(previous_cpu);
+            return NdsOverlayStatus::InitializerDispatchMissing;
+        }
+    }
+
+    const NdsOverlayStatus begin_status =
+        overlay_loader_.begin_static_initializers(cpu, overlay_id);
+    if (begin_status != NdsOverlayStatus::Ok) {
+        (void)oracis_arm_runtime_select_cpu(previous_cpu);
+        return begin_status;
+    }
+
+    std::vector<NdsOverlayFunctionPointer> initializers;
+    std::vector<uint32_t> caller_call_stack;
+    try {
+        initializers = *available;
+        const uint32_t depth = runtime_call_stack_depth();
+        const uint32_t *entries = runtime_call_stack_data();
+        if (depth != 0u && entries == nullptr) {
+            (void)overlay_loader_.fail_static_initializers(cpu, overlay_id);
+            (void)oracis_arm_runtime_select_cpu(previous_cpu);
+            return NdsOverlayStatus::InitializerExecutionFailed;
+        }
+        if (depth != 0u) {
+            caller_call_stack.assign(entries, entries + depth);
+        }
+    } catch (...) {
+        (void)overlay_loader_.fail_static_initializers(cpu, overlay_id);
+        (void)oracis_arm_runtime_select_cpu(previous_cpu);
+        return NdsOverlayStatus::InitializerExecutionFailed;
+    }
+
+    constexpr uint32_t SyntheticReturnPc = UINT32_C(0xFFFFFFFC);
+    const unsigned index = cpu_index(cpu);
+    for (const NdsOverlayFunctionPointer &initializer : initializers) {
+        *state = caller_state;
+        state->cpsr = (caller_state.cpsr & ~CPSR_T_BIT) |
+            (initializer.thumb ? CPSR_T_BIT : 0u) | CPSR_I_BIT;
+        state->R[0] = 0u;
+        state->R[1] = 0u;
+        state->R[2] = 0u;
+        state->R[3] = 0u;
+        state->R[14] = SyntheticReturnPc |
+            (initializer.thumb ? 1u : 0u);
+        state->R[15] = initializer.address;
+
+        runtime_call_stack_restore(
+            caller_call_stack.empty() ? nullptr : caller_call_stack.data(),
+            static_cast<uint32_t>(caller_call_stack.size()));
+        runtime_call_push_return(SyntheticReturnPc);
+
+        const NdsMachineStatus slice_begin =
+            begin_cpu_slice(cpu, cycle_budget_per_initializer);
+        if (slice_begin != NdsMachineStatus::Ok) {
+            *state = caller_state;
+            runtime_call_stack_restore(
+                caller_call_stack.empty() ? nullptr : caller_call_stack.data(),
+                static_cast<uint32_t>(caller_call_stack.size()));
+            (void)overlay_loader_.fail_static_initializers(cpu, overlay_id);
+            (void)oracis_arm_runtime_select_cpu(previous_cpu);
+            return NdsOverlayStatus::InitializerExecutionFailed;
+        }
+
+        OverlayDispatchMissCapture miss{};
+        miss.cpu = cpu;
+        oracis_static_dispatch_set_miss_handler(
+            &NdsMachine::runtime_overlay_dispatch_miss_handler, &miss);
+
+        const bool bounded =
+            oracis_scheduler_enable_bounded_unwind(cpu) != 0;
+        if (bounded) {
+            runtime_dispatch(initializer.address);
+        }
+
+        /* Capture all execution results before end_cpu_slice clears unwind. */
+        const bool unwinding = bounded && runtime_unwinding();
+        const bool returned_to_sentinel =
+            state->R[15] == SyntheticReturnPc;
+        const bool call_stack_balanced =
+            runtime_call_stack_depth() == caller_call_stack.size();
+        oracis_static_dispatch_set_miss_handler(nullptr, nullptr);
+
+        const NdsMachineStatus slice_end = end_cpu_slice(cpu);
+
+        /* Static constructors are invoked as host-supervised guest calls:
+           restore the caller's full architectural context, while retaining
+           memory/MMIO side effects from the constructor itself. */
+        *state = caller_state;
+        runtime_call_stack_restore(
+            caller_call_stack.empty() ? nullptr : caller_call_stack.data(),
+            static_cast<uint32_t>(caller_call_stack.size()));
+        const bool cpu_restored = oracis_arm_runtime_select_cpu(previous_cpu);
+
+        if (!bounded || slice_end != NdsMachineStatus::Ok ||
+            !cpu_restored || miss.seen || unwinding ||
+            !returned_to_sentinel || !call_stack_balanced) {
+            (void)overlay_loader_.fail_static_initializers(cpu, overlay_id);
+            if (miss.seen) return NdsOverlayStatus::InitializerDispatchMissing;
+            if (unwinding) return NdsOverlayStatus::InitializerBudgetExceeded;
+            return NdsOverlayStatus::InitializerExecutionFailed;
+        }
+
+        const NdsOverlayStatus completed =
+            overlay_loader_.complete_static_initializer(cpu, overlay_id);
+        if (completed != NdsOverlayStatus::Ok) {
+            (void)overlay_loader_.fail_static_initializers(cpu, overlay_id);
+            return NdsOverlayStatus::InitializerExecutionFailed;
+        }
+
+        /* The next constructor starts with the same CPU and guest return stack
+           snapshot, but observes all memory side effects from earlier ones. */
+        if (!oracis_arm_runtime_select_cpu(cpu)) {
+            (void)overlay_loader_.fail_static_initializers(cpu, overlay_id);
+            (void)oracis_arm_runtime_select_cpu(previous_cpu);
+            return NdsOverlayStatus::InitializerExecutionFailed;
+        }
+    }
+
+    (void)index;
+    (void)oracis_arm_runtime_select_cpu(previous_cpu);
+    return NdsOverlayStatus::Ok;
 }
 
 NdsOverlayStatus NdsMachine::unload_overlay(
