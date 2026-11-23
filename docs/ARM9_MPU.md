@@ -1,7 +1,10 @@
 # ARM9 CP15 protection and memory attributes
 
-Oracis implements the ARM946E-S protection-unit register state used by the
-Pokémon Platinum USA Rev 1 ARM9 startup sequence.
+Oracis models the ARM946E-S protection-unit register state used by the
+Pokémon Platinum USA Rev 1 ARM9 startup sequence. CP15 reads and writes are
+accepted only in privileged ARM9 modes. The cache-type read reports the DS
+configuration: 4KB four-way D-cache and 8KB four-way I-cache, with 32-byte
+lines.
 
 The modeled CP15 register set includes:
 
@@ -32,8 +35,10 @@ a privileged main-RAM transfer.
 Oracis does not yet contain physical I-cache/D-cache storage or an asynchronous
 write buffer. Cacheability/write-buffer attributes are retained as CP15 state,
 but guest accesses remain coherent and writes complete synchronously. The
-currently modeled c7 maintenance operations are therefore ordered no-ops;
-they do not pretend to clean or invalidate cache lines that do not exist.
+supported ARM946E-S c7 cache flush, line clean, clean-and-flush, prefetch, and
+write-buffer-drain encodings are therefore ordered no-ops; they do not pretend
+to clean or invalidate cache lines that do not exist. Full-cache flush forms
+still enforce their required zero operand.
 
 An MPU permission violation is currently rejected at the host bus boundary with
 a diagnostic rather than entering the ARM946E-S Data Abort vector. Architectural

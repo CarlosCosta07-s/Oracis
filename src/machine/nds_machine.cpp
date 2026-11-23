@@ -302,20 +302,32 @@ int NdsMachine::runtime_coprocessor_handler(
     auto *machine = static_cast<NdsMachine *>(context);
     if (machine == nullptr || !machine->initialized_ ||
         cpu != NDS_ARM9 || is_write > 1u || value == nullptr ||
-        cp_num != 15u || op1 != 0u) {
+        cp_num != 15u || op1 != 0u ||
+        machine->cpu_state(cpu) != oracis_active_cpu_state) {
+        return 0;
+    }
+
+    const uint32_t mode =
+        machine->cpu_state(cpu)->cpsr & UINT32_C(0x1F);
+    if (mode != UINT32_C(0x11) && mode != UINT32_C(0x12) &&
+        mode != UINT32_C(0x13) && mode != UINT32_C(0x17) &&
+        mode != UINT32_C(0x1B) && mode != UINT32_C(0x1F)) {
         return 0;
     }
 
     if (crn == 0u && crm == 0u && is_write == 0u) {
-        if (op2 == 0u) {
-            *value = UINT32_C(0x41059461);
+        if (op2 == 1u) {
+            /* DS ARM946E-S: 4KB D-cache, 8KB I-cache, 4-way, 8 words/line. */
+            *value = UINT32_C(0x0F0D2112);
             return 1;
         }
         if (op2 == 2u) {
             *value = machine->arm9_tcm_.size_register();
             return 1;
         }
-        return 0;
+        /* The ARM946E-S ID register is selected by every other Op2 value. */
+        *value = UINT32_C(0x41059461);
+        return 1;
     }
 
     if (crn == 1u && crm == 0u && op2 == 0u) {
@@ -388,20 +400,29 @@ int NdsMachine::runtime_coprocessor_handler(
 
     if (crn == 7u && is_write != 0u) {
         /*
-         * Guest memory is coherent and bus writes complete synchronously.
-         * No resident cache lines or asynchronous write buffer exist in the
-         * current memory model; these maintenance operations are ordered no-ops.
+         * Guest memory is coherent and writes complete synchronously. This
+         * runtime has no resident cache lines or asynchronous write buffer,
+         * so the ARM946E-S maintenance operations below are ordered no-ops.
          */
-        const bool flush_instruction =
-            crm == 5u && (op2 == 0u || op2 == 1u);
-        const bool flush_data =
-            crm == 6u && (op2 == 0u || op2 == 1u);
-        const bool prefetch = crm == 13u && op2 == 1u;
-        const bool clean_data =
-            crm == 10u && (op2 == 1u || op2 == 4u);
-        const bool clean_invalidate_data = crm == 14u && op2 == 1u;
-        if (flush_instruction || flush_data || prefetch ||
-            clean_data || clean_invalidate_data) {
+        const bool flush_instruction_all =
+            crm == 5u && op2 == 0u && *value == 0u;
+        const bool flush_instruction_line = crm == 5u && op2 == 1u;
+        const bool flush_data_all =
+            crm == 6u && op2 == 0u && *value == 0u;
+        const bool flush_data_line = crm == 6u && op2 == 1u;
+        const bool prefetch_instruction_line =
+            crm == 13u && op2 == 1u;
+        const bool clean_data_line = crm == 10u && op2 == 1u;
+        const bool clean_data_index = crm == 10u && op2 == 2u;
+        const bool clean_invalidate_data_line = crm == 14u && op2 == 1u;
+        const bool clean_invalidate_data_index = crm == 14u && op2 == 2u;
+        const bool drain_write_buffer = crm == 10u && op2 == 4u;
+
+        if (flush_instruction_all || flush_instruction_line ||
+            flush_data_all || flush_data_line ||
+            prefetch_instruction_line || clean_data_line ||
+            clean_data_index || clean_invalidate_data_line ||
+            clean_invalidate_data_index || drain_write_buffer) {
             return 1;
         }
     }

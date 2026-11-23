@@ -187,8 +187,12 @@ bool NdsArm9Tcm::set_control(uint32_t value) noexcept
         ItcmEnableMask |
         DtcmLoadModeMask |
         DtcmEnableMask;
+    const uint32_t cache_enable_mask =
+        (UINT32_C(1) << 12u) | (UINT32_C(1) << 2u);
+    const bool protection_enabled = (value & UINT32_C(1)) != 0u;
     if ((value & ~kSupportedControlMask) != 0u ||
         (value & RequiredControlOnesMask) != RequiredControlOnesMask ||
+        (((value & cache_enable_mask) != 0u) && !protection_enabled) ||
         ((value & ItcmEnableMask) != 0u && !itcm_mapped_) ||
         ((value & DtcmEnableMask) != 0u && !dtcm_mapped_)) {
         return false;

@@ -17,6 +17,18 @@ namespace {
     std::abort();
 }
 
+bool active_arm9_is_privileged() noexcept
+{
+    if (g_nds_active != NDS_ARM9 || oracis_active_cpu_state == nullptr) {
+        return false;
+    }
+    const uint32_t mode =
+        oracis_active_cpu_state->cpsr & UINT32_C(0x1F);
+    return mode == UINT32_C(0x11) || mode == UINT32_C(0x12) ||
+           mode == UINT32_C(0x13) || mode == UINT32_C(0x17) ||
+           mode == UINT32_C(0x1B) || mode == UINT32_C(0x1F);
+}
+
 ArmCpuState *g_arm9_state = nullptr;
 ArmCpuState *g_arm7_state = nullptr;
 void *g_power_context = nullptr;
@@ -983,6 +995,9 @@ uint32_t runtime_coproc_read(
     if (oracis_active_cpu_state == nullptr || g_nds_active != NDS_ARM9) {
         abi_failure("runtime_coproc_read (no active ARM9 CPU)");
     }
+    if (cp_num == 15u && !active_arm9_is_privileged()) {
+        abi_failure("runtime_coproc_read (CP15 requires privileged mode)");
+    }
 
     uint32_t value = 0u;
     if (!oracis_arm_runtime_coprocessor_transfer(
@@ -998,6 +1013,9 @@ void runtime_coproc_write(
 {
     if (oracis_active_cpu_state == nullptr || g_nds_active != NDS_ARM9) {
         abi_failure("runtime_coproc_write (no active ARM9 CPU)");
+    }
+    if (cp_num == 15u && !active_arm9_is_privileged()) {
+        abi_failure("runtime_coproc_write (CP15 requires privileged mode)");
     }
 
     /* ARM9 Wait-For-Interrupt: MCR p15,0,Rd,c7,c0,4 (or c7,c8,2). */

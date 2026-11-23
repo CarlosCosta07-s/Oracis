@@ -1994,6 +1994,12 @@ int main()
         machine.exception_vector_base(NDS_ARM9) != UINT32_C(0xFFFF0000)) {
         return fail("unsupported ARM9 CP15 MPU/cache control bits were silently accepted");
     }
+
+    uint32_t cache_without_mpu = UINT32_C(0x00005078);
+    if (oracis_arm_runtime_coprocessor_transfer(
+            1u, 15u, 0u, 1u, 0u, 0u, &cache_without_mpu) != 0) {
+        return fail("ARM9 enabled a cache while its protection unit was disabled");
+    }
     arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
     arm9->R[15] = UINT32_C(0x02006000);
     arm7->cpsr = ORACIS_ARM_MODE_SYSTEM;
@@ -2017,7 +2023,13 @@ int main()
     runtime_coproc_write(
         15u, 0u, 1u, 0u, 0u, platinum_cp15_control);
 
-    if (runtime_coproc_read(15u, 0u, 1u, 0u, 0u) !=
+    if (runtime_coproc_read(15u, 0u, 0u, 0u, 0u) !=
+            UINT32_C(0x41059461) ||
+        runtime_coproc_read(15u, 0u, 0u, 0u, 1u) !=
+            UINT32_C(0x0F0D2112) ||
+        runtime_coproc_read(15u, 0u, 0u, 0u, 3u) !=
+            UINT32_C(0x41059461) ||
+        runtime_coproc_read(15u, 0u, 1u, 0u, 0u) !=
             platinum_cp15_control ||
         runtime_coproc_read(15u, 0u, 2u, 0u, 0u) != UINT32_C(0x42) ||
         runtime_coproc_read(15u, 0u, 2u, 0u, 1u) != UINT32_C(0x42) ||
@@ -2034,6 +2046,44 @@ int main()
     bus_write_u32(mpu_test_address, mpu_test_value);
     if (bus_read_u32(mpu_test_address) != mpu_test_value) {
         return fail("privileged ARM9 main-RAM bus access failed with MPU enabled");
+    }
+
+    const uint32_t saved_cpsr = arm9->cpsr;
+    arm9->cpsr = (saved_cpsr & ~ORACIS_ARM_MODE_MASK) |
+        ORACIS_ARM_MODE_USER;
+    uint32_t user_mode_cp15_value = 0u;
+    if (oracis_arm_runtime_coprocessor_transfer(
+            0u, 15u, 0u, 0u, 0u, 0u,
+            &user_mode_cp15_value) != 0) {
+        return fail("CP15 MRC was accepted in User mode");
+    }
+    arm9->cpsr = saved_cpsr;
+
+    const struct Cp15MaintenanceCase {
+        uint32_t crm;
+        uint32_t op2;
+        uint32_t value;
+    } maintenance_cases[] = {
+        {5u, 0u, 0u}, {5u, 1u, UINT32_C(0x02006000)},
+        {6u, 0u, 0u}, {6u, 1u, UINT32_C(0x02006000)},
+        {13u, 1u, UINT32_C(0x02006000)},
+        {10u, 1u, UINT32_C(0x02006000)},
+        {10u, 2u, 0u}, {10u, 4u, 0u},
+        {14u, 1u, UINT32_C(0x02006000)}, {14u, 2u, 0u}
+    };
+    for (const Cp15MaintenanceCase &operation : maintenance_cases) {
+        uint32_t operation_value = operation.value;
+        if (oracis_arm_runtime_coprocessor_transfer(
+                1u, 15u, 0u, 7u, operation.crm, operation.op2,
+                &operation_value) == 0) {
+            return fail("a documented ARM946E-S c7 maintenance operation was rejected");
+        }
+    }
+    uint32_t invalid_flush_value = 1u;
+    if (oracis_arm_runtime_coprocessor_transfer(
+            1u, 15u, 0u, 7u, 5u, 0u,
+            &invalid_flush_value) != 0) {
+        return fail("full I-cache flush accepted a nonzero SBZ operand");
     }
 
     arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
