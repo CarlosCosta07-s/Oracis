@@ -508,7 +508,11 @@ def emit_overlay_banks(
             })
             print(
                 f"overlay {overlay_id:04d}: {audit['functions_total']} functions, "
-                f"{read_calls} reads/{write_calls} writes, {len(shards['files'])} C shards",
+                f"indirect unknown={audit['indirect_unknown']} "
+                f"undefined={audit['finder_undefined']} "
+                f"unmapped-sites={audit['unreachable_indirect_region_sites']}, "
+                f"{read_calls} reads/{write_calls} writes, "
+                f"{len(shards['files'])} C shards",
                 flush=True,
             )
 
@@ -516,6 +520,21 @@ def emit_overlay_banks(
         uncompiled_ids = sorted(set(image_records) - compiled_ids)
         total_reads = sum(int(row.get("direction_reads", 0)) for row in results)
         total_writes = sum(int(row.get("direction_writes", 0)) for row in results)
+        audit_metric_keys = (
+            "finder_undefined",
+            "indirect_resolved",
+            "indirect_known_unreachable",
+            "indirect_unknown",
+            "stored_pointer_seeds",
+            "unreachable_indirect_region_sites",
+        )
+        audited_rows = [
+            row for row in results
+            if all(type(row.get(key)) is int for key in audit_metric_keys)
+        ]
+        missing_audit_metrics = sorted(
+            row["overlay_id"] for row in results if row not in audited_rows
+        )
         report = {
             "schema": "oracis-overlay-bank-emission-v1",
             "rom_sha1": manifest["rom_sha1"],
@@ -526,6 +545,12 @@ def emit_overlay_banks(
             "reused_overlay_count": sum(bool(row.get("reused", False)) for row in results),
             "uncompiled_overlay_count": len(uncompiled_ids),
             "uncompiled_overlay_ids": uncompiled_ids,
+            "audit_metrics_overlay_count": len(audited_rows),
+            "audit_metrics_missing_overlay_ids": missing_audit_metrics,
+            "audit_totals": {
+                key: sum(row[key] for row in audited_rows)
+                for key in audit_metric_keys
+            },
             "direction_adapter": {
                 "identity": ADAPTER_IDENTITY,
                 "status": "passed",
