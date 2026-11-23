@@ -236,3 +236,42 @@ bytes locais no modo determinado por CPSR.T. Caso contrário, retorna
 clock. O host ainda pode chamar `oracis_host_runtime_validate_entrypoints()`
 antes para obter relatórios detalhados; a checagem automática torna essa
 chamada diagnóstica, não um pré-requisito de segurança.
+
+
+## 14. Inventário e extração local de overlays ARM9/ARM7
+
+A etapa de extração dos programas principais agora tem um complemento para os
+módulos executáveis armazenados no NitroFS. O script
+**tools/ndsrecomp/extract_nds_overlays.py** lê as tabelas ARM9 e ARM7 do cabeçalho
+NDS, valida cada registro de 32 bytes e resolve **file_id** pela FAT. Ele valida
+os limites do arquivo, IDs repetidos, faixas de RAM/BSS, intervalo de
+inicialização estática e flags conhecidas antes de publicar qualquer saída.
+
+Overlays sem compressão são copiados como imagens de RAM. Quando o bit BLZ da
+tabela está ativo, o extrator descomprime o fluxo backwards-LZ e exige que o
+tamanho resultante coincida exatamente com **ram_size**. O decodificador valida
+o rodapé, o comprimento da região comprimida, o padding **0xFF**, cada literal e
+cada referência retroativa; também exige consumo exato dos bytes comprimidos.
+O manifesto local registra CPU, ID, endereço de carga, tamanho, BSS, intervalo
+de inicialização, ID FAT, flags, hash SHA-1 da origem e SHA-1/SHA-256 da imagem
+extraída.
+
+Uso, sempre com uma cópia da ROM fornecida pelo usuário:
+
+    python tools/ndsrecomp/extract_nds_overlays.py \
+      "/caminho/Pokemon - Platinum Version (USA) (Rev 1).nds"
+
+Por padrão, os módulos e **manifest.json** são gravados em
+**.oracis/local/pokemon-platinum-usa-rev1/overlays/**. A pasta **.oracis/** já é
+ignorada pelo Git. Ao atualizar uma extração anterior, o script substitui
+somente diretórios que tenham um manifesto Oracis válido e contenham exatamente
+os arquivos declarados nele; não apaga arquivos extras do usuário. A CI usa
+apenas fixtures sintéticas e nunca recebe ROM nem overlays comerciais.
+
+**Limite desta etapa:** extrair e validar um overlay não significa recompilá-lo.
+O manifesto não inventa um entry point para o módulo. Ainda é necessário
+descobrir referências e alvos de função nos bancos principais, gerar a
+configuração NDSRecomp por overlay, compilar os módulos, auditar símbolos e
+conectar a resolução de overlays/código dinâmico ao runtime. O host continua
+sem executar rounds do jogo até que essas dependências e os serviços/IRQ
+pendentes estejam validados.
