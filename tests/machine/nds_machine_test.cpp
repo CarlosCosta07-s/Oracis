@@ -2048,6 +2048,58 @@ int main()
         return fail("privileged ARM9 main-RAM bus access failed with MPU enabled");
     }
 
+    /*
+     * A denied guest data access is latched and consumed at runtime_tick.
+     * Model the generated C writeback after the read: the fault snapshot must
+     * restore the pre-access CPU state before entering the Data Abort vector.
+     */
+    arm9->cpsr = (arm9->cpsr & ~ORACIS_ARM_MODE_MASK) |
+        ORACIS_ARM_MODE_USER;
+    arm9->R[0] = UINT32_C(0xAABBCCDD);
+    arm9->R[4] = UINT32_C(0x44556677);
+    arm9->R[13] = UINT32_C(0x02007000);
+    constexpr uint32_t fault_pc = UINT32_C(0x02006040);
+    arm9->R[15] = fault_pc;
+    const uint32_t fault_saved_cpsr = arm9->cpsr;
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 could not be selected for MPU Data Abort test");
+    }
+    const uint32_t denied_read = bus_read_u32(mpu_test_address);
+    if (denied_read != 0u) {
+        return fail("User-mode ARM9 read from privileged RAM was not blocked");
+    }
+    /* A later memory transfer from the same generated instruction is suppressed. */
+    bus_write_u32(mpu_test_address, UINT32_C(0xDEADBEEF));
+    arm9->R[0] = UINT32_C(0xDEADBEEF);
+    arm9->R[4] = 0u;
+    arm9->R[13] = UINT32_C(0x02007004);
+    arm9->R[15] = fault_pc + 4u;
+    runtime_tick(0u);
+
+    if ((arm9->cpsr & ORACIS_ARM_MODE_MASK) != ORACIS_ARM_MODE_ABORT ||
+        (arm9->cpsr & CPSR_I_BIT) == 0u ||
+        (arm9->cpsr & CPSR_T_BIT) != 0u ||
+        arm9->R[15] != UINT32_C(0xFFFF0010) ||
+        arm9->R[14] != fault_pc + 8u ||
+        arm9->banked_spsr[ARM_BANK_ABORT] != fault_saved_cpsr ||
+        arm9->R[0] != UINT32_C(0xAABBCCDD) ||
+        arm9->R[4] != UINT32_C(0x44556677) ||
+        arm9->banked_sp[ARM_BANK_USER] != UINT32_C(0x02007000) ||
+        !runtime_unwinding() ||
+        machine.guest_memory().read(
+            NDS_ARM9, mpu_test_address, 4u).value != mpu_test_value) {
+        return fail("ARM9 MPU Data Abort did not restore state and enter the high vector");
+    }
+    /* The test has no ARM9 BIOS abort handler mapped, so only entry is tested. */
+    if (!oracis_scheduler_set_unwinding(NDS_ARM9, 0)) {
+        return fail("ARM9 Data Abort unwind state could not be reset after the test");
+    }
+    arm9->cpsr = ORACIS_ARM_MODE_SYSTEM;
+    arm9->R[15] = UINT32_C(0x02006000);
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 could not be reselected after Data Abort test");
+    }
+
     const uint32_t saved_cpsr = arm9->cpsr;
     arm9->cpsr = (saved_cpsr & ~ORACIS_ARM_MODE_MASK) |
         ORACIS_ARM_MODE_USER;

@@ -2,9 +2,11 @@
 
 #include "oracis/memory/guest_memory_abi.h"
 #include "oracis/recomp/runtime_arm.h"
+#include "oracis/recomp/arm_cpu_state_ops.h"
 #include "oracis/recomp/runtime_scheduler.h"
 #include "oracis/recomp/static_dispatch_abi.h"
 
+#include <cstdio>
 #include <exception>
 #include <limits>
 #include <new>
@@ -1264,20 +1266,12 @@ int NdsMachine::runtime_bios_diff_handler(
 }
 
 
-int NdsMachine::runtime_bus_access_check(
-    void *context, NdsCpu cpu, uint32_t address, uint32_t size,
-    uint32_t access_kind, uint32_t privileged)
+int NdsMachine::check_arm9_protection_access(
+    NdsCpu cpu, uint32_t address, uint32_t size,
+    uint32_t access_kind, bool privileged) const noexcept
 {
-    auto *machine = static_cast<NdsMachine *>(context);
-    if (machine == nullptr || !machine->initialized_ ||
-        !valid_cpu(cpu) || size == 0u || privileged > 1u ||
-        g_nds_active != cpu ||
-        machine->cpu_state(cpu) != oracis_active_cpu_state) {
-        return 0;
-    }
-    if (cpu == NDS_ARM7 || !machine->arm9_protection_unit_.enabled()) {
-        return 1;
-    }
+    if (!valid_cpu(cpu) || size == 0u) return -1;
+    if (cpu == NDS_ARM7 || !arm9_protection_unit_.enabled()) return 1;
 
     memory::NdsArm9ProtectionUnit::AccessKind kind{};
     switch (access_kind) {
@@ -1291,14 +1285,14 @@ int NdsMachine::runtime_bus_access_check(
         kind = memory::NdsArm9ProtectionUnit::AccessKind::InstructionFetch;
         break;
     default:
-        return 0;
+        return -1;
     }
 
     const memory::NdsArm9Tcm::TimingState tcm =
-        machine->arm9_tcm_.timing_state();
+        arm9_tcm_.timing_state();
     const uint64_t end =
         static_cast<uint64_t>(address) + static_cast<uint64_t>(size);
-    if (end > UINT64_C(0x1'0000'0000)) return 0;
+    if (end > UINT64_C(0x1'0000'0000)) return -1;
 
     uint64_t current = address;
     while (current < end) {
@@ -1317,14 +1311,93 @@ int NdsMachine::runtime_bus_access_check(
             current = tcm_end < end ? tcm_end : end;
             continue;
         }
-        if (!machine->arm9_protection_unit_.check_access(
-                guest_address, 1u, kind, privileged != 0u)) {
+        if (!arm9_protection_unit_.check_access(
+                guest_address, 1u, kind, privileged)) {
             return 0;
         }
         ++current;
     }
     return 1;
 }
+
+int NdsMachine::runtime_bus_access_check(
+    void *context, NdsCpu cpu, uint32_t address, uint32_t size,
+    uint32_t access_kind, uint32_t privileged)
+{
+    auto *machine = static_cast<NdsMachine *>(context);
+    if (machine == nullptr || !machine->initialized_ ||
+        !valid_cpu(cpu) || size == 0u || privileged > 1u ||
+        g_nds_active != cpu ||
+        machine->cpu_state(cpu) != oracis_active_cpu_state) {
+        return -1;
+    }
+    if (machine->arm9_data_abort_pending_) return 0;
+
+    const int allowed = machine->check_arm9_protection_access(
+        cpu, address, size, access_kind, privileged != 0u);
+    if (allowed != 0) return allowed;
+
+    /* One fault snapshot per instruction; later accesses in the same
+       generated C block are suppressed until runtime_tick enters Abort. */
+    if (!machine->arm9_data_abort_pending_) {
+        machine->arm9_data_abort_pending_ = true;
+        machine->arm9_data_abort_snapshot_ = *oracis_active_cpu_state;
+        machine->arm9_data_abort_address_ = address;
+        machine->arm9_data_abort_size_ = size;
+        machine->arm9_data_abort_access_kind_ = access_kind;
+    }
+    return 0;
+}
+
+int NdsMachine::runtime_data_abort_handler(void *context, NdsCpu cpu)
+{
+    auto *machine = static_cast<NdsMachine *>(context);
+    if (machine == nullptr || !machine->initialized_ ||
+        (cpu != NDS_ARM9 && cpu != NDS_ARM7) ||
+        g_nds_active != cpu ||
+        machine->cpu_state(cpu) != oracis_active_cpu_state) {
+        return -1;
+    }
+    /* Data Abort is wired only for ARM9; ARM7 has its own separate core model. */
+    if (cpu == NDS_ARM7) {
+        return machine->arm9_data_abort_pending_ ? -1 : 0;
+    }
+    if (!machine->arm9_data_abort_pending_) return 0;
+
+    ArmCpuState *state = machine->cpu_state(NDS_ARM9);
+    if (state == nullptr) return -1;
+
+    const uint32_t fault_pc = machine->arm9_data_abort_snapshot_.R[15];
+    const uint64_t return_address =
+        static_cast<uint64_t>(fault_pc) + UINT64_C(8);
+    if (return_address > UINT32_MAX) return -1;
+
+    *state = machine->arm9_data_abort_snapshot_;
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9) ||
+        !oracis_arm_cpu_enter_exception(
+            state, ORACIS_ARM_EXCEPTION_DATA_ABORT,
+            static_cast<uint32_t>(return_address),
+            machine->exception_vector_base(NDS_ARM9))) {
+        return -1;
+    }
+
+    std::fprintf(stderr,
+        "[Oracis ARM9] Data Abort: PC=0x%08X address=0x%08X "
+        "size=%u access=%s vector=0x%08X\n",
+        fault_pc,
+        machine->arm9_data_abort_address_,
+        machine->arm9_data_abort_size_,
+        machine->arm9_data_abort_access_kind_ ==
+                ORACIS_BUS_ACCESS_DATA_WRITE ? "write" : "read",
+        state->R[15]);
+
+    machine->arm9_data_abort_pending_ = false;
+    machine->arm9_data_abort_address_ = 0u;
+    machine->arm9_data_abort_size_ = 0u;
+    machine->arm9_data_abort_access_kind_ = 0u;
+    return 1;
+}
+
 
 int NdsMachine::runtime_validate_dispatch_bytes(
     NdsCpu cpu,
@@ -1367,9 +1440,11 @@ int NdsMachine::runtime_validate_dispatch_bytes(
                    mode == UINT32_C(0x1F)) {
             privileged = 1u;
         }
-        if (runtime_bus_access_check(
-                machine, cpu, validation->addr, validation->size,
-                ORACIS_BUS_ACCESS_INSTRUCTION, privileged) == 0) {
+        if (privileged > 1u ||
+            machine->check_arm9_protection_access(
+                cpu, validation->addr, validation->size,
+                ORACIS_BUS_ACCESS_INSTRUCTION,
+                privileged != 0u) != 1) {
             return 0;
         }
     }
@@ -1413,6 +1488,11 @@ NdsMachineStatus NdsMachine::initialize() noexcept
 
     arm9_state_ = {};
     arm7_state_ = {};
+    arm9_data_abort_pending_ = false;
+    arm9_data_abort_snapshot_ = {};
+    arm9_data_abort_address_ = 0u;
+    arm9_data_abort_size_ = 0u;
+    arm9_data_abort_access_kind_ = 0u;
     interrupt_wait_active_.fill(false);
     interrupt_wait_masks_.fill(0u);
     interrupt_wait_resume_pcs_.fill(0u);
@@ -1449,6 +1529,12 @@ NdsMachineStatus NdsMachine::initialize() noexcept
         return rollback(NdsMachineStatus::RuntimeAlreadyBound);
     }
     irq_handler_bound_ = true;
+
+    if (!oracis_arm_runtime_bind_data_abort_handler(
+            this, &NdsMachine::runtime_data_abort_handler)) {
+        return rollback(NdsMachineStatus::RuntimeAlreadyBound);
+    }
+    data_abort_handler_bound_ = true;
 
     if (!oracis_arm_runtime_bind_interrupt_wait_handler(
             this, &NdsMachine::runtime_interrupt_wait_handler)) {
@@ -1738,6 +1824,7 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
 {
     const bool owns_runtime =
         runtime_bound_ || power_handler_bound_ || irq_handler_bound_ ||
+        data_abort_handler_bound_ ||
         interrupt_wait_handler_bound_ ||
         coprocessor_handler_bound_ || bios_memory_handler_bound_ ||
         bios_crc16_handler_bound_ || bios_bit_unpack_handler_bound_ ||
@@ -1753,6 +1840,7 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
         return NdsMachineStatus::Ok;
     }
 
+    arm9_data_abort_pending_ = false;
     if (slice_active_[0]) {
         oracis_scheduler_end_slice(NDS_ARM9);
         slice_active_[0] = false;
@@ -1919,6 +2007,13 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
             return NdsMachineStatus::ShutdownFailed;
         }
         interrupt_wait_handler_bound_ = false;
+    }
+    if (data_abort_handler_bound_) {
+        if (!oracis_arm_runtime_unbind_data_abort_handler(
+                this, &NdsMachine::runtime_data_abort_handler)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        data_abort_handler_bound_ = false;
     }
     if (irq_handler_bound_) {
         if (!oracis_arm_runtime_unbind_irq_handler(

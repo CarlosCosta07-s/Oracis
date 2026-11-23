@@ -35,6 +35,8 @@ void *g_power_context = nullptr;
 OracisArmRuntimePowerHandler g_power_handler = nullptr;
 void *g_irq_context = nullptr;
 OracisArmRuntimeIrqHandler g_irq_handler = nullptr;
+void *g_data_abort_context = nullptr;
+OracisArmRuntimeDataAbortHandler g_data_abort_handler = nullptr;
 void *g_interrupt_wait_context = nullptr;
 OracisArmRuntimeInterruptWaitHandler g_interrupt_wait_handler = nullptr;
 void *g_coprocessor_context = nullptr;
@@ -148,6 +150,45 @@ int oracis_arm_runtime_request_irq(uint32_t return_pc)
         return -1;
     }
     return g_irq_handler(g_irq_context, g_nds_active, return_pc);
+}
+
+int oracis_arm_runtime_bind_data_abort_handler(
+    void *context, OracisArmRuntimeDataAbortHandler handler)
+{
+    if (context == nullptr || handler == nullptr) return 0;
+    if (g_data_abort_handler != nullptr ||
+        g_data_abort_context != nullptr) {
+        return g_data_abort_context == context &&
+               g_data_abort_handler == handler ? 1 : 0;
+    }
+    g_data_abort_context = context;
+    g_data_abort_handler = handler;
+    return 1;
+}
+
+int oracis_arm_runtime_unbind_data_abort_handler(
+    void *context, OracisArmRuntimeDataAbortHandler handler)
+{
+    if (context == nullptr || handler == nullptr ||
+        g_data_abort_context != context ||
+        g_data_abort_handler != handler) {
+        return 0;
+    }
+    g_data_abort_context = nullptr;
+    g_data_abort_handler = nullptr;
+    return 1;
+}
+
+int oracis_arm_runtime_check_data_abort(void)
+{
+    if (g_data_abort_handler == nullptr || g_data_abort_context == nullptr) {
+        return 0;
+    }
+    if (oracis_active_cpu_state == nullptr ||
+        (g_nds_active != NDS_ARM9 && g_nds_active != NDS_ARM7)) {
+        return -1;
+    }
+    return g_data_abort_handler(g_data_abort_context, g_nds_active);
 }
 
 int oracis_arm_runtime_bind_interrupt_wait_handler(
@@ -805,6 +846,15 @@ void runtime_irq(uint32_t return_address)
     if (oracis_arm_runtime_request_irq(return_address) < 0) {
         abi_failure("runtime_irq (machine rejected architectural IRQ boundary)");
     }
+}
+
+int runtime_check_data_abort(void)
+{
+    if (oracis_active_cpu_state == nullptr ||
+        (g_nds_active != NDS_ARM9 && g_nds_active != NDS_ARM7)) {
+        abi_failure("runtime_check_data_abort (no active CPU)");
+    }
+    return oracis_arm_runtime_check_data_abort();
 }
 
 void runtime_swi(uint32_t swi_imm)

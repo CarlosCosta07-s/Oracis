@@ -75,11 +75,13 @@ oracis::memory::GuestMemory &bound_memory(const char *operation,
     return *g_guest_memory;
 }
 
-void validate_arm9_access(
+bool validate_arm9_access(
     const char *operation, uint32_t address, uint32_t width,
     uint32_t access_kind)
 {
-    if (g_arm9_access_check == nullptr || g_nds_active != NDS_ARM9) return;
+    if (g_arm9_access_check == nullptr || g_nds_active != NDS_ARM9) {
+        return true;
+    }
     if (oracis_active_cpu_state == nullptr) {
         bus_failure(operation, address, width,
                     oracis::memory::Status::PermissionDenied);
@@ -105,20 +107,23 @@ void validate_arm9_access(
                     oracis::memory::Status::PermissionDenied);
     }
 
-    if (g_arm9_access_check(
-            g_arm9_access_check_context, g_nds_active,
-            address, width, access_kind, privileged) == 0) {
-        bus_failure(operation, address, width,
-                    oracis::memory::Status::PermissionDenied);
-    }
+    const int result = g_arm9_access_check(
+        g_arm9_access_check_context, g_nds_active,
+        address, width, access_kind, privileged);
+    if (result > 0) return true;
+    if (result == 0) return false;
+    bus_failure(operation, address, width,
+                oracis::memory::Status::PermissionDenied);
 }
 
 
 uint32_t read_bus(uint32_t address, uint32_t width, const char *operation)
 {
     auto &memory = bound_memory(operation, address, width);
-    validate_arm9_access(operation, address, width,
-                          ORACIS_BUS_ACCESS_DATA_READ);
+    if (!validate_arm9_access(
+            operation, address, width, ORACIS_BUS_ACCESS_DATA_READ)) {
+        return 0u;
+    }
     if (g_post_flag != nullptr) {
         const auto mmio = g_post_flag->read(g_nds_active, address, width);
         if (mmio.status != oracis::memory::Status::Unmapped) {
@@ -213,8 +218,10 @@ void write_bus(uint32_t address,
                const char *operation)
 {
     auto &memory = bound_memory(operation, address, width);
-    validate_arm9_access(operation, address, width,
-                          ORACIS_BUS_ACCESS_DATA_WRITE);
+    if (!validate_arm9_access(
+            operation, address, width, ORACIS_BUS_ACCESS_DATA_WRITE)) {
+        return;
+    }
     if (g_post_flag != nullptr) {
         const auto mmio = g_post_flag->write(
             g_nds_active, address, width, value);

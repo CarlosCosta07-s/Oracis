@@ -59,6 +59,14 @@ typedef int (*OracisArmRuntimeInterruptWaitHandler)(
 typedef int (*OracisArmRuntimeIrqHandler)(
     void *context, NdsCpu cpu, uint32_t return_pc);
 
+/*
+ * Called at an instruction retirement boundary when an ARM9 protection fault
+ * was latched by the guest bus. Handler result: 1 exception entered,
+ * 0 no pending fault, -1 integration failure.
+ */
+typedef int (*OracisArmRuntimeDataAbortHandler)(
+    void *context, NdsCpu cpu);
+
 /* Dispatches implemented ARM9 CP15 transfers to the owning NdsMachine. */
 typedef int (*OracisArmRuntimeCoprocessorHandler)(
     void *context, NdsCpu cpu, uint32_t is_write,
@@ -112,6 +120,11 @@ int oracis_arm_runtime_bind_irq_handler(
 int oracis_arm_runtime_unbind_irq_handler(
     void *context, OracisArmRuntimeIrqHandler handler);
 int oracis_arm_runtime_request_irq(uint32_t return_pc);
+int oracis_arm_runtime_bind_data_abort_handler(
+    void *context, OracisArmRuntimeDataAbortHandler handler);
+int oracis_arm_runtime_unbind_data_abort_handler(
+    void *context, OracisArmRuntimeDataAbortHandler handler);
+int oracis_arm_runtime_check_data_abort(void);
 int oracis_arm_runtime_bind_interrupt_wait_handler(
     void *context, OracisArmRuntimeInterruptWaitHandler handler);
 int oracis_arm_runtime_unbind_interrupt_wait_handler(
@@ -437,6 +450,7 @@ void runtime_trace_event(uint32_t kind, uint32_t pc, uint32_t addr,
                          uint32_t value, uint32_t aux);
 void runtime_swi(uint32_t swi_imm);
 void runtime_irq(uint32_t return_address);
+int runtime_check_data_abort(void);
 uint32_t runtime_read_user_reg(uint32_t reg);
 void runtime_write_user_reg(uint32_t reg, uint32_t value);
 void runtime_coproc_write(uint32_t cp_num, uint32_t op1, uint32_t crn,

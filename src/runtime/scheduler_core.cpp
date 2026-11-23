@@ -155,6 +155,20 @@ extern "C" void runtime_tick(uint32_t cycles)
      * instruction stream and the cooperative unwind still follows normally.
      */
     if (!state.unwinding && oracis_active_cpu_state != nullptr) {
+        const int abort_status = runtime_check_data_abort();
+        if (abort_status < 0) {
+            scheduler_failure(
+                "runtime_tick", "ARM9 Data Abort integration failed;");
+        }
+        if (abort_status > 0) {
+            /*
+             * The memory instruction has completed its generated C writeback.
+             * The machine restores the snapshot taken at the failing transfer,
+             * enters Abort mode, and the generated function must now unwind.
+             */
+            state.unwinding = true;
+            return;
+        }
         runtime_irq(oracis_active_cpu_state->R[15]);
     }
 }

@@ -294,6 +294,10 @@ private:
     static int runtime_bus_access_check(
         void *context, NdsCpu cpu, uint32_t address, uint32_t size,
         uint32_t access_kind, uint32_t privileged);
+    int check_arm9_protection_access(
+        NdsCpu cpu, uint32_t address, uint32_t size,
+        uint32_t access_kind, bool privileged) const noexcept;
+    static int runtime_data_abort_handler(void *context, NdsCpu cpu);
     static int runtime_bios_memory_transfer_handler(
         void *context, NdsCpu cpu, uint32_t source, uint32_t destination,
         uint32_t count, uint32_t width, uint32_t fixed_source);
@@ -370,6 +374,12 @@ private:
     bool bios_diff_handler_bound_ = false;
     bool memory_bound_ = false;
     bool arm9_access_guard_bound_ = false;
+    bool data_abort_handler_bound_ = false;
+    bool arm9_data_abort_pending_ = false;
+    ArmCpuState arm9_data_abort_snapshot_{};
+    uint32_t arm9_data_abort_address_ = 0u;
+    uint32_t arm9_data_abort_size_ = 0u;
+    uint32_t arm9_data_abort_access_kind_ = 0u;
     bool wram_bound_ = false;
     bool vram_bound_ = false;
     bool video_memory_bound_ = false;
