@@ -9,10 +9,16 @@
 
 <p align="center"><strong>Reconstruindo Sinnoh para além do hardware original.</strong></p>
 
-> **Estado atual (23/11/2026 — HEAD `1e945e1`):** a CI [#45209899276](https://github.com/CarlosCosta07-s/Oracis/actions/runs/45209899276) terminou aprovada nos quatro jobs. Desktop Linux e runtime ARM passaram com **56/56 CTests** cada; tooling Python passou com **53 testes**; o smoke opcional de banco sintético passou **1/1**; Android ARM64 e o compilador estático NDSRecomp também passaram. O CP15 ARM9 agora possui suporte parcial à MPU (atributos c2/c3, permissões c5 e regiões c6), além de Data Abort para violações de acesso a dados e Prefetch Abort para buscas negadas pela MPU em mapeamentos executáveis. A cobertura inclui entradas ARM e Thumb pelos caminhos de dispatch, link-slot e interworking. Isso ainda **não comprova boot do jogo**: os bancos reais permanecem privados, fora do Git/CI, e ainda não foram registrados nem executados; nenhum primeiro quadro foi demonstrado. O host ainda não carrega os handlers reais da BIOS ARM9, e aborts ARM7 e falhas externas de barramento continuam fora do modelo arquitetural. ROM, BIOS, firmware, segmentos, assets e saves continuam fora do repositório, da CI e das releases.
+> **Base de CI verificada em 23/11/2026 (commit 1e945e1):** a CI [#45209899276](https://github.com/CarlosCosta07-s/Oracis/actions/runs/45209899276) terminou aprovada nos quatro jobs. Desktop Linux e runtime ARM passaram com **56/56 CTests** cada; tooling Python passou com **53 testes**; o smoke opcional de banco sintético passou **1/1**; Android ARM64 e o compilador estático NDSRecomp também passaram. O CP15 ARM9 agora possui suporte parcial à MPU (atributos c2/c3, permissões c5 e regiões c6), além de Data Abort para violações de acesso a dados e Prefetch Abort para buscas negadas pela MPU em mapeamentos executáveis. A cobertura inclui entradas ARM e Thumb pelos caminhos de dispatch, link-slot e interworking. Isso ainda **não comprova boot do jogo**: os bancos reais permanecem privados, fora do Git/CI, e ainda não foram registrados nem executados; nenhum primeiro quadro foi demonstrado. O host ainda não carrega os handlers reais da BIOS ARM9, e aborts ARM7 e falhas externas de barramento continuam fora do modelo arquitetural. ROM, BIOS, firmware, segmentos, assets e saves continuam fora do repositório, da CI e das releases.
 
 
 
+
+## Experimento Android de entrada nativa
+
+Os commits 3a9bc39 e d46f4db adicionam seleção Android de uma imagem .nds e de uma BIOS ARM7 do usuário por meio do seletor SDL3. URIs content:// são lidas por SDL_IOStream. Quando os dois entrypoints resolvem para bancos estáticos ARM9/ARM7, o host tenta avançar o código recompilado em fatias limitadas do scheduler.
+
+Esse é um experimento de **direct-entry** e contorna a sequência de power-on das BIOS retail. Não representa boot completo nem comprova o primeiro quadro. O build Android na CI produz a biblioteca nativa ARM64, não um APK instalável; os bancos reais continuam sendo artefatos privados que precisam estar ligados localmente. Consulte [docs/ANDROID_DIRECT_BOOT.md](docs/ANDROID_DIRECT_BOOT.md).
 
 ## O projeto
 
