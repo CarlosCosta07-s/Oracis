@@ -151,6 +151,10 @@ class EmitPlatinumOverlayBanksTests(unittest.TestCase):
         }
         for name, value in contents.items():
             (old_folder / name).write_text(value, encoding="utf-8")
+        shard_dir = old_folder / f"{bank}_shards"
+        shard_dir.mkdir()
+        shard = shard_dir / "bank_part_0000.c"
+        shard.write_text("void oldfunc(void) {}\\n", encoding="utf-8")
         old_row = {
             "overlay_id": 6,
             "bank": bank,
@@ -160,6 +164,12 @@ class EmitPlatinumOverlayBanksTests(unittest.TestCase):
             "sha256": {
                 name: hashlib.sha256(value.encode("utf-8")).hexdigest()
                 for name, value in contents.items()
+            },
+            "shards": {
+                "directory": shard_dir.name,
+                "functions_per_shard": 512,
+                "function_count": 1,
+                "files": {shard.name: hashlib.sha1(shard.read_bytes()).hexdigest()},
             },
         }
         (existing_dir / "emission_report.json").write_text(json.dumps({
@@ -181,6 +191,14 @@ class EmitPlatinumOverlayBanksTests(unittest.TestCase):
         reused = next(row for row in report["results"] if row["overlay_id"] == 6)
         self.assertTrue(reused["reused"])
         self.assertTrue((self.output_dir / "overlay_0006" / f"{bank}.c").is_file())
+        copied_shard = (
+            self.output_dir / "overlay_0006" / f"{bank}_shards" / "bank_part_0000.c"
+        )
+        self.assertTrue(copied_shard.is_file())
+        self.assertEqual(
+            hashlib.sha1(copied_shard.read_bytes()).hexdigest(),
+            old_row["shards"]["files"]["bank_part_0000.c"],
+        )
 
     def test_rejects_codegen_gaps_before_publishing(self) -> None:
         def runner_with_gap(command: list[str], env: dict[str, str]) -> str:
