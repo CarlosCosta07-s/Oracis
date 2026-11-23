@@ -24,6 +24,14 @@ bool valid_sha1(const char *value) noexcept
     return value[40] == '\0';
 }
 
+uint32_t read_u32_le(const uint8_t *bytes) noexcept
+{
+    return static_cast<uint32_t>(bytes[0]) |
+        (static_cast<uint32_t>(bytes[1]) << 8u) |
+        (static_cast<uint32_t>(bytes[2]) << 16u) |
+        (static_cast<uint32_t>(bytes[3]) << 24u);
+}
+
 bool valid_cpu(NdsCpu cpu) noexcept
 {
     return cpu == NDS_ARM9 || cpu == NDS_ARM7;
@@ -110,6 +118,44 @@ NdsOverlayStatus NdsOverlayLoader::load(
             return NdsOverlayStatus::ImageHashMismatch;
         }
 
+        /*
+         * Decode the overlay table's static-initializer function pointers
+         * only after the complete image identity has been verified. A zero
+         * word terminates the pointer sequence. Preserve table order because
+         * constructor order is guest metadata, not an address sort.
+         */
+        std::vector<NdsOverlayFunctionPointer> static_initializers;
+        if (!no_static_init) {
+            const std::size_t table_offset =
+                static_cast<std::size_t>(image.static_init_start - image.ram_address);
+            const std::size_t table_size =
+                static_cast<std::size_t>(image.static_init_end - image.static_init_start);
+            if ((table_size & 3u) != 0u ||
+                table_offset > source.size() ||
+                table_size > source.size() - table_offset) {
+                return NdsOverlayStatus::InvalidMetadata;
+            }
+
+            for (std::size_t offset = 0u; offset < table_size; offset += 4u) {
+                const uint32_t pointer = read_u32_le(
+                    source.data() + table_offset + offset);
+                if (pointer == 0u) break;
+
+                const bool thumb = (pointer & 1u) != 0u;
+                const uint32_t address = pointer & ~UINT32_C(1);
+                const uint32_t alignment = thumb ? 2u : 4u;
+                const uint64_t instruction_size = thumb ? 2u : 4u;
+                const uint64_t instruction_end =
+                    static_cast<uint64_t>(address) + instruction_size;
+                if (static_cast<uint64_t>(address) < begin ||
+                    (address % alignment) != 0u ||
+                    instruction_end > code_end) {
+                    return NdsOverlayStatus::InvalidMetadata;
+                }
+                static_initializers.push_back({address, thumb});
+            }
+        }
+
         /* Prepare the complete RAM+BSS payload before touching guest memory. */
         std::vector<uint8_t> staged(writable_size, 0u);
         std::copy(source.begin(), source.end(), staged.begin());
@@ -124,7 +170,8 @@ NdsOverlayStatus NdsOverlayLoader::load(
             image.bss_size,
             image.static_init_start,
             image.static_init_end,
-            image.image_sha1
+            image.image_sha1,
+            std::move(static_initializers)
         };
 
         if (memory_.write_bytes(
@@ -241,6 +288,18 @@ bool NdsOverlayLoader::is_loaded(
         [cpu, overlay_id](const LoadedOverlay &item) {
             return item.cpu == cpu && item.overlay_id == overlay_id;
         });
+}
+
+const std::vector<NdsOverlayFunctionPointer> *
+NdsOverlayLoader::static_initializers(
+    NdsCpu cpu, uint32_t overlay_id) const noexcept
+{
+    const auto found = std::find_if(
+        loaded_.begin(), loaded_.end(),
+        [cpu, overlay_id](const LoadedOverlay &item) {
+            return item.cpu == cpu && item.overlay_id == overlay_id;
+        });
+    return found == loaded_.end() ? nullptr : &found->static_initializers;
 }
 
 bool NdsOverlayLoader::contains_address(
