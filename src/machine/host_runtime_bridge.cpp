@@ -108,36 +108,6 @@ bool validate_game_card_segment(
         image + rom_offset);
 }
 
-#ifdef ORACIS_WITH_PLATINUM_STATIC_BANKS
-bool g_arm9_compiled_bank_registered = false;
-bool g_arm7_compiled_bank_registered = false;
-
-bool unregister_compiled_banks() noexcept
-{
-    bool success = true;
-    if (g_arm7_compiled_bank_registered) {
-        if (oracis_static_dispatch_unregister_bank(
-                NDS_ARM7,
-                g_dispatch_pokemon_platinum_usa_rev1_arm7,
-                g_dispatch_pokemon_platinum_usa_rev1_arm7_len) != 0) {
-            g_arm7_compiled_bank_registered = false;
-        } else {
-            success = false;
-        }
-    }
-    if (g_arm9_compiled_bank_registered) {
-        if (oracis_static_dispatch_unregister_bank(
-                NDS_ARM9,
-                g_dispatch_pokemon_platinum_usa_rev1_arm9,
-                g_dispatch_pokemon_platinum_usa_rev1_arm9_len) != 0) {
-            g_arm9_compiled_bank_registered = false;
-        } else {
-            success = false;
-        }
-    }
-    return success;
-}
-#endif
 
 struct IrqProviderContext {
     OracisHostIrqContextProvider provider = nullptr;
@@ -255,11 +225,6 @@ extern "C" int oracis_host_runtime_shutdown(void)
      * execution slices, and retaining stale function pointers is unsafe.
      */
     oracis_static_dispatch_clear();
-#ifdef ORACIS_WITH_PLATINUM_STATIC_BANKS
-    g_arm9_compiled_bank_registered = false;
-    g_arm7_compiled_bank_registered = false;
-#endif
-
     /*
      * NdsMachine::shutdown unbinds process-global callbacks but intentionally
      * keeps its installed device map. Destroy the stopped instance so a later
@@ -771,31 +736,55 @@ extern "C" int oracis_host_runtime_register_compiled_banks(void)
     auto &machine = host_machine();
     if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
 #ifdef ORACIS_WITH_PLATINUM_STATIC_BANKS
-    if (g_arm9_compiled_bank_registered ||
-        g_arm7_compiled_bank_registered) {
+    auto &registry = oracis::recomp::global_static_dispatch_registry();
+    const bool arm9_registered = registry.contains_bank(
+        NDS_ARM9,
+        g_dispatch_pokemon_platinum_usa_rev1_arm9,
+        g_dispatch_pokemon_platinum_usa_rev1_arm9_len);
+    const bool arm7_registered = registry.contains_bank(
+        NDS_ARM7,
+        g_dispatch_pokemon_platinum_usa_rev1_arm7,
+        g_dispatch_pokemon_platinum_usa_rev1_arm7_len);
+
+    if (arm9_registered && arm7_registered) {
         return ORACIS_HOST_RUNTIME_BANKS_ALREADY_REGISTERED;
     }
 
-    const int arm9_status = oracis_static_dispatch_register_bank(
-        NDS_ARM9,
-        g_dispatch_pokemon_platinum_usa_rev1_arm9,
-        g_dispatch_pokemon_platinum_usa_rev1_arm9_len,
-        "pokemon-platinum-usa-rev1-arm9");
-    if (arm9_status != ORACIS_DISPATCH_REGISTER_OK) {
-        return ORACIS_HOST_RUNTIME_BANK_REGISTRATION_FAILED;
+    /*
+     * The registry is public through the C ABI, so callers may clear or
+     * unregister banks independently of this host bridge. Derive current
+     * ownership from the registry instead of keeping process-local flags
+     * that can become stale after those public mutations.
+     */
+    bool added_arm9 = false;
+    if (!arm9_registered) {
+        const int arm9_status = oracis_static_dispatch_register_bank(
+            NDS_ARM9,
+            g_dispatch_pokemon_platinum_usa_rev1_arm9,
+            g_dispatch_pokemon_platinum_usa_rev1_arm9_len,
+            "pokemon-platinum-usa-rev1-arm9");
+        if (arm9_status != ORACIS_DISPATCH_REGISTER_OK) {
+            return ORACIS_HOST_RUNTIME_BANK_REGISTRATION_FAILED;
+        }
+        added_arm9 = true;
     }
-    g_arm9_compiled_bank_registered = true;
 
-    const int arm7_status = oracis_static_dispatch_register_bank(
-        NDS_ARM7,
-        g_dispatch_pokemon_platinum_usa_rev1_arm7,
-        g_dispatch_pokemon_platinum_usa_rev1_arm7_len,
-        "pokemon-platinum-usa-rev1-arm7");
-    if (arm7_status != ORACIS_DISPATCH_REGISTER_OK) {
-        (void)unregister_compiled_banks();
-        return ORACIS_HOST_RUNTIME_BANK_REGISTRATION_FAILED;
+    if (!arm7_registered) {
+        const int arm7_status = oracis_static_dispatch_register_bank(
+            NDS_ARM7,
+            g_dispatch_pokemon_platinum_usa_rev1_arm7,
+            g_dispatch_pokemon_platinum_usa_rev1_arm7_len,
+            "pokemon-platinum-usa-rev1-arm7");
+        if (arm7_status != ORACIS_DISPATCH_REGISTER_OK) {
+            if (added_arm9) {
+                (void)oracis_static_dispatch_unregister_bank(
+                    NDS_ARM9,
+                    g_dispatch_pokemon_platinum_usa_rev1_arm9,
+                    g_dispatch_pokemon_platinum_usa_rev1_arm9_len);
+            }
+            return ORACIS_HOST_RUNTIME_BANK_REGISTRATION_FAILED;
+        }
     }
-    g_arm7_compiled_bank_registered = true;
     return ORACIS_HOST_RUNTIME_OK;
 #else
     return ORACIS_HOST_RUNTIME_NO_COMPILED_BANKS;

@@ -334,6 +334,24 @@ std::size_t StaticDispatchRegistry::bank_count(NdsCpu cpu) const noexcept
     return cpu == NDS_ARM9 ? arm9_banks_.size() : arm7_banks_.size();
 }
 
+bool StaticDispatchRegistry::contains_bank(
+    NdsCpu cpu,
+    const NdsDispatchEntry *table,
+    std::size_t length) const noexcept
+{
+    if (!valid_cpu(cpu) || table == nullptr || length == 0u) {
+        return false;
+    }
+
+    const std::vector<Bank> &banks =
+        cpu == NDS_ARM9 ? arm9_banks_ : arm7_banks_;
+    return std::any_of(
+        banks.begin(), banks.end(),
+        [table, length](const Bank &bank) {
+            return bank.table == table && bank.length == length;
+        });
+}
+
 const char *StaticDispatchRegistry::register_status_name(
     RegisterBankStatus status) noexcept
 {

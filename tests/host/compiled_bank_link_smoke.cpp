@@ -68,6 +68,26 @@ int main()
         return fail("compiled ARM9/ARM7 registration did not recover after rollback");
     }
 
+    if (oracis_host_runtime_register_compiled_banks() !=
+            ORACIS_HOST_RUNTIME_BANKS_ALREADY_REGISTERED) {
+        (void)oracis_host_runtime_shutdown();
+        return fail("repeated compiled-bank registration was not identified");
+    }
+
+    /*
+     * The public dispatch ABI may clear every bank after host registration.
+     * The host must rediscover that state and register the compiled pair
+     * again instead of trusting stale process-local registration flags.
+     */
+    oracis_static_dispatch_clear();
+    if (oracis_host_runtime_has_program_banks() != 0 ||
+        oracis_host_runtime_register_compiled_banks() !=
+            ORACIS_HOST_RUNTIME_OK ||
+        oracis_host_runtime_has_program_banks() != 1) {
+        (void)oracis_host_runtime_shutdown();
+        return fail("compiled-bank registration did not recover after external registry clear");
+    }
+
     if (oracis_host_runtime_program_loaded() != 0 ||
         oracis_host_runtime_run_round(1u, nullptr, nullptr) !=
             ORACIS_HOST_RUNTIME_NO_PROGRAM_LOADED ||

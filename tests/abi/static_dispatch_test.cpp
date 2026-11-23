@@ -135,6 +135,15 @@ int main()
         return fail("bank counts are incorrect");
     }
 
+    if (!registry.contains_bank(NDS_ARM9, arm9_table, 3u) ||
+        !registry.contains_bank(NDS_ARM7, arm7_table, 1u) ||
+        registry.contains_bank(NDS_ARM9, arm9_table, 2u) ||
+        registry.contains_bank(NDS_ARM7, arm9_table, 3u) ||
+        registry.contains_bank(static_cast<NdsCpu>(77), arm9_table, 3u) ||
+        registry.contains_bank(NDS_ARM9, nullptr, 3u)) {
+        return fail("exact registered bank identity query is incorrect");
+    }
+
     auto result = registry.lookup(NDS_ARM9, 0x02000001u, 0u);
     if (!result || result.selected->fn != arm9_entry_a ||
         result.selected->addr != 0x02000000u) {
@@ -331,6 +340,9 @@ int main()
     if (registry.bank_count(NDS_ARM9) != 3u) {
         return fail("dispatch bank count did not decrease after unregister");
     }
+    if (registry.contains_bank(NDS_ARM9, same_address_modes, 2u)) {
+        return fail("unregistered table remained present in exact bank query");
+    }
     result = registry.lookup(NDS_ARM9, 0x02005000u, 0u);
     if (result.status != DispatchLookupStatus::Miss) {
         return fail("unregistered bank remained visible to lookup");
@@ -353,6 +365,8 @@ int main()
     }
     if (registry.bank_count(NDS_ARM9) != 0u ||
         registry.bank_count(NDS_ARM7) != 0u ||
+        registry.contains_bank(NDS_ARM9, arm9_table, 3u) ||
+        registry.contains_bank(NDS_ARM7, arm7_table, 1u) ||
         registry.lookup(NDS_ARM9, 0x02000000u, 0u).status !=
             DispatchLookupStatus::CpuNotRegistered) {
         return fail("registry clear did not remove all banks");

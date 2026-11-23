@@ -126,6 +126,10 @@ public:
         void *user = nullptr) const noexcept;
 
     std::size_t bank_count(NdsCpu cpu) const noexcept;
+    bool contains_bank(
+        NdsCpu cpu,
+        const NdsDispatchEntry *table,
+        std::size_t length) const noexcept;
     static const char *register_status_name(RegisterBankStatus status) noexcept;
     static const char *lookup_status_name(DispatchLookupStatus status) noexcept;
 
