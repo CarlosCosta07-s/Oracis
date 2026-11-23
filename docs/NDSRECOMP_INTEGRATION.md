@@ -323,6 +323,13 @@ guardados em pilhas guest. O módulo é zerado e removido do inventário somente
 depois que a faixa inteira continua gravável. Não chame unload até que o
 gerenciador de overlays possa provar que não há retorno pendente para o módulo.
 
+Durante `NdsMachine::shutdown()`, depois que as fatias dos dois CPUs
+são encerradas e antes de a memória ser desvinculada do barramento, o loader
+zera todas as faixas RAM+BSS que ainda constam no inventário e descarta seus
+registros. Assim, um ciclo posterior de initialize/load não herda bytes de
+overlays da sessão anterior. Se a limpeza falhar, o shutdown falha
+explicitamente em vez de fingir que o inventário foi resetado.
+
 O intervalo `static_init_start..static_init_end` é validado e preservado
 como metadado, mas **não é executado** pelo loader. A execução dos
 construtores/initializers, o protocolo específico de substituição usado pelo
