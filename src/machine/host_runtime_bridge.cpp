@@ -830,6 +830,7 @@ extern "C" int oracis_host_runtime_register_compiled_banks(void)
      * that can become stale after those public mutations.
      */
     bool added_arm9 = false;
+    bool added_arm7 = false;
     if (!arm9_registered) {
         const int arm9_status = oracis_static_dispatch_register_bank(
             NDS_ARM9,
@@ -857,6 +858,7 @@ extern "C" int oracis_host_runtime_register_compiled_banks(void)
             }
             return ORACIS_HOST_RUNTIME_BANK_REGISTRATION_FAILED;
         }
+        added_arm7 = true;
     }
 #ifdef ORACIS_WITH_PLATINUM_OVERLAY_BANKS
     const int overlay_status = oracis_register_compiled_overlay_banks();
