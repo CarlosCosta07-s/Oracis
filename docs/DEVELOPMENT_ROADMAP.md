@@ -489,4 +489,21 @@ auditoria de símbolos do linker: os 67 objetos nativos continuaram com
 11.719 referências resolvidas e zero símbolos unresolved/allowlisted. A
 lacuna que resta aqui é a resolução de destinos guest indiretos, não a
 provisão de símbolos C do runtime. Não habilitar execução apenas porque a
-auditoria do linker passou.\n
+auditoria do linker passou.\n\n\n## Atualização 2026-11-23 — função-callback a partir da tabela static-init
+
+A ferramenta de descoberta passou a aceitar
+`--include-static-init-pointers`. Ela lê as tabelas de ponteiros da região
+`static_init_start..static_init_end` das imagens extraídas, valida os limites
+e alinhamento e deriva o modo ARM/Thumb do bit 0 do ponteiro. Cada seed recebe
+um comentário de origem no TOML, e os entry points continuam explicitamente
+não autoritativos. A inspeção local encontrou 34 overlays ARM9 com ponteiros
+não nulos nessa faixa: 33 IDs sem nomes de função na árvore Poképlatinum e
+um overlay (0017) que já tinha fonte nomeada.
+
+Os 34 audits isolados desses ponteiros pelo NDSRecomp encontraram 41 funções,
+zero finder-undefined, zero destinos indiretos desconhecidos e zero operações
+sem codegen. Somados aos 29 overlays com âncoras de fonte, agora há TOMLs com
+candidatos para 62/122 overlays. Os 60 restantes não possuem nem nomes de
+função correspondentes nem ponteiros static-init não nulos. Esta etapa
+descobre somente callbacks de inicialização: não afirma que os 62 módulos
+estejam totalmente cobertos, nem executa os construtores automaticamente.\n
