@@ -193,16 +193,18 @@ Antes da publicação, `emit_platinum_banks.py` aplica o adaptador de código-fo
 
 A ponte oferece `oracis_host_runtime_load_local_platinum_segments(directory)`. Quando `directory` é nulo, a função usa `.oracis/local/pokemon-platinum-usa-rev1`; lê `arm9.bin` e `arm7.bin`; exige os tamanhos, endereços de carga, entry points e SHA-1 esperados para USA Rev 1; rejeita arquivo ausente, truncado, maior ou com hash divergente; e só chama o carregamento de segmentos em memória depois da validação integral dos dois arquivos. A falha de validação ocorre antes de qualquer escrita na máquina.
 
-Quando bancos estáticos estão ligados, o host SDL3 desktop chama essa API durante a inicialização. Se os arquivos não existirem, informa que continuará em modo de protótipo; se um arquivo existir mas for inválido, falha de modo explícito. No Android, a seleção de arquivo e a resolução do diretório privado ainda não estão integradas. Em nenhuma das plataformas o host chama `oracis_host_runtime_run_round()` nesta etapa: carregar imagens e registrar bancos não substitui a implementação dos serviços de runtime ou o provider arquitetural de IRQ.
+O host SDL3 desktop continua usando essa API para os segmentos locais validados. No Android, o seletor SDL3 agora aceita uma imagem NDS do usuário e uma BIOS ARM7 de 16 KiB; a URI `content://` é lida com `SDL_IOStream`, a imagem é montada no Game Card e os segmentos são carregados pelo caminho de cartucho, com a tabela KEY1 obtida da BIOS ARM7 fornecida pelo usuário.
+
+Depois do carregamento, `NdsMachine::load_program_segments()` semeia o estado de registradores/pilhas de entrada do cartucho documentado por GBATEK: R0–R11 zerados, R12/LR/PC no entrypoint, SP User/System + IRQ/SVC para cada CPU e POSTFLG bit 0. Isso não executa a sequência BIOS/firmware nem inicializa toda a memória de boot. No Android, o host tenta rounds nativos limitados apenas quando os dois entrypoints resolvem para bancos estáticos; cada fatia tem 1.024 ciclos e são executadas até 128 fatias por iteração do loop SDL. Dispatch miss e falhas de dispositivo/timing continuam fail-closed. Esse experimento ainda não comprova boot completo ou primeiro quadro, e a falta de provider arquitetural de IRQ para eventos pendentes no boundary, Chip ID físico no Android, firmware e overlays necessários continua aberta.
 
 ## 11. Próximos marcos técnicos
 
-1. Executar o extrator versionado e o emissor NDSRecomp fixado contra a cópia USA Rev 1 local; preservar localmente logs, hashes e manifesto.
-2. Compilar os bancos reais e inventariar símbolos indefinidos, helpers esperados, dependências e overlays/cópias de código.
-3. Implementar somente os serviços efetivamente exigidos pelos bancos, com contratos e testes próprios: ciclos, bus, exceções/CP15, IRQ, DMA, IPC, BIOS/NitroSDK e código dinâmico.
-4. Implementar e testar o provider arquitetural de IRQ, incluindo LR correto, modo ARM/Thumb e base vetorial CP15.
-5. Executar e auditar o caminho de inicialização desktop com a extração real; confirmar que os bancos estáticos compilados e os segmentos carregados pertencem à mesma revisão, e implementar a seleção segura de arquivo/diretório local no Android.
-6. Iniciar rounds somente quando ambos os bancos e imagens estiverem validados e os caminhos de dispatch, serviços e IRQ exigidos estiverem prontos.
+1. Reconstruir localmente os bancos principais e overlays com o NDSRecomp fixado; manter ROM, segmentos e bancos gerados fora do Git/CI.
+2. Completar a ligação dos bancos reais ao runtime host e confirmar o inventário de símbolos e os entrypoints ARM9/ARM7.
+3. Validar no Android a seleção SAF de ROM/BIOS ARM7, a leitura das URIs content://, a identidade Secure Area e o carregamento dos segmentos.
+4. Fechar o direct-entry com estado de registradores/pilhas documentado, memória de boot, POSTFLG, Chip ID, firmware e CP15/MPU/TCM; separar explicitamente o que exige executar BIOS retail.
+5. Resolver o primeiro dispatch miss, MMIO/timing não suportado, dependência BIOS/NitroSDK ou IRQ sem provider, sem fallback de interpretador.
+6. Ligar o pipeline de overlays, apresentar o primeiro quadro e validar no aparelho Android antes de declarar primeiro boot.
 
 O critério de primeiro boot nativo continua sendo a execução observável e reproduzível dos dois cores até a apresentação do primeiro quadro, sem interpretador ARM genérico e sem componentes de runtime derivados de melonDS.
 
