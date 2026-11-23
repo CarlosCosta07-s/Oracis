@@ -321,6 +321,40 @@ não resolvidos nem allowlist. Isso valida compilação e resolução de símbol
 não a execução funcional dos módulos em jogo. A hipótese Thumb continua
 provisória e requer conferência byte-level antes de ativar execução.
 
+### Sementes provenientes da tabela de inicialização do overlay
+
+A mesma ferramenta pode incluir ponteiros explícitos da faixa
+`static_init_start..static_init_end` da tabela de overlays NDS. Use a opção
+`--include-static-init-pointers` e um diretório de saída separado:
+
+    python tools/ndsrecomp/discover_platinum_overlay_configs.py \
+      --overlay-image-dir .oracis/local/pokemon-platinum-usa-rev1/overlays \
+      --source /caminho/pokeplatinum-main.zip \
+      --output-dir .oracis/local/pokemon-platinum-usa-rev1/overlays-static-init \
+      --include-function-pointer-headers \
+      --include-static-init-pointers
+
+Diferentemente dos nomes de arquivos-fonte, esses ponteiros carregam o bit
+ARM/Thumb no bit menos significativo. A ferramenta lê a faixa estática da
+imagem local já validada, ignora o terminador zero, remove o bit de modo,
+confere alinhamento e exige que o endereço e a instrução inicial permaneçam
+dentro do mesmo overlay. O TOML registra cada seed com modo exato e comentário
+de origem. Os entry points continuam com
+`authoritative_entry_points = false`: são funções de inicialização
+(construtores), não a entrada principal nem uma prova de que todas as funções
+do overlay foram descobertas.
+
+Na extração USA Rev 1 auditada, **34 overlays ARM9** continham pelo menos um
+ponteiro não nulo nessa faixa. Eles incluem 33 IDs sem âncoras de fonte; o
+overlay 0017 já tinha âncoras C. Os 34 audits isolados pelo NDSRecomp
+encontraram **41 funções**, com zero finder-undefined, zero destino indireto
+desconhecido e zero operação sem codegen. Assim, os candidatos de inicialização
+e os nomes de fonte dão TOMLs para **62 overlays** (29 com nomes de fonte,
+mais 33 estáticos novos); **60/122** ainda não possuem nenhuma dessas
+sementes. Essa cobertura é de pontos de inicialização, não de todos os
+entry points ou todos os caminhos de execução dos 62 módulos.
+
+
 **Limite desta etapa:** extrair e validar um overlay não significa recompilá-lo.
 O manifesto não inventa um entry point para o módulo. Ainda é necessário
 descobrir referências e alvos de função nos bancos principais, gerar a
