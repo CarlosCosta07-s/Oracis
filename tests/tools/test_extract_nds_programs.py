@@ -100,6 +100,20 @@ class ExtractNdsProgramsTests(unittest.TestCase):
 
         self.assertEqual(manifest["rom_sha1"], hashlib.sha1(image).hexdigest())
         self.assertEqual(
+            (output / "header.bin").read_bytes(),
+            image[:extractor.NDS_HEADER_STORED_SIZE],
+        )
+        self.assertEqual(
+            manifest["boot_header"],
+            {
+                "file": "header.bin",
+                "size": extractor.NDS_HEADER_STORED_SIZE,
+                "sha1": hashlib.sha1(
+                    image[:extractor.NDS_HEADER_STORED_SIZE]
+                ).hexdigest(),
+            },
+        )
+        self.assertEqual(
             [segment["cpu"] for segment in manifest["segments"]],
             ["arm9", "arm7"],
         )

@@ -259,7 +259,11 @@ int main()
         return fail("loader failed to load matching ARM9/ARM7 segments after Secure Area decryption");
     }
 
+    constexpr uint32_t kBootHeaderAddress = UINT32_C(0x027FFE00);
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9) ||
+        bus_read_u32(kBootHeaderAddress + UINT32_C(0x0C)) != kGameCode ||
+        bus_read_u32(kBootHeaderAddress + UINT32_C(0x20)) != kArm9RomOffset ||
+        bus_read_u32(kBootHeaderAddress + UINT32_C(0x34)) != kArm7LoadAddress ||
         bus_read_u32(kArm9LoadAddress) != UINT32_C(0x72636E65) ||
         bus_read_u32(kArm9LoadAddress + 4u) != UINT32_C(0x6A624F79) ||
         bus_read_u32(kArm9LoadAddress + UINT32_C(0x800)) !=
@@ -286,6 +290,6 @@ int main()
         return fail("host runtime shutdown failed");
     }
 
-    std::cout << "Game Card loader validates metadata, source bytes and Secure Area before loading\n";
+    std::cout << "Game Card loader validates metadata, source bytes, Secure Area and boot-header mirror before loading\n";
     return 0;
 }

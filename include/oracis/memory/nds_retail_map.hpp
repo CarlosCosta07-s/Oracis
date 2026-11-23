@@ -30,6 +30,10 @@ public:
     static constexpr uint32_t MainRamMirror2 = UINT32_C(0x02800000);
     static constexpr uint32_t MainRamMirror3 = UINT32_C(0x02C00000);
 
+    /* NDS boot copies the stored 0x170-byte cartridge header into main RAM. */
+    static constexpr uint32_t CartridgeHeaderRamAddress = UINT32_C(0x027FFE00);
+    static constexpr uint32_t CartridgeHeaderStoredSize = UINT32_C(0x00000170);
+
     static constexpr uint32_t SharedWramBase = UINT32_C(0x03000000);
     static constexpr uint32_t SharedWramBankSize = UINT32_C(0x00004000);
     static constexpr uint32_t SharedWramSize = UINT32_C(0x00008000);

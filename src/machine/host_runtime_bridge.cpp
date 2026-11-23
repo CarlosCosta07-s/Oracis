@@ -1,5 +1,6 @@
 #include "oracis/host/runtime_bridge.h"
 #include "oracis/host/detail/sha1.hpp"
+#include "oracis/host/detail/nds_cartridge_header.hpp"
 
 #include "oracis/machine/nds_machine.hpp"
 #include "oracis/memory/nds_2d_bg_compositor.hpp"
@@ -186,6 +187,46 @@ int read_verified_segment(
     if (stream.bad()) return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR;
 
     if (oracis::host::detail::sha1_hex(contents) != expected.sha1) {
+        return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID;
+    }
+    return ORACIS_HOST_RUNTIME_OK;
+}
+
+int read_verified_platinum_header(
+    const std::filesystem::path &path,
+    std::vector<uint8_t> &contents)
+{
+    using oracis::host::detail::NdsCartridgeHeaderStoredSize;
+    std::error_code error;
+    const auto file_status = std::filesystem::symlink_status(path, error);
+    if (error == std::errc::no_such_file_or_directory ||
+        file_status.type() == std::filesystem::file_type::not_found) {
+        return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_MISSING;
+    }
+    if (error) return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR;
+    if (std::filesystem::is_symlink(file_status) ||
+        !std::filesystem::is_regular_file(file_status)) {
+        return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID;
+    }
+
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream) return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR;
+    contents.resize(NdsCartridgeHeaderStoredSize);
+    stream.read(
+        reinterpret_cast<char *>(contents.data()),
+        static_cast<std::streamsize>(contents.size()));
+    if (stream.gcount() != static_cast<std::streamsize>(contents.size())) {
+        return stream.bad()
+            ? ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR
+            : ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID;
+    }
+    if (stream.bad()) return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR;
+
+    char extra_byte = 0;
+    stream.read(&extra_byte, 1);
+    if (stream.gcount() != 0 || stream.bad() ||
+        !oracis::host::detail::validate_platinum_usa_rev1_boot_header(
+            contents.data(), contents.size())) {
         return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID;
     }
     return ORACIS_HOST_RUNTIME_OK;
@@ -429,7 +470,10 @@ extern "C" int oracis_host_runtime_load_game_card_program_segments(
             arm7->entry_thumb != 0u, arm7->contents
         };
         const auto load_status = machine.load_program_segments(
-            arm9_segment, arm7_segment);
+            arm9_segment, arm7_segment,
+            image,
+            static_cast<uint32_t>(
+                oracis::host::detail::NdsCartridgeHeaderStoredSize));
         g_last_machine_status = static_cast<int>(load_status);
         return load_status == oracis::machine::NdsMachineStatus::Ok
             ? ORACIS_HOST_RUNTIME_OK
@@ -509,11 +553,15 @@ extern "C" int oracis_host_runtime_load_local_platinum_segments(
 
         std::vector<uint8_t> arm9_bytes;
         std::vector<uint8_t> arm7_bytes;
+        std::vector<uint8_t> cartridge_header;
         int status = read_verified_segment(
             root / "arm9.bin", kExpectedArm9, arm9_bytes);
         if (status != ORACIS_HOST_RUNTIME_OK) return status;
         status = read_verified_segment(
             root / "arm7.bin", kExpectedArm7, arm7_bytes);
+        if (status != ORACIS_HOST_RUNTIME_OK) return status;
+        status = read_verified_platinum_header(
+            root / "header.bin", cartridge_header);
         if (status != ORACIS_HOST_RUNTIME_OK) return status;
 
         const OracisHostProgramSegment arm9{
@@ -530,7 +578,22 @@ extern "C" int oracis_host_runtime_load_local_platinum_segments(
             0u,
             arm7_bytes.data()
         };
-        return oracis_host_runtime_load_program_segments(&arm9, &arm7);
+        const oracis::machine::NdsProgramSegment arm9_image{
+            NDS_ARM9, arm9.load_address, arm9.size, arm9.entry_pc,
+            false, arm9.contents
+        };
+        const oracis::machine::NdsProgramSegment arm7_image{
+            NDS_ARM7, arm7.load_address, arm7.size, arm7.entry_pc,
+            false, arm7.contents
+        };
+        const auto load_status = host_machine().load_program_segments(
+            arm9_image, arm7_image,
+            cartridge_header.data(),
+            static_cast<uint32_t>(cartridge_header.size()));
+        g_last_machine_status = static_cast<int>(load_status);
+        return load_status == oracis::machine::NdsMachineStatus::Ok
+            ? ORACIS_HOST_RUNTIME_OK
+            : ORACIS_HOST_RUNTIME_MACHINE_ERROR;
     } catch (const std::bad_alloc &) {
         return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR;
     } catch (const std::filesystem::filesystem_error &) {

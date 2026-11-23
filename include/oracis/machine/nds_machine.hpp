@@ -119,13 +119,16 @@ public:
 
     /*
      * Preflight and load one ARM9 plus one ARM7 segment into existing retail
-     * executable RAM mappings. This materializes the bytes, validates their
-     * identity, and seeds PC/CPSR.T. It does not reproduce BIOS register/stack
-     * setup or imply that missing NitroSDK/timing services are ready to run.
+     * executable RAM mappings. When supplied, cartridge_header must contain
+     * exactly the 0x170 bytes mirrored by NDS boot at 0x027FFE00.
+     * This still does not reproduce BIOS register/stack setup or imply that
+     * missing NitroSDK/timing services are ready to run.
      */
     NdsMachineStatus load_program_segments(
         const NdsProgramSegment &arm9,
-        const NdsProgramSegment &arm7) noexcept;
+        const NdsProgramSegment &arm7,
+        const uint8_t *cartridge_header = nullptr,
+        uint32_t cartridge_header_size = 0u) noexcept;
     bool program_loaded() const noexcept { return program_loaded_; }
 
     /* Unbinds devices in reverse dependency order. Safe to call more than once. */

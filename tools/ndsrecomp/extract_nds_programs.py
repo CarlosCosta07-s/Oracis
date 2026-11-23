@@ -16,6 +16,7 @@ from pathlib import Path
 
 EXPECTED_ROM_SHA1 = "0862ec35b24de5c7e2dcb88c9eea0873110d755c"
 NDS_HEADER_MIN_SIZE = 0x200
+NDS_HEADER_STORED_SIZE = 0x170
 SEGMENT_FIELDS = {"arm9": 0x20, "arm7": 0x30}
 
 
@@ -128,6 +129,10 @@ def extract(rom_path: Path, output_dir: Path) -> dict:
         )
 
     with rom_path.open("rb") as stream:
+        boot_header = stream.read(NDS_HEADER_STORED_SIZE)
+        if len(boot_header) != NDS_HEADER_STORED_SIZE:
+            raise ValueError("Nintendo DS boot header is truncated")
+
         segments = [
             read_segment_header(stream, file_size, cpu, offset)
             for cpu, offset in SEGMENT_FIELDS.items()
@@ -140,6 +145,12 @@ def extract(rom_path: Path, output_dir: Path) -> dict:
             raise ValueError("ARM9 and ARM7 ROM segments overlap")
 
         output_dir.mkdir(parents=True, exist_ok=True)
+        boot_header_path = output_dir / "header.bin"
+        boot_header_path.write_bytes(boot_header)
+        if boot_header_path.stat().st_size != NDS_HEADER_STORED_SIZE or \
+                boot_header_path.read_bytes() != boot_header:
+            raise ValueError("Post-write verification failed for NDS boot header")
+
         for segment in segments:
             target = output_dir / f"{segment.cpu}.bin"
             stream.seek(segment.rom_offset)
@@ -166,6 +177,11 @@ def extract(rom_path: Path, output_dir: Path) -> dict:
         "rom_sha1": rom_sha1,
         "rom_size": file_size,
         "source_file_name": rom_path.name,
+        "boot_header": {
+            "file": "header.bin",
+            "size": NDS_HEADER_STORED_SIZE,
+            "sha1": hashlib.sha1(boot_header).hexdigest(),
+        },
         "segments": [asdict(segment) for segment in segments],
         "notice": "Local generated content. Never commit or distribute these files.",
     }

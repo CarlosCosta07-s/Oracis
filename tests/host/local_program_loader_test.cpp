@@ -1,4 +1,5 @@
 #include "oracis/host/runtime_bridge.h"
+#include "oracis/host/detail/nds_cartridge_header.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -33,6 +34,56 @@ int main()
 {
     namespace fs = std::filesystem;
     constexpr uint32_t kArm9Size = 0x001023F8u;
+
+    std::vector<uint8_t> boot_header(
+        oracis::host::detail::NdsCartridgeHeaderStoredSize, 0u);
+    boot_header[0x0Cu] = 'C';
+    boot_header[0x0Du] = 'P';
+    boot_header[0x0Eu] = 'U';
+    boot_header[0x0Fu] = 'E';
+    const auto write_u32 = [&boot_header](std::size_t offset, uint32_t value) {
+        for (unsigned index = 0u; index < 4u; ++index) {
+            boot_header[offset + index] =
+                static_cast<uint8_t>(value >> (index * 8u));
+        }
+    };
+    const auto write_u16 = [&boot_header](std::size_t offset, uint16_t value) {
+        boot_header[offset] = static_cast<uint8_t>(value);
+        boot_header[offset + 1u] = static_cast<uint8_t>(value >> 8u);
+    };
+    const auto refresh_crc = [&]() {
+        write_u16(
+            0x15Eu,
+            oracis::host::detail::nds_header_crc16(boot_header.data(), 0x15Eu));
+    };
+
+    write_u32(0x20u, UINT32_C(0x00004000));
+    write_u32(0x24u, UINT32_C(0x02000800));
+    write_u32(0x28u, UINT32_C(0x02000000));
+    write_u32(0x2Cu, UINT32_C(0x001023F8));
+    write_u32(0x30u, UINT32_C(0x00409800));
+    write_u32(0x34u, UINT32_C(0x02380000));
+    write_u32(0x38u, UINT32_C(0x02380000));
+    write_u32(0x3Cu, UINT32_C(0x000277FC));
+    write_u16(0x15Cu, UINT16_C(0xCF56));
+    refresh_crc();
+    if (!oracis::host::detail::validate_platinum_usa_rev1_boot_header(
+            boot_header.data(), boot_header.size())) {
+        return fail("valid synthetic Platinum boot header was rejected");
+    }
+
+    write_u32(0x24u, UINT32_C(0x02000804));
+    refresh_crc();
+    if (oracis::host::detail::validate_platinum_usa_rev1_boot_header(
+            boot_header.data(), boot_header.size())) {
+        return fail("wrong entry-point metadata was accepted in the Platinum header");
+    }
+    write_u32(0x24u, UINT32_C(0x02000800));
+    refresh_crc();
+    if (oracis::host::detail::validate_platinum_usa_rev1_boot_header(
+            boot_header.data(), boot_header.size() - 1u)) {
+        return fail("truncated Platinum boot header was accepted");
+    }
 
     const fs::path root =
         fs::temp_directory_path() / "oracis-local-program-loader-test";

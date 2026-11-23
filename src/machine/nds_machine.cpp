@@ -1424,9 +1424,18 @@ NdsMachineStatus NdsMachine::initialize() noexcept
 
 NdsMachineStatus NdsMachine::load_program_segments(
     const NdsProgramSegment &arm9,
-    const NdsProgramSegment &arm7) noexcept
+    const NdsProgramSegment &arm7,
+    const uint8_t *cartridge_header,
+    uint32_t cartridge_header_size) noexcept
 {
     if (!initialized_) return NdsMachineStatus::NotInitialized;
+
+    const bool has_cartridge_header = cartridge_header != nullptr;
+    if ((has_cartridge_header &&
+         cartridge_header_size != memory::NdsRetailRamMap::CartridgeHeaderStoredSize) ||
+        (!has_cartridge_header && cartridge_header_size != 0u)) {
+        return NdsMachineStatus::InvalidProgramImage;
+    }
     if (program_loaded_) return NdsMachineStatus::ProgramAlreadyLoaded;
     if (slice_active_[0] || slice_active_[1]) {
         return NdsMachineStatus::SliceAlreadyActive;
@@ -1487,6 +1496,15 @@ NdsMachineStatus NdsMachine::load_program_segments(
         return NdsMachineStatus::ProgramMemoryUnavailable;
     }
 
+    if (has_cartridge_header &&
+        memory_.validate_write(
+            NDS_ARM9,
+            memory::NdsRetailRamMap::CartridgeHeaderRamAddress,
+            memory::NdsRetailRamMap::CartridgeHeaderStoredSize) !=
+            memory::Status::Ok) {
+        return NdsMachineStatus::ProgramMemoryUnavailable;
+    }
+
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
         return NdsMachineStatus::SchedulerFailure;
     }
@@ -1496,17 +1514,29 @@ NdsMachineStatus NdsMachine::load_program_segments(
             memory::Status::Ok ||
         memory_.write_bytes(
             NDS_ARM7, arm7.load_address, arm7.contents, arm7.size) !=
-            memory::Status::Ok) {
+            memory::Status::Ok ||
+        (has_cartridge_header &&
+         memory_.write_bytes(
+             NDS_ARM9,
+             memory::NdsRetailRamMap::CartridgeHeaderRamAddress,
+             cartridge_header, cartridge_header_size) !=
+             memory::Status::Ok)) {
         return NdsMachineStatus::ProgramLoadFailed;
     }
 
-    /* Confirm that the exact bytes used by the static banks are now live. */
+    /* Confirm that both program images and the optional boot header are live. */
     if (memory_.validate_identity(
             NDS_ARM9, arm9.load_address, arm9.size, arm9.contents) !=
             memory::Status::Ok ||
         memory_.validate_identity(
             NDS_ARM7, arm7.load_address, arm7.size, arm7.contents) !=
-            memory::Status::Ok) {
+            memory::Status::Ok ||
+        (has_cartridge_header &&
+         memory_.validate_identity(
+             NDS_ARM9,
+             memory::NdsRetailRamMap::CartridgeHeaderRamAddress,
+             cartridge_header_size, cartridge_header) !=
+             memory::Status::Ok)) {
         return NdsMachineStatus::ProgramLoadFailed;
     }
 
