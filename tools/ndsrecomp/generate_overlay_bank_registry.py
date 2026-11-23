@@ -24,8 +24,65 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def generate(bank_dir: Path, output_cpp: Path, manifest_path: Path) -> dict:
+
+def sha1(path: Path) -> str:
+    digest = hashlib.sha1()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def load_source_overlay_manifest(image_dir: Path) -> dict[int, dict]:
+    image_dir = image_dir.resolve(strict=True)
+    manifest = json.loads((image_dir / "manifest.json").read_text(encoding="utf-8"))
+    if manifest.get("schema") != "oracis-nds-overlays-v1":
+        raise ValueError("unsupported or missing extracted overlay manifest schema")
+    if manifest.get("rom_sha1") != "0862ec35b24de5c7e2dcb88c9eea0873110d755c":
+        raise ValueError("extracted overlays do not match Pokémon Platinum USA Rev 1")
+    rows = manifest.get("overlays")
+    if not isinstance(rows, list) or manifest.get("overlay_count") != len(rows):
+        raise ValueError("extracted overlay manifest count is inconsistent")
+
+    records: dict[int, dict] = {}
+    for row in rows:
+        if not isinstance(row, dict) or row.get("cpu") != "arm9":
+            raise ValueError("the current compiled overlay registry accepts ARM9 records only")
+        overlay_id = row.get("overlay_id")
+        if not isinstance(overlay_id, int) or not 0 <= overlay_id <= 0xFFFFFFFF:
+            raise ValueError("extracted overlay manifest contains an invalid overlay ID")
+        if overlay_id in records:
+            raise ValueError(f"duplicate extracted ARM9 overlay ID {overlay_id}")
+
+        image_name = row.get("image_file")
+        if (not isinstance(image_name, str) or not image_name or
+                Path(image_name).name != image_name or image_name == "manifest.json"):
+            raise ValueError(f"overlay {overlay_id} has an unsafe image filename")
+        image_path = image_dir / image_name
+        if image_path.is_symlink() or not image_path.is_file():
+            raise ValueError(f"missing or unsafe extracted overlay image: {image_path}")
+        image_size = row.get("image_size")
+        image_sha1 = row.get("image_sha1")
+        image_sha256 = row.get("image_sha256")
+        if (not isinstance(image_size, int) or image_size <= 0 or
+                not isinstance(image_sha1, str) or
+                not re.fullmatch(r"[0-9a-f]{40}", image_sha1) or
+                not isinstance(image_sha256, str) or
+                not re.fullmatch(r"[0-9a-f]{64}", image_sha256)):
+            raise ValueError(f"overlay {overlay_id} has invalid image identity metadata")
+        if image_path.stat().st_size != image_size:
+            raise ValueError(f"extracted overlay image size mismatch for ID {overlay_id}")
+        if sha1(image_path) != image_sha1 or sha256(image_path) != image_sha256:
+            raise ValueError(f"extracted overlay image hash mismatch for ID {overlay_id}")
+        if row.get("ram_size") != image_size:
+            raise ValueError(f"overlay {overlay_id} RAM size does not match its image size")
+        records[overlay_id] = row
+    return records
+
+
+def generate(bank_dir: Path, overlay_image_dir: Path, output_cpp: Path, manifest_path: Path) -> dict:
     bank_dir = bank_dir.resolve(strict=True)
+    source_overlays = load_source_overlay_manifest(overlay_image_dir)
     report_path = bank_dir / "emission_report.json"
     report = json.loads(report_path.read_text(encoding="utf-8"))
     if report.get("schema") != "oracis-overlay-bank-emission-v1":
@@ -51,6 +108,13 @@ def generate(bank_dir: Path, output_cpp: Path, manifest_path: Path) -> dict:
         seen_ids.add(overlay_id)
         if row.get("overlay_id") != overlay_id:
             raise ValueError(f"overlay ID disagrees with bank name: {bank}")
+        source = source_overlays.get(overlay_id)
+        if source is None:
+            raise ValueError(f"compiled overlay ID {overlay_id} is absent from extracted manifest")
+        if row.get("image_sha1") != source.get("image_sha1"):
+            raise ValueError(
+                f"compiled overlay image hash does not match extracted image for ID {overlay_id}"
+            )
         folder = bank_dir / f"overlay_{overlay_id:04d}"
         body = folder / f"{bank}.c"
         header = folder / f"{bank}.h"
@@ -118,10 +182,17 @@ def generate(bank_dir: Path, output_cpp: Path, manifest_path: Path) -> dict:
     lines.extend(["    return ORACIS_DISPATCH_REGISTER_OK;", "}", ""])
     output_cpp.parent.mkdir(parents=True, exist_ok=True)
     output_cpp.write_text("\n".join(lines), encoding="utf-8")
+    emitted_ids = {item["overlay_id"] for item in records}
+    source_ids = set(source_overlays)
+    uncompiled_ids = sorted(source_ids - emitted_ids)
     manifest = {
         "schema": "oracis-overlay-registry-v1",
         "codegen": report["codegen"],
         "rom_sha1": report.get("rom_sha1"),
+        "source_overlay_count": len(source_overlays),
+        "compiled_overlay_count": len(records),
+        "uncompiled_overlay_count": len(uncompiled_ids),
+        "uncompiled_overlay_ids": uncompiled_ids,
         "bank_count": len(records),
         "function_count": sum(x.get("function_count") or 0 for x in records),
         "banks": records,
@@ -135,16 +206,19 @@ def generate(bank_dir: Path, output_cpp: Path, manifest_path: Path) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bank-dir", type=Path, required=True)
+    parser.add_argument("--overlay-image-dir", type=Path, required=True)
     parser.add_argument("--output-cpp", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
     args = parser.parse_args()
     try:
-        result = generate(args.bank_dir, args.output_cpp, args.manifest)
+        result = generate(args.bank_dir, args.overlay_image_dir, args.output_cpp, args.manifest)
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         parser.error(str(exc))
     print(
         f"overlay registry: {result['bank_count']} ARM9 banks, "
-        f"{result['function_count']} functions; registrar SHA-256 "
+        f"{result['function_count']} functions; coverage "
+        f"{result['compiled_overlay_count']}/{result['source_overlay_count']} "
+        f"(uncompiled: {result['uncompiled_overlay_count']}); registrar SHA-256 "
         f"{result['registrar_sha256']}"
     )
     return 0
