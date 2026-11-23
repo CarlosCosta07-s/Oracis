@@ -135,6 +135,15 @@ public:
 
     /* Overlay images are supplied already extracted and decompressed. */
     NdsOverlayStatus load_overlay(const NdsOverlayImage &image) noexcept;
+    /*
+     * Execute the validated static-init callbacks once, in NDS table order.
+     * Each callback receives a bounded guest slice and a synthetic guest
+     * return frame. CPU registers and call-return stack are restored after
+     * every callback; guest memory/device side effects are retained.
+     */
+    NdsOverlayStatus run_overlay_static_initializers(
+        NdsCpu cpu, uint32_t overlay_id,
+        uint64_t cycle_budget_per_initializer) noexcept;
     NdsOverlayStatus unload_overlay(
         NdsCpu cpu, uint32_t overlay_id,
         bool no_live_guest_references) noexcept;
@@ -266,6 +275,21 @@ public:
     const ArmCpuState *cpu_state(NdsCpu cpu) const noexcept;
 
 private:
+    struct OverlayDispatchMissCapture {
+        NdsCpu cpu = NDS_ARM9;
+        bool seen = false;
+        uint32_t target_pc = 0u;
+        uint32_t cpsr = 0u;
+        uint32_t lookup_status = 0u;
+        uint32_t candidate_count = 0u;
+        uint32_t has_inactive_candidate = 0u;
+    };
+
+    static int runtime_overlay_dispatch_miss_handler(
+        void *context, NdsCpu cpu, uint32_t target_pc, uint32_t cpsr,
+        uint32_t lookup_status, uint32_t candidate_count,
+        uint32_t has_inactive_candidate);
+
     static bool valid_cpu(NdsCpu cpu) noexcept;
     static unsigned cpu_index(NdsCpu cpu) noexcept;
     static void display_scanline_observer(
