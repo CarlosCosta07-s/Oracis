@@ -57,7 +57,7 @@ int accept_expected_validation(
            thumb == 0u;
 }
 
-int accept_higher_rank_validation(
+int accept_ranked_validations(
     NdsCpu cpu,
     const NdsStaticValidation *candidate,
     uint32_t pc,
@@ -66,9 +66,9 @@ int accept_higher_rank_validation(
 {
     ++validation_callback_calls;
     return cpu == NDS_ARM9 &&
-           candidate == user &&
-           candidate != nullptr &&
-           candidate->size == sizeof(higher_rank_expected_bytes) &&
+           user == &validation &&
+           (candidate == &validation ||
+            candidate == &higher_rank_validation) &&
            pc == 0x02001000u &&
            thumb == 0u;
 }
@@ -373,13 +373,22 @@ int main()
      * the previous bank again.
      */
     oracis_static_dispatch_set_validation_callback(
-        accept_higher_rank_validation,
-        const_cast<NdsStaticValidation *>(&higher_rank_validation));
+        accept_ranked_validations,
+        const_cast<NdsStaticValidation *>(&validation));
     if (oracis_static_dispatch_register_bank(
             NDS_ARM9, higher_rank_table, 1u, "higher-rank-validated-arm9") !=
         static_cast<int>(oracis::recomp::RegisterBankStatus::Ok)) {
         return fail("higher-rank candidate bank registration failed");
     }
+    selected = oracis_static_dispatch_lookup(
+        NDS_ARM9, 0x02001000u, arm9.cpsr,
+        &lookup_status, &candidate_count, &inactive);
+    if (selected != &higher_rank_table[0] || candidate_count != 2u ||
+        lookup_status != static_cast<uint32_t>(
+            oracis::recomp::DispatchLookupStatus::Found)) {
+        return fail("larger live validation span did not win among active candidates");
+    }
+
     const unsigned validation_calls_before_higher_rank = validation_callback_calls;
     runtime_link_call(&guarded_slot);
     if (higher_rank_calls != 1u || guarded_slot.fn != higher_rank_body ||
