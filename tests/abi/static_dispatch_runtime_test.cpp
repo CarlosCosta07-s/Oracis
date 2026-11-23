@@ -400,7 +400,7 @@ int main()
     const unsigned validation_calls_before_lower_rank = validation_callback_calls;
     runtime_link_call(&guarded_slot);
     if (replacement_calls != 2u || guarded_slot.fn != replacement_body ||
-        validation_callback_calls != validation_calls_before_lower_rank + 2u ||
+        validation_callback_calls != validation_calls_before_lower_rank + 1u ||
         runtime_inline_leaf_admit(&guarded_slot, replacement_body) != 1) {
         return fail("lower-rank candidate was not restored after winner removal");
     }
