@@ -19,6 +19,9 @@ EXPECTED_ROM_SHA1 = "0862ec35b24de5c7e2dcb88c9eea0873110d755c"
 SOURCE_RE = re.compile(
     r"(?:^|/)src/overlay(?P<folder>\d{3})/ov\d+_(?P<address>[0-9A-Fa-f]{8})\.c$"
 )
+FUNCTION_POINTER_HEADER_RE = re.compile(
+    r"(?:^|/)include/overlay(?P<folder>\d{3})/funcptr_ov\d+_(?P<address>[0-9A-Fa-f]{8})\.h$"
+)
 
 
 def file_hash(path: Path, algorithm: str) -> str:
@@ -76,7 +79,10 @@ def load_overlay_records(image_dir: Path) -> dict[int, dict]:
     return records
 
 
-def source_anchors(source: Path) -> tuple[dict[int, list[tuple[int, str]]], str, int]:
+def source_anchors(
+    source: Path,
+    include_function_pointer_headers: bool = False,
+) -> tuple[dict[int, list[tuple[int, str]]], str, int]:
     anchors: dict[int, set[tuple[int, str]]] = {}
     matched_files = 0
     if source.is_file():
@@ -88,12 +94,19 @@ def source_anchors(source: Path) -> tuple[dict[int, list[tuple[int, str]]], str,
         source_digest = file_hash(source, "sha1")
         for name in names:
             match = SOURCE_RE.search(name)
+            is_function_pointer_header = False
+            if match is None and include_function_pointer_headers:
+                match = FUNCTION_POINTER_HEADER_RE.search(name)
+                is_function_pointer_header = match is not None
             if not match:
                 continue
             matched_files += 1
             overlay_id = int(match.group("folder"))
             address = int(match.group("address"), 16)
-            anchors.setdefault(overlay_id, set()).add((address, Path(name).stem))
+            stem = Path(name).stem
+            if is_function_pointer_header:
+                stem = stem.removeprefix("funcptr_")
+            anchors.setdefault(overlay_id, set()).add((address, stem))
     elif source.is_dir():
         if source.is_symlink():
             raise ValueError("source directory must not be a symlink")
@@ -103,12 +116,19 @@ def source_anchors(source: Path) -> tuple[dict[int, list[tuple[int, str]]], str,
                 continue
             relative = path.relative_to(source).as_posix()
             match = SOURCE_RE.search("/" + relative)
+            is_function_pointer_header = False
+            if match is None and include_function_pointer_headers:
+                match = FUNCTION_POINTER_HEADER_RE.search("/" + relative)
+                is_function_pointer_header = match is not None
             if not match:
                 continue
             matched_files += 1
             overlay_id = int(match.group("folder"))
             address = int(match.group("address"), 16)
-            anchors.setdefault(overlay_id, set()).add((address, path.stem))
+            stem = path.stem
+            if is_function_pointer_header:
+                stem = stem.removeprefix("funcptr_")
+            anchors.setdefault(overlay_id, set()).add((address, stem))
     else:
         raise FileNotFoundError(f"source ZIP or directory not found: {source}")
     return {key: sorted(value) for key, value in anchors.items()}, source_digest, matched_files
@@ -147,9 +167,16 @@ def render_config(overlay_id: int, row: dict, entries: list[tuple[int, str]]) ->
     return "\n".join(lines)
 
 
-def discover(image_dir: Path, source: Path, output_dir: Path) -> dict:
+def discover(
+    image_dir: Path,
+    source: Path,
+    output_dir: Path,
+    include_function_pointer_headers: bool = False,
+) -> dict:
     records = load_overlay_records(image_dir)
-    candidates, source_sha1, matched_files = source_anchors(source)
+    candidates, source_sha1, matched_files = source_anchors(
+        source, include_function_pointer_headers
+    )
     output_dir = output_dir.expanduser()
     if output_dir.is_symlink():
         raise ValueError("config output directory must not be a symlink")
@@ -209,7 +236,8 @@ def discover(image_dir: Path, source: Path, output_dir: Path) -> dict:
         "schema": "oracis-overlay-anchor-discovery-v1",
         "rom_sha1": EXPECTED_ROM_SHA1,
         "source_sha1": source_sha1,
-        "source_matched_c_files": matched_files,
+        "source_matched_candidate_files": matched_files,
+        "includes_function_pointer_headers": include_function_pointer_headers,
         "source_only_overlay_ids": source_only_ids,
         "mode_policy": "Thumb seeds are provisional filename-derived candidates, not authoritative entry-point metadata.",
         "overlay_count": len(records),
@@ -239,9 +267,19 @@ def main() -> int:
         type=Path,
         default=Path(".oracis/local/pokemon-platinum-usa-rev1/overlays"),
     )
+    parser.add_argument(
+        "--include-function-pointer-headers",
+        action="store_true",
+        help="Also use funcptr_ovNNN_ADDRESS.h names as provisional indirect-call candidates.",
+    )
     args = parser.parse_args()
     try:
-        report = discover(args.overlay_image_dir, args.source, args.output_dir)
+        report = discover(
+            args.overlay_image_dir,
+            args.source,
+            args.output_dir,
+            include_function_pointer_headers=args.include_function_pointer_headers,
+        )
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
