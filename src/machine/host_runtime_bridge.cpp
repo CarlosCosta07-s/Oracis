@@ -129,6 +129,35 @@ bool invoke_irq_provider(
         context->user, cpu, state, return_address, vector_base) != 0;
 }
 
+int host_overlay_status(oracis::machine::NdsOverlayStatus status) noexcept
+{
+    using oracis::machine::NdsOverlayStatus;
+    switch (status) {
+    case NdsOverlayStatus::Ok:
+        return ORACIS_HOST_RUNTIME_OK;
+    case NdsOverlayStatus::AlreadyLoaded:
+        return ORACIS_HOST_RUNTIME_OVERLAY_ALREADY_LOADED;
+    case NdsOverlayStatus::NotLoaded:
+        return ORACIS_HOST_RUNTIME_OVERLAY_NOT_LOADED;
+    case NdsOverlayStatus::InvalidCpu:
+    case NdsOverlayStatus::InvalidMetadata:
+        return ORACIS_HOST_RUNTIME_OVERLAY_INVALID;
+    case NdsOverlayStatus::ImageHashMismatch:
+        return ORACIS_HOST_RUNTIME_OVERLAY_HASH_MISMATCH;
+    case NdsOverlayStatus::MemoryUnavailable:
+        return ORACIS_HOST_RUNTIME_OVERLAY_MEMORY_UNAVAILABLE;
+    case NdsOverlayStatus::Overlap:
+        return ORACIS_HOST_RUNTIME_OVERLAY_OVERLAP;
+    case NdsOverlayStatus::Busy:
+        return ORACIS_HOST_RUNTIME_OVERLAY_BUSY;
+    case NdsOverlayStatus::WriteFailed:
+        return ORACIS_HOST_RUNTIME_OVERLAY_WRITE_FAILED;
+    case NdsOverlayStatus::IdentityConflict:
+        return ORACIS_HOST_RUNTIME_OVERLAY_IDENTITY_CONFLICT;
+    }
+    return ORACIS_HOST_RUNTIME_OVERLAY_INVALID;
+}
+
 bool has_both_program_banks() noexcept
 {
     auto &registry = oracis::recomp::global_static_dispatch_registry();
@@ -796,6 +825,44 @@ extern "C" int oracis_host_runtime_validate_entrypoints(
         return ORACIS_HOST_RUNTIME_MACHINE_ERROR;
     }
     return ORACIS_HOST_RUNTIME_OK;
+}
+
+extern "C" int oracis_host_runtime_load_overlay(
+    const OracisHostOverlayImage *overlay)
+{
+    auto &machine = host_machine();
+    if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+    if (!machine.program_loaded()) return ORACIS_HOST_RUNTIME_NO_PROGRAM_LOADED;
+    if (overlay == nullptr) return ORACIS_HOST_RUNTIME_INVALID_ARGUMENT;
+
+    const oracis::machine::NdsOverlayImage image{
+        static_cast<NdsCpu>(overlay->cpu),
+        overlay->overlay_id,
+        overlay->ram_address,
+        overlay->ram_size,
+        overlay->bss_size,
+        overlay->static_init_start,
+        overlay->static_init_end,
+        overlay->contents,
+        overlay->image_sha1
+    };
+    return host_overlay_status(machine.load_overlay(image));
+}
+
+extern "C" int oracis_host_runtime_unload_overlay(
+    uint32_t cpu, uint32_t overlay_id,
+    uint32_t no_live_guest_references)
+{
+    auto &machine = host_machine();
+    if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+    if (!machine.program_loaded()) return ORACIS_HOST_RUNTIME_NO_PROGRAM_LOADED;
+    if (cpu > static_cast<uint32_t>(NDS_ARM7) ||
+        no_live_guest_references > 1u) {
+        return ORACIS_HOST_RUNTIME_INVALID_ARGUMENT;
+    }
+    return host_overlay_status(machine.unload_overlay(
+        static_cast<NdsCpu>(cpu), overlay_id,
+        no_live_guest_references != 0u));
 }
 
 extern "C" int oracis_host_runtime_register_compiled_banks(void)
