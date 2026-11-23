@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -25,6 +26,9 @@ class GenerateOverlayBankRegistryTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.bank_dir = self.root / "banks"
         self.bank_dir.mkdir()
+        self.overlay_image_dir = self.root / "extracted-overlays"
+        self.overlay_image_dir.mkdir()
+        self.source_overlays: list[dict] = []
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -41,11 +45,30 @@ class GenerateOverlayBankRegistryTests(unittest.TestCase):
             ("_dispatch.c", "/* synthetic dispatch fixture */\n"),
         ):
             (folder / f"{bank}{suffix}").write_text(contents, encoding="utf-8")
+        image = bytes([overlay_id & 0xFF]) * 16
+        image_name = f"arm9_overlay_{overlay_id:04d}.bin"
+        (self.overlay_image_dir / image_name).write_bytes(image)
+        image_sha1 = hashlib.sha1(image).hexdigest()
+        image_sha256 = hashlib.sha256(image).hexdigest()
+        self.source_overlays.append({
+            "cpu": "arm9",
+            "overlay_id": overlay_id,
+            "ram_address": 0x02000000 + overlay_id * 0x100,
+            "ram_size": len(image),
+            "bss_size": 0,
+            "static_init_start": 0,
+            "static_init_end": 0,
+            "image_file": image_name,
+            "image_size": len(image),
+            "image_sha1": image_sha1,
+            "image_sha256": image_sha256,
+        })
         return {
             "overlay_id": overlay_id,
             "bank": bank,
             "status": status,
             "functions_total": 12,
+            "image_sha1": image_sha1,
         }
 
     def write_report(self, rows: list[dict]) -> None:
@@ -59,6 +82,16 @@ class GenerateOverlayBankRegistryTests(unittest.TestCase):
         (self.bank_dir / "emission_report.json").write_text(
             json.dumps(report), encoding="utf-8"
         )
+        source_manifest = {
+            "schema": "oracis-nds-overlays-v1",
+            "rom_sha1": "0862ec35b24de5c7e2dcb88c9eea0873110d755c",
+            "overlay_count": len(self.source_overlays),
+            "overlays": self.source_overlays,
+            "generated_files": [row["image_file"] for row in self.source_overlays],
+        }
+        (self.overlay_image_dir / "manifest.json").write_text(
+            json.dumps(source_manifest), encoding="utf-8"
+        )
 
     def test_generates_sorted_idempotent_arm9_registrar_and_hash_manifest(self) -> None:
         rows = [self.add_bank(9), self.add_bank(5), self.add_bank(7, status="skipped")]
@@ -66,7 +99,7 @@ class GenerateOverlayBankRegistryTests(unittest.TestCase):
         source = self.root / "generated" / "registry.cpp"
         manifest_path = self.root / "generated" / "manifest.json"
 
-        result = generator.generate(self.bank_dir, source, manifest_path)
+        result = generator.generate(self.bank_dir, self.overlay_image_dir, source, manifest_path)
         generated = source.read_text(encoding="utf-8")
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
@@ -82,6 +115,10 @@ class GenerateOverlayBankRegistryTests(unittest.TestCase):
         self.assertEqual(
             [entry["overlay_id"] for entry in manifest["banks"]], [5, 9]
         )
+        self.assertEqual(manifest["source_overlay_count"], 3)
+        self.assertEqual(manifest["compiled_overlay_count"], 2)
+        self.assertEqual(manifest["uncompiled_overlay_count"], 1)
+        self.assertEqual(manifest["uncompiled_overlay_ids"], [7])
         self.assertEqual(
             manifest["banks"][0]["dispatch_sha256"],
             generator.sha256(
@@ -100,8 +137,8 @@ class GenerateOverlayBankRegistryTests(unittest.TestCase):
         report_path.write_text(json.dumps(report), encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "nds-codegen-v3"):
             generator.generate(
-                self.bank_dir, self.root / "registry.cpp",
-                self.root / "manifest.json",
+                self.bank_dir, self.overlay_image_dir,
+                self.root / "registry.cpp", self.root / "manifest.json",
             )
 
     def test_rejects_missing_or_empty_dispatch_source(self) -> None:
@@ -113,8 +150,19 @@ class GenerateOverlayBankRegistryTests(unittest.TestCase):
         dispatch.write_text("", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "missing, empty, or unsafe"):
             generator.generate(
-                self.bank_dir, self.root / "registry.cpp",
-                self.root / "manifest.json",
+                self.bank_dir, self.overlay_image_dir,
+                self.root / "registry.cpp", self.root / "manifest.json",
+            )
+
+
+    def test_rejects_compiled_image_hash_that_differs_from_extraction(self) -> None:
+        row = self.add_bank(5)
+        row["image_sha1"] = "0" * 40
+        self.write_report([row])
+        with self.assertRaisesRegex(ValueError, "image hash does not match"):
+            generator.generate(
+                self.bank_dir, self.overlay_image_dir,
+                self.root / "registry.cpp", self.root / "manifest.json",
             )
 
     def test_rejects_duplicate_overlay_ids(self) -> None:
