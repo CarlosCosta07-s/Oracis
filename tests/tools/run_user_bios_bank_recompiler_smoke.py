@@ -82,7 +82,7 @@ def create_synthetic_bios(path: Path, cpu: str) -> None:
 
     # ARM9 is the producer: write 0x2A to shared main RAM, clear R0,
     # read it back, then return to its BIOS reset vector.
-    # ARM7 is the consumer: read the same address only after host releases reset.
+    # ARM7 is the consumer: read the same address on its concurrently-started BIOS slice.
     if cpu == "arm9":
         struct.pack_into(
             "<IIIIIIIII",
@@ -275,7 +275,7 @@ def main() -> int:
     print(
         "Pinned NDSRecomp BIOS integration passed: "
         f"ARM9/ARM7 C99 objects compiled and linked into Oracis ({compiled}); "
-        "live-byte mismatch rejected; ARM9 wrote shared RAM and released ARM7 read the same marker"
+        "live-byte mismatch rejected; both BIOS CPUs started together and ARM7 observed ARM9's shared-RAM write"
     )
     return 0
 

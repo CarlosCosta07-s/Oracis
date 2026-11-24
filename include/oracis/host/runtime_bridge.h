@@ -204,20 +204,21 @@ int oracis_host_runtime_validate_entrypoints(
 
 /*
  * Preflight both user BIOS reset vectors against native static banks, then
- * initialize ARM9 at 0xFFFF0000 while holding ARM7 in reset at 0x00000000.
+ * initialize ARM9 at 0xFFFF0000 and ARM7 at 0x00000000 in the same reset
+ * transition. Both CPUs are runnable; BIOS code coordinates them over IPC.
  * No CPU cycles are consumed unless both reset-vector entries resolve.
  */
 int oracis_host_runtime_start_retail_bios_boot(
     OracisHostRuntimeEntryPointReport *arm9,
     OracisHostRuntimeEntryPointReport *arm7);
 /*
- * Release ARM7 only after the caller has verified the hardware hand-off.
- * This explicit API is not connected to an assumed IPCSYNC value/edge.
+ * Legacy compatibility hook. ARM7 already runs after the retail BIOS reset,
+ * so this returns CPU_NOT_IN_RESET and never forces a host-side hand-off.
  */
 int oracis_host_runtime_release_arm7_from_reset(void);
 /*
- * Advance a retail-BIOS-mode scheduler round. ARM7's time advances while
- * ResetHeld but its generated code is not called until explicit release.
+ * Advance a retail-BIOS-mode scheduler round with both CPU slices runnable.
+ * Guest BIOS code performs any required IPCSYNC/FIFO coordination.
  */
 int oracis_host_runtime_run_retail_bios_round(
     uint64_t bus_cycle_budget,

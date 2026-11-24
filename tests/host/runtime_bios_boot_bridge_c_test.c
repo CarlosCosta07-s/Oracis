@@ -80,22 +80,22 @@ int main(void)
 
     if (oracis_host_runtime_run_retail_bios_round(8u, NULL, NULL) !=
             ORACIS_HOST_RUNTIME_OK ||
-        g_arm9_calls != 1u || g_arm7_calls != 0u ||
+        g_arm9_calls != 1u || g_arm7_calls != 1u ||
         oracis_host_runtime_global_bus_cycles() != UINT64_C(8)) {
-        return fail("ARM9 did not execute alone while ARM7 remained in reset");
+        return fail("both BIOS CPU reset banks did not execute in the first scheduler round");
     }
 
     if (oracis_host_runtime_release_arm7_from_reset() !=
-            ORACIS_HOST_RUNTIME_OK ||
+            ORACIS_HOST_RUNTIME_CPU_NOT_IN_RESET ||
         oracis_host_runtime_release_arm7_from_reset() !=
             ORACIS_HOST_RUNTIME_CPU_NOT_IN_RESET) {
-        return fail("explicit ARM7 release was not enforced as a one-shot transition");
+        return fail("legacy ARM7 release hook changed the parallel reset state");
     }
     if (oracis_host_runtime_run_retail_bios_round(8u, NULL, NULL) !=
             ORACIS_HOST_RUNTIME_OK ||
-        g_arm9_calls != 2u || g_arm7_calls != 1u ||
+        g_arm9_calls != 2u || g_arm7_calls != 2u ||
         oracis_host_runtime_global_bus_cycles() != UINT64_C(16)) {
-        return fail("ARM7 did not join execution after explicit reset release");
+        return fail("both BIOS CPUs did not continue synchronized execution");
     }
 
     if (oracis_host_runtime_shutdown() != ORACIS_HOST_RUNTIME_OK ||

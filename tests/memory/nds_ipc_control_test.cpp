@@ -70,32 +70,70 @@ int main()
         return fail("duplicate IPC binding or premature dependency teardown was accepted");
     }
 
-    /* IPCSYNC transfers four status bits and gates the remote sync IRQ. */
+    /*
+     * IPCSYNC's output nibble is visible to the peer independently of the
+     * bit-13 IRQ strobe. Bit 14 is the local receive-IRQ enable.
+     */
     if (!oracis_arm_runtime_select_cpu(NDS_ARM7)) {
         return fail("ARM7 selection failed for IPCSYNC test");
     }
     bus_write_u32(NdsInterruptControl::ImeAddress, 1u);
     bus_write_u32(NdsInterruptControl::IeAddress, irq_mask);
-    bus_write_u16(NdsIpcControl::SyncAddress,
-                  NdsIpcControl::SyncReceiveIrqEnableMask);
+    bus_write_u32(NdsInterruptControl::IfAddress, irq_mask);
+    bus_write_u16(NdsIpcControl::SyncAddress, 0u);
 
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
         return fail("ARM9 selection failed for IPCSYNC test");
     }
     bus_write_u32(NdsInterruptControl::ImeAddress, 1u);
     bus_write_u32(NdsInterruptControl::IeAddress, irq_mask);
+    bus_write_u32(NdsInterruptControl::IfAddress, irq_mask);
     bus_write_u16(NdsIpcControl::SyncAddress,
-                  static_cast<uint16_t>((UINT16_C(0xA) << 8u) |
-                      NdsIpcControl::SyncSendIrqMask));
+                  static_cast<uint16_t>(UINT16_C(0xA) << 8u));
     if ((bus_read_u16(NdsIpcControl::SyncAddress) & UINT16_C(0x0F00)) !=
             UINT16_C(0x0A00)) {
         return fail("IPCSYNC did not retain ARM9's local output nibble");
     }
     if (!oracis_arm_runtime_select_cpu(NDS_ARM7) ||
         (bus_read_u16(NdsIpcControl::SyncAddress) & UINT16_C(0x000F)) != 0xAu ||
+        (bus_read_u32(NdsInterruptControl::IfAddress) &
+            NdsIpcControl::SyncIrqMask) != 0u) {
+        return fail("IPCSYNC data update without a strobe generated a remote IRQ");
+    }
+
+    bus_write_u16(NdsIpcControl::SyncAddress,
+                  NdsIpcControl::SyncReceiveIrqEnableMask);
+    if ((bus_read_u32(NdsInterruptControl::IfAddress) &
+            NdsIpcControl::SyncIrqMask) != 0u ||
+        (bus_read_u16(NdsIpcControl::SyncAddress) &
+            NdsIpcControl::SyncReceiveIrqEnableMask) == 0u) {
+        return fail("IPCSYNC receiver enable was not local or caused a retroactive IRQ");
+    }
+
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 selection failed for IPCSYNC strobe test");
+    }
+    bus_write_u16(NdsIpcControl::SyncAddress,
+                  static_cast<uint16_t>((UINT16_C(0xA) << 8u) |
+                      NdsIpcControl::SyncSendIrqMask));
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM7) ||
         bus_read_u32(NdsInterruptControl::IfAddress) !=
             NdsIpcControl::SyncIrqMask) {
-        return fail("ARM7 did not receive ARM9 IPCSYNC data and IRQ");
+        return fail("IPCSYNC bit-13 strobe did not reach the enabled ARM7 receiver");
+    }
+
+    bus_write_u32(NdsInterruptControl::IfAddress,
+                  NdsIpcControl::SyncIrqMask);
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("ARM9 selection failed for repeated IPCSYNC strobe test");
+    }
+    bus_write_u16(NdsIpcControl::SyncAddress,
+                  static_cast<uint16_t>((UINT16_C(0xA) << 8u) |
+                      NdsIpcControl::SyncSendIrqMask));
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM7) ||
+        bus_read_u32(NdsInterruptControl::IfAddress) !=
+            NdsIpcControl::SyncIrqMask) {
+        return fail("IPCSYNC IRQ strobe was incorrectly edge-filtered by unchanged data");
     }
 
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9)) {

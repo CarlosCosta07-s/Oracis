@@ -88,21 +88,21 @@ int main()
     }
 
     if (!machine.cpu_can_execute(NDS_ARM9) ||
-        machine.cpu_can_execute(NDS_ARM7) ||
-        !machine.cpu_is_held_in_reset(NDS_ARM7) ||
-        machine.cpu_is_halted(NDS_ARM7) ||
-        machine.begin_cpu_slice(NDS_ARM7, 1u) !=
-            NdsMachineStatus::CpuResetHeld) {
-        return fail("ARM7 reset hold was treated as an interrupt-wakeable HALT");
+        !machine.cpu_can_execute(NDS_ARM7) ||
+        machine.cpu_is_held_in_reset(NDS_ARM9) ||
+        machine.cpu_is_held_in_reset(NDS_ARM7) ||
+        machine.cpu_is_halted(NDS_ARM9) ||
+        machine.cpu_is_halted(NDS_ARM7)) {
+        return fail("both BIOS CPUs were not runnable from their reset vectors");
     }
 
     machine.interrupt_control().write(
         NDS_ARM7, NdsInterruptControl::IeAddress, 4u, 1u);
     machine.interrupt_control().request_irq(NDS_ARM7, 1u);
-    if (machine.cpu_can_execute(NDS_ARM7) ||
+    if (!machine.cpu_can_execute(NDS_ARM7) ||
         machine.try_deliver_pending_irq(NDS_ARM7, 0u, 0u) !=
-            NdsMachineStatus::CpuResetHeld) {
-        return fail("an ARM7 IRQ released the core from hardware reset");
+            NdsMachineStatus::IrqNotEligible) {
+        return fail("ARM7 reset IRQ mask was conflated with a reset hold");
     }
 
     /* Direct-entry and pre-decoded IPL paths must not overwrite a BIOS boot. */
@@ -118,26 +118,25 @@ int main()
     if (machine.run_dual_core_round(8u, &execute_slice, nullptr, &fixture) !=
             NdsMachineStatus::Ok ||
         fixture.calls[static_cast<unsigned>(NDS_ARM9)] != 1u ||
-        fixture.calls[static_cast<unsigned>(NDS_ARM7)] != 0u ||
+        fixture.calls[static_cast<unsigned>(NDS_ARM7)] != 1u ||
         machine.system_clock().global_bus_cycles() != 8u ||
-        !machine.cpu_is_held_in_reset(NDS_ARM7)) {
-        return fail("dual-core scheduler executed ARM7 before reset release");
+        machine.cpu_is_held_in_reset(NDS_ARM7)) {
+        return fail("both BIOS CPUs did not execute in the first synchronized round");
     }
 
-    if (machine.release_arm7_from_reset() != NdsMachineStatus::Ok ||
-        machine.release_arm7_from_reset() != NdsMachineStatus::CpuNotInReset ||
+    if (machine.release_arm7_from_reset() != NdsMachineStatus::CpuNotInReset ||
         machine.cpu_is_held_in_reset(NDS_ARM7) ||
         !machine.cpu_can_execute(NDS_ARM7) ||
         machine.cpu_state(NDS_ARM7)->R[15] != NdsBiosControl::Arm7BiosBase) {
-        return fail("explicit ARM7 reset release did not enter its low BIOS vector");
+        return fail("legacy ARM7 reset-release hook changed the parallel reset state");
     }
 
     if (machine.run_dual_core_round(8u, &execute_slice, nullptr, &fixture) !=
             NdsMachineStatus::Ok ||
         fixture.calls[static_cast<unsigned>(NDS_ARM9)] != 2u ||
-        fixture.calls[static_cast<unsigned>(NDS_ARM7)] != 1u ||
+        fixture.calls[static_cast<unsigned>(NDS_ARM7)] != 2u ||
         machine.system_clock().global_bus_cycles() != 16u) {
-        return fail("released ARM7 did not join the synchronized dual-core clock");
+        return fail("both BIOS CPUs did not remain on the synchronized dual-core clock");
     }
 
     if (machine.shutdown() != NdsMachineStatus::Ok) {

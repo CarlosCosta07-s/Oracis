@@ -1818,10 +1818,9 @@ NdsMachineStatus NdsMachine::start_retail_bios_boot() noexcept
     }
 
     /*
-     * ARM946E-S reset enters Supervisor/ARM state with IRQ and FIQ masked.
-     * The NDS platform maps its 4 KiB ARM9 BIOS at the high reset vector.
-     * The ARM7 core is not HALTed: the platform holds it in reset until the
-     * ARM9 boot sequence releases it.
+     * Both NDS processors enter Supervisor/ARM state with IRQ and FIQ masked.
+     * The 4 KiB ARM9 BIOS is mapped at the high reset vector; the 16 KiB ARM7
+     * BIOS is mapped at the low reset vector. Both processors start together.
      */
     arm9_state_ = {};
     arm7_state_ = {};
@@ -1832,8 +1831,13 @@ NdsMachineStatus NdsMachine::start_retail_bios_boot() noexcept
     arm9_state_.R[15] = memory::NdsBiosControl::Arm9BiosBase;
     arm7_state_.R[15] = memory::NdsBiosControl::Arm7BiosBase;
 
+    /*
+     * NDS power-on starts both processors from their own BIOS reset vectors.
+     * The ARM9 may finish its preparation first, but the resulting wait/
+     * handshake is guest BIOS code over IPCSYNC, not a host reset hold.
+     */
     run_states_[cpu_index(NDS_ARM9)] = NdsCpuRunState::Running;
-    run_states_[cpu_index(NDS_ARM7)] = NdsCpuRunState::ResetHeld;
+    run_states_[cpu_index(NDS_ARM7)] = NdsCpuRunState::Running;
     interrupt_wait_active_.fill(false);
     interrupt_wait_masks_.fill(0u);
     interrupt_wait_resume_pcs_.fill(0u);

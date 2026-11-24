@@ -119,30 +119,30 @@ int preflight_case(
         }
 
         ArmCpuState arm9_after_first_round = {};
-        ArmCpuState arm7_while_held = {};
+        ArmCpuState arm7_after_first_round = {};
         if (oracis_host_runtime_get_cpu_state(
                 NDS_ARM9, &arm9_after_first_round) != ORACIS_HOST_RUNTIME_OK ||
             oracis_host_runtime_get_cpu_state(
-                NDS_ARM7, &arm7_while_held) != ORACIS_HOST_RUNTIME_OK ||
+                NDS_ARM7, &arm7_after_first_round) != ORACIS_HOST_RUNTIME_OK ||
             arm9_after_first_round.R[0] != UINT32_C(0x2A) ||
-            arm7_while_held.R[0] != 0u ||
+            arm7_after_first_round.R[0] != UINT32_C(0x2A) ||
             oracis_host_runtime_global_bus_cycles() < UINT64_C(64)) {
             (void)oracis_host_runtime_shutdown();
-            return fail("ARM9 execution result or ARM7 reset isolation was incorrect");
+            return fail("ARM9 shared-RAM write was not visible to the simultaneously-started ARM7");
         }
 
         if (oracis_host_runtime_release_arm7_from_reset() !=
-                ORACIS_HOST_RUNTIME_OK ||
+                ORACIS_HOST_RUNTIME_CPU_NOT_IN_RESET ||
             oracis_host_runtime_release_arm7_from_reset() !=
                 ORACIS_HOST_RUNTIME_CPU_NOT_IN_RESET) {
             (void)oracis_host_runtime_shutdown();
-            return fail("synthetic ARM7 reset hand-off was not one-shot");
+            return fail("legacy ARM7 release hook changed the parallel BIOS reset state");
         }
 
         if (oracis_host_runtime_run_retail_bios_round(
                 64u, nullptr, nullptr) != ORACIS_HOST_RUNTIME_OK) {
             (void)oracis_host_runtime_shutdown();
-            return fail("released ARM7 synthetic native reset stub did not execute");
+            return fail("parallel ARM9/ARM7 synthetic BIOS round did not execute");
         }
 
         ArmCpuState arm9_after_second_round = {};
@@ -232,6 +232,6 @@ int main(int argc, char **argv)
 
     std::puts(
         "pinned NDSRecomp BIOS banks linked; live-byte mismatch rejected; "
-        "ARM9 shared-RAM write was observed by the released ARM7");
+        "both BIOS CPUs started together; ARM7 observed ARM9's shared-RAM write");
     return 0;
 }

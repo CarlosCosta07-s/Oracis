@@ -135,13 +135,17 @@ public:
 
     /*
      * Enter the hardware-reset BIOS path using user-supplied ARM9/ARM7 BIOS
-     * images. ARM9 starts at 0xFFFF0000; ARM7 remains held in reset until the
-     * host explicitly releases it after a verified hardware hand-off.
+     * images. Both processors start together at their hardware reset vectors:
+     * ARM9 at 0xFFFF0000 and ARM7 at 0x00000000.
+     *
+     * The BIOS code coordinates the processors through IPCSYNC/FIFO. The host
+     * does not hold ARM7 in reset or invent a release event/value.
      *
      * This establishes CPU reset state only. It does not synthesize BIOS
-     * banks, execute BIOS code, or infer an IPCSYNC release value.
+     * banks or execute BIOS code.
      */
     NdsMachineStatus start_retail_bios_boot() noexcept;
+    /* Compatibility hook: ARM7 already runs after retail BIOS reset. */
     NdsMachineStatus release_arm7_from_reset() noexcept;
     bool retail_bios_boot_active() const noexcept {
         return retail_bios_boot_active_;
