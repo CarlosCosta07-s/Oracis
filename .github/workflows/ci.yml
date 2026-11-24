@@ -113,6 +113,21 @@ jobs:
       - name: Run runtime tests
         run: ctest --test-dir build-runtime --output-on-failure
 
+      # Publish the machine/memory archives from the runtime-only build as
+      # soon as this job passes. Local guest-bank ABI probes do not need SDL3.
+      - name: Upload runtime archives for local ABI audits
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oracis-runtime-linux-x86_64-runtime-only
+          path: |
+            build-runtime/liboracis_machine.a
+            build-runtime/liboracis_memory.a
+            build-runtime/liboracis_arm_state.a
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
   ndsrecomp-static-compiler:
     name: Pinned NDSRecomp static compiler (no runner)
     runs-on: ubuntu-24.04
