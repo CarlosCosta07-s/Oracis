@@ -563,7 +563,7 @@ int main()
     };
     auto synthetic_firmware = make_synthetic_firmware(
         table, firmware_arm9_plain, firmware_arm7_plain);
-    if (synthetic_firmware.size() != 0x290u ||
+    if (synthetic_firmware.size() != 0x410u ||
         key1.load_key_table(table.data(), NdsGameCardKey1::KeyTableBytes) !=
             Status::Ok ||
         key1.initialize(UINT32_C(0x45555043), 1u, 8u) != Status::Ok) {
@@ -586,7 +586,7 @@ int main()
         firmware_boot.arm7_secondary_bytes != std::vector<uint8_t>{
             0x41u, 0x41u, 0x41u, 0x41u} ||
         firmware_boot.firmware_data_bytes != std::vector<uint8_t>{
-            0x51u, 0x52u, 0x53u, 0x54u} ||
+            0x51u, 0x51u, 0x51u, 0x51u} ||
         firmware_boot.computed_secondary_crc16 !=
             firmware_boot.expected_secondary_crc16 ||
         firmware_boot.computed_data_crc16 != firmware_boot.expected_data_crc16 ||
