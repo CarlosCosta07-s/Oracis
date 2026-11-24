@@ -8,14 +8,17 @@ Este caminho é um experimento de direct-entry: ele começa nos endereços ARM9/
 
 ## Seleção de arquivos
 
-O host usa o seletor de arquivos SDL3 no Android para pedir:
+O host usa o seletor de arquivos SDL3 no Android para pedir, nesta ordem:
 
 1. Uma imagem .nds escolhida pelo usuário.
 2. Uma BIOS ARM7 de exatamente 16 KiB, também escolhida pelo usuário.
+3. Um dump da flash SPI de firmware do próprio usuário, entre 1 byte e 16 MiB.
 
-No Android, o seletor pode retornar URIs content://. A leitura usa SDL_IOFromFile, SDL_GetIOSize, SDL_SeekIO e SDL_ReadIO, em vez de presumir que a URI é um caminho POSIX ou passar por fopen.
+No Android, o seletor pode retornar URIs content://. A leitura dos três arquivos usa SDL_IOStream, sem presumir que a URI seja um caminho POSIX ou passar por fopen. O host limita os tamanhos antes da alocação e copia os dados para os dispositivos próprios.
 
-A BIOS ARM7 é usada atualmente para inicializar a tabela KEY1 e descriptografar o prefixo da Secure Area. O host não carrega nem executa a BIOS ARM7 retail como vetor de reset. A BIOS ARM9 retail também não é carregada ou executada neste experimento.
+A BIOS ARM7 é usada atualmente para inicializar a tabela KEY1 e descriptografar o prefixo da Secure Area. A imagem de firmware é conectada ao dispositivo SPI ARM7 para que leituras da flash pelo guest possam retornar bytes reais. O dispositivo SPI atualmente modela leituras (03h), status (05h), WREN (06h) e WRDI (04h); gravação, apagamento, JEDEC ID e outros comandos ainda não são implementados.
+
+Importante: conectar a flash SPI não executa o IPL do firmware. Os blocos de código do firmware permanecem criptografados/comprimidos; a descriptografia, descompressão, validação das partes e cópia para as regiões de boot ainda precisam ser implementadas. O host não carrega nem executa a BIOS ARM7 retail como vetor de reset. A BIOS ARM9 retail também não é carregada ou executada neste experimento.
 
 ## Estado de entrada reproduzido
 
@@ -40,6 +43,7 @@ O scheduler nativo só é habilitado quando:
 
 - A imagem NDS foi montada e os segmentos ARM9/ARM7 foram validados antes de serem escritos em GuestMemory.
 - A BIOS ARM7 do usuário foi aceita pelo loader de KEY1.
+- A imagem SPI de firmware do usuário foi carregada no dispositivo ARM7 SPI.
 - Existem bancos estáticos registrados para ARM9 e ARM7.
 - O PC inicial de cada CPU resolve para uma entrada compilada no modo ARM/Thumb esperado.
 
@@ -53,6 +57,7 @@ A seleção de ROM/BIOS e o preflight não comprovam que o jogo iniciou. Uma seq
 - O workflow Android atual compila a biblioteca nativa ARM64; o repositório ainda não contém um projeto Gradle/Manifest que gere um APK instalável.
 - O experimento reproduz apenas o subconjunto documentado de registradores/pilhas e POSTFLG; não executa as BIOS retail e não reproduz todas as áreas de RAM/firmware inicializadas pelo boot, o Chip ID, nem a configuração completa de CP15/MPU/TCM e periféricos.
 - O host ainda precisa de uma forma Android para fornecer o Chip ID físico do cartucho quando um comando Game Card depender dele. Esse valor não é inferido do dump .nds.
+- O firmware SPI bruto já pode ser selecionado e lido pelo dispositivo ARM7, mas o IPL ainda não descriptografa/descompacta as partes 1–5 nem copia os fragmentos para as regiões de RAM de boot.
 - A cobertura do protocolo Game Card KEY1/KEY2, dos serviços BIOS/NitroSDK, dos overlays e de MMIO/timing continua parcial. O primeiro dispatch miss ou acesso não implementado deve ser tratado como bloqueio real, não mascarado.
 
 ## Política de dados
