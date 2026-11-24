@@ -89,7 +89,7 @@ def compile_generated_bank(output_dir: Path, cpu: str, compiler: list[str]) -> i
     if len(sources) < 2:
         raise RuntimeError(f"{cpu.upper()} BIOS bank has no split C bodies/dispatch")
 
-    object_dir = output_dir / f".{bank}-objects"
+    object_dir = output_dir.parent / f".{bank}-objects"
     object_dir.mkdir()
     for source in sources:
         object_file = object_dir / f"{source.stem}.o"
@@ -129,8 +129,8 @@ def run_checked(command: list[str], description: str, timeout: int = 600) -> Non
     )
     if result.returncode != 0:
         raise RuntimeError(
-            f"{description} failed (exit={result.returncode})\\n"
-            f"command: {command}\\nstdout:\\n{result.stdout}\\nstderr:\\n{result.stderr}"
+            f"{description} failed (exit={result.returncode})\n"
+            f"command: {command}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
         )
 
 
