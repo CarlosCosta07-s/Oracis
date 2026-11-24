@@ -280,8 +280,20 @@ static bool load_firmware_file(const char *path)
         return false;
     }
 
-    SDL_Log("Loaded user-provided NDS SPI firmware flash '%s' (%zu bytes). "
-            "Firmware IPL code decryption/decompression is not yet implemented.",
+    const int boot_status =
+        oracis_host_runtime_load_spi_firmware_boot_code();
+    if (boot_status != ORACIS_HOST_RUNTIME_OK) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "NDS firmware IPL decode/load failed (bridge=%d, machine=%d). "
+            "The flash image remains installed, but no bootcode was published.",
+            boot_status,
+            oracis_host_runtime_last_machine_status());
+        return false;
+    }
+
+    SDL_Log("Loaded user NDS SPI flash '%s' (%zu bytes); IPL parts 1 and 2 "
+            "were KEY1-decrypted, LZ77-decompressed, CRC-validated and "
+            "published to the checked ARM9/ARM7 guest RAM windows.",
             path, image_size);
     return true;
 }
