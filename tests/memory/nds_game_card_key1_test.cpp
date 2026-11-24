@@ -56,6 +56,20 @@ void store_u32_le(std::vector<uint8_t> &bytes, size_t offset, uint32_t value)
     }
 }
 
+uint16_t crc16_header(const uint8_t *bytes, size_t size)
+{
+    uint16_t crc = 0u;
+    for (size_t index = 0u; index < size; ++index) {
+        crc = static_cast<uint16_t>(crc ^ bytes[index]);
+        for (uint32_t bit = 0u; bit < 8u; ++bit) {
+            crc = static_cast<uint16_t>(
+                (crc >> 1u) ^
+                ((crc & 1u) != 0u ? UINT16_C(0xA001) : UINT16_C(0)));
+        }
+    }
+    return crc;
+}
+
 uint16_t crc16_firmware(
     const std::vector<uint8_t> &arm9,
     const std::vector<uint8_t> &arm7)
@@ -131,6 +145,10 @@ std::vector<uint8_t> make_synthetic_firmware(
     store_u16_le(firmware, 0x12u, UINT16_C(0x90));    /* part 2 dest: 0x0380F700 */
     store_u16_le(firmware, 0x14u, UINT16_C(0x042D));
     store_u32_le(firmware, 0x08u, FirmwareId);
+    store_u16_le(firmware, 0x2Cu, UINT16_C(0x0138));
+    store_u16_le(
+        firmware, 0x2Au,
+        crc16_header(firmware.data() + 0x2Cu, 0x0136u));
 
     NdsGameCardKey1 cipher;
     if (cipher.load_key_table(table.data(), NdsGameCardKey1::KeyTableBytes) !=
@@ -537,6 +555,15 @@ int main()
         preserved_output.arm9_bytes != firmware_boot.arm9_bytes ||
         preserved_output.arm7_bytes != firmware_boot.arm7_bytes) {
         return fail("firmware IPL accepted a corrupted combined CRC or partially replaced output");
+    }
+
+    auto corrupted_header = synthetic_firmware;
+    corrupted_header[0x30u] ^= UINT8_C(0x01);
+    if (key1.decrypt_firmware_boot_code(
+            corrupted_header.data(), corrupted_header.size(),
+            preserved_output) != Status::IdentityMismatch ||
+        preserved_output.arm9_bytes != firmware_boot.arm9_bytes) {
+        return fail("firmware IPL accepted a corrupt remaining-header CRC");
     }
 
     auto unsupported_firmware = synthetic_firmware;
