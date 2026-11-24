@@ -35,6 +35,25 @@ int main()
         return fail("IME did not initialize disabled on both CPUs");
     }
 
+    /* Byte/halfword lanes are valid for the 32-bit IE register. */
+    if (interrupts.write(
+            NDS_ARM9, NdsInterruptControl::IeAddress, 4u,
+            UINT32_C(0xA1B2C3D4)) != Status::Ok ||
+        interrupts.read(
+            NDS_ARM9, NdsInterruptControl::IeAddress + 1u, 1u).value !=
+            UINT32_C(0xC3) ||
+        interrupts.read(
+            NDS_ARM9, NdsInterruptControl::IeAddress + 2u, 2u).value !=
+            UINT32_C(0xA1B2) ||
+        interrupts.write(
+            NDS_ARM9, NdsInterruptControl::IeAddress + 2u, 2u,
+            UINT32_C(0x1234)) != Status::Ok ||
+        interrupts.read(
+            NDS_ARM9, NdsInterruptControl::IeAddress, 4u).value !=
+            UINT32_C(0x1234C3D4)) {
+        return fail("IE byte/halfword lane access failed");
+    }
+
     /* IE enables sources but does not itself raise an interrupt. */
     if (interrupts.write(
             NDS_ARM9, NdsInterruptControl::IeAddress, 4u,
@@ -43,6 +62,18 @@ int main()
         interrupts.irq_asserted(NDS_ARM9) ||
         interrupts.pending_enabled(NDS_ARM9) != timer0) {
         return fail("ARM9 IE/IF gating failed while IME was disabled");
+    }
+
+    /* IF write-one-to-clear applies only to the addressed byte lane. */
+    if (interrupts.write(
+            NDS_ARM9, NdsInterruptControl::IfAddress + 1u, 1u,
+            UINT32_C(0x10)) != Status::Ok ||
+        interrupts.read(
+            NDS_ARM9, NdsInterruptControl::IfAddress, 4u).value != timer0) {
+        return fail("IF byte-lane acknowledgement cleared the wrong sources");
+    }
+    if (!interrupts.request_irq(NDS_ARM9, keypad)) {
+        return fail("could not relatch keypad interrupt for IF test");
     }
 
     /* IME implements bit zero only; reserved bits read back as zero. */
@@ -81,6 +112,24 @@ int main()
         return fail("IF full acknowledgement failed");
     }
 
+    /* IME is accessed as a 16-bit register by retail startup code. */
+    if (interrupts.read(
+            NDS_ARM9, NdsInterruptControl::ImeAddress, 2u).value != 1u ||
+        interrupts.read(
+            NDS_ARM9, NdsInterruptControl::ImeAddress + 1u, 1u).value != 0u ||
+        interrupts.write(
+            NDS_ARM9, NdsInterruptControl::ImeAddress, 2u,
+            UINT32_C(0xFFFE)) != Status::Ok ||
+        interrupts.read(
+            NDS_ARM9, NdsInterruptControl::ImeAddress, 2u).value != 0u ||
+        interrupts.write(
+            NDS_ARM9, NdsInterruptControl::ImeAddress, 2u,
+            UINT32_C(0xFFFF)) != Status::Ok ||
+        interrupts.read(
+            NDS_ARM9, NdsInterruptControl::ImeAddress, 4u).value != 1u) {
+        return fail("IME halfword access or bit-zero semantics failed");
+    }
+
     /* ARM7 has its own IME/IE/IF bank and does not change ARM9 state. */
     if (interrupts.write(
             NDS_ARM7, NdsInterruptControl::IeAddress, 4u, dma0) != Status::Ok ||
@@ -97,10 +146,10 @@ int main()
     }
 
     if (interrupts.read(
-            NDS_ARM9, NdsInterruptControl::IeAddress, 1u).status !=
+            NDS_ARM9, NdsInterruptControl::IeAddress, 3u).status !=
             Status::InvalidWidth ||
         interrupts.write(
-            NDS_ARM9, NdsInterruptControl::IfAddress, 2u, dma0) !=
+            NDS_ARM9, NdsInterruptControl::IfAddress + 3u, 2u, dma0) !=
             Status::InvalidWidth ||
         interrupts.read(
             NDS_ARM9, NdsInterruptControl::IfAddress + 4u, 4u).status !=
@@ -172,6 +221,14 @@ int main()
 
     if (!oracis_arm_runtime_select_cpu(NDS_ARM9))
         return fail("ARM9 select failed for bus test");
+    bus_write_u16(NdsInterruptControl::ImeAddress, UINT16_C(1));
+    if (bus_read_u16(NdsInterruptControl::ImeAddress) != 1u) {
+        return fail("16-bit IME bus access failed");
+    }
+    bus_write_u16(NdsInterruptControl::ImeAddress, UINT16_C(0));
+    if (bus_read_u16(NdsInterruptControl::ImeAddress) != 0u) {
+        return fail("16-bit IME disable through bus failed");
+    }
     bus_write_u32(NdsInterruptControl::ImeAddress, 1u);
     bus_write_u32(NdsInterruptControl::IeAddress, dma1);
     if (!interrupts.request_irq(NDS_ARM9, dma1) ||
