@@ -303,10 +303,29 @@ static bool load_firmware_file(const char *path)
         return false;
     }
 
-    SDL_Log("Loaded user NDS SPI flash '%s' (%zu bytes); IPL parts 1 and 2 "
-            "were KEY1-decrypted, LZ77-decompressed, CRC-validated and "
-            "published to the checked ARM9/ARM7 guest RAM windows.",
-            path, image_size);
+    OracisHostFirmwareBootReport report = {0};
+    if (oracis_host_runtime_get_firmware_boot_report(&report) !=
+        ORACIS_HOST_RUNTIME_OK) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "NDS firmware decoded but its retained boot report is unavailable.");
+        return false;
+    }
+
+    SDL_Log("Loaded user NDS SPI flash '%s' (%zu bytes); "
+            "IPL1 ARM9 %u bytes at 0x%08X and IPL2 ARM7 %u bytes at 0x%08X "
+            "were published to checked guest RAM (CRC16 %04X/%04X).",
+            path, image_size,
+            report.arm9_ipl1_bytes, report.arm9_ipl1_load_address,
+            report.arm7_ipl2_bytes, report.arm7_ipl2_load_address,
+            report.expected_ipl12_crc16, report.computed_ipl12_crc16);
+    SDL_Log("Secondary firmware remains staged in the machine: "
+            "P3 ARM9=%u bytes, P4 ARM7=%u bytes, P5 language/UI=%u bytes; "
+            "P3/P4 CRC16 %04X/%04X, P5 CRC16 %04X/%04X.",
+            report.arm9_ipl3_staged_bytes,
+            report.arm7_ipl4_staged_bytes,
+            report.ipl5_language_staged_bytes,
+            report.expected_ipl34_crc16, report.computed_ipl34_crc16,
+            report.expected_ipl5_crc16, report.computed_ipl5_crc16);
     return true;
 }
 

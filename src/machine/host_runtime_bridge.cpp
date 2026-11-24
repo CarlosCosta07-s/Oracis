@@ -417,6 +417,45 @@ extern "C" int oracis_host_runtime_load_spi_firmware_boot_code(void)
     return ORACIS_HOST_RUNTIME_MACHINE_ERROR;
 }
 
+extern "C" int oracis_host_runtime_get_firmware_boot_report(
+    OracisHostFirmwareBootReport *report)
+{
+    if (report == nullptr) return ORACIS_HOST_RUNTIME_INVALID_ARGUMENT;
+    *report = {};
+    auto &machine = host_machine();
+    if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+
+    const auto *boot = machine.firmware_boot_code();
+    if (boot == nullptr) return ORACIS_HOST_RUNTIME_FIRMWARE_ERROR;
+    if (boot->arm9_bytes.size() > UINT32_MAX ||
+        boot->arm7_bytes.size() > UINT32_MAX ||
+        boot->arm9_secondary_bytes.size() > UINT32_MAX ||
+        boot->arm7_secondary_bytes.size() > UINT32_MAX ||
+        boot->firmware_data_bytes.size() > UINT32_MAX) {
+        return ORACIS_HOST_RUNTIME_FIRMWARE_ERROR;
+    }
+
+    report->arm9_ipl1_load_address = boot->arm9_load_address;
+    report->arm9_ipl1_bytes =
+        static_cast<uint32_t>(boot->arm9_bytes.size());
+    report->arm7_ipl2_load_address = boot->arm7_load_address;
+    report->arm7_ipl2_bytes =
+        static_cast<uint32_t>(boot->arm7_bytes.size());
+    report->arm9_ipl3_staged_bytes =
+        static_cast<uint32_t>(boot->arm9_secondary_bytes.size());
+    report->arm7_ipl4_staged_bytes =
+        static_cast<uint32_t>(boot->arm7_secondary_bytes.size());
+    report->ipl5_language_staged_bytes =
+        static_cast<uint32_t>(boot->firmware_data_bytes.size());
+    report->expected_ipl12_crc16 = boot->expected_crc16;
+    report->computed_ipl12_crc16 = boot->computed_crc16;
+    report->expected_ipl34_crc16 = boot->expected_secondary_crc16;
+    report->computed_ipl34_crc16 = boot->computed_secondary_crc16;
+    report->expected_ipl5_crc16 = boot->expected_data_crc16;
+    report->computed_ipl5_crc16 = boot->computed_data_crc16;
+    return ORACIS_HOST_RUNTIME_OK;
+}
+
 extern "C" int oracis_host_runtime_set_game_card_chip_id(uint32_t chip_id)
 {
     auto &machine = host_machine();

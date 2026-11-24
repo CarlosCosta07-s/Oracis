@@ -633,3 +633,8 @@ arquivos no Android.
 ## Atualização 2026-11-24 — cobertura ampliada do decoder P345
 
 A fixture sintética da parte 3 agora usa uma árvore Huffman primária com três símbolos (dois literais e um match de comprimento 4) e uma árvore independente de distâncias que seleciona distância 2. A saída esperada alterna dois bytes (`ABABAB`), exercitando decodificação por ramos internos e cópia LZ sobreposta com distância maior que 1. As partes 4 e 5 mantêm o caso simples de distância 1. Essa etapa aumenta a cobertura estrutural do decoder e não altera a política de manter P3/P4/P5 em staging: a documentação disponível identifica a função dos componentes, mas não define destinos de RAM suficientes para instalação segura.
+
+
+## Atualização 2026-11-24 — buffers secundários retidos e relatório do IPL
+
+Depois da publicação atômica dos IPL1/2 e da validação de identidade na RAM, `NdsMachine` agora mantém o objeto validado de firmware durante toda a sessão. Isso preserva os bytes descomprimidos de P3/P4/P5 em staging, em vez de descartar os vetores temporários ao sair de `load_firmware_boot_code()`. A nova consulta C ABI informa tamanhos, destinos de P1/P2 e CRCs de P1/2, P3/4 e P5; o host SDL registra esses dados. Nenhum componente secundário é copiado para endereços guest. O teste de integração usa componentes P345 sintéticos e confirma que os três tamanhos e seus CRCs continuam acessíveis depois da chamada.

@@ -11,6 +11,7 @@
 #include <exception>
 #include <limits>
 #include <new>
+#include <utility>
 #include <vector>
 
 namespace oracis::machine {
@@ -1577,6 +1578,8 @@ NdsMachineStatus NdsMachine::initialize() noexcept
     interrupt_wait_masks_.fill(0u);
     interrupt_wait_resume_pcs_.fill(0u);
     program_loaded_ = false;
+    firmware_boot_code_loaded_ = false;
+    firmware_boot_code_ = {};
     /* CP15 Control.V and fixed-one bits are owned by the ARM9 TCM controller. */
     arm9_state_.cpsr = ORACIS_ARM_MODE_SYSTEM;
     arm7_state_.cpsr = ORACIS_ARM_MODE_SYSTEM;
@@ -2136,6 +2139,7 @@ NdsMachineStatus NdsMachine::load_firmware_boot_code() noexcept
         return NdsMachineStatus::FirmwareBootMemoryUnavailable;
     }
 
+    firmware_boot_code_ = std::move(boot_code);
     firmware_boot_code_loaded_ = true;
     return NdsMachineStatus::Ok;
 }

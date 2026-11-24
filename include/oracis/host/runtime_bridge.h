@@ -63,6 +63,23 @@ typedef struct OracisHostRuntimeEntryPointReport {
     uint32_t resolved;
 } OracisHostRuntimeEntryPointReport;
 
+/* Sizes, destinations and CRC results for the retained user firmware IPL. */
+typedef struct OracisHostFirmwareBootReport {
+    uint32_t arm9_ipl1_load_address;
+    uint32_t arm9_ipl1_bytes;
+    uint32_t arm7_ipl2_load_address;
+    uint32_t arm7_ipl2_bytes;
+    uint32_t arm9_ipl3_staged_bytes;
+    uint32_t arm7_ipl4_staged_bytes;
+    uint32_t ipl5_language_staged_bytes;
+    uint32_t expected_ipl12_crc16;
+    uint32_t computed_ipl12_crc16;
+    uint32_t expected_ipl34_crc16;
+    uint32_t computed_ipl34_crc16;
+    uint32_t expected_ipl5_crc16;
+    uint32_t computed_ipl5_crc16;
+} OracisHostFirmwareBootReport;
+
 /*
  * Scanline composition diagnostics. status is an Nds2dComposeStatus value;
  * subordinate fields preserve the first failing BG/OBJ/memory operation.
@@ -100,8 +117,11 @@ int oracis_host_runtime_load_game_card_arm7_bios(
 /* Copy a user-supplied raw NDS SPI firmware-flash dump (1..16 MiB). */
 int oracis_host_runtime_set_spi_firmware_image(
     const uint8_t *bytes, uint32_t size);
-/* Decrypt/validate IPL parts 1-2 with the previously supplied ARM7 BIOS KEY1 table. */
+/* Decrypt/validate IPL1/2 and P3/P4/P5 with the supplied ARM7 BIOS KEY1 table. */
 int oracis_host_runtime_load_spi_firmware_boot_code(void);
+/* Read retained firmware component sizes, IPL destinations and CRC checks. */
+int oracis_host_runtime_get_firmware_boot_report(
+    OracisHostFirmwareBootReport *report);
 int oracis_host_runtime_unmount_game_card_image(void);
 /* Supply the physical 32-bit cartridge chip ID; the raw .nds dump does not contain it. */
 int oracis_host_runtime_set_game_card_chip_id(uint32_t chip_id);

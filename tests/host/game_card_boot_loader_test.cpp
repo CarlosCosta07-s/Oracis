@@ -98,6 +98,69 @@ std::vector<uint8_t> make_lz77_literal_block(
     };
 }
 
+class FirmwareP345BitWriter final {
+public:
+    void write(uint16_t value, uint32_t bit_count)
+    {
+        for (uint32_t index = 0u; index < bit_count; ++index) {
+            const uint32_t shift = bit_count - index - 1u;
+            if ((bit_count_ & 7u) == 0u) bytes_.push_back(0u);
+            if (((value >> shift) & 1u) != 0u) {
+                const uint32_t output_shift =
+                    7u - static_cast<uint32_t>(bit_count_ & 7u);
+                bytes_.back() = static_cast<uint8_t>(
+                    bytes_.back() | (UINT8_C(1) << output_shift));
+            }
+            ++bit_count_;
+        }
+    }
+    const std::vector<uint8_t> &bytes() const noexcept { return bytes_; }
+private:
+    std::vector<uint8_t> bytes_;
+    size_t bit_count_ = 0u;
+};
+
+std::vector<uint8_t> make_firmware_p345_component(uint8_t literal)
+{
+    FirmwareP345BitWriter primary;
+    primary.write(1u, 1u);
+    primary.write(0u, 1u);
+    primary.write(literal, 9u);
+    primary.write(0u, 1u);
+    primary.write(UINT16_C(0x100), 9u);
+    primary.write(0u, 1u);
+    primary.write(1u, 1u);
+
+    FirmwareP345BitWriter distance;
+    distance.write(1u, 1u);
+    distance.write(0u, 1u);
+    distance.write(0u, 11u);
+    distance.write(0u, 1u);
+    distance.write(1u, 11u);
+    distance.write(0u, 1u);
+
+    const size_t primary_span =
+        (primary.bytes().size() + size_t{3u}) & ~size_t{3u};
+    const size_t distance_offset = size_t{12u} + primary_span;
+    const size_t distance_span =
+        (distance.bytes().size() + size_t{3u}) & ~size_t{3u};
+    const size_t component_span = distance_offset + distance_span;
+
+    std::vector<uint8_t> component(component_span, 0u);
+    write_u32_le(component, 0u,
+        UINT32_C(0x80000000) |
+        static_cast<uint32_t>(component_span * size_t{4u}));
+    component[4u] = UINT8_C(0x80);
+    component[7u] = UINT8_C(4);
+    component[8u] = static_cast<uint8_t>(distance_offset >> 24u);
+    component[9u] = static_cast<uint8_t>(distance_offset >> 16u);
+    component[10u] = static_cast<uint8_t>(distance_offset >> 8u);
+    component[11u] = static_cast<uint8_t>(distance_offset);
+    std::copy(primary.bytes().begin(), primary.bytes().end(), component.begin() + 12u);
+    std::copy(distance.bytes().begin(), distance.bytes().end(), component.begin() + distance_offset);
+    return component;
+}
+
 bool encrypt_firmware_stream(
     oracis::memory::NdsGameCardKey1 &cipher,
     const uint8_t *plain,
@@ -142,9 +205,24 @@ std::vector<uint8_t> make_synthetic_firmware(
         return {};
     }
 
+    constexpr std::array<uint8_t, 4> SecondaryArm9 = {
+        UINT8_C(0x31), UINT8_C(0x31), UINT8_C(0x31), UINT8_C(0x31)
+    };
+    constexpr std::array<uint8_t, 4> SecondaryArm7 = {
+        UINT8_C(0x41), UINT8_C(0x41), UINT8_C(0x41), UINT8_C(0x41)
+    };
+    constexpr std::array<uint8_t, 4> LanguageData = {
+        UINT8_C(0x51), UINT8_C(0x51), UINT8_C(0x51), UINT8_C(0x51)
+    };
+    const auto part3 = make_firmware_p345_component(SecondaryArm9[0]);
+    const auto part4 = make_firmware_p345_component(SecondaryArm7[0]);
+    const auto part5 = make_firmware_p345_component(LanguageData[0]);
     const auto arm9_lz = make_lz77_literal_block(Arm9Plain);
     const auto arm7_lz = make_lz77_literal_block(Arm7Plain);
-    std::vector<uint8_t> firmware(0x290u, 0u);
+    std::vector<uint8_t> firmware(0x420u, 0u);
+    store_u16_le(firmware, 0x00u, UINT16_C(0x60));
+    store_u16_le(firmware, 0x02u, UINT16_C(0x70));
+    store_u16_le(firmware, 0x16u, UINT16_C(0x80));
     store_u16_le(firmware, 0x0Cu, UINT16_C(4));       /* source 0x200 */
     store_u16_le(firmware, 0x0Eu, UINT16_C(0x8024));  /* ARM9: 0x023FEE00 */
     store_u16_le(firmware, 0x10u, UINT16_C(0xA0));    /* source 0x280 */
@@ -186,7 +264,14 @@ std::vector<uint8_t> make_synthetic_firmware(
         return {};
     }
 
+    std::copy(part3.begin(), part3.end(), firmware.begin() + 0x300u);
+    std::copy(part4.begin(), part4.end(), firmware.begin() + 0x380u);
+    std::copy(part5.begin(), part5.end(), firmware.begin() + 0x400u);
+    store_u16_le(firmware, 0x04u,
+                 crc16_firmware(SecondaryArm9, SecondaryArm7));
     store_u16_le(firmware, 0x06u, crc16_firmware(Arm9Plain, Arm7Plain));
+    constexpr std::array<uint8_t, 4> Empty{};
+    store_u16_le(firmware, 0x26u, crc16_firmware(LanguageData, Empty));
     return firmware;
 }
 
@@ -391,6 +476,23 @@ int main()
         !oracis_arm_runtime_select_cpu(NDS_ARM9)) {
         (void)oracis_host_runtime_shutdown();
         return fail("firmware IPL parts were not published to ARM9/ARM7 boot RAM");
+    }
+
+    OracisHostFirmwareBootReport firmware_report{};
+    if (oracis_host_runtime_get_firmware_boot_report(&firmware_report) !=
+            ORACIS_HOST_RUNTIME_OK ||
+        firmware_report.arm9_ipl1_load_address != UINT32_C(0x023FEE00) ||
+        firmware_report.arm9_ipl1_bytes != 4u ||
+        firmware_report.arm7_ipl2_load_address != UINT32_C(0x0380F700) ||
+        firmware_report.arm7_ipl2_bytes != 4u ||
+        firmware_report.arm9_ipl3_staged_bytes != 4u ||
+        firmware_report.arm7_ipl4_staged_bytes != 4u ||
+        firmware_report.ipl5_language_staged_bytes != 4u ||
+        firmware_report.expected_ipl12_crc16 != firmware_report.computed_ipl12_crc16 ||
+        firmware_report.expected_ipl34_crc16 != firmware_report.computed_ipl34_crc16 ||
+        firmware_report.expected_ipl5_crc16 != firmware_report.computed_ipl5_crc16) {
+        (void)oracis_host_runtime_shutdown();
+        return fail("validated firmware report did not retain P3/P4/P5 sizes and CRCs");
     }
 
     auto wrong_metadata = arm9;
