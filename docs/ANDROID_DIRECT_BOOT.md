@@ -41,6 +41,8 @@ O Slot-2 GBA vazio é modelado separadamente do Game Card DS serial: EXMEMCNT bi
 
 O probe de entrada direta também observou uma transferência ARM9 para 0x020C2ECC (uma instrução `B` para 0x020C2F18) e, em seguida, uma entrada indireta no início da função ARM9 em 0x020C2F18. As duas entradas adicionais são vinculadas ao SHA-1 do segmento ARM9 USA Rev 1 e permanecem apenas como metadados de recompilação; não há código ou dados de jogo embutidos no repositório.
 
+Depois da leitura DMA do Slot-2 vazio, o probe também observou a chamada ARM9 em 0x020C1978: a rotina lê EXMEMCNT, ativa o bit 7 e devolve a posse do Slot-2 ao ARM7. A entrada estática é registrada separadamente e validada pela mesma identidade SHA-1 do ARM9 USA Rev 1.
+
 O carregador ainda não reproduz todas as regiões de RAM preenchidas durante o boot, fragmentos de código copiados pela BIOS, campos de identificação/CRC do cartucho, user settings do firmware, configuração completa CP15/MPU/TCM ou a inicialização de todos os periféricos. O cabeçalho NDS é espelhado em 0x027FFE00 quando fornecido ao loader. A ausência dessas outras condições continua sendo um possível bloqueio para Pokémon Platinum.
 
 ## Condições para executar código guest

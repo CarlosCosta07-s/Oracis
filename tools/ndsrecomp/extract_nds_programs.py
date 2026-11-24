@@ -25,6 +25,7 @@ EXPECTED_ARM9_SEGMENT_SHA1 = "7ec963e737f0f61efcbbf5c7a3d33cbf378143f8"
 VERIFIED_STATIC_ENTRY_POINTS = {
     "arm9": {
         EXPECTED_ARM9_SEGMENT_SHA1: (
+            (0x020C1978, "arm", "observed_slot2_restore_arm7_entry_020C1978"),
             (0x020C2EBC, "arm", "observed_dispatch_thunk_020C2EBC"),
             (0x020C2ECC, "arm", "observed_branch_table_entry_020C2ECC"),
             (0x020C2F18, "arm", "observed_indirect_function_020C2F18"),
