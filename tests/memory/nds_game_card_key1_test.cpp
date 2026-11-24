@@ -1,5 +1,6 @@
 #include "oracis/memory/nds_game_card_key1.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdio>
