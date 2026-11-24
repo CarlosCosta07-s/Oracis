@@ -46,8 +46,10 @@ VECTORS = (
 )
 EXECUTION_TARGET_OFFSETS = {"arm9": 0x100, "arm7": 0x1200}
 MEMORY_TARGET_OFFSETS = {"arm9": 0x200, "arm7": 0x1300}
-ARM_LDR_LR_PC_LITERAL = 0xE59FE014
-ARM_LDR_R1_PC_LITERAL = 0xE59F1014
+ARM9_LDR_LR_PC_LITERAL = 0xE59FE014
+ARM9_LDR_R1_PC_LITERAL = 0xE59F1014
+ARM7_LDR_LR_PC_LITERAL = 0xE59FE00C
+ARM7_LDR_R1_PC_LITERAL = 0xE59F100C
 ARM_MOV_R0_42 = 0xE3A0002A
 ARM_MOV_R0_0 = 0xE3A00000
 ARM_LDR_R0_R1 = 0xE5910000
@@ -78,23 +80,37 @@ def create_synthetic_bios(path: Path, cpu: str) -> None:
         branch = 0xEA000000 | immediate
         struct.pack_into("<I", data, offset, branch)
 
-    # Reset writes 0x2A to shared main RAM, clears R0, reads it back,
-    # then returns to the same BIOS reset vector through a BIOS-resident literal.
-    # The observed R0 value therefore proves both native bus write and read.
-    struct.pack_into(
-        "<IIIIIIIII",
-        data,
-        EXECUTION_TARGET_OFFSETS[cpu],
-        ARM_LDR_LR_PC_LITERAL,
-        ARM_LDR_R1_PC_LITERAL,
-        ARM_MOV_R0_42,
-        ARM_STR_R0_R1,
-        ARM_MOV_R0_0,
-        ARM_LDR_R0_R1,
-        ARM_BX_LR,
-        base,
-        SYNTHETIC_RAM_MARKER,
-    )
+    # ARM9 is the producer: write 0x2A to shared main RAM, clear R0,
+    # read it back, then return to its BIOS reset vector.
+    # ARM7 is the consumer: read the same address only after host releases reset.
+    if cpu == "arm9":
+        struct.pack_into(
+            "<IIIIIIIII",
+            data,
+            EXECUTION_TARGET_OFFSETS[cpu],
+            ARM9_LDR_LR_PC_LITERAL,
+            ARM9_LDR_R1_PC_LITERAL,
+            ARM_MOV_R0_42,
+            ARM_STR_R0_R1,
+            ARM_MOV_R0_0,
+            ARM_LDR_R0_R1,
+            ARM_BX_LR,
+            base,
+            SYNTHETIC_RAM_MARKER,
+        )
+    else:
+        struct.pack_into(
+            "<IIIIIII",
+            data,
+            EXECUTION_TARGET_OFFSETS[cpu],
+            ARM7_LDR_LR_PC_LITERAL,
+            ARM7_LDR_R1_PC_LITERAL,
+            ARM_MOV_R0_0,
+            ARM_LDR_R0_R1,
+            ARM_BX_LR,
+            base,
+            SYNTHETIC_RAM_MARKER,
+        )
     struct.pack_into(
         "<III",
         data,
@@ -259,7 +275,7 @@ def main() -> int:
     print(
         "Pinned NDSRecomp BIOS integration passed: "
         f"ARM9/ARM7 C99 objects compiled and linked into Oracis ({compiled}); "
-        "live-byte mismatch rejected; both CPUs passed native shared-RAM store/load round-trips"
+        "live-byte mismatch rejected; ARM9 wrote shared RAM and released ARM7 read the same marker"
     )
     return 0
 

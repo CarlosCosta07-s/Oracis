@@ -232,6 +232,6 @@ int main(int argc, char **argv)
 
     std::puts(
         "pinned NDSRecomp BIOS banks linked; live-byte mismatch rejected; "
-        "both CPUs passed shared-RAM store/load round-trips");
+        "ARM9 shared-RAM write was observed by the released ARM7");
     return 0;
 }
