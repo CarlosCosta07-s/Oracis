@@ -146,9 +146,10 @@ std::vector<uint8_t> make_synthetic_firmware(
     store_u16_le(firmware, 0x14u, UINT16_C(0x042D));
     store_u32_le(firmware, 0x08u, FirmwareId);
     store_u16_le(firmware, 0x2Cu, UINT16_C(0x0138));
+    firmware[0x162u] = UINT8_C(0x1C);
     store_u16_le(
         firmware, 0x2Au,
-        crc16_header(firmware.data() + 0x2Cu, 0x0136u));
+        crc16_header(firmware.data() + 0x2Cu, 0x0137u));
 
     NdsGameCardKey1 cipher;
     if (cipher.load_key_table(table.data(), NdsGameCardKey1::KeyTableBytes) !=
