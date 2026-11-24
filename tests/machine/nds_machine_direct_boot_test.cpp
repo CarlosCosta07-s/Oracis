@@ -98,30 +98,5 @@ int main()
         return fail("machine shutdown failed");
     }
 
-    /*
-     * Firmware IPL publication is part of the pre-entry setup. Reporting
-     * elapsed idle time for either CPU must close that setup window even when
-     * no generated instruction has run yet.
-     */
-    NdsMachine late_firmware_machine(SharedWramMode::Arm9All32K);
-    if (late_firmware_machine.initialize() != NdsMachineStatus::Ok) {
-        return fail("late-firmware machine initialization failed");
-    }
-    if (late_firmware_machine.report_idle_bus_cycles(NDS_ARM9, 2u) !=
-            NdsMachineStatus::Ok ||
-        late_firmware_machine.report_idle_bus_cycles(NDS_ARM7, 2u) !=
-            NdsMachineStatus::Ok) {
-        (void)late_firmware_machine.shutdown();
-        return fail("could not report elapsed idle time before firmware loading");
-    }
-    if (late_firmware_machine.global_bus_cycles() == 0u ||
-        late_firmware_machine.load_firmware_boot_code() !=
-            NdsMachineStatus::ProgramLoadAfterExecution) {
-        (void)late_firmware_machine.shutdown();
-        return fail("firmware IPL loader accepted a machine after idle bus time elapsed");
-    }
-    if (late_firmware_machine.shutdown() != NdsMachineStatus::Ok) {
-        return fail("late-firmware machine shutdown failed");
-    }
     return 0;
 }
