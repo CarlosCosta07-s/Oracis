@@ -121,7 +121,7 @@ std::vector<uint8_t> make_encrypted_firmware(
     };
     std::vector<uint8_t> firmware(0x290u, 0u);
     store_u16(firmware, 0x0Cu, 4u);
-    store_u16(firmware, 0x0Eu, UINT16_C(0x2024));
+    store_u16(firmware, 0x0Eu, UINT16_C(0x8024));
     store_u16(firmware, 0x10u, UINT16_C(0xA0));
     store_u16(firmware, 0x12u, UINT16_C(0x90));
     store_u16(firmware, 0x14u, UINT16_C(0x042D));
