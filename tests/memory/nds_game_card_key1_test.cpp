@@ -100,7 +100,7 @@ std::vector<uint8_t> make_lz77_literal_block(
 }
 
 bool encrypt_firmware_stream(
-    NdsGameCardKey1 &cipher,
+    oracis::memory::NdsGameCardKey1 &cipher,
     const uint8_t *plain,
     size_t size,
     std::vector<uint8_t> &firmware,
