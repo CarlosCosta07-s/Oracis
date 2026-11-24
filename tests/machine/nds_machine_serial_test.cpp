@@ -19,6 +19,7 @@ namespace {
 
 using oracis::machine::NdsMachine;
 using oracis::machine::NdsMachineStatus;
+using oracis::memory::NdsGameCardKey1;
 using oracis::memory::NdsInterruptControl;
 using oracis::memory::NdsRtc;
 using oracis::memory::NdsRtcDateTime;
