@@ -47,7 +47,7 @@ O scheduler nativo só é habilitado quando:
 - Existem bancos estáticos registrados para ARM9 e ARM7.
 - O PC inicial de cada CPU resolve para uma entrada compilada no modo ARM/Thumb esperado.
 
-Depois do preflight, o host Android chama oracis_host_runtime_run_round em 128 fatias sequenciais de 1.024 ciclos de barramento por iteração do loop principal (131.072 ciclos agregados). Fatias menores evitam crescimento excessivo da pilha nativa, pois os dispatches entre funções guest recompiladas são encadeados por chamadas C. Se o scheduler devolver erro, a execução é desabilitada e o host registra o ciclo global, o número da fatia, o código da ponte e o estado da máquina. Não há fallback para interpretador ARM.
+Depois do preflight, o host Android chama oracis_host_runtime_run_round em 512 fatias sequenciais de 256 ciclos de barramento por iteração do loop principal (131.072 ciclos agregados). A granularidade de 256 ciclos preserva os estados transitórios do handshake IPCSYNC entre ARM9 e ARM7, que podem ser perdidos quando um CPU executa um quantum longo antes do outro. Fatias curtas também limitam o crescimento da pilha nativa, pois os dispatches entre funções guest recompiladas são encadeados por chamadas C. Se o scheduler devolver erro, a execução é desabilitada e o host registra o ciclo global, o número da fatia, o código da ponte e o estado da máquina. Não há fallback para interpretador ARM.
 
 A seleção de ROM/BIOS e o preflight não comprovam que o jogo iniciou. Uma sequência de rounds concluída sem erro comprova apenas que o código guest avançou durante aquele orçamento. O primeiro quadro real, a inicialização completa dos overlays e a compatibilidade jogável precisam de evidência separada.
 
