@@ -1,6 +1,166 @@
 #include "oracis/memory/nds_game_card_key1.hpp"
 
+#include <algorithm>
+#include <cstring>
+#include <new>
+
 namespace oracis::memory {
+
+namespace {
+
+uint16_t read_u16_le(const uint8_t *bytes) noexcept
+{
+    return static_cast<uint16_t>(
+        static_cast<uint16_t>(bytes[0]) |
+        (static_cast<uint16_t>(bytes[1]) << 8u));
+}
+
+uint32_t read_u32_le(const uint8_t *bytes) noexcept
+{
+    return static_cast<uint32_t>(bytes[0]) |
+        (static_cast<uint32_t>(bytes[1]) << 8u) |
+        (static_cast<uint32_t>(bytes[2]) << 16u) |
+        (static_cast<uint32_t>(bytes[3]) << 24u);
+}
+
+uint16_t firmware_boot_crc16(
+    const std::vector<uint8_t> &arm9,
+    const std::vector<uint8_t> &arm7) noexcept
+{
+    uint16_t crc = UINT16_C(0xFFFF);
+    const auto update = [&crc](const std::vector<uint8_t> &bytes) noexcept {
+        for (const uint8_t byte : bytes) {
+            crc = static_cast<uint16_t>(crc ^ byte);
+            for (uint32_t bit = 0u; bit < 8u; ++bit) {
+                crc = static_cast<uint16_t>(
+                    (crc >> 1u) ^
+                    ((crc & 1u) != 0u
+                        ? UINT16_C(0xA001) : UINT16_C(0)));
+            }
+        }
+    };
+    update(arm9);
+    update(arm7);
+    return crc;
+}
+
+class Key1FirmwareStream final {
+public:
+    Key1FirmwareStream(
+        NdsGameCardKey1 &key,
+        const uint8_t *image,
+        size_t image_size,
+        size_t source_offset) noexcept
+        : key_(key), image_(image), image_size_(image_size),
+          image_offset_(source_offset)
+    {
+    }
+
+    bool read_byte(uint8_t &value) noexcept
+    {
+        if (cursor_ == block_.size()) {
+            if (image_offset_ > image_size_ ||
+                image_size_ - image_offset_ < block_.size()) {
+                return false;
+            }
+            std::memcpy(block_.data(), image_ + image_offset_, block_.size());
+            if (key_.decrypt_block(
+                    block_.data(), static_cast<uint32_t>(block_.size())) !=
+                Status::Ok) {
+                return false;
+            }
+            image_offset_ += block_.size();
+            cursor_ = 0u;
+        }
+        value = block_[cursor_++];
+        return true;
+    }
+
+private:
+    NdsGameCardKey1 &key_;
+    const uint8_t *image_;
+    size_t image_size_;
+    size_t image_offset_;
+    std::array<uint8_t, NdsGameCardKey1::BlockBytes> block_{};
+    size_t cursor_ = NdsGameCardKey1::BlockBytes;
+};
+
+Status decompress_firmware_lz77(
+    NdsGameCardKey1 &key,
+    const uint8_t *firmware,
+    size_t firmware_size,
+    size_t source_offset,
+    std::vector<uint8_t> &output) noexcept
+{
+    constexpr size_t MaxFirmwarePartBytes = size_t{1} << 24u;
+    if (firmware == nullptr || source_offset >= firmware_size) {
+        return Status::InvalidRegion;
+    }
+
+    Key1FirmwareStream stream(key, firmware, firmware_size, source_offset);
+    uint8_t header[4]{};
+    for (uint8_t &byte : header) {
+        if (!stream.read_byte(byte)) return Status::InvalidRegion;
+    }
+    if (header[0] != UINT8_C(0x10)) return Status::Unsupported;
+
+    const uint32_t output_size =
+        static_cast<uint32_t>(header[1]) |
+        (static_cast<uint32_t>(header[2]) << 8u) |
+        (static_cast<uint32_t>(header[3]) << 16u);
+    if (output_size == 0u ||
+        static_cast<size_t>(output_size) > MaxFirmwarePartBytes) {
+        return Status::InvalidRegion;
+    }
+
+    std::vector<uint8_t> decoded;
+    try {
+        decoded.reserve(output_size);
+        while (decoded.size() < output_size) {
+            uint8_t flags = 0u;
+            if (!stream.read_byte(flags)) return Status::InvalidRegion;
+
+            for (uint32_t bit = 0u; bit < 8u &&
+                 decoded.size() < output_size; ++bit) {
+                if ((flags & (UINT8_C(0x80) >> bit)) == 0u) {
+                    uint8_t literal = 0u;
+                    if (!stream.read_byte(literal)) return Status::InvalidRegion;
+                    decoded.push_back(literal);
+                    continue;
+                }
+
+                uint8_t first = 0u;
+                uint8_t second = 0u;
+                if (!stream.read_byte(first) ||
+                    !stream.read_byte(second)) {
+                    return Status::InvalidRegion;
+                }
+
+                const uint32_t length =
+                    static_cast<uint32_t>((first >> 4u) + 3u);
+                const uint32_t displacement =
+                    (static_cast<uint32_t>(first & UINT8_C(0x0F)) << 8u) |
+                    static_cast<uint32_t>(second);
+                const uint32_t distance = displacement + 1u;
+                if (distance > decoded.size() ||
+                    length > output_size - decoded.size()) {
+                    return Status::InvalidRegion;
+                }
+
+                for (uint32_t index = 0u; index < length; ++index) {
+                    decoded.push_back(decoded[decoded.size() - distance]);
+                }
+            }
+        }
+    } catch (const std::bad_alloc &) {
+        return Status::Unsupported;
+    }
+
+    output = std::move(decoded);
+    return Status::Ok;
+}
+
+} // namespace
 
 uint32_t NdsGameCardKey1::byte_swap32(uint32_t value) noexcept
 {
@@ -389,5 +549,146 @@ Status NdsGameCardKey1::decrypt_secure_area(
      * this one-shot Secure Area operation. */
     return initialize(saved_id_code, saved_level, saved_modulo);
 }
+
+Status NdsGameCardKey1::decrypt_firmware_boot_code(
+    const uint8_t *firmware,
+    size_t firmware_size,
+    NdsFirmwareBootCode &output) noexcept
+{
+    constexpr size_t FirmwareHeaderBytes = 0x200u;
+    constexpr uint32_t MaxFirmwarePartBytes = UINT32_C(0x01000000);
+    if (firmware == nullptr || firmware_size < FirmwareHeaderBytes ||
+        firmware_size > MaxFirmwarePartBytes) {
+        return Status::InvalidRegion;
+    }
+    if (!table_loaded_) return Status::Unmapped;
+
+    const uint32_t id_code = read_u32_le(firmware + 0x08u);
+    if (id_code != UINT32_C(0x5043414D) &&
+        id_code != UINT32_C(0x6843414D)) {
+        return Status::Unsupported;
+    }
+
+    const uint16_t part1_source_info = read_u16_le(firmware + 0x0Cu);
+    const uint16_t part1_destination_info = read_u16_le(firmware + 0x0Eu);
+    const uint16_t part2_source_info = read_u16_le(firmware + 0x10u);
+    const uint16_t part2_destination_info = read_u16_le(firmware + 0x12u);
+    const uint16_t shift_data = read_u16_le(firmware + 0x14u);
+    const uint16_t expected_crc = read_u16_le(firmware + 0x06u);
+
+    const uint32_t part1_source_shift = (shift_data >> 0u) & 7u;
+    const uint32_t part1_destination_shift = (shift_data >> 3u) & 7u;
+    const uint32_t part2_source_shift = (shift_data >> 6u) & 7u;
+    const uint32_t part2_destination_shift = (shift_data >> 9u) & 7u;
+
+    const uint64_t part1_source =
+        static_cast<uint64_t>(part1_source_info) *
+        (UINT64_C(4) << part1_source_shift);
+    const uint64_t part2_source =
+        static_cast<uint64_t>(part2_source_info) *
+        (UINT64_C(4) << part2_source_shift);
+    const uint64_t part1_destination_offset =
+        static_cast<uint64_t>(part1_destination_info) *
+        (UINT64_C(4) << part1_destination_shift);
+    const uint64_t part2_destination_offset =
+        static_cast<uint64_t>(part2_destination_info) *
+        (UINT64_C(4) << part2_destination_shift);
+    const uint64_t part1_destination_base = UINT64_C(0x02800000);
+    const uint64_t part2_destination_base =
+        (shift_data & UINT16_C(0x1000)) != 0u
+            ? UINT64_C(0x02800000) : UINT64_C(0x03810000);
+
+    if (part1_source_info == 0u || part2_source_info == 0u ||
+        part1_destination_info == 0u || part2_destination_info == 0u ||
+        part1_source < FirmwareHeaderBytes ||
+        part2_source < FirmwareHeaderBytes ||
+        part1_source >= firmware_size || part2_source >= firmware_size ||
+        part1_destination_offset >= part1_destination_base ||
+        part2_destination_offset >= part2_destination_base) {
+        return Status::InvalidRegion;
+    }
+
+    const uint64_t part1_destination =
+        part1_destination_base - part1_destination_offset;
+    const uint64_t part2_destination =
+        part2_destination_base - part2_destination_offset;
+    if (part1_destination > UINT32_MAX ||
+        part2_destination > UINT32_MAX ||
+        part1_destination == part2_destination) {
+        return Status::AddressOverflow;
+    }
+
+    const bool restore_schedule = initialized_;
+    const uint32_t saved_id_code = id_code_;
+    const uint32_t saved_level = level_;
+    const uint32_t saved_modulo = modulo_bytes_;
+    const auto restore = [this, restore_schedule, saved_id_code,
+                          saved_level, saved_modulo]() noexcept {
+        if (restore_schedule) {
+            (void)initialize(saved_id_code, saved_level, saved_modulo);
+        } else {
+            reset();
+        }
+    };
+
+    NdsFirmwareBootCode candidate{};
+    candidate.arm9_load_address = static_cast<uint32_t>(part1_destination);
+    candidate.arm7_load_address = static_cast<uint32_t>(part2_destination);
+    candidate.expected_crc16 = expected_crc;
+
+    Status status = initialize(id_code, 1u, 12u);
+    if (status != Status::Ok) {
+        restore();
+        return status;
+    }
+
+    std::memcpy(candidate.decrypted_rom_info.data(), firmware + 0x18u, 8u);
+    status = decrypt_block(
+        candidate.decrypted_rom_info.data(),
+        static_cast<uint32_t>(candidate.decrypted_rom_info.size()));
+    if (status != Status::Ok) {
+        restore();
+        return status;
+    }
+
+    status = initialize(id_code, 2u, 12u);
+    if (status == Status::Ok) {
+        status = decompress_firmware_lz77(
+            *this, firmware, firmware_size,
+            static_cast<size_t>(part1_source), candidate.arm9_bytes);
+    }
+    if (status == Status::Ok) {
+        status = decompress_firmware_lz77(
+            *this, firmware, firmware_size,
+            static_cast<size_t>(part2_source), candidate.arm7_bytes);
+    }
+    if (status != Status::Ok) {
+        restore();
+        return status;
+    }
+
+    if (candidate.arm9_bytes.empty() || candidate.arm7_bytes.empty() ||
+        candidate.arm9_bytes.size() > UINT32_MAX ||
+        candidate.arm7_bytes.size() > UINT32_MAX ||
+        part1_destination + candidate.arm9_bytes.size() >
+            UINT64_C(0x1'0000'0000) ||
+        part2_destination + candidate.arm7_bytes.size() >
+            UINT64_C(0x1'0000'0000)) {
+        restore();
+        return Status::AddressOverflow;
+    }
+
+    candidate.computed_crc16 =
+        firmware_boot_crc16(candidate.arm9_bytes, candidate.arm7_bytes);
+    if (candidate.computed_crc16 != candidate.expected_crc16) {
+        restore();
+        return Status::IdentityMismatch;
+    }
+
+    restore();
+    output = std::move(candidate);
+    return Status::Ok;
+}
+
 
 } // namespace oracis::memory
