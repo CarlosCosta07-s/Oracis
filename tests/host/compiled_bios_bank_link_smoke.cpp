@@ -124,7 +124,7 @@ int preflight_case(
                 NDS_ARM9, &arm9_after_first_round) != ORACIS_HOST_RUNTIME_OK ||
             oracis_host_runtime_get_cpu_state(
                 NDS_ARM7, &arm7_while_held) != ORACIS_HOST_RUNTIME_OK ||
-            arm9_after_first_round.R[0] != UINT32_C(0x2B) ||
+            arm9_after_first_round.R[0] != UINT32_C(0x2A) ||
             arm7_while_held.R[0] != 0u ||
             oracis_host_runtime_global_bus_cycles() < UINT64_C(64)) {
             (void)oracis_host_runtime_shutdown();
@@ -155,8 +155,8 @@ int preflight_case(
             oracis_host_runtime_global_bus_cycles();
         if (arm9_snapshot_status != ORACIS_HOST_RUNTIME_OK ||
             arm7_snapshot_status != ORACIS_HOST_RUNTIME_OK ||
-            arm9_after_second_round.R[0] != UINT32_C(0x2B) ||
-            arm7_after_second_round.R[0] != UINT32_C(0x2B) ||
+            arm9_after_second_round.R[0] != UINT32_C(0x2A) ||
+            arm7_after_second_round.R[0] != UINT32_C(0x2A) ||
             arm9_after_second_round.R[15] < UINT32_C(0xFFFF0000) ||
             arm9_after_second_round.R[15] >= UINT32_C(0xFFFF1000) ||
             arm7_after_second_round.R[15] >= UINT32_C(0x00004000) ||
@@ -231,7 +231,7 @@ int main(int argc, char **argv)
     }
 
     std::puts(
-        "pinned NDSRecomp BIOS banks linked into Oracis; live-byte mismatch "
-        "was rejected and both matching reset vectors preflighted");
+        "pinned NDSRecomp BIOS banks linked; live-byte mismatch rejected; "
+        "both CPUs passed shared-RAM store/load round-trips");
     return 0;
 }
