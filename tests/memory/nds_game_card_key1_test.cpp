@@ -140,7 +140,7 @@ std::vector<uint8_t> make_synthetic_firmware(
     std::vector<uint8_t> firmware(0x290u, 0u);
 
     store_u16_le(firmware, 0x0Cu, UINT16_C(4));       /* part 1 source: 0x200 */
-    store_u16_le(firmware, 0x0Eu, UINT16_C(0x2024));  /* part 1 dest: 0x023FEE00 */
+    store_u16_le(firmware, 0x0Eu, UINT16_C(0x8024));  /* part 1 dest: 0x023FEE00 */
     store_u16_le(firmware, 0x10u, UINT16_C(0xA0));    /* part 2 source: 0x280 */
     store_u16_le(firmware, 0x12u, UINT16_C(0x90));    /* part 2 dest: 0x0380F700 */
     store_u16_le(firmware, 0x14u, UINT16_C(0x042D));
