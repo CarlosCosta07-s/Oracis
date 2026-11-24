@@ -48,7 +48,7 @@ EXECUTION_TARGET_OFFSETS = {"arm9": 0x100, "arm7": 0x1200}
 MEMORY_TARGET_OFFSETS = {"arm9": 0x200, "arm7": 0x1300}
 ARM_MOV_R0_42 = 0xE3A0002A
 ARM_ADD_R0_R0_1 = 0xE2800001
-ARM_BRANCH_TO_RESET_STUB = 0xEAFFFFFC
+ARM_LDR_LR_PC_LITERAL = 0xE59FE008
 ARM_LDR_R0_R1 = 0xE5910000
 ARM_STR_R0_R1 = 0xE5810000
 ARM_BX_LR = 0xE12FFF1E
@@ -76,15 +76,17 @@ def create_synthetic_bios(path: Path, cpu: str) -> None:
         branch = 0xEA000000 | immediate
         struct.pack_into("<I", data, offset, branch)
 
-    # Reset enters a harmless ARM loop that keeps R0 at 0x2B without leaving BIOS.
+    # Reset enters a short ARM stub, then returns to the same BIOS reset vector.
     # Other vectors retain reachable LDR/STR bodies for ABI/codegen coverage.
     struct.pack_into(
-        "<III",
+        "<IIIII",
         data,
         EXECUTION_TARGET_OFFSETS[cpu],
+        ARM_LDR_LR_PC_LITERAL,
         ARM_MOV_R0_42,
         ARM_ADD_R0_R0_1,
-        ARM_BRANCH_TO_RESET_STUB,
+        ARM_BX_LR,
+        base,
     )
     struct.pack_into(
         "<III",
