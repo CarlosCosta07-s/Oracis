@@ -78,7 +78,7 @@ public:
      bool &identifier_valid) noexcept;
  /* Decode the user-supplied SPI firmware IPL with the BIOS-derived KEY1 table. */
  Status decrypt_firmware_boot_code(const uint8_t *firmware,
-     size_t firmware_size,NdsFirmwareBootCode &output) noexcept;
+     std::size_t firmware_size,NdsFirmwareBootCode &output) noexcept;
  /* Chip ID is cartridge metadata not present in every .nds dump; caller must supply it. */
  Status set_chip_id(uint32_t chip_id) noexcept;
  void unmount_image() noexcept;
