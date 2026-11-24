@@ -172,8 +172,10 @@ int main()
         runtime_mem_cycles(UINT32_C(0x02000000), 2u, 1u) != 1u ||
         runtime_mem_cycles(UINT32_C(0x03000000), 4u, 0u) != 1u ||
         runtime_mem_cycles(UINT32_C(0x00000000), 2u, 0u) != 1u ||
+        runtime_mem_cycles(UINT32_C(0x06000000), 4u, 0u) != 1u ||
         runtime_mem_cycles(UINT32_C(0x06000000), 4u, 1u) != 2u ||
         runtime_mem_cycles(UINT32_C(0x06000000), 2u, 0u) != 1u ||
+        runtime_mem_cycles(UINT32_C(0x06020000), 4u, 0u) != 1u ||
         runtime_mem_cycles(UINT32_C(0x06020000), 4u, 1u) != 2u ||
         runtime_mem_cycles(UINT32_C(0x06020000), 2u, 0u) != 1u ||
         arm7_refill_cycles(UINT32_C(0x00000000)) != 2u ||
