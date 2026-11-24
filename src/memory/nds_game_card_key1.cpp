@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cstring>
-#include <cstdio>
 #include <new>
 #include <utility>
 
@@ -1029,29 +1028,6 @@ Status NdsGameCardKey1::decrypt_firmware_boot_code(
         if (candidate.computed_secondary_crc16 !=
                 candidate.expected_secondary_crc16 ||
             candidate.computed_data_crc16 != candidate.expected_data_crc16) {
-            std::fprintf(stderr,
-                "secondary firmware CRCs: p3/p4 expected=%04X computed=%04X "
-                "p5 expected=%04X computed=%04X sizes=%zu/%zu/%zu\\n",
-                candidate.expected_secondary_crc16,
-                candidate.computed_secondary_crc16,
-                candidate.expected_data_crc16,
-                candidate.computed_data_crc16,
-                candidate.arm9_secondary_bytes.size(),
-                candidate.arm7_secondary_bytes.size(),
-                candidate.firmware_data_bytes.size());
-            std::fprintf(stderr, "p3: ");
-            for (const uint8_t byte : candidate.arm9_secondary_bytes) {
-                std::fprintf(stderr, "%02X ", byte);
-            }
-            std::fprintf(stderr, " p4: ");
-            for (const uint8_t byte : candidate.arm7_secondary_bytes) {
-                std::fprintf(stderr, "%02X ", byte);
-            }
-            std::fprintf(stderr, " p5: ");
-            for (const uint8_t byte : candidate.firmware_data_bytes) {
-                std::fprintf(stderr, "%02X ", byte);
-            }
-            std::fprintf(stderr, "\\n");
             restore();
             return Status::IdentityMismatch;
         }

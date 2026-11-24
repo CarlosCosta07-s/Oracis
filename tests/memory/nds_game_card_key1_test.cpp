@@ -141,7 +141,7 @@ std::vector<uint8_t> make_synthetic_firmware(
         UINT8_C(0x31), UINT8_C(0x32), UINT8_C(0x33), UINT8_C(0x34)
     };
     constexpr std::array<uint8_t, 4> secondary_arm7_plain = {
-        UINT8_C(0x41), UINT8_C(0x42), UINT8_C(0x43), UINT8_C(0x44)
+        UINT8_C(0x41), UINT8_C(0x42), UINT8_C(0x41), UINT8_C(0x42)
     };
     constexpr std::array<uint8_t, 4> firmware_data_plain = {
         UINT8_C(0x51), UINT8_C(0x51), UINT8_C(0x51), UINT8_C(0x51)
@@ -155,7 +155,7 @@ std::vector<uint8_t> make_synthetic_firmware(
     const std::vector<uint8_t> part4_huffman = {
         UINT8_C(0x28), UINT8_C(4), UINT8_C(0), UINT8_C(0),
         UINT8_C(2), UINT8_C(0xC0), UINT8_C(0x41), UINT8_C(0x42),
-        UINT8_C(0), UINT8_C(0), UINT8_C(0), UINT8_C(0), UINT8_C(0), UINT8_C(0)
+        UINT8_C(0), UINT8_C(0), UINT8_C(0), UINT8_C(0), UINT8_C(0), UINT8_C(0x50)
     };
     const std::vector<uint8_t> part5_rle = {
         UINT8_C(0x30), UINT8_C(4), UINT8_C(0), UINT8_C(0),
@@ -589,45 +589,21 @@ int main()
     }
     if (firmware_boot.arm9_secondary_bytes != std::vector<uint8_t>{
             0x31u, 0x32u, 0x33u, 0x34u}) {
-        std::fprintf(stderr, "secondary ARM9 bytes: size=%zu\\n",
-                     firmware_boot.arm9_secondary_bytes.size());
-        for (const uint8_t byte : firmware_boot.arm9_secondary_bytes) {
-            std::fprintf(stderr, "%02X ", byte);
-        }
-        std::fprintf(stderr, "\\n");
         return fail("secondary ARM9 firmware (part 3) decompression mismatch");
     }
     if (firmware_boot.arm7_secondary_bytes != std::vector<uint8_t>{
-            0x41u, 0x41u, 0x41u, 0x41u}) {
-        std::fprintf(stderr, "secondary ARM7 bytes: size=%zu\\n",
-                     firmware_boot.arm7_secondary_bytes.size());
-        for (const uint8_t byte : firmware_boot.arm7_secondary_bytes) {
-            std::fprintf(stderr, "%02X ", byte);
-        }
-        std::fprintf(stderr, "\\n");
+            0x41u, 0x42u, 0x41u, 0x42u}) {
         return fail("secondary ARM7 firmware (part 4) Huffman mismatch");
     }
     if (firmware_boot.firmware_data_bytes != std::vector<uint8_t>{
             0x51u, 0x51u, 0x51u, 0x51u}) {
-        std::fprintf(stderr, "firmware data bytes: size=%zu\\n",
-                     firmware_boot.firmware_data_bytes.size());
-        for (const uint8_t byte : firmware_boot.firmware_data_bytes) {
-            std::fprintf(stderr, "%02X ", byte);
-        }
-        std::fprintf(stderr, "\\n");
         return fail("firmware language data (part 5) RLE mismatch");
     }
     if (firmware_boot.computed_secondary_crc16 !=
             firmware_boot.expected_secondary_crc16) {
-        std::fprintf(stderr, "secondary CRC: expected=%04X computed=%04X\\n",
-                     firmware_boot.expected_secondary_crc16,
-                     firmware_boot.computed_secondary_crc16);
         return fail("secondary firmware CRC16 for parts 3/4 did not match");
     }
     if (firmware_boot.computed_data_crc16 != firmware_boot.expected_data_crc16) {
-        std::fprintf(stderr, "part 5 CRC: expected=%04X computed=%04X\\n",
-                     firmware_boot.expected_data_crc16,
-                     firmware_boot.computed_data_crc16);
         return fail("firmware data CRC16 for part 5 did not match");
     }
     if (firmware_boot.decrypted_rom_info != std::array<uint8_t, 8>{
