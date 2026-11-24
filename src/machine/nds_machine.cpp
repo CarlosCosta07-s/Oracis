@@ -2042,7 +2042,6 @@ NdsMachineStatus NdsMachine::load_firmware_boot_code() noexcept
     if (!initialized_) return NdsMachineStatus::NotInitialized;
     if (firmware_boot_code_loaded_) return NdsMachineStatus::ProgramAlreadyLoaded;
     if (program_loaded_ || slice_active_[0] || slice_active_[1] ||
-        system_clock_.global_bus_cycles() != 0u ||
         oracis_scheduler_cycle_count(NDS_ARM9) != 0u ||
         oracis_scheduler_cycle_count(NDS_ARM7) != 0u) {
         return NdsMachineStatus::ProgramLoadAfterExecution;
