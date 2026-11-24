@@ -431,9 +431,9 @@ int main()
         oracis::memory::NdsGameCardKey1::Arm7BiosKeyTableOffset;
     auto firmware = make_synthetic_firmware(
         key_table, oracis::memory::NdsGameCardKey1::KeyTableBytes);
-    if (firmware.size() != 0x290u) {
+    if (firmware.size() != 0x420u) {
         (void)oracis_host_runtime_shutdown();
-        return fail("could not create the synthetic encrypted firmware IPL");
+        return fail("could not create the synthetic encrypted firmware IPL1-5");
     }
 
     auto invalid_destination_firmware = firmware;
