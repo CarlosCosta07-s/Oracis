@@ -101,9 +101,11 @@ static bool parse_game_card_chip_id(const char *text, uint32_t *chip_id)
     }
     if (text[0] == '\0' || text[0] == '-') return false;
 
+    const int base =
+        text[0] == '0' && (text[1] == 'x' || text[1] == 'X') ? 16 : 10;
     errno = 0;
     char *end = NULL;
-    const unsigned long parsed = strtoul(text, &end, 0);
+    const unsigned long parsed = strtoul(text, &end, base);
     if (errno == ERANGE || end == text || end == NULL ||
         parsed > UINT32_MAX) {
         return false;

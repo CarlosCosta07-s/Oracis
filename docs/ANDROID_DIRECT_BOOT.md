@@ -19,7 +19,7 @@ O host usa o seletor de arquivos SDL3 no Android para pedir, nesta ordem:
    inferido do dump `.nds`; cancelar essa seleção mantém o experimento de
    entrada direta, mas transações KEY1/KEY2 que dependam do ID podem falhar.
 
-No Android, o seletor pode retornar URIs content://. A leitura dos três arquivos usa SDL_IOStream, sem presumir que a URI seja um caminho POSIX ou passar por fopen. O host limita os tamanhos antes da alocação e copia os dados para os dispositivos próprios.
+No Android, o seletor pode retornar URIs content://. A leitura dos arquivos selecionados usa SDL_IOStream, sem presumir que a URI seja um caminho POSIX ou passar por fopen. O host limita os tamanhos antes da alocação e copia os dados para os dispositivos próprios.
 
 A BIOS ARM7 é usada para copiar a tabela KEY1 (offset 0x30, tamanho 0x1048) e inicializar a descriptografia da Secure Area do cartucho. A imagem de firmware é instalada no dispositivo SPI ARM7; o dispositivo modela READ (03h), RDSR (05h), WREN (06h) e WRDI (04h). Programação, apagamento, JEDEC ID e outros comandos SPI ainda não são implementados.
 
@@ -66,7 +66,7 @@ O scheduler nativo só é habilitado quando:
 
 Depois do preflight, o host Android chama oracis_host_runtime_run_round em 512 fatias sequenciais de 256 ciclos de barramento por iteração do loop principal (131.072 ciclos agregados). A granularidade de 256 ciclos preserva os estados transitórios do handshake IPCSYNC entre ARM9 e ARM7, que podem ser perdidos quando um CPU executa um quantum longo antes do outro. Fatias curtas também limitam o crescimento da pilha nativa, pois os dispatches entre funções guest recompiladas são encadeados por chamadas C. Se o scheduler devolver erro, a execução é desabilitada e o host registra o ciclo global, o número da fatia, o código da ponte e o estado da máquina. Não há fallback para interpretador ARM.
 
-A seleção de ROM/BIOS e o preflight não comprovam que o jogo iniciou. Uma sequência de rounds concluída sem erro comprova apenas que o código guest avançou durante aquele orçamento. O primeiro quadro real, a inicialização completa dos overlays e a compatibilidade jogável precisam de evidência separada.
+A seleção dos arquivos e o preflight não comprovam que o jogo iniciou. Uma sequência de rounds concluída sem erro comprova apenas que o código guest avançou durante aquele orçamento. O primeiro quadro real, a inicialização completa dos overlays e a compatibilidade jogável precisam de evidência separada.
 
 ## Dependências ainda abertas
 
