@@ -17,6 +17,7 @@
 #include "oracis/memory/nds_arm9_tcm.hpp"
 #include "oracis/memory/nds_arm9_protection_unit.hpp"
 #include "oracis/memory/nds_interrupt_control.hpp"
+#include "oracis/memory/nds_external_memory_control.hpp"
 #include "oracis/memory/nds_ipc_control.hpp"
 #include "oracis/memory/nds_game_card_control.hpp"
 #include "oracis/memory/nds_dma_control.hpp"
@@ -286,6 +287,9 @@ public:
     memory::NdsGeometryEngine &geometry_engine() noexcept {
         return geometry_engine_;
     }
+    memory::NdsExternalMemoryControl &external_memory_control() noexcept {
+        return external_memory_control_;
+    }
     memory::NdsInterruptControl &interrupt_control() noexcept {
         return interrupt_control_;
     }
@@ -409,6 +413,7 @@ private:
     memory::NdsVideoMemory video_memory_;
     memory::NdsPostFlag post_flag_;
     memory::NdsInterruptControl interrupt_control_;
+    memory::NdsExternalMemoryControl external_memory_control_;
     memory::NdsGameCardControl game_card_control_;
     memory::NdsIpcControl ipc_control_;
     memory::NdsDmaControl dma_control_;
@@ -466,6 +471,7 @@ private:
     bool display_control_bound_ = false;
     bool geometry_engine_bound_ = false;
     bool interrupt_bound_ = false;
+    bool external_memory_bound_ = false;
     bool game_card_bound_ = false;
     bool ipc_bound_ = false;
     bool dma_bound_ = false;

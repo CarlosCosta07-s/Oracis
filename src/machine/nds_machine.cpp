@@ -1692,6 +1692,11 @@ NdsMachineStatus NdsMachine::initialize() noexcept
     }
     memory_bound_ = true;
 
+    if (!oracis_bus_bind_external_memory_control(&external_memory_control_)) {
+        return rollback(NdsMachineStatus::BusBindingFailed);
+    }
+    external_memory_bound_ = true;
+
     if (!oracis_bus_bind_arm9_access_check(
             this, &NdsMachine::runtime_bus_access_check)) {
         return rollback(NdsMachineStatus::BusBindingFailed);
@@ -2499,7 +2504,7 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
         memory_bound_ || arm9_access_guard_bound_ ||
         wram_bound_ || vram_bound_ || video_memory_bound_ ||
         post_flag_bound_ || display_control_bound_ ||
-        geometry_engine_bound_ || interrupt_bound_ ||
+        geometry_engine_bound_ || interrupt_bound_ || external_memory_bound_ ||
         game_card_bound_ || ipc_bound_ || dma_bound_ || timer_bound_ ||
         keypad_bound_ || rtc_bound_ || spi_bound_ || clock_bound_ ||
         validation_bound_;
@@ -2597,6 +2602,12 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
             return NdsMachineStatus::ShutdownFailed;
         }
         ipc_bound_ = false;
+    }
+    if (external_memory_bound_) {
+        if (!oracis_bus_unbind_external_memory_control(&external_memory_control_)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        external_memory_bound_ = false;
     }
     if (interrupt_bound_) {
         if (!oracis_bus_unbind_interrupt_control(&interrupt_control_)) {

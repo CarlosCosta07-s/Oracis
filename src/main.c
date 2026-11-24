@@ -1038,12 +1038,13 @@ int main(int argc, char *argv[])
              * The generated-bank ABI dispatches linked guest blocks through
              * nested host calls. Keep each scheduler slice short so loops
              * unwind before the Android thread's native stack is exhausted.
-             * Aggregate work per presentation iteration remains 128 * 1024
-             * bus cycles, matching the previous 131072-cycle budget.
+             * IPCSYNC handshake states are transient. A 1024-cycle quantum
+             * can let one CPU finish a pulse before the peer is scheduled.
+             * Use 256-cycle quanta while preserving 131072 cycles per frame.
              */
-            for (uint32_t round = 0u; round < 128u; ++round) {
+            for (uint32_t round = 0u; round < 512u; ++round) {
                 const int round_status = oracis_host_runtime_run_round(
-                    UINT64_C(1024), NULL, NULL);
+                    UINT64_C(256), NULL, NULL);
                 if (round_status != ORACIS_HOST_RUNTIME_OK) {
                     g_android_guest_execution_enabled = false;
                     SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,

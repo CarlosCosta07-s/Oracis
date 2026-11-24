@@ -58,6 +58,10 @@ int oracis_bus_unbind_display_control(void *display_control);
 int oracis_bus_bind_geometry_engine(void *geometry_engine);
 int oracis_bus_unbind_geometry_engine(void *geometry_engine);
 
+/* Bind shared ARM9 EXMEMCNT / ARM7 EXMEMSTAT at 0x04000204. */
+int oracis_bus_bind_external_memory_control(void *control);
+int oracis_bus_unbind_external_memory_control(void *control);
+
 /* Bind a live NdsInterruptControl device after binding its GuestMemory object. */
 int oracis_bus_bind_interrupt_control(void *control);
 int oracis_bus_unbind_interrupt_control(void *control);
