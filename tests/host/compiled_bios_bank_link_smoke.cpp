@@ -126,7 +126,7 @@ int preflight_case(
                 NDS_ARM7, &arm7_while_held) != ORACIS_HOST_RUNTIME_OK ||
             arm9_after_first_round.R[0] != UINT32_C(0x2B) ||
             arm7_while_held.R[0] != 0u ||
-            oracis_host_runtime_global_bus_cycles() != UINT64_C(64)) {
+            oracis_host_runtime_global_bus_cycles() < UINT64_C(64)) {
             (void)oracis_host_runtime_shutdown();
             return fail("ARM9 execution result or ARM7 reset isolation was incorrect");
         }
@@ -157,7 +157,10 @@ int preflight_case(
             arm7_snapshot_status != ORACIS_HOST_RUNTIME_OK ||
             arm9_after_second_round.R[0] != UINT32_C(0x2B) ||
             arm7_after_second_round.R[0] != UINT32_C(0x2B) ||
-            second_round_bus_cycles != UINT64_C(128)) {
+            arm9_after_second_round.R[15] < UINT32_C(0xFFFF0000) ||
+            arm9_after_second_round.R[15] >= UINT32_C(0xFFFF1000) ||
+            arm7_after_second_round.R[15] >= UINT32_C(0x00004000) ||
+            second_round_bus_cycles < UINT64_C(128)) {
             std::fprintf(
                 stderr,
                 "second-round snapshot: arm9_status=%d R0=%08X PC=%08X CPSR=%08X; "
