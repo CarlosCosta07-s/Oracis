@@ -79,15 +79,8 @@ jobs:
 
       - name: Verify optional local user BIOS bank build
         run: |
-          python3 tools/ndsrecomp/create_synthetic_bios_bank_fixture.py \\
-            --output-dir "$RUNNER_TEMP/oracis-user-bios-banks"
-          cmake -S . -B build-user-bios -G Ninja \\
-            -DORACIS_BUILD_HOST=OFF \\
-            -DORACIS_LOCAL_BIOS_BANK_DIR="$RUNNER_TEMP/oracis-user-bios-banks" \\
-            -DORACIS_ALLOW_SYNTHETIC_BANKS=ON \\
-            -DCMAKE_C_COMPILER=clang \\
-            -DCMAKE_CXX_COMPILER=clang++ \\
-            -DBUILD_TESTING=ON
+          python3 tools/ndsrecomp/create_synthetic_bios_bank_fixture.py --output-dir "$RUNNER_TEMP/oracis-user-bios-banks"
+          cmake -S . -B build-user-bios -G Ninja -DORACIS_BUILD_HOST=OFF -DORACIS_LOCAL_BIOS_BANK_DIR="$RUNNER_TEMP/oracis-user-bios-banks" -DORACIS_ALLOW_SYNTHETIC_BANKS=ON -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DBUILD_TESTING=ON
           cmake --build build-user-bios --target oracis_bios_bank_link_smoke --parallel
           ctest --test-dir build-user-bios -R oracis_bios_bank_link_smoke --output-on-failure
 
