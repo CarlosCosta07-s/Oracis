@@ -20,11 +20,13 @@ O suporte de exceções integrado agora inclui Data Abort ARM9 para violações 
 
 Limites que continuam explícitos: o modelo MPU/CP15 é parcial; c7 não opera sobre caches físicos porque ainda não existem; falhas de barramento externas/MMIO e aborts ARM7 ainda não são entregues como exceções guest; os vetores da BIOS ARM9 não têm handlers retail carregados; os bancos reais de Pokémon Platinum permanecem privados e não executados. A CI de bancos usa apenas fixtures sintéticas e não comprova boot nem primeiro quadro.
 
-## Experimento Android de entrada nativa — commits 3a9bc39, d46f4db, 663c6ba e 4cc9350
+## Experimento Android de entrada nativa — commits 3a9bc39, d46f4db, 663c6ba, 45f9109, a496618 e 0f497d5
 
-O host Android abre o seletor SDL3 para uma imagem NDS do usuário e para uma BIOS ARM7 de 16 KiB. A leitura usa SDL_IOStream para aceitar URIs content://. Depois de carregar e validar os segmentos, a máquina prepara o subconjunto documentado do estado de entrada do cartucho: R0–R11 zerados; R12, LR e PC no entrypoint; SP User/System, IRQ e SVC específicos por CPU; POSTFLG bit 0 = 1. O host verifica que os dois entrypoints resolvem para bancos estáticos registrados e executa até 128 fatias nativas de 1.024 ciclos por iteração SDL (131.072 ciclos agregados). Erros interrompem a execução e registram ciclo, fatia e status do runtime.
+O host Android abre o seletor SDL3 para uma imagem NDS, BIOS ARM7 de 16 KiB e dump SPI de firmware do usuário (1 byte a 16 MiB). URIs content:// são lidas por SDL_IOStream. A ponte instala o dump na flash SPI ARM7; o dispositivo fornece os comandos READ (03h), RDSR (05h), WREN (06h) e WRDI (04h), com demais operações fail-closed. O host só segue para o carregamento dos segmentos depois de a sequência ROM/BIOS/firmware ser concluída.
 
-Esse fluxo é direct-entry, não executa o reset pelas BIOS retail nem reproduz toda a inicialização do firmware. A BIOS ARM7 escolhida pelo usuário fornece atualmente a tabela KEY1 para descriptografar a Secure Area; a BIOS ARM9 não é carregada/executada. Ainda faltam as demais áreas RAM preenchidas durante o boot, estado completo de firmware/user settings, Chip ID físico no Android, parte do handshake do cartucho, CP15/MPU/TCM e serviços/overlays dependentes do jogo. Os rounds ainda não demonstram primeiro quadro ou compatibilidade jogável.
+A máquina prepara o subconjunto documentado do estado de entrada do cartucho: R0–R11 zerados; R12, LR e PC no entrypoint; SP User/System, IRQ e SVC específicos por CPU; metadados determinísticos derivados do cabeçalho/CRC; POSTFLG bit 0 = 1. O host verifica que os dois entrypoints resolvem para bancos estáticos registrados e executa até 128 fatias nativas de 1.024 ciclos por iteração SDL (131.072 ciclos agregados). Erros interrompem a execução e registram ciclo, fatia e status do runtime.
+
+Esse fluxo é direct-entry, não executa o reset pelas BIOS retail nem reproduz toda a inicialização do firmware. A BIOS ARM7 escolhida pelo usuário fornece a tabela KEY1 para descriptografar a Secure Area; o firmware SPI bruto fica acessível ao guest, mas ainda faltam validação de header/CRCs, descriptografia e descompressão das partes IPL 1–5 e cópia dos fragmentos às regiões de RAM. Também faltam Chip ID físico no Android, outras áreas RAM de boot, CP15/MPU/TCM completos e serviços/overlays dependentes do jogo. Os rounds ainda não demonstram primeiro quadro ou compatibilidade jogável.
 
 A CI Android atual compila a biblioteca nativa ARM64; ainda não há projeto Gradle/Manifest no repositório para gerar APK instalável. A compilação dos bancos reais exige artefatos locais privados; a CI não recebe ROM, BIOS, firmware, segmentos extraídos ou bancos derivados. O experimento precisa de validação em aparelho Android. Detalhes em [ANDROID_DIRECT_BOOT.md](ANDROID_DIRECT_BOOT.md).
 
@@ -55,7 +57,7 @@ A CI Android atual compila a biblioteca nativa ARM64; ainda não há projeto Gra
 2. Preparar o empacotamento Android instalável; a CI atual compila somente a biblioteca nativa ARM64.
 3. Construir localmente com os bancos privados reais, confirmar a resolução dos entrypoints ARM9/ARM7 e capturar o primeiro dispatch guest do experimento direct-entry.
 4. Resolver o primeiro dispatch miss, acesso MMIO não suportado, falha de timing ou dependência BIOS/NitroSDK observada pelo scheduler, sem fallback de interpretador.
-5. Completar o fornecimento Android do Chip ID do cartucho e a integração de firmware/SPI, mantendo esses dados privados do usuário.
+5. Completar o fornecimento Android do Chip ID físico; implementar o IPL do firmware SPI (validação, CRC, KEY1, descompressão e cópia dos módulos 1–5), mantendo os dumps e os módulos derivados privados do usuário.
 6. Auditar os 60 overlays ainda sem banco e os destinos de chamadas indiretas desconhecidos; integrar os gerenciadores NitroSDK/HLE necessários.
 7. Completar a sincronização de vídeo, apresentar e verificar o primeiro quadro real; depois avançar áudio, saves e UX.
 
