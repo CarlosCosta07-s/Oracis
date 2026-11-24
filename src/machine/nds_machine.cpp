@@ -1991,6 +1991,30 @@ NdsMachineStatus NdsMachine::load_program_segments(
     }
 
     /*
+     * Seed the Pokémon Platinum direct-entry memory profile. Its ARM7 startup
+     * copies an initialized image into the final 32KB of the ARM7 Shared WRAM
+     * window at 0x037F8000, then clears private WRAM beginning at 0x03806C94.
+     * With WRAMCNT=0, the 0x037F8000 mirror aliases private WRAM at 0x03808000,
+     * so that BSS clear erases the relocated image. Assigning all 32KB of
+     * Shared WRAM to ARM7 (WRAMCNT=3) keeps those regions physically distinct.
+     *
+     * The same startup path places data in ARM7-visible VRAM C/D work-RAM
+     * windows. MST=2 maps C to 0x06000000 and D to 0x06020000. This is a
+     * direct-entry hardware-state seed, not execution of the retail BIOS.
+     */
+    if (wram_control_.write(
+            NDS_ARM9, memory::NdsWramControl::WramCntAddress, 1u,
+            UINT32_C(3)) != memory::Status::Ok ||
+        vram_control_.write(
+            NDS_ARM9, memory::NdsVramControl::VramCntCAddress, 1u,
+            UINT32_C(0x82)) != memory::Status::Ok ||
+        vram_control_.write(
+            NDS_ARM9, memory::NdsVramControl::VramCntDAddress, 1u,
+            UINT32_C(0x8A)) != memory::Status::Ok) {
+        return NdsMachineStatus::ProgramLoadFailed;
+    }
+
+    /*
      * Seed the documented NDS cartridge-entry CPU context. This reproduces
      * the register/stack handoff visible after the BIOS/firmware boot path;
      * it does not reproduce that path's firmware, card-authentication,
