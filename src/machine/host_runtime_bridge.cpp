@@ -396,6 +396,27 @@ extern "C" int oracis_host_runtime_set_spi_firmware_image(
         : ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR;
 }
 
+extern "C" int oracis_host_runtime_load_spi_firmware_boot_code(void)
+{
+    auto &machine = host_machine();
+    if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+
+    const auto status = machine.load_firmware_boot_code();
+    g_last_machine_status = static_cast<int>(status);
+    if (status == oracis::machine::NdsMachineStatus::Ok) {
+        return ORACIS_HOST_RUNTIME_OK;
+    }
+    if (status ==
+        oracis::machine::NdsMachineStatus::FirmwareBootMemoryUnavailable) {
+        return ORACIS_HOST_RUNTIME_FIRMWARE_MEMORY_UNAVAILABLE;
+    }
+    if (status ==
+        oracis::machine::NdsMachineStatus::FirmwareBootCodeFailed) {
+        return ORACIS_HOST_RUNTIME_FIRMWARE_ERROR;
+    }
+    return ORACIS_HOST_RUNTIME_MACHINE_ERROR;
+}
+
 extern "C" int oracis_host_runtime_set_game_card_chip_id(uint32_t chip_id)
 {
     auto &machine = host_machine();
