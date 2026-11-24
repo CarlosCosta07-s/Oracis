@@ -649,3 +649,19 @@ ROM-info e CRCs, além dos bytes P3/P4/P5 ainda necessários às próximas fases
 O relatório C ABI mantém os mesmos campos e valores. Essa mudança reduz a
 duplicação de memória sem alterar a publicação de P1/P2, sem gravar P3/P4/P5
 em endereços não comprovados e sem afirmar execução do IPL ou boot retail.
+
+
+## Atualização 2026-11-24 — estados distintos para reset ARM7 e HALT
+
+Foi introduzido um estado `ResetHeld` na máquina, distinto de HALT. Um core
+mantido em reset não executa fatias, não aceita entrada de IRQ e não acorda
+quando IE/IF recebe uma interrupção; seu tempo ocioso ainda acompanha o
+watermark comum do barramento. O modo de boot por BIOS exige BIOS9/BIOS7
+fornecidas pelo usuário e inicia ARM9 em `0xFFFF0000`, mantendo ARM7 em
+`0x00000000` sob reset. A liberação ARM7 é explícita e de uso futuro; não foi
+associada a um valor especulativo de IPCSYNC.
+
+Um teste novo cobre pré-condições, vetor/CPSR, bloqueio de IRQ, isolamento em
+relação ao direct-entry/IPL pré-decodificado, avanço sincronizado do clock e
+entrada de ARM7 após liberação explícita. Isso valida apenas o modelo de reset
+e scheduler com BIOS sintética: ainda não executa BIOS nativa nem comprova boot.

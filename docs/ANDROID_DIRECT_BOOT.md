@@ -91,3 +91,22 @@ A seleção dos arquivos e o preflight não comprovam que o jogo iniciou. Uma se
 ## Política de dados
 
 ROM, BIOS, firmware, segmentos extraídos, overlays extraídos, bancos gerados e saves são fornecidos pelo usuário e permanecem em armazenamento local. Nada disso deve ser adicionado ao Git, à CI ou às releases.
+
+## Estado novo do reset retail (infraestrutura de máquina)
+
+A máquina agora possui uma transição explícita separada do modo direct-entry:
+`start_retail_bios_boot()` exige que as imagens ARM9 (4 KiB) e ARM7 (16 KiB)
+do usuário estejam carregadas e que nenhum ciclo de CPU/barramento tenha sido
+executado. Ela inicializa o ARM9 em modo Supervisor/ARM, com IRQ/FIQ mascarados,
+no vetor alto `0xFFFF0000`, e mantém o ARM7 no estado `ResetHeld`, distinto
+de HALT. Interrupções pendentes não acordam um processador em reset.
+
+`release_arm7_from_reset()` é uma operação explícita para o próximo estágio
+do host, que deve chamá-la somente após validar o hand-off arquitetural correto;
+a operação posiciona o ARM7 em `0x00000000`. Ela ainda **não está ligada ao
+IPCSYNC** porque o valor/transição exatos do handshake retail não foram
+confirmados. O frontend SDL/Android ainda não inicia esse caminho automaticamente.
+
+Essa etapa é apenas o modelo de estado inicial e a sincronização do scheduler:
+não compila nem registra bancos nativos de BIOS, não executa instruções BIOS e
+não constitui boot retail. O caminho direct-entry existente permanece separado.

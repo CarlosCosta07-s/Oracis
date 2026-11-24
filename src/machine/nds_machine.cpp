@@ -1580,6 +1580,7 @@ NdsMachineStatus NdsMachine::initialize() noexcept
     interrupt_wait_resume_pcs_.fill(0u);
     program_loaded_ = false;
     firmware_boot_code_loaded_ = false;
+    retail_bios_boot_active_ = false;
     firmware_boot_staging_ = {};
     /* CP15 Control.V and fixed-one bits are owned by the ARM9 TCM controller. */
     arm9_state_.cpsr = ORACIS_ARM_MODE_SYSTEM;
@@ -1796,6 +1797,70 @@ NdsMachineStatus NdsMachine::initialize() noexcept
     return NdsMachineStatus::Ok;
 }
 
+NdsMachineStatus NdsMachine::start_retail_bios_boot() noexcept
+{
+    if (!initialized_) return NdsMachineStatus::NotInitialized;
+    if (retail_bios_boot_active_) {
+        return NdsMachineStatus::RetailBiosBootAlreadyActive;
+    }
+    if (!bios_control_.arm9_bios_loaded() ||
+        !bios_control_.arm7_bios_loaded() ||
+        program_loaded_ || firmware_boot_code_loaded_) {
+        return NdsMachineStatus::RetailBiosBootUnavailable;
+    }
+    if (slice_active_[0] || slice_active_[1] ||
+        system_clock_.global_bus_cycles() != 0u ||
+        oracis_scheduler_cycle_count(NDS_ARM9) != 0u ||
+        oracis_scheduler_cycle_count(NDS_ARM7) != 0u ||
+        idle_core_cycles_offset_[0] != 0u ||
+        idle_core_cycles_offset_[1] != 0u) {
+        return NdsMachineStatus::ProgramLoadAfterExecution;
+    }
+
+    /*
+     * ARM946E-S reset enters Supervisor/ARM state with IRQ and FIQ masked.
+     * The NDS platform maps its 4 KiB ARM9 BIOS at the high reset vector.
+     * The ARM7 core is not HALTed: the platform holds it in reset until the
+     * ARM9 boot sequence releases it.
+     */
+    arm9_state_ = {};
+    arm7_state_ = {};
+    constexpr uint32_t ResetCpsr =
+        ORACIS_ARM_MODE_SUPERVISOR | CPSR_I_BIT | CPSR_F_BIT;
+    arm9_state_.cpsr = ResetCpsr;
+    arm7_state_.cpsr = ResetCpsr;
+    arm9_state_.R[15] = memory::NdsBiosControl::Arm9BiosBase;
+    arm7_state_.R[15] = memory::NdsBiosControl::Arm7BiosBase;
+
+    run_states_[cpu_index(NDS_ARM9)] = NdsCpuRunState::Running;
+    run_states_[cpu_index(NDS_ARM7)] = NdsCpuRunState::ResetHeld;
+    interrupt_wait_active_.fill(false);
+    interrupt_wait_masks_.fill(0u);
+    interrupt_wait_resume_pcs_.fill(0u);
+    retail_bios_boot_active_ = true;
+    return NdsMachineStatus::Ok;
+}
+
+NdsMachineStatus NdsMachine::release_arm7_from_reset() noexcept
+{
+    if (!initialized_) return NdsMachineStatus::NotInitialized;
+    if (!retail_bios_boot_active_ || !bios_control_.arm7_bios_loaded()) {
+        return NdsMachineStatus::RetailBiosBootUnavailable;
+    }
+    if (slice_active_[0] || slice_active_[1]) {
+        return NdsMachineStatus::SliceAlreadyActive;
+    }
+    const unsigned index = cpu_index(NDS_ARM7);
+    if (run_states_[index] != NdsCpuRunState::ResetHeld) {
+        return NdsMachineStatus::CpuNotInReset;
+    }
+
+    /* ARM7's BIOS reset vector is the low address 0x00000000. */
+    arm7_state_.R[15] = memory::NdsBiosControl::Arm7BiosBase;
+    run_states_[index] = NdsCpuRunState::Running;
+    return NdsMachineStatus::Ok;
+}
+
 NdsMachineStatus NdsMachine::load_program_segments(
     const NdsProgramSegment &arm9,
     const NdsProgramSegment &arm7,
@@ -1803,6 +1868,9 @@ NdsMachineStatus NdsMachine::load_program_segments(
     uint32_t cartridge_header_size) noexcept
 {
     if (!initialized_) return NdsMachineStatus::NotInitialized;
+    if (retail_bios_boot_active_) {
+        return NdsMachineStatus::RetailBiosBootActive;
+    }
 
     const bool has_cartridge_header = cartridge_header != nullptr;
     if ((has_cartridge_header &&
@@ -2079,6 +2147,9 @@ NdsMachineStatus NdsMachine::load_program_segments(
 NdsMachineStatus NdsMachine::load_firmware_boot_code() noexcept
 {
     if (!initialized_) return NdsMachineStatus::NotInitialized;
+    if (retail_bios_boot_active_) {
+        return NdsMachineStatus::RetailBiosBootActive;
+    }
     if (firmware_boot_code_loaded_) return NdsMachineStatus::ProgramAlreadyLoaded;
     if (program_loaded_ || slice_active_[0] || slice_active_[1] ||
         oracis_scheduler_cycle_count(NDS_ARM9) != 0u ||
@@ -2795,6 +2866,7 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
     idle_core_cycles_offset_.fill(0u);
     next_round_first_cpu_ = NDS_ARM9;
     program_loaded_ = false;
+    retail_bios_boot_active_ = false;
     three_d_scanline_sequence_initialized_ = false;
     next_three_d_producer_scanline_ = 0u;
     initialized_ = false;
@@ -2808,6 +2880,9 @@ NdsMachineStatus NdsMachine::begin_cpu_slice(
     if (!valid_cpu(cpu)) return NdsMachineStatus::InvalidCpu;
 
     const unsigned index = cpu_index(cpu);
+    if (run_states_[index] == NdsCpuRunState::ResetHeld) {
+        return NdsMachineStatus::CpuResetHeld;
+    }
     if (!cpu_can_execute(cpu)) return NdsMachineStatus::CpuHalted;
     if (slice_active_[0] || slice_active_[1]) {
         return NdsMachineStatus::SliceAlreadyActive;
@@ -3080,6 +3155,9 @@ NdsMachineStatus NdsMachine::enter_cpu_halt(NdsCpu cpu) noexcept
     if (!initialized_) return NdsMachineStatus::NotInitialized;
     if (!valid_cpu(cpu)) return NdsMachineStatus::InvalidCpu;
     const unsigned index = cpu_index(cpu);
+    if (run_states_[index] == NdsCpuRunState::ResetHeld) {
+        return NdsMachineStatus::CpuResetHeld;
+    }
     if (slice_active_[1u - index]) {
         return NdsMachineStatus::SliceAlreadyActive;
     }
@@ -3289,6 +3367,7 @@ bool NdsMachine::cpu_can_execute(NdsCpu cpu) noexcept
     if (!initialized_ || !valid_cpu(cpu)) return false;
 
     const unsigned index = cpu_index(cpu);
+    if (run_states_[index] == NdsCpuRunState::ResetHeld) return false;
     if (run_states_[index] == NdsCpuRunState::Running) return true;
 
     /*
@@ -3313,6 +3392,12 @@ bool NdsMachine::cpu_is_halted(NdsCpu cpu) const noexcept
         run_states_[cpu_index(cpu)] == NdsCpuRunState::Halted;
 }
 
+bool NdsMachine::cpu_is_held_in_reset(NdsCpu cpu) const noexcept
+{
+    return initialized_ && valid_cpu(cpu) &&
+        run_states_[cpu_index(cpu)] == NdsCpuRunState::ResetHeld;
+}
+
 NdsMachineStatus NdsMachine::try_deliver_pending_irq(
     NdsCpu cpu, uint32_t return_address, uint32_t vector_base) noexcept
 {
@@ -3320,6 +3405,11 @@ NdsMachineStatus NdsMachine::try_deliver_pending_irq(
     if (!valid_cpu(cpu)) return NdsMachineStatus::InvalidCpu;
     if (slice_active_[0] || slice_active_[1]) {
         return NdsMachineStatus::SliceAlreadyActive;
+    }
+
+    /* A reset-held core cannot wake for an interrupt. */
+    if (run_states_[cpu_index(cpu)] == NdsCpuRunState::ResetHeld) {
+        return NdsMachineStatus::CpuResetHeld;
     }
 
     /* First apply the core-specific HALT wake rule. */

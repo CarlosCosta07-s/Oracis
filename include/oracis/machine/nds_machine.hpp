@@ -44,7 +44,8 @@ namespace oracis::machine {
 
 enum class NdsCpuRunState : uint8_t {
     Running = 0,
-    Halted
+    Halted,
+    ResetHeld
 };
 
 enum class NdsMachineStatus : uint8_t {
@@ -76,7 +77,12 @@ enum class NdsMachineStatus : uint8_t {
     ShutdownFailed,
     OverlayInitializerFailed,
     FirmwareBootCodeFailed,
-    FirmwareBootMemoryUnavailable
+    FirmwareBootMemoryUnavailable,
+    CpuResetHeld,
+    CpuNotInReset,
+    RetailBiosBootUnavailable,
+    RetailBiosBootAlreadyActive,
+    RetailBiosBootActive
 };
 
 /*
@@ -126,6 +132,20 @@ public:
      * runtime. Only one NdsMachine may be bound at a time.
      */
     NdsMachineStatus initialize() noexcept;
+
+    /*
+     * Enter the hardware-reset BIOS path using user-supplied ARM9/ARM7 BIOS
+     * images. ARM9 starts at 0xFFFF0000; ARM7 remains held in reset until the
+     * host explicitly releases it after a verified hardware hand-off.
+     *
+     * This establishes CPU reset state only. It does not synthesize BIOS
+     * banks, execute BIOS code, or infer an IPCSYNC release value.
+     */
+    NdsMachineStatus start_retail_bios_boot() noexcept;
+    NdsMachineStatus release_arm7_from_reset() noexcept;
+    bool retail_bios_boot_active() const noexcept {
+        return retail_bios_boot_active_;
+    }
 
     /*
      * Preflight and load one ARM9 plus one ARM7 segment into existing retail
@@ -254,6 +274,7 @@ public:
     NdsMachineStatus write_arm7_halt_control(uint8_t value) noexcept;
     bool cpu_can_execute(NdsCpu cpu) noexcept;
     bool cpu_is_halted(NdsCpu cpu) const noexcept;
+    bool cpu_is_held_in_reset(NdsCpu cpu) const noexcept;
 
     /*
      * Attempt IRQ entry only at a safe inter-slice boundary. return_address
@@ -496,6 +517,7 @@ private:
     bool validation_bound_ = false;
     bool program_loaded_ = false;
     bool firmware_boot_code_loaded_ = false;
+    bool retail_bios_boot_active_ = false;
     bool initialized_ = false;
 };
 

@@ -640,6 +640,17 @@ if(BUILD_TESTING)
         COMMAND oracis_nds_machine_direct_boot_test
     )
 
+    add_executable(oracis_nds_machine_bios_boot_test
+        tests/machine/nds_machine_bios_boot_test.cpp
+    )
+    target_link_libraries(oracis_nds_machine_bios_boot_test PRIVATE
+        oracis_machine
+    )
+    add_test(
+        NAME oracis_nds_machine_bios_boot_test
+        COMMAND oracis_nds_machine_bios_boot_test
+    )
+
     add_executable(oracis_nds_overlay_initializer_test
         tests/machine/nds_overlay_initializer_test.cpp
     )
