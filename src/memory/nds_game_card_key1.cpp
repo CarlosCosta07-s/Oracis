@@ -179,9 +179,10 @@ Status decompress_firmware_lz77(
 
 
 /*
- * Firmware header parts 3/4/5 are independent BIOS-compressed payloads.
- * Their header supplies source offsets; each stream carries its output size
- * and codec type. They are staged separately from KEY1-protected IPL1/2.
+ * Firmware header parts 3/4/5 use P345: a component header followed by two
+ * MSB-first Huffman bitstreams. Primary symbols represent literals or LZ
+ * lengths; the second stream supplies 11-bit backward-distance symbols.
+ * P1/P2 remain a separate KEY1-protected LZ10 format.
  */
 class P345BitReader final {
 public:

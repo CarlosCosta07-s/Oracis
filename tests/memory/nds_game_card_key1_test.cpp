@@ -126,8 +126,12 @@ std::vector<uint8_t> make_p345_literal_match_component(uint8_t literal)
     primary.write(UINT16_C(1), 1u);       /* length token */
 
     P345TestBitWriter distance;
-    distance.write(UINT16_C(0), 1u);      /* single distance leaf */
+    distance.write(UINT16_C(1), 1u);      /* internal root */
+    distance.write(UINT16_C(0), 1u);      /* left leaf: used distance */
     distance.write(UINT16_C(0), 11u);     /* distance = 0 + 1 */
+    distance.write(UINT16_C(0), 1u);      /* right leaf: unused helper symbol */
+    distance.write(UINT16_C(1), 11u);
+    distance.write(UINT16_C(0), 1u);      /* select the left distance leaf */
 
     const size_t primary_span =
         (primary.bytes().size() + size_t{3u}) & ~size_t{3u};
