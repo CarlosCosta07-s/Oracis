@@ -27,16 +27,21 @@ int main()
         return fail("POSTFLG installation/reset state was incorrect");
     }
 
+    const auto arm7_startup_read =
+        post_flag.read(NDS_ARM7, NdsPostFlag::Address, 2u);
     if (post_flag.read(NDS_ARM9, NdsPostFlag::Address, 1u).value != 0u ||
-        post_flag.read(NDS_ARM7, NdsPostFlag::Address, 1u).value != 0u) {
-        return fail("POSTFLG was not readable from both CPUs");
+        post_flag.read(NDS_ARM7, NdsPostFlag::Address, 1u).value != 0u ||
+        arm7_startup_read.status != Status::Ok ||
+        arm7_startup_read.value != 0u) {
+        return fail("POSTFLG byte/ARM7 startup halfword read was incorrect");
     }
 
     if (post_flag.write(NDS_ARM9, NdsPostFlag::Address, 1u, 3u) !=
             Status::Ok ||
         post_flag.value() != 3u ||
-        post_flag.read(NDS_ARM9, NdsPostFlag::Address, 1u).value != 3u) {
-        return fail("ARM9 POSTFLG byte write did not update implemented bits");
+        post_flag.read(NDS_ARM9, NdsPostFlag::Address, 1u).value != 3u ||
+        post_flag.read(NDS_ARM7, NdsPostFlag::Address, 2u).value != 3u) {
+        return fail("ARM9 POSTFLG write/ARM7 startup halfword read was incorrect");
     }
 
     if (post_flag.write(NDS_ARM9, NdsPostFlag::Address, 1u, 0u) !=
@@ -52,6 +57,10 @@ int main()
     }
 
     if (post_flag.write(NDS_ARM9, NdsPostFlag::Address, 2u, 3u) !=
+            Status::InvalidWidth ||
+        post_flag.read(NDS_ARM9, NdsPostFlag::Address, 2u).status !=
+            Status::InvalidWidth ||
+        post_flag.read(NDS_ARM7, NdsPostFlag::Address, 4u).status !=
             Status::InvalidWidth ||
         post_flag.read(NDS_ARM9, NdsPostFlag::Address, 4u).status !=
             Status::InvalidWidth ||
