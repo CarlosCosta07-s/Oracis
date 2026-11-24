@@ -945,18 +945,24 @@ int main(int argc, char *argv[])
                         if (mount_game_card_file(game_card_path)) {
                             if (arm7_bios_path != NULL) {
                                 if (load_arm7_bios_file(arm7_bios_path)) {
-                                    const int load_status =
-                                        oracis_host_runtime_load_mounted_game_card_program();
-                                    if (load_status == ORACIS_HOST_RUNTIME_OK) {
-                                        game_card_program_loaded = true;
-                                        log_android_entrypoint_preflight();
-                                    } else {
-                                        SDL_LogCritical(
-                                            SDL_LOG_CATEGORY_APPLICATION,
-                                            "Android program segment loading failed "
-                                            "(bridge=%d, machine=%d).",
-                                            load_status,
-                                            oracis_host_runtime_last_machine_status());
+                                    if (firmware_loaded) {
+                                        const int load_status =
+                                            oracis_host_runtime_load_mounted_game_card_program();
+                                        if (load_status == ORACIS_HOST_RUNTIME_OK) {
+                                            game_card_program_loaded = true;
+                                            log_android_entrypoint_preflight();
+                                        } else {
+                                            SDL_LogCritical(
+                                                SDL_LOG_CATEGORY_APPLICATION,
+                                                "Android program segment loading failed "
+                                                "(bridge=%d, machine=%d).",
+                                                load_status,
+                                                oracis_host_runtime_last_machine_status());
+                                        }
+                                    } else if (!begin_android_file_dialog(
+                                                   window, ORACIS_ANDROID_FILE_FIRMWARE)) {
+                                        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+                                            "Could not start the Android SPI firmware picker.");
                                     }
                                 }
                             } else if (!begin_android_file_dialog(
