@@ -163,6 +163,28 @@ int main()
         return fail("valid firmware image was rejected");
     }
 
+    /*
+     * A host image replacement must not splice two flash images into one
+     * chip-select transaction. The lock remains until CS is released, even
+     * after the current byte transfer has completed.
+     */
+    (void)driver.set_control(driver.control(Firmware, true));
+    if (driver.start(0x03u) != Status::Ok || !spi.busy() ||
+        spi.set_firmware_image(image.data(), image.size()) !=
+            Status::PermissionDenied) {
+        return fail("firmware replacement was accepted during an active SPI transfer");
+    }
+    spi.advance_bus_cycles(64u);
+    if (spi.busy() ||
+        spi.set_firmware_image(image.data(), image.size()) !=
+            Status::PermissionDenied) {
+        return fail("firmware replacement was accepted while flash chip select remained held");
+    }
+    spi.reset_transfer();
+    if (spi.set_firmware_image(image.data(), image.size()) != Status::Ok) {
+        return fail("firmware image could not be replaced after chip select release");
+    }
+
     /* Transfer timing: 8 bits at bus/8 per bit = 64 cycles. */
     (void)driver.set_control(driver.control(Firmware, true));
     (void)driver.start(0x03u);
@@ -366,8 +388,21 @@ int main()
         return fail("unmapped address or invalid CPU was accepted");
     }
 
+    /* Clearing the selected flash cancels its transfer without a late IRQ. */
+    const uint32_t irq_before_clear = interrupts.read(
+        NDS_ARM7, NdsInterruptControl::IfAddress, 4u).value;
+    (void)driver.set_control(driver.control(Firmware, true, false, 0u, true));
+    if (driver.start(0x03u) != Status::Ok || !spi.busy()) {
+        return fail("could not start flash transfer before clearing its image");
+    }
     spi.clear_firmware_image();
-    if (spi.firmware_loaded()) return fail("firmware image was not cleared");
+    spi.advance_bus_cycles(64u);
+    const uint32_t irq_after_clear = interrupts.read(
+        NDS_ARM7, NdsInterruptControl::IfAddress, 4u).value;
+    if (spi.firmware_loaded() || spi.busy() ||
+        ((irq_after_clear ^ irq_before_clear) & NdsSpiControl::SpiIrqMask) != 0u) {
+        return fail("clearing firmware did not abort the active transfer cleanly");
+    }
 
     std::puts("nds_spi_control_test: ok");
     return 0;

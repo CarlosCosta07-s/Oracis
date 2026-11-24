@@ -305,6 +305,10 @@ Status NdsSpiControl::process_touch(uint8_t input, uint8_t &output) noexcept
 
 Status NdsSpiControl::set_firmware_image(const uint8_t *data, size_t size) noexcept
 {
+    if (busy_ || open_device_ == DeviceFirmware) {
+        diagnostic_ = "firmware image cannot be replaced during an active SPI transaction";
+        return Status::PermissionDenied;
+    }
     if (data == nullptr || size == 0u || size > MaxFirmwareBytes) {
         diagnostic_ = "firmware image is empty or exceeds the 24-bit flash address space";
         return Status::InvalidRegion;
@@ -326,12 +330,14 @@ Status NdsSpiControl::set_firmware_image(const uint8_t *data, size_t size) noexc
 
 void NdsSpiControl::clear_firmware_image() noexcept
 {
+    const uint8_t selected_device = static_cast<uint8_t>(
+        (control_ & DeviceMask) >> DeviceShift);
+    if ((busy_ && selected_device == DeviceFirmware) ||
+        open_device_ == DeviceFirmware) {
+        abort_transfer();
+    }
     firmware_.clear();
     flash_write_enabled_ = false;
-    if (open_device_ == DeviceFirmware) {
-        release_device(DeviceFirmware);
-        open_device_ = NoDevice;
-    }
 }
 
 void NdsSpiControl::set_touch(bool pressed, uint16_t x12, uint16_t y12) noexcept
