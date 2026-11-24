@@ -702,13 +702,29 @@ A saída padrão é `.oracis/generated/nds-user-bios`. Ela contém somente os
 arquivos C/H/dispatch, shards e um manifesto com hashes dos arquivos e das
 BIOSes; os binários e TOMLs de entrada existem apenas no diretório temporário
 durante a emissão. A publicação é transacional: falha ARM9/ARM7 mantém o
-conjunto anterior intacto. O emissor recusa symlinks e arquivos não
-relacionados no destino. Os testes usam BIOSes e um recompilador inteiramente
-sintéticos, não dumps reais, e não enviam qualquer artefato derivado para a CI.
+conjunto anterior intacto. O emissor recusa symlinks e arquivos não relacionados no destino. Os testes
+unitários usam imagens sintéticas e um runner falso; além deles, o bootstrap
+do NDSRecomp executa um teste de integração contra o compilador fixado real,
+descrito abaixo. Nenhum dump BIOS real é enviado para a CI.
 
-Este passo só produz os bancos locais. Ele ainda não liga esses objetos ao
-CMake/Android, não valida cobertura de todas as rotinas de cada BIOS e não
-comprova execução das BIOSes reais.
+### Verificação com o codegen NDSRecomp real
+
+`run_user_bios_bank_recompiler_smoke.py` gera duas imagens temporárias com os
+tamanhos e bases reais das BIOSes (ARM9 em `0xFFFF0000`, ARM7 em
+`0x00000000`). Os sete vetores ARM de cada imagem ramificam para um pequeno
+corpo sintético com LDR, STR e BX LR. O teste chama o mesmo emissor usado
+localmente, valida os sete endereços no dispatch, verifica o manifesto e
+compila todos os shards e dispatch tables em C99 contra a ABI do Oracis.
+
+Isso verifica se o codegen fixado aceita os mapas de endereço reais, se a
+descoberta dos vetores e as operações de memória passam pelo adaptador, e se
+os C emitidos são compiláveis. Os binários sintéticos e bancos gerados ficam
+num diretório temporário e são apagados ao fim. O teste não executa as
+instruções emitidas, não prova cobertura das rotinas de BIOS retail e não é
+um boot de hardware.
+
+Este estágio produz bancos locais e permite ligá-los ao CMake/Android; ainda
+não comprova execução das BIOSes reais nem cobertura completa.
 
 
 ## 15. Ligação CMake e registro dos bancos BIOS

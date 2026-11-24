@@ -46,6 +46,7 @@ jobs:
             tools/ndsrecomp/emit_user_bios_banks.py \
             tools/ndsrecomp/validate_user_bios_bank_set.py \
             tools/ndsrecomp/create_synthetic_bios_bank_fixture.py \
+            tests/tools/run_user_bios_bank_recompiler_smoke.py \
             tools/ndsrecomp/audit_bank_symbols.py \
             tools/ndsrecomp/patch_memory_access_direction.py \
             tools/ndsrecomp/split_generated_bank.py \
@@ -170,6 +171,8 @@ jobs:
           install -m 0755 "$compiler" "$output/nds_recompile"
           install -m 0644 tools/ndsrecomp/extract_nds_programs.py "$output/tools/ndsrecomp/"
           install -m 0644 tools/ndsrecomp/emit_platinum_banks.py "$output/tools/ndsrecomp/"
+          install -m 0644 tools/ndsrecomp/emit_user_bios_banks.py "$output/tools/ndsrecomp/"
+          install -m 0644 tools/ndsrecomp/validate_user_bios_bank_set.py "$output/tools/ndsrecomp/"
           install -m 0644 tools/ndsrecomp/audit_bank_symbols.py "$output/tools/ndsrecomp/"
           install -m 0644 tools/ndsrecomp/patch_memory_access_direction.py "$output/tools/ndsrecomp/"
           install -m 0644 tools/ndsrecomp/split_generated_bank.py "$output/tools/ndsrecomp/"
@@ -178,6 +181,8 @@ jobs:
           done
           cat > "$output/README.txt" <<'EOF'
           Oracis local tooling artifact: pinned NDSRecomp compiler, extraction/emission tools, memory direction adapter and ABI headers.
+          Includes scripts for compiling and validating user-provided BIOS images locally.
+          No BIOS input or generated BIOS bank is included.
           Upstream revision: 14b7e15023e9affc9dc375e4e611ac703f5c76ab
           Includes the compiler, Oracis extraction/emission scripts and shard splitter, the generated-bank memory direction adapter, and the Oracis-owned
           C ABI headers needed to compile locally generated bank objects.
@@ -188,6 +193,8 @@ jobs:
             cd "$output"
             sha256sum nds_recompile tools/ndsrecomp/extract_nds_programs.py \
               tools/ndsrecomp/emit_platinum_banks.py \
+              tools/ndsrecomp/emit_user_bios_banks.py \
+              tools/ndsrecomp/validate_user_bios_bank_set.py \
               tools/ndsrecomp/audit_bank_symbols.py \
               tools/ndsrecomp/patch_memory_access_direction.py \
               tools/ndsrecomp/split_generated_bank.py \

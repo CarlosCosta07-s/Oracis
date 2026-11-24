@@ -9,6 +9,7 @@ checked out, configured, compiled, linked, or distributed by this tool.
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -228,6 +229,17 @@ def main() -> int:
         str(ROOT / "tests" / "tools" / "test_extractor_recompiler.py"),
         "--recompiler",
         str(recompiler),
+    ])
+
+    # Exercise the user-BIOS emitter with the real pinned code generator.
+    # The inputs contain synthetic branch/load/store/return instructions only.
+    run([
+        sys.executable,
+        str(ROOT / "tests" / "tools" / "run_user_bios_bank_recompiler_smoke.py"),
+        "--recompiler",
+        str(recompiler),
+        "--c-compiler",
+        os.environ.get("CC") or shutil.which("clang") or "cc",
     ])
 
     # These tests need only the static recompiler and its local ARM core.
