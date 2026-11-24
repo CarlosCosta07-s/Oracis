@@ -571,30 +571,70 @@ int main()
     }
 
     oracis::memory::NdsFirmwareBootCode firmware_boot{};
-    if (key1.decrypt_firmware_boot_code(
-            synthetic_firmware.data(), synthetic_firmware.size(),
-            firmware_boot) != Status::Ok ||
-        firmware_boot.arm9_load_address != UINT32_C(0x023FEE00) ||
+    const Status firmware_decode_status = key1.decrypt_firmware_boot_code(
+        synthetic_firmware.data(), synthetic_firmware.size(), firmware_boot);
+    if (firmware_decode_status != Status::Ok) {
+        std::fprintf(stderr, "secondary firmware decoder returned status %u\\n",
+                     static_cast<unsigned>(firmware_decode_status));
+        return fail("synthetic firmware IPL1-5 decoding failed");
+    }
+    if (firmware_boot.arm9_load_address != UINT32_C(0x023FEE00) ||
         firmware_boot.arm7_load_address != UINT32_C(0x0380F700) ||
         firmware_boot.arm9_bytes != std::vector<uint8_t>(
             firmware_arm9_plain.begin(), firmware_arm9_plain.end()) ||
         firmware_boot.arm7_bytes != std::vector<uint8_t>(
             firmware_arm7_plain.begin(), firmware_arm7_plain.end()) ||
-        firmware_boot.computed_crc16 != firmware_boot.expected_crc16 ||
-        firmware_boot.arm9_secondary_bytes != std::vector<uint8_t>{
-            0x31u, 0x32u, 0x33u, 0x34u} ||
-        firmware_boot.arm7_secondary_bytes != std::vector<uint8_t>{
-            0x41u, 0x41u, 0x41u, 0x41u} ||
-        firmware_boot.firmware_data_bytes != std::vector<uint8_t>{
-            0x51u, 0x51u, 0x51u, 0x51u} ||
-        firmware_boot.computed_secondary_crc16 !=
-            firmware_boot.expected_secondary_crc16 ||
-        firmware_boot.computed_data_crc16 != firmware_boot.expected_data_crc16 ||
-        firmware_boot.decrypted_rom_info != std::array<uint8_t, 8>{
+        firmware_boot.computed_crc16 != firmware_boot.expected_crc16) {
+        return fail("primary IPL1/2 bytes, destinations or CRC did not match");
+    }
+    if (firmware_boot.arm9_secondary_bytes != std::vector<uint8_t>{
+            0x31u, 0x32u, 0x33u, 0x34u}) {
+        std::fprintf(stderr, "secondary ARM9 bytes: size=%zu\\n",
+                     firmware_boot.arm9_secondary_bytes.size());
+        for (const uint8_t byte : firmware_boot.arm9_secondary_bytes) {
+            std::fprintf(stderr, "%02X ", byte);
+        }
+        std::fprintf(stderr, "\\n");
+        return fail("secondary ARM9 firmware (part 3) decompression mismatch");
+    }
+    if (firmware_boot.arm7_secondary_bytes != std::vector<uint8_t>{
+            0x41u, 0x41u, 0x41u, 0x41u}) {
+        std::fprintf(stderr, "secondary ARM7 bytes: size=%zu\\n",
+                     firmware_boot.arm7_secondary_bytes.size());
+        for (const uint8_t byte : firmware_boot.arm7_secondary_bytes) {
+            std::fprintf(stderr, "%02X ", byte);
+        }
+        std::fprintf(stderr, "\\n");
+        return fail("secondary ARM7 firmware (part 4) Huffman mismatch");
+    }
+    if (firmware_boot.firmware_data_bytes != std::vector<uint8_t>{
+            0x51u, 0x51u, 0x51u, 0x51u}) {
+        std::fprintf(stderr, "firmware data bytes: size=%zu\\n",
+                     firmware_boot.firmware_data_bytes.size());
+        for (const uint8_t byte : firmware_boot.firmware_data_bytes) {
+            std::fprintf(stderr, "%02X ", byte);
+        }
+        std::fprintf(stderr, "\\n");
+        return fail("firmware language data (part 5) RLE mismatch");
+    }
+    if (firmware_boot.computed_secondary_crc16 !=
+            firmware_boot.expected_secondary_crc16) {
+        std::fprintf(stderr, "secondary CRC: expected=%04X computed=%04X\\n",
+                     firmware_boot.expected_secondary_crc16,
+                     firmware_boot.computed_secondary_crc16);
+        return fail("secondary firmware CRC16 for parts 3/4 did not match");
+    }
+    if (firmware_boot.computed_data_crc16 != firmware_boot.expected_data_crc16) {
+        std::fprintf(stderr, "part 5 CRC: expected=%04X computed=%04X\\n",
+                     firmware_boot.expected_data_crc16,
+                     firmware_boot.computed_data_crc16);
+        return fail("firmware data CRC16 for part 5 did not match");
+    }
+    if (firmware_boot.decrypted_rom_info != std::array<uint8_t, 8>{
             1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u} ||
         key1.level() != 1u || key1.modulo_bytes() != 8u ||
         key1.id_code() != UINT32_C(0x45555043)) {
-        return fail("firmware IPL1/2 and secondary-part decoding, CRC or key restoration failed");
+        return fail("firmware ROM-info or KEY1 schedule restoration failed");
     }
 
     auto corrupted_firmware = synthetic_firmware;
