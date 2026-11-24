@@ -18,6 +18,18 @@ EXPECTED_ROM_SHA1 = "0862ec35b24de5c7e2dcb88c9eea0873110d755c"
 NDS_HEADER_MIN_SIZE = 0x200
 NDS_HEADER_STORED_SIZE = 0x170
 SEGMENT_FIELDS = {"arm9": 0x20, "arm7": 0x30}
+EXPECTED_ARM9_SEGMENT_SHA1 = "7ec963e737f0f61efcbbf5c7a3d33cbf378143f8"
+
+# Extra static entry points observed in the retail direct-entry probe. These
+# are metadata seeds only; no game bytes are copied into the repository.
+VERIFIED_STATIC_ENTRY_POINTS = {
+    "arm9": {
+        EXPECTED_ARM9_SEGMENT_SHA1: (
+            (0x020C2EBC, "arm", "observed_dispatch_thunk_020C2EBC"),
+        ),
+    },
+    "arm7": {},
+}
 
 
 @dataclass(frozen=True)
@@ -93,25 +105,61 @@ def read_segment_header(stream, file_size: int, cpu: str, header_offset: int) ->
     )
 
 
+def entry_points_for_segment(segment: Segment) -> tuple[tuple[int, str, str], ...]:
+    """Return the header entry plus only SHA-1-bound, verified static seeds."""
+    entries = [(segment.entry_pc, segment.entry_mode, "rom_entry")]
+    entries.extend(
+        VERIFIED_STATIC_ENTRY_POINTS.get(segment.cpu, {}).get(segment.sha1, ())
+    )
+
+    seen: set[int] = set()
+    for address, mode, name in entries:
+        if mode not in ("arm", "thumb") or not name:
+            raise ValueError(f"Invalid {segment.cpu.upper()} entry-point metadata")
+        alignment = 2 if mode == "thumb" else 4
+        if address % alignment:
+            raise ValueError(
+                f"{segment.cpu.upper()} entry point {address:#x} is not {alignment}-byte aligned"
+            )
+        if not (segment.load_address <= address < segment.load_address + segment.size):
+            raise ValueError(
+                f"{segment.cpu.upper()} entry point {address:#x} is outside the verified image"
+            )
+        if address in seen:
+            raise ValueError(
+                f"Duplicate {segment.cpu.upper()} entry point address {address:#x}"
+            )
+        seen.add(address)
+    return tuple(entries)
+
+
 def toml_for_segment(segment: Segment) -> str:
     program_name = f"Pokemon Platinum USA Rev 1 {segment.cpu.upper()}"
     program_id = f"pokemon_platinum_usa_rev1_{segment.cpu}"
-    return (
-        "# Generated locally by Oracis extract_nds_programs.py. Do not commit.\n"
-        "# The identity hash is for this extracted ARM program image, not the ROM.\n\n"
-        "[program]\n"
-        f'name = "{program_name}"\n'
-        f'id = "{program_id}"\n'
-        f"load_address = 0x{segment.load_address:08X}\n"
-        f"size = 0x{segment.size:08X}\n"
-        f"entry_pc = 0x{segment.entry_pc:08X}\n\n"
-        "[identity]\n"
-        f'sha1 = "{segment.sha1}"\n\n'
-        "[[entry_point]]\n"
-        f"addr = 0x{segment.entry_pc:08X}\n"
-        f'mode = "{segment.entry_mode}"\n'
-        'name = "rom_entry"\n'
-    )
+    lines = [
+        "# Generated locally by Oracis extract_nds_programs.py. Do not commit.",
+        "# The identity hash is for this extracted ARM program image, not the ROM.",
+        "",
+        "[program]",
+        f'name = "{program_name}"',
+        f'id = "{program_id}"',
+        f"load_address = 0x{segment.load_address:08X}",
+        f"size = 0x{segment.size:08X}",
+        f"entry_pc = 0x{segment.entry_pc:08X}",
+        "",
+        "[identity]",
+        f'sha1 = "{segment.sha1}"',
+        "",
+    ]
+    for address, mode, name in entry_points_for_segment(segment):
+        lines.extend([
+            "[[entry_point]]",
+            f"addr = 0x{address:08X}",
+            f'mode = "{mode}"',
+            f'name = "{name}"',
+            "",
+        ])
+    return "\n".join(lines)
 
 
 def extract(rom_path: Path, output_dir: Path) -> dict:

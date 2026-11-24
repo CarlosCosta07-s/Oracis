@@ -126,6 +126,60 @@ class ExtractNdsProgramsTests(unittest.TestCase):
             manifest,
         )
 
+    def test_emits_verified_arm9_dispatch_entry_seed(self) -> None:
+        arm9 = extractor.Segment(
+            cpu="arm9",
+            rom_offset=0x4000,
+            entry_pc_raw=0x02000800,
+            load_address=0x02000000,
+            size=0x001023F8,
+            entry_pc=0x02000800,
+            entry_mode="arm",
+            sha1=extractor.EXPECTED_ARM9_SEGMENT_SHA1,
+        )
+
+        entries = extractor.entry_points_for_segment(arm9)
+        self.assertEqual(
+            entries,
+            (
+                (0x02000800, "arm", "rom_entry"),
+                (0x020C2EBC, "arm", "observed_dispatch_thunk_020C2EBC"),
+            ),
+        )
+        config = extractor.toml_for_segment(arm9)
+        self.assertIn("addr = 0x020C2EBC", config)
+        self.assertIn('name = "observed_dispatch_thunk_020C2EBC"', config)
+
+        # The extra seed is bound to the exact USA Rev 1 ARM9 image identity.
+        arm7 = extractor.Segment(
+            cpu="arm7",
+            rom_offset=0x00409800,
+            entry_pc_raw=0x02380000,
+            load_address=0x02380000,
+            size=0x000277FC,
+            entry_pc=0x02380000,
+            entry_mode="arm",
+            sha1=extractor.EXPECTED_ARM9_SEGMENT_SHA1,
+        )
+        self.assertEqual(
+            extractor.entry_points_for_segment(arm7),
+            ((0x02380000, "arm", "rom_entry"),),
+        )
+
+    def test_rejects_verified_static_seed_outside_image(self) -> None:
+        arm9 = extractor.Segment(
+            cpu="arm9",
+            rom_offset=0x4000,
+            entry_pc_raw=0x02000800,
+            load_address=0x02000000,
+            size=0x00010000,
+            entry_pc=0x02000800,
+            entry_mode="arm",
+            sha1=extractor.EXPECTED_ARM9_SEGMENT_SHA1,
+        )
+        with self.assertRaisesRegex(ValueError, "outside the verified image"):
+            extractor.toml_for_segment(arm9)
+
     def test_rejects_rom_identity_mismatch_before_creating_outputs(self) -> None:
         self.make_rom()
         extractor.EXPECTED_ROM_SHA1 = "0" * 40

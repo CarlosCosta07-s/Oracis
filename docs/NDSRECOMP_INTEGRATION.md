@@ -656,3 +656,23 @@ Os testes sintéticos cobrem o limite de oito slots por região, independência 
 A região ITCM não é equivalente apenas ao endereço baixo de 32 KiB do armazenamento físico. O código original do gerenciador usa a janela NitroSDK `HW_ITCM_IMAGE..HW_ITCM_END` (`0x01000000..0x02000000`) para classificar overlays. O Oracis agora exige que o estado CP15 tenha uma janela ITCM ativa que cubra o endereço e o tamanho RAM+BSS do overlay; caso contrário, a carga retorna `MemoryUnavailable`, em vez de classificar a imagem como MAIN.
 
 A tabela ARM9 da ROM USA Rev 1 fornecida contém 122 registros. A inspeção local encontrou o overlay ID 3 em `0x01FF8660`, com tamanho de imagem `0x20`, dentro dessa janela ITCM. O teste de integração configura o TCM com a janela de 32 MB e carrega uma fixture de 32 bytes nesse endereço; também configura DTCM em `0x027C0000` e verifica que a imagem é carregada e permanece legível/escrevível pela interface de dados, sem exigir uma verificação de execução no endereço DTCM. Esses testes verificam a classificação e permissões; não demonstram execução do overlay 3 retail nem boot do jogo.
+
+## 19. Entrada ARM9 adicional observada no probe direct-entry
+
+O probe local da revisão USA Rev. 1 observou uma entrada estática em
+`0x020C2EBC`, dentro do segmento ARM9 verificado. A decodificação ARM do
+NDSRecomp identificou nessa posição um desvio incondicional para
+`0x020C2ED8`. O destino começa com uma leitura PC-relative e termina no bloco
+com `LDM r13!, {r3, r15}`, que obtém o PC de retorno pela pilha guest.
+
+A configuração TOML gerada pelo extrator agora inclui
+`0x020C2EBC` como uma semente ARM adicional **somente** quando o SHA-1 do
+segmento ARM9 coincide exatamente com o da revisão USA Rev. 1. O compilador
+descobre `0x020C2ED8` pelo desvio da primeira entrada. Na execução local de
+validação, o banco ARM9 passou de 78 para 80 funções, e a tabela registrou
+ambos os endereços; os corpos C e a tabela de dispatch compilaram em C99.
+
+Essa semente aumenta a cobertura estática de um caminho observado, mas não prova
+que todos os alvos indiretos estejam cobertos, que o fluxo de retorno complete
+ou que o jogo inicialize. Os TOMLs, binários extraídos e bancos gerados
+continuam locais e fora do Git/CI/releases.
