@@ -9,6 +9,7 @@
 
 #include <array>
 #include <cstdint>
+#include <vector>
 
 #include "oracis/memory/guest_memory.hpp"
 
@@ -31,6 +32,16 @@ struct NdsGameCardKey1Command {
     uint16_t secure_area_block = 0u;
     uint32_t key2_seed24 = 0u;
     uint32_t counter20 = 0u;
+};
+
+struct NdsFirmwareBootCode {
+    uint32_t arm9_load_address = 0u;
+    std::vector<uint8_t> arm9_bytes;
+    uint32_t arm7_load_address = 0u;
+    std::vector<uint8_t> arm7_bytes;
+    uint16_t expected_crc16 = 0u;
+    uint16_t computed_crc16 = 0u;
+    std::array<uint8_t, 8> decrypted_rom_info{};
 };
 
 class NdsGameCardKey1 final {
@@ -72,6 +83,16 @@ public:
      * the resulting identifier is "encryObj" and restores the prior schedule. */
     Status decrypt_secure_area(uint8_t *bytes, uint32_t size,
                                bool &identifier_valid) noexcept;
+
+    /*
+     * Decode the ARM9/ARM7 IPL blocks from a caller-supplied raw NDS firmware
+     * flash image. Uses the BIOS-derived base table already loaded in this
+     * object and the firmware's MACP/MACh identifier. The result is committed
+     * only after both LZ77 streams and the combined CRC16 validate.
+     */
+    Status decrypt_firmware_boot_code(
+        const uint8_t *firmware, size_t firmware_size,
+        NdsFirmwareBootCode &output) noexcept;
 
     /* Game Card command bytes are wire-order (MSB first); these helpers
      * reverse them around the little-endian 64-bit block primitive. */
