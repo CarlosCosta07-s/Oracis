@@ -676,3 +676,36 @@ Essa semente aumenta a cobertura estática de um caminho observado, mas não pro
 que todos os alvos indiretos estejam cobertos, que o fluxo de retorno complete
 ou que o jogo inicialize. Os TOMLs, binários extraídos e bancos gerados
 continuam locais e fora do Git/CI/releases.
+
+
+## 14. Emissão local das BIOSes fornecidas pelo usuário
+
+A ferramenta `emit_user_bios_banks.py` recompila BIOSes fornecidas
+explicitamente pelo usuário, sem hashes de revisão fixos:
+
+```sh
+python tools/ndsrecomp/emit_user_bios_banks.py \
+  --arm9-bios "/caminho/bios9.bin" \
+  --arm7-bios "/caminho/bios7.bin"
+```
+
+O emissor exige exatamente 4096 bytes para ARM9 e 16384 bytes para ARM7.
+Cria TOMLs temporários com as bases e vetores de reset documentados
+(`0xFFFF0000` e `0x00000000`) e seeds ARM para reset, Undefined, SVC,
+Prefetch Abort, Data Abort, IRQ e FIQ. Ele consulta a identidade do codegen
+pinado (`nds-codegen-v3`), chama o recompilador com
+`--validate-live-bytes`, aplica o adaptador de direção de memória Oracis,
+separa os corpos em shards e exige que todos os vetores estejam na tabela de
+dispatch produzida.
+
+A saída padrão é `.oracis/generated/nds-user-bios`. Ela contém somente os
+arquivos C/H/dispatch, shards e um manifesto com hashes dos arquivos e das
+BIOSes; os binários e TOMLs de entrada existem apenas no diretório temporário
+durante a emissão. A publicação é transacional: falha ARM9/ARM7 mantém o
+conjunto anterior intacto. O emissor recusa symlinks e arquivos não
+relacionados no destino. Os testes usam BIOSes e um recompilador inteiramente
+sintéticos, não dumps reais, e não enviam qualquer artefato derivado para a CI.
+
+Este passo só produz os bancos locais. Ele ainda não liga esses objetos ao
+CMake/Android, não valida cobertura de todas as rotinas de cada BIOS e não
+comprova execução das BIOSes reais.

@@ -43,6 +43,7 @@ jobs:
             tools/ndsrecomp/emit_platinum_overlay_banks.py \
             tools/ndsrecomp/generate_overlay_bank_registry.py \
             tools/ndsrecomp/emit_platinum_banks.py \
+            tools/ndsrecomp/emit_user_bios_banks.py \
             tools/ndsrecomp/audit_bank_symbols.py \
             tools/ndsrecomp/patch_memory_access_direction.py \
             tools/ndsrecomp/split_generated_bank.py \
