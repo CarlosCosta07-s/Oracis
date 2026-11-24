@@ -231,8 +231,9 @@ def main() -> int:
         str(recompiler),
     ])
 
-    # Exercise the user-BIOS emitter with the real pinned code generator.
-    # The inputs contain synthetic branch/load/store/return instructions only.
+    # Exercise the user-BIOS emitter with the real pinned code generator,
+    # then link its native outputs into the Oracis runtime and preflight the
+    # matching synthetic BIOS bytes (including a deliberately stale-byte case).
     run([
         sys.executable,
         str(ROOT / "tests" / "tools" / "run_user_bios_bank_recompiler_smoke.py"),
@@ -240,6 +241,10 @@ def main() -> int:
         str(recompiler),
         "--c-compiler",
         os.environ.get("CC") or shutil.which("clang") or "cc",
+        "--cmake-c-compiler",
+        os.environ.get("CC") or shutil.which("clang") or "cc",
+        "--cmake-cxx-compiler",
+        os.environ.get("CXX") or shutil.which("clang++") or "c++",
     ])
 
     # These tests need only the static recompiler and its local ARM core.

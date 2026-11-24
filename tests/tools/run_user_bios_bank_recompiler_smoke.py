@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import os
 import shlex
+import shutil
 import struct
 import subprocess
 import sys
@@ -52,6 +54,11 @@ def create_synthetic_bios(path: Path, cpu: str) -> None:
     layout = emitter.BIOS_LAYOUT[cpu]
     base = layout["load_address"]
     data = bytearray(layout["size"])
+    if cpu == "arm7":
+        # The host bridge also loads the synthetic ARM7 KEY1 table. Keep it
+        # deterministic and data-only so this remains a BIOS-free fixture.
+        for index in range(0x1048):
+            data[0x30 + index] = (index * 13 + 9) & 0xFF
     target = base + TARGET_OFFSET
 
     for offset, _name in VECTORS:
@@ -112,15 +119,92 @@ def compile_generated_bank(output_dir: Path, cpu: str, compiler: list[str]) -> i
     return len(sources)
 
 
+def run_checked(command: list[str], description: str, timeout: int = 600) -> None:
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"{description} failed (exit={result.returncode})\\n"
+            f"command: {command}\\nstdout:\\n{result.stdout}\\nstderr:\\n{result.stderr}"
+        )
+
+
+def link_and_preflight_with_oracis(
+    output_dir: Path,
+    arm9_bios: Path,
+    arm7_bios: Path,
+    cmake_c_compiler: str,
+    cmake_cxx_compiler: str,
+    generator: str,
+) -> None:
+    cmake = shutil.which("cmake")
+    if cmake is None:
+        raise RuntimeError("CMake is required for the Oracis runtime integration smoke")
+    if generator == "Ninja" and shutil.which("ninja") is None:
+        raise RuntimeError("Ninja generator was requested but ninja was not found")
+
+    build_dir = output_dir.parent / "oracis-runtime-build"
+    configure = [
+        cmake,
+        "-S", str(ROOT),
+        "-B", str(build_dir),
+        "-G", generator,
+        "-DORACIS_BUILD_HOST=OFF",
+        "-DBUILD_TESTING=ON",
+        "-DCMAKE_BUILD_TYPE=Release",
+        f"-DCMAKE_C_COMPILER={cmake_c_compiler}",
+        f"-DCMAKE_CXX_COMPILER={cmake_cxx_compiler}",
+        f"-DORACIS_LOCAL_BIOS_BANK_DIR={output_dir}",
+    ]
+    run_checked(configure, "Oracis runtime CMake configure")
+
+    build = [
+        cmake,
+        "--build", str(build_dir),
+        "--target", "oracis_bios_bank_link_smoke",
+        "--parallel",
+    ]
+    run_checked(build, "Oracis runtime link with NDSRecomp BIOS banks")
+
+    executable = build_dir / (
+        "oracis_bios_bank_link_smoke.exe"
+        if os.name == "nt"
+        else "oracis_bios_bank_link_smoke"
+    )
+    if not executable.is_file():
+        raise RuntimeError(f"Oracis BIOS integration executable was not created: {executable}")
+    run_checked(
+        [str(executable), str(arm9_bios), str(arm7_bios)],
+        "Oracis live BIOS dispatch preflight",
+        timeout=120,
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--recompiler", type=Path, required=True)
     parser.add_argument("--c-compiler", default="cc")
+    parser.add_argument("--cmake-c-compiler", default=None)
+    parser.add_argument("--cmake-cxx-compiler", default=None)
+    parser.add_argument("--cmake-generator", default="Ninja")
     args = parser.parse_args()
     recompiler = args.recompiler.expanduser().resolve()
     compiler = shlex.split(args.c_compiler)
     if not compiler:
         parser.error("--c-compiler must not be empty")
+    cmake_c_compiler = args.cmake_c_compiler or compiler[0]
+    cmake_cxx_compiler = (
+        args.cmake_cxx_compiler
+        or os.environ.get("CXX")
+        or shutil.which("clang++")
+        or shutil.which("c++")
+        or "c++"
+    )
     if not recompiler.is_file():
         parser.error(f"NDSRecomp executable does not exist: {recompiler}")
 
@@ -138,10 +222,19 @@ def main() -> int:
             cpu: compile_generated_bank(output_dir, cpu, compiler)
             for cpu in ("arm9", "arm7")
         }
+        link_and_preflight_with_oracis(
+            output_dir,
+            arm9_bios,
+            arm7_bios,
+            cmake_c_compiler,
+            cmake_cxx_compiler,
+            args.cmake_generator,
+        )
 
     print(
         "Pinned NDSRecomp BIOS integration passed: "
-        f"ARM9/ARM7 vectors emitted and C99 objects compiled ({compiled})"
+        f"ARM9/ARM7 C99 objects compiled and linked into Oracis ({compiled}); "
+        "live-byte mismatch rejected; matching reset vectors preflighted"
     )
     return 0
 
