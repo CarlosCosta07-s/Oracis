@@ -309,6 +309,12 @@ int oracis_host_runtime_is_initialized(void);
 int oracis_host_runtime_has_program_banks(void);
 uint64_t oracis_host_runtime_global_bus_cycles(void);
 
+/*
+ * Copy a read-only snapshot of the selected CPU register file.
+ * Call at host-owned execution boundaries, not concurrently with a CPU slice.
+ */
+int oracis_host_runtime_get_cpu_state(NdsCpu cpu, ArmCpuState *state);
+
 /* Raw NdsMachineStatus from the most recent machine operation. */
 int oracis_host_runtime_last_machine_status(void);
 

@@ -44,7 +44,11 @@ VECTORS = (
     (0x18, "irq"),
     (0x1C, "fiq"),
 )
-TARGET_OFFSET = 0x100
+EXECUTION_TARGET_OFFSETS = {"arm9": 0x100, "arm7": 0x1200}
+MEMORY_TARGET_OFFSETS = {"arm9": 0x200, "arm7": 0x1300}
+ARM_MOV_R0_42 = 0xE3A0002A
+ARM_ADD_R0_R0_1 = 0xE2800001
+ARM_BRANCH_TO_RESET_STUB = 0xEAFFFFFC
 ARM_LDR_R0_R1 = 0xE5910000
 ARM_STR_R0_R1 = 0xE5810000
 ARM_BX_LR = 0xE12FFF1E
@@ -59,10 +63,12 @@ def create_synthetic_bios(path: Path, cpu: str) -> None:
         # deterministic and data-only so this remains a BIOS-free fixture.
         for index in range(0x1048):
             data[0x30 + index] = (index * 13 + 9) & 0xFF
-    target = base + TARGET_OFFSET
+    execution_target = base + EXECUTION_TARGET_OFFSETS[cpu]
+    memory_target = base + MEMORY_TARGET_OFFSETS[cpu]
 
     for offset, _name in VECTORS:
         address = base + offset
+        target = execution_target if offset == 0 else memory_target
         delta = target - (address + 8)
         if delta % 4 != 0:
             raise AssertionError("ARM branch target is not word-aligned")
@@ -70,10 +76,20 @@ def create_synthetic_bios(path: Path, cpu: str) -> None:
         branch = 0xEA000000 | immediate
         struct.pack_into("<I", data, offset, branch)
 
+    # Reset enters a harmless ARM loop that keeps R0 at 0x2B without leaving BIOS.
+    # Other vectors retain reachable LDR/STR bodies for ABI/codegen coverage.
     struct.pack_into(
         "<III",
         data,
-        TARGET_OFFSET,
+        EXECUTION_TARGET_OFFSETS[cpu],
+        ARM_MOV_R0_42,
+        ARM_ADD_R0_R0_1,
+        ARM_BRANCH_TO_RESET_STUB,
+    )
+    struct.pack_into(
+        "<III",
+        data,
+        MEMORY_TARGET_OFFSETS[cpu],
         ARM_LDR_R0_R1,
         ARM_STR_R0_R1,
         ARM_BX_LR,
@@ -234,7 +250,7 @@ def main() -> int:
     print(
         "Pinned NDSRecomp BIOS integration passed: "
         f"ARM9/ARM7 C99 objects compiled and linked into Oracis ({compiled}); "
-        "live-byte mismatch rejected; matching reset vectors preflighted"
+        "live-byte mismatch rejected; both native reset stubs executed with register results verified"
     )
     return 0
 

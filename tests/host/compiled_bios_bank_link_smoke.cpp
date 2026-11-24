@@ -111,6 +111,52 @@ int preflight_case(
             (void)oracis_host_runtime_shutdown();
             return 1;
         }
+
+        if (oracis_host_runtime_run_retail_bios_round(
+                64u, nullptr, nullptr) != ORACIS_HOST_RUNTIME_OK) {
+            (void)oracis_host_runtime_shutdown();
+            return fail("ARM9 synthetic native reset stub did not execute");
+        }
+
+        ArmCpuState arm9_after_first_round = {};
+        ArmCpuState arm7_while_held = {};
+        if (oracis_host_runtime_get_cpu_state(
+                NDS_ARM9, &arm9_after_first_round) != ORACIS_HOST_RUNTIME_OK ||
+            oracis_host_runtime_get_cpu_state(
+                NDS_ARM7, &arm7_while_held) != ORACIS_HOST_RUNTIME_OK ||
+            arm9_after_first_round.R[0] != UINT32_C(0x2B) ||
+            arm7_while_held.R[0] != 0u ||
+            oracis_host_runtime_global_bus_cycles() != UINT64_C(64)) {
+            (void)oracis_host_runtime_shutdown();
+            return fail("ARM9 execution result or ARM7 reset isolation was incorrect");
+        }
+
+        if (oracis_host_runtime_release_arm7_from_reset() !=
+                ORACIS_HOST_RUNTIME_OK ||
+            oracis_host_runtime_release_arm7_from_reset() !=
+                ORACIS_HOST_RUNTIME_CPU_NOT_IN_RESET) {
+            (void)oracis_host_runtime_shutdown();
+            return fail("synthetic ARM7 reset hand-off was not one-shot");
+        }
+
+        if (oracis_host_runtime_run_retail_bios_round(
+                64u, nullptr, nullptr) != ORACIS_HOST_RUNTIME_OK) {
+            (void)oracis_host_runtime_shutdown();
+            return fail("released ARM7 synthetic native reset stub did not execute");
+        }
+
+        ArmCpuState arm9_after_second_round = {};
+        ArmCpuState arm7_after_second_round = {};
+        if (oracis_host_runtime_get_cpu_state(
+                NDS_ARM9, &arm9_after_second_round) != ORACIS_HOST_RUNTIME_OK ||
+            oracis_host_runtime_get_cpu_state(
+                NDS_ARM7, &arm7_after_second_round) != ORACIS_HOST_RUNTIME_OK ||
+            arm9_after_second_round.R[0] != UINT32_C(0x2B) ||
+            arm7_after_second_round.R[0] != UINT32_C(0x2B) ||
+            oracis_host_runtime_global_bus_cycles() != UINT64_C(128)) {
+            (void)oracis_host_runtime_shutdown();
+            return fail("ARM9/ARM7 native reset execution results were incorrect");
+        }
     } else {
         if (boot_status != ORACIS_HOST_RUNTIME_ENTRYPOINT_UNRESOLVED ||
             arm9_report.resolved != 0u ||

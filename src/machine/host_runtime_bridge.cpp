@@ -1420,6 +1420,21 @@ extern "C" uint64_t oracis_host_runtime_global_bus_cycles(void)
     return host_machine().global_bus_cycles();
 }
 
+extern "C" int oracis_host_runtime_get_cpu_state(
+    NdsCpu cpu, ArmCpuState *state)
+{
+    auto &machine = host_machine();
+    if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+    if (state == nullptr || (cpu != NDS_ARM9 && cpu != NDS_ARM7)) {
+        return ORACIS_HOST_RUNTIME_INVALID_ARGUMENT;
+    }
+
+    const ArmCpuState *current = machine.cpu_state(cpu);
+    if (current == nullptr) return ORACIS_HOST_RUNTIME_MACHINE_ERROR;
+    *state = *current;
+    return ORACIS_HOST_RUNTIME_OK;
+}
+
 extern "C" int oracis_host_runtime_last_machine_status(void)
 {
     return g_last_machine_status;
