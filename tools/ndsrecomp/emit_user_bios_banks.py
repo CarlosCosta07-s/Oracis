@@ -388,9 +388,9 @@ def main() -> int:
     try:
         result = emit_banks(
             args.recompiler.expanduser().resolve(),
-            args.arm9_bios.expanduser().resolve(),
-            args.arm7_bios.expanduser().resolve(),
-            args.output_dir.expanduser().resolve(),
+            args.arm9_bios.expanduser().absolute(),
+            args.arm7_bios.expanduser().absolute(),
+            args.output_dir.expanduser().absolute(),
             functions_per_shard=args.functions_per_shard,
         )
     except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as exc:
@@ -403,7 +403,7 @@ def main() -> int:
             f"{cpu.upper()} BIOS: {bank['bank']} entry=0x{bank['entry_pc']:08X} "
             f"SHA-1={bank['bios_sha1']}"
         )
-    print(f"Local generated BIOS banks: {args.output_dir.resolve()}")
+    print(f"Local generated BIOS banks: {args.output_dir.expanduser().absolute()}")
     return 0
 
 

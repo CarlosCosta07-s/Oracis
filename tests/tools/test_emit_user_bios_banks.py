@@ -159,6 +159,21 @@ class EmitUserBiosBanksTests(unittest.TestCase):
         self.assertEqual(commands, [])
         self.assertFalse(self.output.exists())
 
+    def test_rejects_symlinked_bios_input_before_recompiler(self) -> None:
+        link = self.root / "bios9-link.bin"
+        try:
+            link.symlink_to(self.arm9)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks are unavailable on this platform")
+        commands: list[list[str]] = []
+        with self.assertRaisesRegex(FileNotFoundError, "not a regular file"):
+            emitter.emit_banks(
+                self.recompiler, link, self.arm7, self.output,
+                self.fake_runner(commands),
+            )
+        self.assertEqual(commands, [])
+        self.assertFalse(self.output.exists())
+
     def test_rejects_wrong_codegen_identity_before_emission(self) -> None:
         commands: list[list[str]] = []
         with self.assertRaisesRegex(RuntimeError, "codegen identity mismatch"):
