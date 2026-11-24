@@ -40,7 +40,7 @@ class ValidateUserBiosBankSetTests(unittest.TestCase):
 
     def test_rejects_tampered_bank_source(self):
         path = self.bank_dir / "oracis_user_bios_arm9.c"
-        path.write_text(path.read_text(encoding="utf-8") + "/* tampered */\\n")
+        path.write_text(path.read_text(encoding="utf-8") + "/* tampered */\n")
         with self.assertRaisesRegex(ValueError, "hash mismatch"):
             validator.validate_bank_set(self.bank_dir, allow_synthetic_fixture=True)
 

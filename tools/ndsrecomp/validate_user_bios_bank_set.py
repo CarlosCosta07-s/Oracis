@@ -15,7 +15,7 @@ BIOS_LAYOUT = {
 VECTOR_NAMES = ("reset", "undefined", "swi", "prefetch_abort", "data_abort", "irq", "fiq")
 VECTOR_OFFSETS = (0x00, 0x04, 0x08, 0x0C, 0x10, 0x18, 0x1C)
 _SHA1 = re.compile(r"[0-9a-f]{40}")
-_SHARD_NAME = re.compile(r"bank_part_[0-9]{4}\\.c")
+_SHARD_NAME = re.compile(r"bank_part_[0-9]{4}\.c")
 
 def sha1_file(path: Path) -> str:
     digest = hashlib.sha1()

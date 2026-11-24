@@ -32,12 +32,12 @@ def create_fixture(output_dir: Path) -> dict:
             bodies.append(f"void {fn}(void) {{ (void)0; }}")
             rows.append(f"    {{ UINT32_C(0x{address:08X}), 0u, &{fn}, NULL }}")
             vectors.append({"address": address, "name": name, "mode": "arm"})
-        header = '#include "oracis/recomp/runtime_arm.h"\\n' + "\\n".join(prototypes) + "\\n"
-        body = f'#include "{bank}.h"\\n' + "\\n".join(bodies) + "\\n"
-        dispatch = (f'#include "{bank}.h"\\n'
-                    f"const NdsDispatchEntry g_dispatch_{bank}[] = {{\\n"
-                    + ",\\n".join(rows) + "\\n};\\n"
-                    f"const unsigned g_dispatch_{bank}_len = {len(rows)}u;\\n")
+        header = '#include "oracis/recomp/runtime_arm.h"\n' + "\n".join(prototypes) + "\n"
+        body = f'#include "{bank}.h"\n' + "\n".join(bodies) + "\n"
+        dispatch = (f'#include "{bank}.h"\n'
+                    f"const NdsDispatchEntry g_dispatch_{bank}[] = {{\n"
+                    + ",\n".join(rows) + "\n};\n"
+                    f"const unsigned g_dispatch_{bank}_len = {len(rows)}u;\n")
         (output_dir / f"{bank}.h").write_text(header, encoding="utf-8")
         (output_dir / f"{bank}.c").write_text(body, encoding="utf-8")
         (output_dir / f"{bank}_dispatch.c").write_text(dispatch, encoding="utf-8")
@@ -60,7 +60,7 @@ def create_fixture(output_dir: Path) -> dict:
     manifest = {"schema_version": 1, "source_kind": "synthetic-fixture",
                 "codegen_identity": "synthetic-fixture", "banks": banks,
                 "notice": "Synthetic C-only fixtures. No BIOS data is present."}
-    (output_dir / "oracis_bios_banks.json").write_text(json.dumps(manifest, indent=2)+"\\n",
+    (output_dir / "oracis_bios_banks.json").write_text(json.dumps(manifest, indent=2)+"\n",
                                                         encoding="utf-8")
     return manifest
 
