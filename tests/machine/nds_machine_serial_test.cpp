@@ -77,6 +77,20 @@ void store_u32(std::vector<uint8_t> &bytes, size_t offset, uint32_t value)
     }
 }
 
+uint16_t firmware_header_crc(const uint8_t *bytes, size_t size)
+{
+    uint16_t crc = 0u;
+    for (size_t index = 0u; index < size; ++index) {
+        crc = static_cast<uint16_t>(crc ^ bytes[index]);
+        for (uint32_t bit = 0u; bit < 8u; ++bit) {
+            crc = static_cast<uint16_t>(
+                (crc >> 1u) ^
+                ((crc & 1u) != 0u ? UINT16_C(0xA001) : UINT16_C(0)));
+        }
+    }
+    return crc;
+}
+
 uint16_t firmware_crc(
     const std::array<uint8_t, 4> &arm9,
     const std::array<uint8_t, 4> &arm7)
@@ -112,6 +126,10 @@ std::vector<uint8_t> make_encrypted_firmware(
     store_u16(firmware, 0x12u, UINT16_C(0x90));
     store_u16(firmware, 0x14u, UINT16_C(0x042D));
     store_u32(firmware, 0x08u, FirmwareId);
+    store_u16(firmware, 0x2Cu, UINT16_C(0x0138));
+    store_u16(
+        firmware, 0x2Au,
+        firmware_header_crc(firmware.data() + 0x2Cu, 0x0136u));
 
     NdsGameCardKey1 cipher;
     if (cipher.load_key_table(
