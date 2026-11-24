@@ -54,6 +54,30 @@ struct NdsFirmwareBootCode {
     uint16_t computed_data_crc16 = 0u;
 };
 
+/*
+ * Long-lived machine state after IPL1/2 have been copied to guest RAM.
+ * Their decoded byte vectors are deliberately not retained: only the
+ * destinations, lengths and CRC evidence remain. P3/P4/P5 stay staged because
+ * later retail boot stages still need their payload bytes.
+ */
+struct NdsFirmwareBootStaging {
+    uint32_t arm9_load_address = 0u;
+    uint32_t arm9_bytes = 0u;
+    uint32_t arm7_load_address = 0u;
+    uint32_t arm7_bytes = 0u;
+    uint16_t expected_crc16 = 0u;
+    uint16_t computed_crc16 = 0u;
+    std::array<uint8_t, 8> decrypted_rom_info{};
+
+    std::vector<uint8_t> arm9_secondary_bytes;
+    std::vector<uint8_t> arm7_secondary_bytes;
+    std::vector<uint8_t> firmware_data_bytes;
+    uint16_t expected_secondary_crc16 = 0u;
+    uint16_t computed_secondary_crc16 = 0u;
+    uint16_t expected_data_crc16 = 0u;
+    uint16_t computed_data_crc16 = 0u;
+};
+
 class NdsGameCardKey1 final {
 public:
     static constexpr uint32_t KeyTableBytes = UINT32_C(0x1048);

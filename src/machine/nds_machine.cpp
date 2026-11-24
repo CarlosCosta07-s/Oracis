@@ -1579,7 +1579,7 @@ NdsMachineStatus NdsMachine::initialize() noexcept
     interrupt_wait_resume_pcs_.fill(0u);
     program_loaded_ = false;
     firmware_boot_code_loaded_ = false;
-    firmware_boot_code_ = {};
+    firmware_boot_staging_ = {};
     /* CP15 Control.V and fixed-one bits are owned by the ARM9 TCM controller. */
     arm9_state_.cpsr = ORACIS_ARM_MODE_SYSTEM;
     arm7_state_.cpsr = ORACIS_ARM_MODE_SYSTEM;
@@ -2139,7 +2139,26 @@ NdsMachineStatus NdsMachine::load_firmware_boot_code() noexcept
         return NdsMachineStatus::FirmwareBootMemoryUnavailable;
     }
 
-    firmware_boot_code_ = std::move(boot_code);
+    memory::NdsFirmwareBootStaging staging{};
+    staging.arm9_load_address = boot_code.arm9_load_address;
+    staging.arm9_bytes = arm9_size;
+    staging.arm7_load_address = boot_code.arm7_load_address;
+    staging.arm7_bytes = arm7_size;
+    staging.expected_crc16 = boot_code.expected_crc16;
+    staging.computed_crc16 = boot_code.computed_crc16;
+    staging.decrypted_rom_info = boot_code.decrypted_rom_info;
+    staging.arm9_secondary_bytes =
+        std::move(boot_code.arm9_secondary_bytes);
+    staging.arm7_secondary_bytes =
+        std::move(boot_code.arm7_secondary_bytes);
+    staging.firmware_data_bytes =
+        std::move(boot_code.firmware_data_bytes);
+    staging.expected_secondary_crc16 = boot_code.expected_secondary_crc16;
+    staging.computed_secondary_crc16 = boot_code.computed_secondary_crc16;
+    staging.expected_data_crc16 = boot_code.expected_data_crc16;
+    staging.computed_data_crc16 = boot_code.computed_data_crc16;
+
+    firmware_boot_staging_ = std::move(staging);
     firmware_boot_code_loaded_ = true;
     return NdsMachineStatus::Ok;
 }

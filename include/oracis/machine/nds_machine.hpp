@@ -150,8 +150,8 @@ public:
     bool firmware_boot_code_loaded() const noexcept {
         return firmware_boot_code_loaded_;
     }
-    const memory::NdsFirmwareBootCode *firmware_boot_code() const noexcept {
-        return firmware_boot_code_loaded_ ? &firmware_boot_code_ : nullptr;
+    const memory::NdsFirmwareBootStaging *firmware_boot_staging() const noexcept {
+        return firmware_boot_code_loaded_ ? &firmware_boot_staging_ : nullptr;
     }
 
     /* Overlay images are supplied already extracted and decompressed. */
@@ -437,8 +437,11 @@ private:
     memory::NdsRtc rtc_;
     memory::NdsSpiControl spi_control_;
     memory::NdsSystemClock system_clock_;
-    /* Own validated IPL1/2 results and P3/P4/P5 staging for later boot stages. */
-    memory::NdsFirmwareBootCode firmware_boot_code_{};
+    /*
+     * Retain only IPL1/2 metadata after publication to GuestMemory. The
+     * decoded IPL1/2 buffers are temporary; only P3/P4/P5 remain staged.
+     */
+    memory::NdsFirmwareBootStaging firmware_boot_staging_{};
 
     std::array<bool, 2> slice_active_{};
     std::array<PendingOverlayInitializers, 2> pending_overlay_initializers_{};

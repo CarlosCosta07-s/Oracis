@@ -637,4 +637,15 @@ A fixture sintética da parte 3 agora usa uma árvore Huffman primária com trê
 
 ## Atualização 2026-11-24 — buffers secundários retidos e relatório do IPL
 
-Depois da publicação atômica dos IPL1/2 e da validação de identidade na RAM, `NdsMachine` agora mantém o objeto validado de firmware durante toda a sessão. Isso preserva os bytes descomprimidos de P3/P4/P5 em staging, em vez de descartar os vetores temporários ao sair de `load_firmware_boot_code()`. A nova consulta C ABI informa tamanhos, destinos de P1/P2 e CRCs de P1/2, P3/4 e P5; o host SDL registra esses dados. Nenhum componente secundário é copiado para endereços guest. O teste de integração usa componentes P345 sintéticos e confirma que os três tamanhos e seus CRCs continuam acessíveis depois da chamada.
+Depois da publicação dos IPL1/2 e da validação de identidade na RAM guest, `NdsMachine` mantém apenas seus metadados (destinos, tamanhos, ROM-info e CRCs) e libera os vetores descomprimidos temporários de P1/P2. Os bytes P3/P4/P5 continuam em buffers de staging para uso nas próximas etapas do boot. Isso evita duplicar em memória host os bytes de IPL1/2 que já foram copiados para GuestMemory. A consulta C ABI informa tamanhos, destinos de P1/P2 e CRCs de P1/2, P3/4 e P5; o host SDL registra esses dados. Nenhum componente secundário é copiado para endereços guest. O teste de integração usa componentes P345 sintéticos e confirma que os três tamanhos e seus CRCs continuam acessíveis depois da chamada.
+
+
+## Atualização 2026-11-24 — reduzir retenção de memória no staging do IPL
+
+Depois que P1/P2 são copiados para a RAM guest e a identidade da escrita é
+validada, `NdsMachine` não mantém mais os dois vetores descomprimidos em
+memória host. O estado persistente preserva seus destinos, tamanhos,
+ROM-info e CRCs, além dos bytes P3/P4/P5 ainda necessários às próximas fases.
+O relatório C ABI mantém os mesmos campos e valores. Essa mudança reduz a
+duplicação de memória sem alterar a publicação de P1/P2, sem gravar P3/P4/P5
+em endereços não comprovados e sem afirmar execução do IPL ou boot retail.

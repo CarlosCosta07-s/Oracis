@@ -425,22 +425,18 @@ extern "C" int oracis_host_runtime_get_firmware_boot_report(
     auto &machine = host_machine();
     if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
 
-    const auto *boot = machine.firmware_boot_code();
+    const auto *boot = machine.firmware_boot_staging();
     if (boot == nullptr) return ORACIS_HOST_RUNTIME_FIRMWARE_ERROR;
-    if (boot->arm9_bytes.size() > UINT32_MAX ||
-        boot->arm7_bytes.size() > UINT32_MAX ||
-        boot->arm9_secondary_bytes.size() > UINT32_MAX ||
+    if (boot->arm9_secondary_bytes.size() > UINT32_MAX ||
         boot->arm7_secondary_bytes.size() > UINT32_MAX ||
         boot->firmware_data_bytes.size() > UINT32_MAX) {
         return ORACIS_HOST_RUNTIME_FIRMWARE_ERROR;
     }
 
     report->arm9_ipl1_load_address = boot->arm9_load_address;
-    report->arm9_ipl1_bytes =
-        static_cast<uint32_t>(boot->arm9_bytes.size());
+    report->arm9_ipl1_bytes = boot->arm9_bytes;
     report->arm7_ipl2_load_address = boot->arm7_load_address;
-    report->arm7_ipl2_bytes =
-        static_cast<uint32_t>(boot->arm7_bytes.size());
+    report->arm7_ipl2_bytes = boot->arm7_bytes;
     report->arm9_ipl3_staged_bytes =
         static_cast<uint32_t>(boot->arm9_secondary_bytes.size());
     report->arm7_ipl4_staged_bytes =
