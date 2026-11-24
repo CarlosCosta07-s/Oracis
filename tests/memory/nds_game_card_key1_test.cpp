@@ -355,6 +355,26 @@ int main()
     using oracis::memory::NdsGameCardKey1Command;
     using oracis::memory::NdsGameCardKey1CommandKind;
     using oracis::memory::Status;
+    using oracis::memory::NdsFirmwareRevisionHint;
+
+    if (oracis::memory::classify_nds_firmware_revision_hint(UINT16_C(0x2C7A)) !=
+            NdsFirmwareRevisionHint::NtrV1 ||
+        oracis::memory::classify_nds_firmware_revision_hint(UINT16_C(0xE0CE)) !=
+            NdsFirmwareRevisionHint::NtrV2 ||
+        oracis::memory::classify_nds_firmware_revision_hint(UINT16_C(0xBFBA)) !=
+            NdsFirmwareRevisionHint::NtrV3ChecksumFamily ||
+        oracis::memory::classify_nds_firmware_revision_hint(UINT16_C(0xDFC7)) !=
+            NdsFirmwareRevisionHint::NtrV4 ||
+        oracis::memory::classify_nds_firmware_revision_hint(UINT16_C(0xE843)) !=
+            NdsFirmwareRevisionHint::NtrV6DsLite ||
+        oracis::memory::classify_nds_firmware_revision_hint(UINT16_C(0xF96D)) !=
+            NdsFirmwareRevisionHint::IQue ||
+        oracis::memory::classify_nds_firmware_revision_hint(UINT16_C(0x0000)) !=
+            NdsFirmwareRevisionHint::Unknown ||
+        oracis::memory::classify_nds_firmware_revision_hint(UINT16_C(0x1234)) !=
+            NdsFirmwareRevisionHint::Unknown) {
+        return fail("firmware revision checksum hints were misclassified");
+    }
 
     NdsGameCardKey1 key1;
     const auto table = synthetic_key_table();

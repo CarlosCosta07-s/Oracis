@@ -518,7 +518,10 @@ int main()
         firmware_report.ipl5_language_staged_bytes != 4u ||
         firmware_report.expected_ipl12_crc16 != firmware_report.computed_ipl12_crc16 ||
         firmware_report.expected_ipl34_crc16 != firmware_report.computed_ipl34_crc16 ||
-        firmware_report.expected_ipl5_crc16 != firmware_report.computed_ipl5_crc16) {
+        firmware_report.expected_ipl5_crc16 != firmware_report.computed_ipl5_crc16 ||
+        firmware_report.firmware_revision_hint != static_cast<uint32_t>(
+            oracis::memory::classify_nds_firmware_revision_hint(
+                static_cast<uint16_t>(firmware_report.expected_ipl12_crc16)))) {
         (void)oracis_host_runtime_shutdown();
         return fail("validated firmware report did not retain P3/P4/P5 sizes and CRCs");
     }

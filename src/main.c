@@ -326,6 +326,9 @@ static bool load_firmware_file(const char *path)
             report.ipl5_language_staged_bytes,
             report.expected_ipl34_crc16, report.computed_ipl34_crc16,
             report.expected_ipl5_crc16, report.computed_ipl5_crc16);
+    SDL_Log("Firmware revision hint=%u from validated IPL1/2 CRC16 0x%04X "
+            "(checksum fingerprint only; not an authenticity check).",
+            report.firmware_revision_hint, report.expected_ipl12_crc16);
     return true;
 }
 

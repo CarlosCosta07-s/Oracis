@@ -78,6 +78,8 @@ typedef struct OracisHostFirmwareBootReport {
     uint32_t computed_ipl34_crc16;
     uint32_t expected_ipl5_crc16;
     uint32_t computed_ipl5_crc16;
+    /* NdsFirmwareRevisionHint numeric value; 0 means unknown/modified. */
+    uint32_t firmware_revision_hint;
 } OracisHostFirmwareBootReport;
 
 /*

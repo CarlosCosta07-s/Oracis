@@ -2146,6 +2146,7 @@ NdsMachineStatus NdsMachine::load_firmware_boot_code() noexcept
     staging.arm7_bytes = arm7_size;
     staging.expected_crc16 = boot_code.expected_crc16;
     staging.computed_crc16 = boot_code.computed_crc16;
+    staging.revision_hint = boot_code.revision_hint;
     staging.decrypted_rom_info = boot_code.decrypted_rom_info;
     staging.arm9_secondary_bytes =
         std::move(boot_code.arm9_secondary_bytes);

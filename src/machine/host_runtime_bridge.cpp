@@ -449,6 +449,8 @@ extern "C" int oracis_host_runtime_get_firmware_boot_report(
     report->computed_ipl34_crc16 = boot->computed_secondary_crc16;
     report->expected_ipl5_crc16 = boot->expected_data_crc16;
     report->computed_ipl5_crc16 = boot->computed_data_crc16;
+    report->firmware_revision_hint =
+        static_cast<uint32_t>(boot->revision_hint);
     return ORACIS_HOST_RUNTIME_OK;
 }
 

@@ -26,7 +26,7 @@ O host Android abre o seletor SDL3 para uma imagem NDS, BIOS ARM7 de 16 KiB e du
 
 A máquina prepara o subconjunto documentado do estado de entrada do cartucho: R0–R11 zerados; R12, LR e PC no entrypoint; SP User/System, IRQ e SVC específicos por CPU; metadados determinísticos derivados do cabeçalho/CRC; POSTFLG bit 0 = 1. O host verifica que os dois entrypoints resolvem para bancos estáticos registrados e executa até 128 fatias nativas de 1.024 ciclos por iteração SDL (131.072 ciclos agregados). Erros interrompem a execução e registram ciclo, fatia e status do runtime.
 
-Esse fluxo é direct-entry, não executa o reset pelas BIOS retail nem reproduz toda a inicialização do firmware. A BIOS ARM7 escolhida pelo usuário fornece a tabela KEY1 para descriptografar a Secure Area; o firmware SPI bruto fica acessível ao guest, mas ainda faltam validação de header/CRCs, descriptografia e descompressão das partes IPL 1–5 e cópia dos fragmentos às regiões de RAM. Também faltam Chip ID físico no Android, outras áreas RAM de boot, CP15/MPU/TCM completos e serviços/overlays dependentes do jogo. Os rounds ainda não demonstram primeiro quadro ou compatibilidade jogável.
+Esse fluxo continua sendo direct-entry: não executa o reset pelas BIOS retail nem reproduz toda a inicialização do firmware. A BIOS ARM7 escolhida pelo usuário fornece a tabela KEY1 para descriptografar a Secure Area e os componentes de boot do firmware SPI. O caminho atual valida o cabeçalho MACP/MACh, CRC do cabeçalho e CRC combinado de IPL1/2; descriptografa e descomprime IPL1 (ARM9) e IPL2 (ARM7); pré-valida escrita e execução nos dois destinos antes de publicar qualquer byte na RAM guest; e confirma a identidade dos bytes publicados. P3/P4/P5 também são decodificados no formato P345, verificados por CRC e mantidos em staging. O Android aceita opcionalmente o Chip ID físico do cartucho via arquivo de texto. Ainda faltam executar a sequência real de reset/handoff das BIOS e do IPL, descobrir destinos e consumidores de P3/P4/P5 por evidência específica da revisão do firmware, completar outras regiões de RAM/CP15/MPU/TCM e serviços/overlays dependentes do jogo. Os rounds ainda não demonstram primeiro quadro ou compatibilidade jogável.
 
 A CI Android atual compila a biblioteca nativa ARM64; ainda não há projeto Gradle/Manifest no repositório para gerar APK instalável. A compilação dos bancos reais exige artefatos locais privados; a CI não recebe ROM, BIOS, firmware, segmentos extraídos ou bancos derivados. O experimento precisa de validação em aparelho Android. Detalhes em [ANDROID_DIRECT_BOOT.md](ANDROID_DIRECT_BOOT.md).
 
@@ -49,7 +49,7 @@ A CI Android atual compila a biblioteca nativa ARM64; ainda não há projeto Gra
 | 12 | Empacotamento | Windows, Linux e posteriormente Android ARM64 | Não iniciada |
 
 
-**Validação mais recente (22/11/2026):** commit de correção `062ece4` e CI [#1120](https://github.com/CarlosCosta07-s/Oracis/actions/runs/45070941504) concluída com sucesso nos quatro jobs. Desktop Linux: **54/54 CTests** e smoke de ligação static-bank **1/1**; ARM runtime: **54/54 CTests**; Android ARM64 e compilador estático NDSRecomp aprovados. O teste novo de fog valida registradores MMIO, tabela de densidade, interpolação, densidade máxima, alpha-only e a flag por pixel. Isso valida builds/testes sintéticos, não o boot nem a apresentação de Pokémon Platinum. ROM, BIOS, firmware e dados extraídos permanecem fora do Git/CI.
+**Validação mais recente (24/11/2026):** commit `a47534c` e CI [#1410](https://github.com/CarlosCosta07-s/Oracis/actions/runs/45418141231) concluída com sucesso nos quatro jobs. Desktop Linux, runtime ARM (63/63 testes), biblioteca nativa Android ARM64 e compilador estático NDSRecomp aprovados. O carregador de firmware valida IPL1/2 e decodifica P3/P4/P5 com fixtures sintéticas; depois da publicação de IPL1/2, seus buffers host são liberados e apenas metadados/CRCs permanecem. Isso valida builds e fixtures, não o reset retail, boot nem primeiro quadro de Pokémon Platinum. ROM, BIOS, firmware e dados extraídos permanecem fora do Git/CI.
 
 ## Próxima ordem de implementação
 
@@ -57,7 +57,7 @@ A CI Android atual compila a biblioteca nativa ARM64; ainda não há projeto Gra
 2. Preparar o empacotamento Android instalável; a CI atual compila somente a biblioteca nativa ARM64.
 3. Construir localmente com os bancos privados reais, confirmar a resolução dos entrypoints ARM9/ARM7 e capturar o primeiro dispatch guest do experimento direct-entry.
 4. Resolver o primeiro dispatch miss, acesso MMIO não suportado, falha de timing ou dependência BIOS/NitroSDK observada pelo scheduler, sem fallback de interpretador.
-5. Completar o fornecimento Android do Chip ID físico; implementar o IPL do firmware SPI (validação, CRC, KEY1, descompressão e cópia dos módulos 1–5), mantendo os dumps e os módulos derivados privados do usuário.
+5. Reproduzir o reset/handoff retail das BIOS e do IPL; estabelecer, por revisão verificável, a sequência e os destinos de P3/P4/P5 antes de qualquer escrita em RAM guest. Manter dumps e módulos derivados privados do usuário.
 6. Auditar os 60 overlays ainda sem banco e os destinos de chamadas indiretas desconhecidos; integrar os gerenciadores NitroSDK/HLE necessários.
 7. Completar a sincronização de vídeo, apresentar e verificar o primeiro quadro real; depois avançar áudio, saves e UX.
 

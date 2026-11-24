@@ -16,6 +16,44 @@
 
 namespace oracis::memory {
 
+/*
+ * Non-authoritative revision hint derived from the firmware header's
+ * IPL1+IPL2 CRC16 at offset 0x06. The checksum is validated against the
+ * decoded payload before this hint is retained; it is not an authenticity
+ * guarantee. Known signatures are documented at:
+ * https://www.retroisle.com/others/nintendods/Technical/Firmware/dsfirmware.php
+ */
+enum class NdsFirmwareRevisionHint : uint32_t {
+    Unknown = 0u,
+    NtrV1 = 1u,
+    NtrV2 = 2u,
+    NtrV3ChecksumFamily = 3u,
+    NtrV4 = 4u,
+    NtrV6DsLite = 6u,
+    IQue = UINT32_C(0x100)
+};
+
+constexpr NdsFirmwareRevisionHint classify_nds_firmware_revision_hint(
+    uint16_t ipl12_crc16) noexcept
+{
+    switch (ipl12_crc16) {
+    case UINT16_C(0x2C7A):
+        return NdsFirmwareRevisionHint::NtrV1;
+    case UINT16_C(0xE0CE):
+        return NdsFirmwareRevisionHint::NtrV2;
+    case UINT16_C(0xBFBA):
+        return NdsFirmwareRevisionHint::NtrV3ChecksumFamily;
+    case UINT16_C(0xDFC7):
+        return NdsFirmwareRevisionHint::NtrV4;
+    case UINT16_C(0xE843):
+        return NdsFirmwareRevisionHint::NtrV6DsLite;
+    case UINT16_C(0xF96D):
+        return NdsFirmwareRevisionHint::IQue;
+    default:
+        return NdsFirmwareRevisionHint::Unknown;
+    }
+}
+
 enum class NdsGameCardKey1CommandKind : uint8_t {
     ActivateKey2 = 0x04u,
     ReadChipId = 0x01u,
@@ -42,6 +80,7 @@ struct NdsFirmwareBootCode {
     std::vector<uint8_t> arm7_bytes;
     uint16_t expected_crc16 = 0u;
     uint16_t computed_crc16 = 0u;
+    NdsFirmwareRevisionHint revision_hint = NdsFirmwareRevisionHint::Unknown;
     std::array<uint8_t, 8> decrypted_rom_info{};
 
     /* Firmware header parts 3/4/5; decoded and CRC-checked, not installed. */
@@ -67,6 +106,7 @@ struct NdsFirmwareBootStaging {
     uint32_t arm7_bytes = 0u;
     uint16_t expected_crc16 = 0u;
     uint16_t computed_crc16 = 0u;
+    NdsFirmwareRevisionHint revision_hint = NdsFirmwareRevisionHint::Unknown;
     std::array<uint8_t, 8> decrypted_rom_info{};
 
     std::vector<uint8_t> arm9_secondary_bytes;

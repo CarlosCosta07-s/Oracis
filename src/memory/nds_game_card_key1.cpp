@@ -966,6 +966,8 @@ Status NdsGameCardKey1::decrypt_firmware_boot_code(
     candidate.arm9_load_address = static_cast<uint32_t>(part1_destination);
     candidate.arm7_load_address = static_cast<uint32_t>(part2_destination);
     candidate.expected_crc16 = expected_crc;
+    candidate.revision_hint =
+        classify_nds_firmware_revision_hint(expected_crc);
 
     Status status = initialize(id_code, 1u, 12u);
     if (status != Status::Ok) {
