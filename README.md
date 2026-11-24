@@ -16,7 +16,7 @@
 
 ## Experimento Android de entrada nativa
 
-Os commits 3a9bc39, d46f4db, 663c6ba, 4cc9350, a496618 e 0f497d5 adicionam seleção Android de uma imagem .nds, BIOS ARM7 e dump de firmware SPI do usuário por meio do seletor SDL3. URIs content:// são lidas por SDL_IOStream. O dispositivo SPI ARM7 modela READ, RDSR, WREN e WRDI. O carregador de firmware também descriptografa com KEY1, descomprime em LZ77 e valida por CRC as partes IPL 1 (ARM9) e 2 (ARM7), pré-validando ambos os destinos antes de publicar os bytes na RAM. As partes IPL 3–5 e a execução do reset das BIOS retail continuam pendentes.
+Os commits 3a9bc39, d46f4db, 663c6ba, 4cc9350, a496618 e 0f497d5 adicionam seleção Android de uma imagem .nds, BIOS ARM7 e dump de firmware SPI do usuário por meio do seletor SDL3. URIs content:// são lidas por SDL_IOStream. O dispositivo SPI ARM7 modela READ, RDSR, WREN e WRDI. O carregador KEY1 descriptografa e descomprime IPL 1/2, valida o CRC combinado e pré-valida os destinos antes de publicar os bytes na RAM. Também decodifica os payloads 3/4/5 (LZ77, Huffman ou run-length) e confere seus CRCs, mantendo-os em staging; ainda não os instala na RAM guest nem executa o reset retail das BIOS.
 
 A máquina prepara o estado documentado de entrada do cartucho (R0–R11 zerados, R12/LR/PC no entrypoint, pilhas User/System + IRQ/SVC, metadados determinísticos de boot e POSTFLG bit 0). Quando os dois entrypoints resolvem para bancos estáticos ARM9/ARM7, o host executa fatias nativas limitadas de 1.024 ciclos.
 

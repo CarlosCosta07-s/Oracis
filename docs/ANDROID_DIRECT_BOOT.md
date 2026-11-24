@@ -18,9 +18,11 @@ No Android, o seletor pode retornar URIs content://. A leitura dos três arquivo
 
 A BIOS ARM7 é usada para copiar a tabela KEY1 (offset 0x30, tamanho 0x1048) e inicializar a descriptografia da Secure Area do cartucho. A imagem de firmware é instalada no dispositivo SPI ARM7; o dispositivo modela READ (03h), RDSR (05h), WREN (06h) e WRDI (04h). Programação, apagamento, JEDEC ID e outros comandos SPI ainda não são implementados.
 
-Além de expor a flash ao guest, o host chama `NdsMachine::load_firmware_boot_code()` ao carregar a imagem fornecida. Esse estágio valida o identificador MACP/MACh e o CRC do cabeçalho, descriptografa o bloco ROM-info e as partes IPL 1 (ARM9) e 2 (ARM7) com KEY1, descomprime os dois fluxos LZ77 e confere o CRC16 combinado. Antes de publicar qualquer byte, valida escrita e execução nos dois destinos; se um dos destinos falhar, nenhuma das partes é gravada. Os testes de integração usam apenas firmware sintético, criado durante o teste.
+Além de expor a flash ao guest, o host chama `NdsMachine::load_firmware_boot_code()` ao carregar a imagem fornecida. Esse estágio valida o identificador MACP/MACh e o CRC do cabeçalho, descriptografa o bloco ROM-info e as partes IPL 1 (ARM9) e 2 (ARM7) com KEY1, descomprime os dois fluxos LZ77 e confere o CRC16 combinado. Antes de publicar qualquer byte, valida escrita e execução nos dois destinos; se um dos destinos falhar, nenhuma das partes é gravada.
 
-Essa publicação não executa o IPL, não transfere o PC para os blocos recém-carregados e não executa o reset das BIOS retail. As partes IPL 3–5 e a sequência completa de inicialização do firmware permanecem em aberto. A BIOS ARM7 retail não é executada como vetor de reset e a BIOS ARM9 retail não é carregada nem executada neste experimento.
+O decodificador também reconhece os payloads secundários 3 (ARM9), 4 (ARM7) e 5 (dados de idioma/interface), lendo seus offsets do cabeçalho e aceitando streams BIOS LZ77, Huffman e run-length. Os três payloads são mantidos em buffers de staging e têm seus CRCs próprios verificados (CRC combinado de 3/4 e CRC separado de 5). Eles ainda não são gravados na RAM guest, porque os destinos e a sequência retail que os consome não estão implementados. Os testes usam firmware sintético criado durante a execução; nenhum dump real é incluído no repositório.
+
+A publicação de IPL 1/2 e o staging validado de 3/4/5 não executam o IPL, não transferem o PC para os blocos recém-carregados e não executam o reset das BIOS retail. A sequência completa de inicialização do firmware permanece em aberto. A BIOS ARM7 retail não é executada como vetor de reset e a BIOS ARM9 retail não é carregada nem executada neste experimento.
 
 ## Estado de entrada reproduzido
 
@@ -53,7 +55,7 @@ O scheduler nativo só é habilitado quando:
 
 - A imagem NDS foi montada e os segmentos ARM9/ARM7 foram validados antes de serem escritos em GuestMemory.
 - A BIOS ARM7 do usuário foi aceita pelo loader de KEY1.
-- O dump SPI de firmware do usuário foi instalado e as partes IPL 1/2 passaram pela descriptografia KEY1, descompressão LZ77, CRC combinado e pré-validação dos dois destinos de RAM.
+- O dump SPI de firmware do usuário foi instalado; IPL 1/2 passaram por KEY1/LZ77/CRC e pré-validação dos dois destinos; quando presentes, os payloads 3/4/5 também foram descomprimidos e tiveram seus CRCs verificados, ainda em staging.
 - Existem bancos estáticos registrados para ARM9 e ARM7.
 - O PC inicial de cada CPU resolve para uma entrada compilada no modo ARM/Thumb esperado.
 
@@ -67,7 +69,7 @@ A seleção de ROM/BIOS e o preflight não comprovam que o jogo iniciou. Uma seq
 - O workflow Android atual compila a biblioteca nativa ARM64; o repositório ainda não contém um projeto Gradle/Manifest que gere um APK instalável.
 - O experimento reproduz apenas o subconjunto documentado de registradores/pilhas e POSTFLG; não executa as BIOS retail e não reproduz todas as áreas de RAM/firmware inicializadas pelo boot, o Chip ID, nem a configuração completa de CP15/MPU/TCM e periféricos.
 - O host ainda precisa de uma forma Android para fornecer o Chip ID físico do cartucho quando um comando Game Card depender dele. Esse valor não é inferido do dump .nds.
-- As partes IPL 1/2 já são descriptografadas, descomprimidas e publicadas pelo carregador de firmware. As partes 3–5, a execução do IPL e a sequência completa de boot ainda não são implementadas.
+- As partes 1/2 já são descriptografadas, descomprimidas e publicadas; os payloads 3/4/5 já são descomprimidos e validados em staging, mas ainda não são instalados na RAM guest. A execução do IPL e a sequência completa de boot continuam pendentes.
 - A cobertura do protocolo Game Card KEY1/KEY2, dos serviços BIOS/NitroSDK, dos overlays e de MMIO/timing continua parcial. O primeiro dispatch miss ou acesso não implementado deve ser tratado como bloqueio real, não mascarado.
 
 ## Política de dados

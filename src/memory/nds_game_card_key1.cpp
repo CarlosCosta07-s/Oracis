@@ -283,7 +283,8 @@ Status decompress_firmware_data(
             if (!stream.read_byte(tree_size)) return Status::InvalidRegion;
             const size_t tree_bytes =
                 static_cast<size_t>(tree_size) * 2u + 1u;
-            if (tree_bytes > firmware_size - stream.position()) {
+            const size_t tree_base_offset = stream.position();
+            if (tree_bytes > firmware_size - tree_base_offset) {
                 return Status::InvalidRegion;
             }
 
@@ -330,11 +331,21 @@ Status decompress_firmware_data(
                     const int branch = read_bit();
                     if (branch < 0) return Status::InvalidRegion;
 
-                    const uint32_t child_index =
-                        (node_index & ~UINT32_C(1)) +
-                        ((descriptor & UINT32_C(0x3F)) + 1u) * 2u +
+                    const uint64_t node_address =
+                        static_cast<uint64_t>(tree_base_offset) + node_index;
+                    const uint64_t child_address =
+                        (node_address & ~UINT64_C(1)) +
+                        (static_cast<uint64_t>(
+                            (descriptor & UINT32_C(0x3F)) + 1u) * 2u) +
                         static_cast<uint32_t>(branch);
-                    if (child_index >= tree_bytes) return Status::InvalidRegion;
+                    const uint64_t tree_end =
+                        static_cast<uint64_t>(tree_base_offset) + tree_bytes;
+                    if (child_address < tree_base_offset ||
+                        child_address >= tree_end) {
+                        return Status::InvalidRegion;
+                    }
+                    const uint32_t child_index =
+                        static_cast<uint32_t>(child_address - tree_base_offset);
                     const bool child_is_leaf = branch != 0
                         ? (descriptor & UINT32_C(0x40)) != 0u
                         : (descriptor & UINT32_C(0x80)) != 0u;

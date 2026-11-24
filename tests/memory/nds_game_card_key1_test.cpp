@@ -144,7 +144,7 @@ std::vector<uint8_t> make_synthetic_firmware(
         UINT8_C(0x41), UINT8_C(0x42), UINT8_C(0x43), UINT8_C(0x44)
     };
     constexpr std::array<uint8_t, 4> firmware_data_plain = {
-        UINT8_C(0x51), UINT8_C(0x52), UINT8_C(0x53), UINT8_C(0x54)
+        UINT8_C(0x51), UINT8_C(0x51), UINT8_C(0x51), UINT8_C(0x51)
     };
     const std::vector<uint8_t> part3_lz = {
         UINT8_C(0x10), UINT8_C(4), UINT8_C(0), UINT8_C(0),
@@ -154,13 +154,12 @@ std::vector<uint8_t> make_synthetic_firmware(
     /* 8-bit Huffman: a one-level tree whose left/right leaves are 0x41/0x42. */
     const std::vector<uint8_t> part4_huffman = {
         UINT8_C(0x28), UINT8_C(4), UINT8_C(0), UINT8_C(0),
-        UINT8_C(2), UINT8_C(0xC0), UINT8_C(0), UINT8_C(0x41), UINT8_C(0x42),
-        UINT8_C(0), UINT8_C(0), UINT8_C(0), UINT8_C(0), UINT8_C(0)
+        UINT8_C(2), UINT8_C(0xC0), UINT8_C(0x41), UINT8_C(0x42),
+        UINT8_C(0), UINT8_C(0), UINT8_C(0), UINT8_C(0), UINT8_C(0), UINT8_C(0)
     };
-    const std::vector<uint8_t> part5_lz = {
-        UINT8_C(0x10), UINT8_C(4), UINT8_C(0), UINT8_C(0),
-        UINT8_C(0), firmware_data_plain[0], firmware_data_plain[1],
-        firmware_data_plain[2], firmware_data_plain[3]
+    const std::vector<uint8_t> part5_rle = {
+        UINT8_C(0x30), UINT8_C(4), UINT8_C(0), UINT8_C(0),
+        UINT8_C(0x81), firmware_data_plain[0]
     };
     std::vector<uint8_t> firmware(0x410u, 0u);
 
@@ -212,7 +211,7 @@ std::vector<uint8_t> make_synthetic_firmware(
 
     std::copy(part3_lz.begin(), part3_lz.end(), firmware.begin() + 0x300u);
     std::copy(part4_huffman.begin(), part4_huffman.end(), firmware.begin() + 0x380u);
-    std::copy(part5_lz.begin(), part5_lz.end(), firmware.begin() + 0x400u);
+    std::copy(part5_rle.begin(), part5_rle.end(), firmware.begin() + 0x400u);
 
     const std::vector<uint8_t> arm9_vector(arm9_plain.begin(), arm9_plain.end());
     const std::vector<uint8_t> arm7_vector(arm7_plain.begin(), arm7_plain.end());
