@@ -89,6 +89,20 @@ uint16_t crc16_firmware(
     return crc;
 }
 
+uint16_t crc16_firmware_single(const std::array<uint8_t, 4> &bytes)
+{
+    uint16_t crc = UINT16_C(0xFFFF);
+    for (const uint8_t byte : bytes) {
+        crc = static_cast<uint16_t>(crc ^ byte);
+        for (uint32_t bit = 0u; bit < 8u; ++bit) {
+            crc = static_cast<uint16_t>(
+                (crc >> 1u) ^
+                ((crc & 1u) != 0u ? UINT16_C(0xA001) : UINT16_C(0)));
+        }
+    }
+    return crc;
+}
+
 std::vector<uint8_t> make_lz77_literal_block(
     const std::array<uint8_t, 4> &decoded)
 {
@@ -270,8 +284,7 @@ std::vector<uint8_t> make_synthetic_firmware(
     store_u16_le(firmware, 0x04u,
                  crc16_firmware(SecondaryArm9, SecondaryArm7));
     store_u16_le(firmware, 0x06u, crc16_firmware(Arm9Plain, Arm7Plain));
-    constexpr std::array<uint8_t, 4> Empty{};
-    store_u16_le(firmware, 0x26u, crc16_firmware(LanguageData, Empty));
+    store_u16_le(firmware, 0x26u, crc16_firmware_single(LanguageData));
     return firmware;
 }
 
@@ -447,26 +460,6 @@ int main()
     store_u16_le(
         invalid_destination_firmware, 0x2Au,
         crc16_header(invalid_destination_firmware.data() + 0x2Cu, 0x0137u));
-
-    oracis::memory::NdsGameCardKey1 invalid_destination_probe;
-    oracis::memory::NdsFirmwareBootCode invalid_destination_probe_output{};
-    const auto invalid_destination_key_status =
-        invalid_destination_probe.load_key_table(
-            key_table, oracis::memory::NdsGameCardKey1::KeyTableBytes);
-    const auto invalid_destination_decode_status =
-        invalid_destination_key_status == oracis::memory::Status::Ok
-            ? invalid_destination_probe.decrypt_firmware_boot_code(
-                invalid_destination_firmware.data(),
-                invalid_destination_firmware.size(),
-                invalid_destination_probe_output)
-            : invalid_destination_key_status;
-    std::fprintf(stderr,
-        "invalid destination probe: key=%u decode=%u p2_dest_info=0x%04X "
-        "shift_data=0x%04X\\n",
-        static_cast<unsigned>(invalid_destination_key_status),
-        static_cast<unsigned>(invalid_destination_decode_status),
-        read_u16_le(invalid_destination_firmware.data() + 0x12u),
-        read_u16_le(invalid_destination_firmware.data() + 0x14u));
 
     const int invalid_firmware_set_status =
         oracis_host_runtime_set_spi_firmware_image(
