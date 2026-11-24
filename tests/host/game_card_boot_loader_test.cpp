@@ -448,6 +448,26 @@ int main()
         invalid_destination_firmware, 0x2Au,
         crc16_header(invalid_destination_firmware.data() + 0x2Cu, 0x0137u));
 
+    oracis::memory::NdsGameCardKey1 invalid_destination_probe;
+    oracis::memory::NdsFirmwareBootCode invalid_destination_probe_output{};
+    const auto invalid_destination_key_status =
+        invalid_destination_probe.load_key_table(
+            key_table, oracis::memory::NdsGameCardKey1::KeyTableBytes);
+    const auto invalid_destination_decode_status =
+        invalid_destination_key_status == oracis::memory::Status::Ok
+            ? invalid_destination_probe.decrypt_firmware_boot_code(
+                invalid_destination_firmware.data(),
+                invalid_destination_firmware.size(),
+                invalid_destination_probe_output)
+            : invalid_destination_key_status;
+    std::fprintf(stderr,
+        "invalid destination probe: key=%u decode=%u p2_dest_info=0x%04X "
+        "shift_data=0x%04X\\n",
+        static_cast<unsigned>(invalid_destination_key_status),
+        static_cast<unsigned>(invalid_destination_decode_status),
+        read_u16_le(invalid_destination_firmware.data() + 0x12u),
+        read_u16_le(invalid_destination_firmware.data() + 0x14u));
+
     const int invalid_firmware_set_status =
         oracis_host_runtime_set_spi_firmware_image(
             invalid_destination_firmware.data(),
