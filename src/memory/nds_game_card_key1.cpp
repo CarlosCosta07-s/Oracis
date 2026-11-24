@@ -16,6 +16,14 @@ uint16_t read_u16_le(const uint8_t *bytes) noexcept
         (static_cast<uint16_t>(bytes[1]) << 8u));
 }
 
+uint32_t read_u32_le(const uint8_t *bytes) noexcept
+{
+    return static_cast<uint32_t>(bytes[0]) |
+        (static_cast<uint32_t>(bytes[1]) << 8u) |
+        (static_cast<uint32_t>(bytes[2]) << 16u) |
+        (static_cast<uint32_t>(bytes[3]) << 24u);
+}
+
 uint16_t firmware_boot_crc16(
     const std::vector<uint8_t> &arm9,
     const std::vector<uint8_t> &arm7) noexcept
