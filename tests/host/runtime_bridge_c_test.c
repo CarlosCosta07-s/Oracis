@@ -211,6 +211,27 @@ int main(void)
         return 1;
     }
 
+    uint8_t synthetic_firmware[0x100];
+    for (uint32_t index = 0u; index < (uint32_t)sizeof(synthetic_firmware); ++index) {
+        synthetic_firmware[index] = (uint8_t)(UINT32_C(0xA0) + index);
+    }
+    if (oracis_host_runtime_set_spi_firmware_image(
+            NULL, (uint32_t)sizeof(synthetic_firmware)) !=
+            ORACIS_HOST_RUNTIME_INVALID_ARGUMENT ||
+        oracis_host_runtime_set_spi_firmware_image(
+            synthetic_firmware, 0u) != ORACIS_HOST_RUNTIME_INVALID_ARGUMENT ||
+        oracis_host_runtime_set_spi_firmware_image(
+            synthetic_firmware, UINT32_C(0x01000001)) !=
+            ORACIS_HOST_RUNTIME_INVALID_ARGUMENT ||
+        oracis_host_runtime_set_spi_firmware_image(
+            synthetic_firmware,
+            (uint32_t)sizeof(synthetic_firmware)) != ORACIS_HOST_RUNTIME_OK) {
+        fprintf(stderr, "C host bridge failed to validate/install user SPI firmware image\\n");
+        return 1;
+    }
+    /* The machine owns its copy; caller storage is no longer needed. */
+    synthetic_firmware[0] = 0u;
+
     uint8_t secure_area_prefix[UINT32_C(0x800)] = {0};
     uint32_t secure_area_identifier_valid = UINT32_C(1);
     if (oracis_host_runtime_decrypt_game_card_secure_area_prefix(
