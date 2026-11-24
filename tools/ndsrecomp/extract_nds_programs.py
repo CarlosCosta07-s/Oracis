@@ -26,6 +26,7 @@ VERIFIED_STATIC_ENTRY_POINTS = {
     "arm9": {
         EXPECTED_ARM9_SEGMENT_SHA1: (
             (0x020C2EBC, "arm", "observed_dispatch_thunk_020C2EBC"),
+            (0x020C2ECC, "arm", "observed_branch_table_entry_020C2ECC"),
         ),
     },
     "arm7": {},

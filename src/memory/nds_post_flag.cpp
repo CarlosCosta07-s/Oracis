@@ -22,14 +22,13 @@ ReadResult NdsPostFlag::read(
     if (!installed_) return {Status::Unmapped, 0u};
     if (!valid_cpu(cpu)) return {Status::InvalidCpu, 0u};
     /*
-     * The NDS7 startup helper performs LDRH at 0x04000300, spanning the
-     * POSTFLG byte and the adjacent HALTCNT byte. That path only tests
+     * Both startup paths execute LDRH at 0x04000300, spanning the
+     * POSTFLG byte and adjacent HALTCNT byte. These paths only test
      * POSTFLG bit 0; expose the defined low byte and zero-extend it.
      * HALTCNT state/readback is not modeled by this register device.
      */
-    const bool arm7_startup_halfword =
-        cpu == NDS_ARM7 && width == 2u;
-    if (width != 1u && !arm7_startup_halfword) {
+    const bool startup_halfword = width == 2u;
+    if (width != 1u && !startup_halfword) {
         return {Status::InvalidWidth, 0u};
     }
     return {Status::Ok, static_cast<uint32_t>(value_)};

@@ -35,7 +35,7 @@ Depois de validar e carregar os dois segmentos, `NdsMachine::load_program_segmen
 
 O CPSR permanece em modo System e respeita o bit ARM/Thumb do entrypoint. O loader também define POSTFLG bit 0 como 1. Esses valores correspondem ao estado de registradores documentado por GBATEK para a entrada do cartucho; isso reproduz o handoff de registradores/pilhas, não a execução das BIOS ou do firmware.
 
-O modelo de POSTFLG também aceita a leitura halfword ARM7 observada no helper de inicialização: o `LDRH` em 0x04000300 lê o byte POSTFLG na lane baixa e o byte HALTCNT adjacente na lane alta. Como o helper testa somente o bit 0 de POSTFLG, o Oracis retorna o byte POSTFLG zero-extendido; o estado/readback próprio de HALTCNT continua fora desse dispositivo.
+O modelo de POSTFLG também aceita a leitura halfword observada nos helpers de inicialização ARM9 e ARM7: o `LDRH` em 0x04000300 lê o byte POSTFLG na lane baixa e o byte HALTCNT adjacente na lane alta. Como esses caminhos testam somente o bit 0 de POSTFLG, o Oracis retorna o byte POSTFLG zero-extendido; o estado/readback próprio de HALTCNT continua fora desse dispositivo.
 
 O carregador ainda não reproduz todas as regiões de RAM preenchidas durante o boot, fragmentos de código copiados pela BIOS, campos de identificação/CRC do cartucho, user settings do firmware, configuração completa CP15/MPU/TCM ou a inicialização de todos os periféricos. O cabeçalho NDS é espelhado em 0x027FFE00 quando fornecido ao loader. A ausência dessas outras condições continua sendo um possível bloqueio para Pokémon Platinum.
 
