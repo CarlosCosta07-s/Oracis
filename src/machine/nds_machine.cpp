@@ -2037,6 +2037,80 @@ NdsMachineStatus NdsMachine::load_program_segments(
     return NdsMachineStatus::Ok;
 }
 
+NdsMachineStatus NdsMachine::load_firmware_boot_code() noexcept
+{
+    if (!initialized_) return NdsMachineStatus::NotInitialized;
+    if (firmware_boot_code_loaded_) return NdsMachineStatus::ProgramAlreadyLoaded;
+    if (program_loaded_ || slice_active_[0] || slice_active_[1] ||
+        system_clock_.global_bus_cycles() != 0u ||
+        oracis_scheduler_cycle_count(NDS_ARM9) != 0u ||
+        oracis_scheduler_cycle_count(NDS_ARM7) != 0u) {
+        return NdsMachineStatus::ProgramLoadAfterExecution;
+    }
+    if (!spi_control_.firmware_loaded()) {
+        return NdsMachineStatus::FirmwareBootCodeFailed;
+    }
+
+    memory::NdsFirmwareBootCode boot_code{};
+    const memory::Status decrypt_status =
+        game_card_control_.decrypt_firmware_boot_code(
+            spi_control_.firmware_data(),
+            spi_control_.firmware_size(),
+            boot_code);
+    if (decrypt_status != memory::Status::Ok ||
+        boot_code.arm9_bytes.empty() || boot_code.arm7_bytes.empty() ||
+        boot_code.arm9_bytes.size() > UINT32_MAX ||
+        boot_code.arm7_bytes.size() > UINT32_MAX) {
+        return NdsMachineStatus::FirmwareBootCodeFailed;
+    }
+
+    const uint32_t arm9_size =
+        static_cast<uint32_t>(boot_code.arm9_bytes.size());
+    const uint32_t arm7_size =
+        static_cast<uint32_t>(boot_code.arm7_bytes.size());
+
+    /*
+     * Validate BOTH destinations, including executable permission, before
+     * either write. Firmware-controlled addresses never bypass GuestMemory's
+     * retail map/provenance checks.
+     */
+    if (memory_.validate_write(
+            NDS_ARM9, boot_code.arm9_load_address, arm9_size) !=
+            memory::Status::Ok ||
+        memory_.validate_execute(
+            NDS_ARM9, boot_code.arm9_load_address, arm9_size) !=
+            memory::Status::Ok ||
+        memory_.validate_write(
+            NDS_ARM7, boot_code.arm7_load_address, arm7_size) !=
+            memory::Status::Ok ||
+        memory_.validate_execute(
+            NDS_ARM7, boot_code.arm7_load_address, arm7_size) !=
+            memory::Status::Ok) {
+        return NdsMachineStatus::FirmwareBootMemoryUnavailable;
+    }
+
+    if (memory_.write_bytes(
+            NDS_ARM9, boot_code.arm9_load_address,
+            boot_code.arm9_bytes.data(), arm9_size) != memory::Status::Ok ||
+        memory_.write_bytes(
+            NDS_ARM7, boot_code.arm7_load_address,
+            boot_code.arm7_bytes.data(), arm7_size) != memory::Status::Ok) {
+        return NdsMachineStatus::FirmwareBootMemoryUnavailable;
+    }
+
+    if (memory_.validate_identity(
+            NDS_ARM9, boot_code.arm9_load_address, arm9_size,
+            boot_code.arm9_bytes.data()) != memory::Status::Ok ||
+        memory_.validate_identity(
+            NDS_ARM7, boot_code.arm7_load_address, arm7_size,
+            boot_code.arm7_bytes.data()) != memory::Status::Ok) {
+        return NdsMachineStatus::FirmwareBootMemoryUnavailable;
+    }
+
+    firmware_boot_code_loaded_ = true;
+    return NdsMachineStatus::Ok;
+}
+
 NdsOverlayStatus NdsMachine::load_overlay(
     const NdsOverlayImage &image) noexcept
 {
