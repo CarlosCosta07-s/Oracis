@@ -594,8 +594,13 @@ Status NdsGameCardKey1::decrypt_firmware_boot_code(
     const uint16_t expected_crc = read_u16_le(firmware + 0x06u);
     const uint16_t expected_header_crc = read_u16_le(firmware + 0x2Au);
     const uint16_t remaining_header_size = read_u16_le(firmware + 0x2Cu);
+    /*
+     * Firmware header documentation defines the size from 0x2A and gives
+     * 0x162 as the final included byte for size 0x138. Convert that inclusive
+     * last-byte address to the exclusive end used by the checked span below.
+     */
     const uint64_t remaining_header_end =
-        UINT64_C(0x2A) + remaining_header_size;
+        UINT64_C(0x2B) + remaining_header_size;
     if (remaining_header_size < 4u ||
         remaining_header_end > firmware_size ||
         remaining_header_end < UINT64_C(0x2C)) {
