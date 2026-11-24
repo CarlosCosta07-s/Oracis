@@ -48,7 +48,9 @@ typedef enum OracisHostRuntimeStatus {
     ORACIS_HOST_RUNTIME_OVERLAY_INITIALIZERS_ALREADY_RUN = 29,
     ORACIS_HOST_RUNTIME_OVERLAY_INITIALIZER_PENDING = 30,
     ORACIS_HOST_RUNTIME_OVERLAY_REGION_CAPACITY_EXCEEDED = 31,
-    ORACIS_HOST_RUNTIME_OVERLAY_FINALIZERS_UNAVAILABLE = 32
+    ORACIS_HOST_RUNTIME_OVERLAY_FINALIZERS_UNAVAILABLE = 32,
+    ORACIS_HOST_RUNTIME_FIRMWARE_ERROR = 33,
+    ORACIS_HOST_RUNTIME_FIRMWARE_MEMORY_UNAVAILABLE = 34
 } OracisHostRuntimeStatus;
 
 /* Result of checking the current ARM9/ARM7 start PCs against registered banks. */
@@ -98,6 +100,8 @@ int oracis_host_runtime_load_game_card_arm7_bios(
 /* Copy a user-supplied raw NDS SPI firmware-flash dump (1..16 MiB). */
 int oracis_host_runtime_set_spi_firmware_image(
     const uint8_t *bytes, uint32_t size);
+/* Decrypt/validate IPL parts 1-2 with the previously supplied ARM7 BIOS KEY1 table. */
+int oracis_host_runtime_load_spi_firmware_boot_code(void);
 int oracis_host_runtime_unmount_game_card_image(void);
 /* Supply the physical 32-bit cartridge chip ID; the raw .nds dump does not contain it. */
 int oracis_host_runtime_set_game_card_chip_id(uint32_t chip_id);
