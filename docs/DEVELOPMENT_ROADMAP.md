@@ -49,15 +49,15 @@ A CI Android atual compila a biblioteca nativa ARM64; ainda não há projeto Gra
 | 12 | Empacotamento | Windows, Linux e posteriormente Android ARM64 | Não iniciada |
 
 
-**Validação mais recente (24/11/2026):** commit `a47534c` e CI [#1410](https://github.com/CarlosCosta07-s/Oracis/actions/runs/45418141231) concluída com sucesso nos quatro jobs. Desktop Linux, runtime ARM (63/63 testes), biblioteca nativa Android ARM64 e compilador estático NDSRecomp aprovados. O carregador de firmware valida IPL1/2 e decodifica P3/P4/P5 com fixtures sintéticas; depois da publicação de IPL1/2, seus buffers host são liberados e apenas metadados/CRCs permanecem. Isso valida builds e fixtures, não o reset retail, boot nem primeiro quadro de Pokémon Platinum. ROM, BIOS, firmware e dados extraídos permanecem fora do Git/CI.
+**Validação mais recente (24/11/2026):** commit `743cd38` e CI [#1411](https://github.com/CarlosCosta07-s/Oracis/actions/runs/45421793203) concluída com sucesso nos quatro jobs. Desktop Linux: **63/63 CTests** e smoke de ligação static-bank **1/1**; runtime ARM: **63/63 CTests**; compilador NDSRecomp: **6/6 testes**; biblioteca nativa Android ARM64 aprovada. O teste novo cobre a classificação dos fingerprints CRC16 conhecidos de IPL1/2 e mantém revisões não catalogadas como desconhecidas. Isso valida código e fixtures sintéticas, não o reset retail, boot nem primeiro quadro de Pokémon Platinum. ROM, BIOS, firmware e dados extraídos permanecem fora do Git/CI.
 
 ## Próxima ordem de implementação
 
-1. Validar no aparelho Android a seleção SAF da ROM e da BIOS ARM7 e confirmar a leitura dos URIs content:// por SDL_IOStream.
+1. Adicionar seleção SAF da BIOS ARM9 de 4 KiB junto à BIOS ARM7 de 16 KiB já selecionada; mapear ambas como ROM por CPU e implementar/testar a proteção de leitura da BIOS ARM7. Confirmar a leitura dos URIs content:// por SDL_IOStream.
 2. Preparar o empacotamento Android instalável; a CI atual compila somente a biblioteca nativa ARM64.
 3. Construir localmente com os bancos privados reais, confirmar a resolução dos entrypoints ARM9/ARM7 e capturar o primeiro dispatch guest do experimento direct-entry.
 4. Resolver o primeiro dispatch miss, acesso MMIO não suportado, falha de timing ou dependência BIOS/NitroSDK observada pelo scheduler, sem fallback de interpretador.
-5. Reproduzir o reset/handoff retail das BIOS e do IPL; estabelecer, por revisão verificável, a sequência e os destinos de P3/P4/P5 antes de qualquer escrita em RAM guest. Manter dumps e módulos derivados privados do usuário.
+5. Reproduzir a sequência retail de reset, inicialização e sincronização das BIOS ARM9/ARM7, seguido do handoff para IPL1/2; estabelecer por revisão verificável a sequência e os destinos de P3/P4/P5 antes de qualquer escrita em RAM guest. Manter dumps e módulos derivados privados do usuário.
 6. Auditar os 60 overlays ainda sem banco e os destinos de chamadas indiretas desconhecidos; integrar os gerenciadores NitroSDK/HLE necessários.
 7. Completar a sincronização de vídeo, apresentar e verificar o primeiro quadro real; depois avançar áudio, saves e UX.
 

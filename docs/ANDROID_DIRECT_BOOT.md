@@ -19,7 +19,11 @@ O host usa o seletor de arquivos SDL3 no Android para pedir, nesta ordem:
    inferido do dump `.nds`; cancelar essa seleção mantém o experimento de
    entrada direta, mas transações KEY1/KEY2 que dependam do ID podem falhar.
 
-No Android, o seletor pode retornar URIs content://. A leitura dos arquivos selecionados usa SDL_IOStream, sem presumir que a URI seja um caminho POSIX ou passar por fopen. O host limita os tamanhos antes da alocação e copia os dados para os dispositivos próprios.
+No Android, o seletor pode retornar URIs content://.
+
+**Limite importante do estágio atual:** a imagem ARM7 de 16 KiB é usada somente para copiar a tabela KEY1 do offset 0x30 para o controlador de Game Card. O conteúdo completo da BIOS ARM7 não é mapeado como ROM guest nem executado. A BIOS ARM9 de 4 KiB ainda não é solicitada pelo host. Portanto, a seleção atual de arquivos não contém as duas ROMs necessárias para reproduzir o power-on retail.
+
+O reset do DS inicia os processadores em BIOSes distintas: ARM9 em 0xFFFF0000 e ARM7 em 0x00000000. A BIOS ARM7 valida o cartucho e participa do carregamento do firmware SPI; a BIOS ARM9 faz sua inicialização e aguarda a sincronização com a ARM7. A BIOS ARM7 também possui proteção de leitura dependente do PC e do estado BIOSPROT. A próxima etapa deve aceitar a BIOS ARM9 fornecida pelo usuário, mapear cada BIOS somente no barramento da CPU correspondente e testar as regras de acesso antes de tentar executar a sequência de reset. Referências: [GBATEK](https://mgba-emu.github.io/gbatek/) e [DS memory map](https://retroisle.com/others/nintendods/Technical/Firmware/memory.php). A leitura dos arquivos selecionados usa SDL_IOStream, sem presumir que a URI seja um caminho POSIX ou passar por fopen. O host limita os tamanhos antes da alocação e copia os dados para os dispositivos próprios.
 
 A BIOS ARM7 é usada para copiar a tabela KEY1 (offset 0x30, tamanho 0x1048) e inicializar a descriptografia da Secure Area do cartucho. A imagem de firmware é instalada no dispositivo SPI ARM7; o dispositivo modela READ (03h), RDSR (05h), WREN (06h) e WRDI (04h). Programação, apagamento, JEDEC ID e outros comandos SPI ainda não são implementados.
 
