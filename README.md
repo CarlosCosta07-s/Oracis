@@ -16,7 +16,9 @@
 
 ## Experimento Android de entrada nativa
 
-Os commits 3a9bc39, d46f4db, 663c6ba e 4cc9350 adicionam seleção Android de uma imagem .nds e de uma BIOS ARM7 do usuário por meio do seletor SDL3. URIs content:// são lidas por SDL_IOStream. A máquina prepara o estado documentado de entrada do cartucho (R0–R11 zerados, R12/LR/PC no entrypoint, pilhas User/System + IRQ/SVC para ambos os CPUs e POSTFLG bit 0). Quando os dois entrypoints resolvem para bancos estáticos ARM9/ARM7, o host executa fatias nativas limitadas de 1.024 ciclos.
+Os commits 3a9bc39, d46f4db, 663c6ba, 4cc9350, a496618 e 0f497d5 adicionam seleção Android de uma imagem .nds, BIOS ARM7 e dump de firmware SPI do usuário por meio do seletor SDL3. URIs content:// são lidas por SDL_IOStream. A ponte instala o firmware bruto no dispositivo SPI ARM7 para leituras guest; o driver modela READ, RDSR, WREN e WRDI, mas ainda não descriptografa/descompacta as partes do IPL.
+
+A máquina prepara o estado documentado de entrada do cartucho (R0–R11 zerados, R12/LR/PC no entrypoint, pilhas User/System + IRQ/SVC, metadados determinísticos de boot e POSTFLG bit 0). Quando os dois entrypoints resolvem para bancos estáticos ARM9/ARM7, o host executa fatias nativas limitadas de 1.024 ciclos.
 
 Esse é um experimento de **direct-entry**: ele não executa o reset das BIOS retail nem reproduz toda a inicialização do firmware. Não comprova o primeiro quadro ou compatibilidade jogável. O build Android na CI produz a biblioteca nativa ARM64, não um APK instalável; os bancos reais continuam sendo artefatos privados que precisam estar ligados localmente. Consulte [docs/ANDROID_DIRECT_BOOT.md](docs/ANDROID_DIRECT_BOOT.md).
 
