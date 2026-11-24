@@ -121,14 +121,14 @@ std::vector<uint8_t> make_p345_literal_match_component(uint8_t literal)
     primary.write(UINT16_C(0), 1u);       /* left leaf: literal */
     primary.write(literal, 9u);
     primary.write(UINT16_C(0), 1u);       /* right leaf: match length */
-    primary.write(UINT16_C(0x100), 9u);   /* length = 0x100 - 0x100 + 3 */
+    primary.write(UINT16_C(0x100), 9u);   /* length = 3 */
     primary.write(UINT16_C(0), 1u);       /* literal token */
     primary.write(UINT16_C(1), 1u);       /* length token */
 
     P345TestBitWriter distance;
     distance.write(UINT16_C(1), 1u);      /* internal root */
     distance.write(UINT16_C(0), 1u);      /* left leaf: used distance */
-    distance.write(UINT16_C(0), 11u);     /* distance = 0 + 1 */
+    distance.write(UINT16_C(0), 11u);     /* distance = 1 */
     distance.write(UINT16_C(0), 1u);      /* right leaf: unused helper symbol */
     distance.write(UINT16_C(1), 11u);
     distance.write(UINT16_C(0), 1u);      /* select the left distance leaf */
@@ -149,6 +149,60 @@ std::vector<uint8_t> make_p345_literal_match_component(uint8_t literal)
     component[5u] = 0u;
     component[6u] = 0u;
     component[7u] = UINT8_C(4);
+    component[8u] = static_cast<uint8_t>(distance_offset >> 24u);
+    component[9u] = static_cast<uint8_t>(distance_offset >> 16u);
+    component[10u] = static_cast<uint8_t>(distance_offset >> 8u);
+    component[11u] = static_cast<uint8_t>(distance_offset);
+
+    std::copy(
+        primary.bytes().begin(), primary.bytes().end(),
+        component.begin() + 12u);
+    std::copy(
+        distance.bytes().begin(), distance.bytes().end(),
+        component.begin() + distance_offset);
+    return component;
+}
+
+std::vector<uint8_t> make_p345_multisymbol_distance_component()
+{
+    P345TestBitWriter primary;
+    /* Preorder tree: A is 0, B is 10, and a four-byte match is 11. */
+    primary.write(UINT16_C(1), 1u);       /* root: internal */
+    primary.write(UINT16_C(0), 1u);       /* left: A leaf */
+    primary.write(UINT16_C(0x041), 9u);
+    primary.write(UINT16_C(1), 1u);       /* right: internal */
+    primary.write(UINT16_C(0), 1u);       /* right-left: B leaf */
+    primary.write(UINT16_C(0x042), 9u);
+    primary.write(UINT16_C(0), 1u);       /* right-right: match leaf */
+    primary.write(UINT16_C(0x101), 9u);  /* length = 0x101 - 0x100 + 3 = 4 */
+    primary.write(UINT16_C(0), 1u);       /* A */
+    primary.write(UINT16_C(2), 2u);       /* B */
+    primary.write(UINT16_C(3), 2u);       /* match */
+
+    P345TestBitWriter distance;
+    distance.write(UINT16_C(1), 1u);      /* internal root */
+    distance.write(UINT16_C(0), 1u);      /* left leaf: used distance */
+    distance.write(UINT16_C(1), 11u);     /* distance = 1 + 1 = 2 */
+    distance.write(UINT16_C(0), 1u);      /* right leaf: unused helper symbol */
+    distance.write(UINT16_C(0), 11u);
+    distance.write(UINT16_C(0), 1u);      /* select distance 2 */
+
+    const size_t primary_span =
+        (primary.bytes().size() + size_t{3u}) & ~size_t{3u};
+    const size_t distance_offset = size_t{12u} + primary_span;
+    const size_t distance_span =
+        (distance.bytes().size() + size_t{3u}) & ~size_t{3u};
+    const size_t component_span = distance_offset + distance_span;
+
+    std::vector<uint8_t> component(component_span, 0u);
+    const uint32_t descriptor =
+        UINT32_C(0x80000000) |
+        static_cast<uint32_t>(component_span * size_t{4u});
+    store_u32_le(component, 0u, descriptor);
+    component[4u] = UINT8_C(0x80);
+    component[5u] = 0u;
+    component[6u] = 0u;
+    component[7u] = UINT8_C(6);
     component[8u] = static_cast<uint8_t>(distance_offset >> 24u);
     component[9u] = static_cast<uint8_t>(distance_offset >> 16u);
     component[10u] = static_cast<uint8_t>(distance_offset >> 8u);
@@ -210,8 +264,9 @@ std::vector<uint8_t> make_synthetic_firmware(
     constexpr uint32_t FirmwareId = UINT32_C(0x5043414D); /* "MACP" */
     const auto arm9_lz = make_lz77_literal_block(arm9_plain);
     const auto arm7_lz = make_lz77_literal_block(arm7_plain);
-    constexpr std::array<uint8_t, 4> secondary_arm9_plain = {
-        UINT8_C(0x31), UINT8_C(0x31), UINT8_C(0x31), UINT8_C(0x31)
+    constexpr std::array<uint8_t, 6> secondary_arm9_plain = {
+        UINT8_C(0x41), UINT8_C(0x42), UINT8_C(0x41),
+        UINT8_C(0x42), UINT8_C(0x41), UINT8_C(0x42)
     };
     constexpr std::array<uint8_t, 4> secondary_arm7_plain = {
         UINT8_C(0x41), UINT8_C(0x41), UINT8_C(0x41), UINT8_C(0x41)
@@ -219,8 +274,7 @@ std::vector<uint8_t> make_synthetic_firmware(
     constexpr std::array<uint8_t, 4> firmware_data_plain = {
         UINT8_C(0x51), UINT8_C(0x51), UINT8_C(0x51), UINT8_C(0x51)
     };
-    const auto part3_p345 = make_p345_literal_match_component(
-        secondary_arm9_plain[0]);
+    const auto part3_p345 = make_p345_multisymbol_distance_component();
     const auto part4_p345 = make_p345_literal_match_component(
         secondary_arm7_plain[0]);
     const auto part5_p345 = make_p345_literal_match_component(
@@ -652,8 +706,8 @@ int main()
         return fail("primary IPL1/2 bytes, destinations or CRC did not match");
     }
     if (firmware_boot.arm9_secondary_bytes != std::vector<uint8_t>{
-            0x31u, 0x31u, 0x31u, 0x31u}) {
-        return fail("secondary ARM9 firmware (part 3) P345 decode mismatch");
+            0x41u, 0x42u, 0x41u, 0x42u, 0x41u, 0x42u}) {
+        return fail("secondary ARM9 P345 multilevel Huffman/distance-2 decode mismatch");
     }
     if (firmware_boot.arm7_secondary_bytes != std::vector<uint8_t>{
             0x41u, 0x41u, 0x41u, 0x41u}) {
@@ -754,7 +808,7 @@ int main()
         return fail("firmware IPL accepted an unsupported ID or truncated flash");
     }
 
-    std::puts("NDS KEY1, IPL1/2 and P345 secondary firmware/CRC tests passed");
+    std::puts("NDS KEY1, IPL1/2 and P345 multi-symbol Huffman/LZ/CRC tests passed");
     key1.reset();
     if (!key1.table_loaded() || key1.initialized() || key1.id_code() != 0u ||
         key1.level() != 0u || key1.modulo_bytes() != 0u ||

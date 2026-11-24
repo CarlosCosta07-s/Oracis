@@ -628,3 +628,8 @@ executou 60/60. Isso valida dispositivos sintéticos, não o boot de Pokémon
 Platinum. Ainda faltam: carregamento do firmware pelo host SDL/Android,
 entrada de toque (mapeamento mouse/toque → `set_touch`) e a seleção de
 arquivos no Android.
+
+
+## Atualização 2026-11-24 — cobertura ampliada do decoder P345
+
+A fixture sintética da parte 3 agora usa uma árvore Huffman primária com três símbolos (dois literais e um match de comprimento 4) e uma árvore independente de distâncias que seleciona distância 2. A saída esperada alterna dois bytes (`ABABAB`), exercitando decodificação por ramos internos e cópia LZ sobreposta com distância maior que 1. As partes 4 e 5 mantêm o caso simples de distância 1. Essa etapa aumenta a cobertura estrutural do decoder e não altera a política de manter P3/P4/P5 em staging: a documentação disponível identifica a função dos componentes, mas não define destinos de RAM suficientes para instalação segura.
