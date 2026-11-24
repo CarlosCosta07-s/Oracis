@@ -140,6 +140,24 @@ int main()
         return fail("DMA1 did not transfer the empty Slot-2 open-bus sequence");
     }
 
+    /* Exact observed Platinum transfer: DMA1, 32 halfwords, control 80000020h. */
+    constexpr uint32_t gba_probe_destination = UINT32_C(0x02000600);
+    bus_write_u32(source_reg(1u), gba_slot_source);
+    bus_write_u32(destination_reg(1u), gba_probe_destination);
+    bus_write_u32(control_reg(1u), UINT32_C(0x80000020));
+    for (uint32_t index = 0u; index < 32u; ++index) {
+        const uint32_t expected = index == 0u
+            ? UINT32_C(0xFE48)
+            : UINT32_C(0x0040) + index;
+        if (memory.read(NDS_ARM9, gba_probe_destination + index * 2u,
+                2u).value != expected) {
+            return fail("DMA1 32-halfword Slot-2 probe sequence was incorrect");
+        }
+    }
+    if ((bus_read_u32(control_reg(1u)) & NdsDmaControl::EnableMask) != 0u) {
+        return fail("DMA1 32-halfword Slot-2 probe did not complete");
+    }
+
     /* ARM7 has its own channel bank and halfword transfers by default. */
     constexpr uint32_t arm7_source = UINT32_C(0x02000200);
     constexpr uint32_t arm7_destination = UINT32_C(0x02000300);
