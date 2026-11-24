@@ -110,3 +110,22 @@ confirmados. O frontend SDL/Android ainda não inicia esse caminho automaticamen
 Essa etapa é apenas o modelo de estado inicial e a sincronização do scheduler:
 não compila nem registra bancos nativos de BIOS, não executa instruções BIOS e
 não constitui boot retail. O caminho direct-entry existente permanece separado.
+
+
+## Ponte C ABI para o caminho BIOS nativo
+
+O host agora dispõe de três operações distintas: `start_retail_bios_boot()`
+(preflight dos dois vetores e entrada no estado reset), `run_retail_bios_round()`
+(execução nativa sincronizada sem exigir que os segmentos do jogo já estejam
+carregados) e `release_arm7_from_reset()` (liberação explícita). O início
+não consome ciclos e não altera o estado da máquina quando falta banco, ou
+quando um dos vetores não resolve. As linhas de dispatch validadas são
+checadas contra os bytes das BIOS mapeadas pelo dispositivo; entradas
+sintéticas sem metadados são usadas apenas no teste da ABI.
+
+O teste da ponte C usa BIOS e tabelas de dispatch inteiramente sintéticas:
+confirma que a máquina recusa iniciar sem bancos, que ARM9 executa enquanto
+ARM7 não recebe fatias, que o relógio comum avança e que ARM7 só entra depois
+da liberação explícita. Ele não executa instruções reais das BIOSes, não
+confirma hand-off pelo IPCSYNC e não constitui evidência de boot retail. A
+interface SDL/Android ainda não seleciona nem registra bancos BIOS do usuário.

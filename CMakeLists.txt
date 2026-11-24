@@ -683,6 +683,23 @@ if(BUILD_TESTING)
         COMMAND oracis_host_runtime_bridge_c_test
     )
 
+    add_executable(oracis_runtime_bios_boot_bridge_c_test
+        tests/host/runtime_bios_boot_bridge_c_test.c
+    )
+    target_link_libraries(oracis_runtime_bios_boot_bridge_c_test PRIVATE
+        oracis_machine
+    )
+    target_compile_features(oracis_runtime_bios_boot_bridge_c_test PRIVATE
+        c_std_99
+    )
+    set_target_properties(oracis_runtime_bios_boot_bridge_c_test PROPERTIES
+        LINKER_LANGUAGE CXX
+    )
+    add_test(
+        NAME oracis_runtime_bios_boot_bridge_c_test
+        COMMAND oracis_runtime_bios_boot_bridge_c_test
+    )
+
     add_executable(oracis_game_card_boot_loader_test
         tests/host/game_card_boot_loader_test.cpp
     )

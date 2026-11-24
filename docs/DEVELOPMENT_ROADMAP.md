@@ -665,3 +665,22 @@ Um teste novo cobre pré-condições, vetor/CPSR, bloqueio de IRQ, isolamento em
 relação ao direct-entry/IPL pré-decodificado, avanço sincronizado do clock e
 entrada de ARM7 após liberação explícita. Isso valida apenas o modelo de reset
 e scheduler com BIOS sintética: ainda não executa BIOS nativa nem comprova boot.
+
+
+## Atualização 2026-11-24 — preflight e execução BIOS expostos pela ponte C
+
+A ponte C ganhou uma rota BIOS separada do direct-entry. Antes de alterar o
+estado da máquina, ela verifica se existem bancos ARM9/ARM7 e se os vetores
+`0xFFFF0000` e `0x00000000` resolvem em código nativo; bancos com metadados
+de validação passam pela comparação dos bytes da BIOS carregada. O host pode
+então executar rounds sem carregar os segmentos de Pokémon Platinum. Enquanto
+ARM7 está `ResetHeld`, somente ARM9 recebe código e ARM7 acompanha o tempo
+ocioso do barramento. A operação de liberar ARM7 é explícita e ainda não é
+acionada por IPCSYNC.
+
+Novo teste C cobre ausência de bancos, preflight dos dois vetores, execução
+exclusiva do ARM9, avanço sincronizado do relógio e entrada do ARM7 após
+liberação única. Tudo usa buffers/tabelas sintéticos. Os bancos reais de BIOS
+ainda precisam ser gerados localmente com NDSRecomp, ligados ao runtime e
+testados com BIOSes fornecidas pelo usuário; a seleção SDL/Android ainda não
+ativa este caminho.

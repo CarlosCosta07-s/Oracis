@@ -4,6 +4,7 @@
 
 #include "oracis/machine/nds_machine.hpp"
 #include "oracis/memory/nds_2d_bg_compositor.hpp"
+#include "oracis/recomp/arm_cpu_state_ops.h"
 #include "oracis/recomp/static_dispatch.hpp"
 #include "oracis/recomp/static_dispatch_abi.h"
 
@@ -182,6 +183,84 @@ bool has_both_program_banks() noexcept
     auto &registry = oracis::recomp::global_static_dispatch_registry();
     return registry.bank_count(NDS_ARM9) != 0u &&
            registry.bank_count(NDS_ARM7) != 0u;
+}
+
+bool inspect_dispatch_entry(
+    oracis::machine::NdsMachine &machine,
+    NdsCpu cpu,
+    uint32_t pc,
+    uint32_t cpsr,
+    OracisHostRuntimeEntryPointReport &report) noexcept
+{
+    report = {};
+    if (!oracis_arm_runtime_select_cpu(cpu) ||
+        machine.cpu_state(cpu) == nullptr) {
+        return false;
+    }
+    report.pc = pc;
+    report.cpsr = cpsr;
+    uint32_t lookup_status = UINT32_MAX;
+    uint32_t candidate_count = 0u;
+    const NdsDispatchEntry *inactive = nullptr;
+    const NdsDispatchEntry *entry = oracis_static_dispatch_lookup(
+        cpu, pc, cpsr, &lookup_status, &candidate_count, &inactive);
+    report.lookup_status = lookup_status;
+    report.candidate_count = candidate_count;
+    report.has_inactive_candidate = inactive != nullptr ? 1u : 0u;
+    report.resolved = entry != nullptr ? 1u : 0u;
+    return true;
+}
+
+bool inspect_bios_reset_vectors(
+    oracis::machine::NdsMachine &machine,
+    OracisHostRuntimeEntryPointReport &arm9,
+    OracisHostRuntimeEntryPointReport &arm7) noexcept
+{
+    constexpr uint32_t reset_cpsr =
+        ORACIS_ARM_MODE_SUPERVISOR | CPSR_I_BIT | CPSR_F_BIT;
+    const NdsCpu previous_cpu = g_nds_active;
+    const bool arm9_ok = inspect_dispatch_entry(
+        machine, NDS_ARM9,
+        oracis::memory::NdsBiosControl::Arm9BiosBase,
+        reset_cpsr, arm9);
+    const bool arm7_ok = inspect_dispatch_entry(
+        machine, NDS_ARM7,
+        oracis::memory::NdsBiosControl::Arm7BiosBase,
+        reset_cpsr, arm7);
+    const bool restored = oracis_arm_runtime_select_cpu(previous_cpu) != 0;
+    return arm9_ok && arm7_ok && restored;
+}
+
+bool inspect_active_bios_cpus(
+    oracis::machine::NdsMachine &machine,
+    OracisHostRuntimeEntryPointReport &arm9,
+    OracisHostRuntimeEntryPointReport &arm7) noexcept
+{
+    const NdsCpu previous_cpu = g_nds_active;
+    const ArmCpuState *arm9_state = machine.cpu_state(NDS_ARM9);
+    if (arm9_state == nullptr ||
+        !inspect_dispatch_entry(
+            machine, NDS_ARM9, arm9_state->R[15],
+            arm9_state->cpsr, arm9)) {
+        (void)oracis_arm_runtime_select_cpu(previous_cpu);
+        return false;
+    }
+
+    if (machine.cpu_is_held_in_reset(NDS_ARM7)) {
+        arm7 = {};
+        arm7.pc = oracis::memory::NdsBiosControl::Arm7BiosBase;
+        arm7.cpsr = ORACIS_ARM_MODE_SUPERVISOR | CPSR_I_BIT | CPSR_F_BIT;
+    } else {
+        const ArmCpuState *arm7_state = machine.cpu_state(NDS_ARM7);
+        if (arm7_state == nullptr ||
+            !inspect_dispatch_entry(
+                machine, NDS_ARM7, arm7_state->R[15],
+                arm7_state->cpsr, arm7)) {
+            (void)oracis_arm_runtime_select_cpu(previous_cpu);
+            return false;
+        }
+    }
+    return oracis_arm_runtime_select_cpu(previous_cpu) != 0;
 }
 
 struct ExpectedLocalSegment {
@@ -941,6 +1020,114 @@ extern "C" int oracis_host_runtime_validate_entrypoints(
         return ORACIS_HOST_RUNTIME_MACHINE_ERROR;
     }
     return ORACIS_HOST_RUNTIME_OK;
+}
+
+extern "C" int oracis_host_runtime_start_retail_bios_boot(
+    OracisHostRuntimeEntryPointReport *arm9_report,
+    OracisHostRuntimeEntryPointReport *arm7_report)
+{
+    auto &machine = host_machine();
+    if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+    if (arm9_report == nullptr || arm7_report == nullptr) {
+        return ORACIS_HOST_RUNTIME_INVALID_ARGUMENT;
+    }
+    if (!machine.bios_control().arm9_bios_loaded() ||
+        !machine.bios_control().arm7_bios_loaded()) {
+        return ORACIS_HOST_RUNTIME_BIOS_BOOT_UNAVAILABLE;
+    }
+    if (!has_both_program_banks()) {
+        return ORACIS_HOST_RUNTIME_NO_PROGRAM_BANKS;
+    }
+
+    /*
+     * Probe both reset vectors before changing machine state. This prevents
+     * ARM9 from starting alone if ARM7 has no native BIOS reset bank. Rows
+     * carrying validation metadata are compared with the live BIOS mapping.
+     */
+    if (!inspect_bios_reset_vectors(machine, *arm9_report, *arm7_report)) {
+        return ORACIS_HOST_RUNTIME_MACHINE_ERROR;
+    }
+    if (arm9_report->resolved == 0u || arm7_report->resolved == 0u) {
+        return ORACIS_HOST_RUNTIME_ENTRYPOINT_UNRESOLVED;
+    }
+
+    const auto status = machine.start_retail_bios_boot();
+    g_last_machine_status = static_cast<int>(status);
+    if (status == oracis::machine::NdsMachineStatus::Ok) {
+        return ORACIS_HOST_RUNTIME_OK;
+    }
+    if (status ==
+        oracis::machine::NdsMachineStatus::RetailBiosBootUnavailable) {
+        return ORACIS_HOST_RUNTIME_BIOS_BOOT_UNAVAILABLE;
+    }
+    return ORACIS_HOST_RUNTIME_MACHINE_ERROR;
+}
+
+extern "C" int oracis_host_runtime_release_arm7_from_reset(void)
+{
+    auto &machine = host_machine();
+    if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+    if (!machine.retail_bios_boot_active()) {
+        return ORACIS_HOST_RUNTIME_BIOS_BOOT_NOT_ACTIVE;
+    }
+    const auto status = machine.release_arm7_from_reset();
+    g_last_machine_status = static_cast<int>(status);
+    if (status == oracis::machine::NdsMachineStatus::Ok) {
+        return ORACIS_HOST_RUNTIME_OK;
+    }
+    if (status == oracis::machine::NdsMachineStatus::CpuResetHeld) {
+        return ORACIS_HOST_RUNTIME_CPU_RESET_HELD;
+    }
+    if (status == oracis::machine::NdsMachineStatus::CpuNotInReset) {
+        return ORACIS_HOST_RUNTIME_CPU_NOT_IN_RESET;
+    }
+    return ORACIS_HOST_RUNTIME_MACHINE_ERROR;
+}
+
+extern "C" int oracis_host_runtime_run_retail_bios_round(
+    uint64_t bus_cycle_budget,
+    OracisHostIrqContextProvider irq_context,
+    void *context)
+{
+    auto &machine = host_machine();
+    if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+    if (!machine.retail_bios_boot_active()) {
+        return ORACIS_HOST_RUNTIME_BIOS_BOOT_NOT_ACTIVE;
+    }
+    if (bus_cycle_budget == 0u) {
+        return ORACIS_HOST_RUNTIME_INVALID_ARGUMENT;
+    }
+    if (!has_both_program_banks()) return ORACIS_HOST_RUNTIME_NO_PROGRAM_BANKS;
+
+    OracisHostRuntimeEntryPointReport arm9_entry{};
+    OracisHostRuntimeEntryPointReport arm7_entry{};
+    if (!inspect_active_bios_cpus(machine, arm9_entry, arm7_entry)) {
+        return ORACIS_HOST_RUNTIME_MACHINE_ERROR;
+    }
+    if (arm9_entry.resolved == 0u ||
+        (!machine.cpu_is_held_in_reset(NDS_ARM7) &&
+         arm7_entry.resolved == 0u)) {
+        return ORACIS_HOST_RUNTIME_ENTRYPOINT_UNRESOLVED;
+    }
+
+    oracis::machine::NdsMachineStatus status;
+    if (irq_context == nullptr) {
+        status = machine.run_dual_core_round(
+            bus_cycle_budget,
+            &oracis::machine::NdsMachine::execute_registered_bank_slice,
+            nullptr, nullptr);
+    } else {
+        IrqProviderContext provider_context{irq_context, context};
+        status = machine.run_dual_core_round(
+            bus_cycle_budget,
+            &oracis::machine::NdsMachine::execute_registered_bank_slice,
+            &invoke_irq_provider, &provider_context);
+    }
+
+    g_last_machine_status = static_cast<int>(status);
+    return status == oracis::machine::NdsMachineStatus::Ok
+        ? ORACIS_HOST_RUNTIME_OK
+        : ORACIS_HOST_RUNTIME_MACHINE_ERROR;
 }
 
 extern "C" int oracis_host_runtime_load_overlay(

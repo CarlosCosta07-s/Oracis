@@ -50,7 +50,11 @@ typedef enum OracisHostRuntimeStatus {
     ORACIS_HOST_RUNTIME_OVERLAY_REGION_CAPACITY_EXCEEDED = 31,
     ORACIS_HOST_RUNTIME_OVERLAY_FINALIZERS_UNAVAILABLE = 32,
     ORACIS_HOST_RUNTIME_FIRMWARE_ERROR = 33,
-    ORACIS_HOST_RUNTIME_FIRMWARE_MEMORY_UNAVAILABLE = 34
+    ORACIS_HOST_RUNTIME_FIRMWARE_MEMORY_UNAVAILABLE = 34,
+    ORACIS_HOST_RUNTIME_BIOS_BOOT_UNAVAILABLE = 35,
+    ORACIS_HOST_RUNTIME_BIOS_BOOT_NOT_ACTIVE = 36,
+    ORACIS_HOST_RUNTIME_CPU_RESET_HELD = 37,
+    ORACIS_HOST_RUNTIME_CPU_NOT_IN_RESET = 38
 } OracisHostRuntimeStatus;
 
 /* Result of checking the current ARM9/ARM7 start PCs against registered banks. */
@@ -197,6 +201,28 @@ int oracis_host_runtime_render_scanline(
 int oracis_host_runtime_validate_entrypoints(
     OracisHostRuntimeEntryPointReport *arm9,
     OracisHostRuntimeEntryPointReport *arm7);
+
+/*
+ * Preflight both user BIOS reset vectors against native static banks, then
+ * initialize ARM9 at 0xFFFF0000 while holding ARM7 in reset at 0x00000000.
+ * No CPU cycles are consumed unless both reset-vector entries resolve.
+ */
+int oracis_host_runtime_start_retail_bios_boot(
+    OracisHostRuntimeEntryPointReport *arm9,
+    OracisHostRuntimeEntryPointReport *arm7);
+/*
+ * Release ARM7 only after the caller has verified the hardware hand-off.
+ * This explicit API is not connected to an assumed IPCSYNC value/edge.
+ */
+int oracis_host_runtime_release_arm7_from_reset(void);
+/*
+ * Advance a retail-BIOS-mode scheduler round. ARM7's time advances while
+ * ResetHeld but its generated code is not called until explicit release.
+ */
+int oracis_host_runtime_run_retail_bios_round(
+    uint64_t bus_cycle_budget,
+    OracisHostIrqContextProvider irq_context,
+    void *context);
 
 /*
  * Load the locally extracted Platinum USA Rev 1 ARM9/ARM7 images.
