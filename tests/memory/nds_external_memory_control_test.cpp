@@ -28,6 +28,20 @@ int main()
         bus_read_u16(NdsExternalMemoryControl::Address) != 0u)
         return fail("ARM9 EXMEMCNT initial state was not zero");
 
+    /* Empty Slot-2: default 10-cycle N-access returns Addr/2 | FE08h. */
+    if (bus_read_u32(NdsExternalMemoryControl::GbaSlotRomBase +
+                     UINT32_C(0x80)) != UINT32_C(0x0041FE48) ||
+        bus_read_u32(NdsExternalMemoryControl::GbaSlotSramBase) !=
+            UINT32_MAX) {
+        return fail("empty GBA Slot-2 ARM9 open-bus values were incorrect");
+    }
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM7) ||
+        bus_read_u32(NdsExternalMemoryControl::GbaSlotRomBase +
+                     UINT32_C(0x80)) != 0u ||
+        !oracis_arm_runtime_select_cpu(NDS_ARM9)) {
+        return fail("GBA Slot-2 ownership did not zero the deselected CPU bus");
+    }
+
     /* Bit 14 enables synchronous main-memory mode; bits 7 and 11 grant
        GBA/Game Card access to ARM7. */
     bus_write_u16(NdsExternalMemoryControl::Address, UINT32_C(0x4880));
@@ -56,6 +70,30 @@ int main()
         external_memory.read(NDS_ARM9, NdsExternalMemoryControl::Address + 2u, 2u).status != Status::Unmapped ||
         external_memory.read(static_cast<NdsCpu>(77), NdsExternalMemoryControl::Address, 2u).status != Status::InvalidCpu)
         return fail("invalid MMIO access was accepted");
+
+    /* ARM9 alone changes Slot-2 ownership; ARM7 retains its local timing. */
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9) ||
+        external_memory.write(NDS_ARM9, NdsExternalMemoryControl::Address,
+            2u, UINT32_C(0x4880)) != Status::Ok ||
+        external_memory.write(NDS_ARM7, NdsExternalMemoryControl::Address,
+            2u, 0u) != Status::Ok ||
+        external_memory.read_gba_slot(NDS_ARM7,
+            NdsExternalMemoryControl::GbaSlotRomBase + UINT32_C(0x80),
+            2u).value != UINT32_C(0xFE48) ||
+        external_memory.read_gba_slot(NDS_ARM9,
+            NdsExternalMemoryControl::GbaSlotRomBase + UINT32_C(0x80),
+            2u).value != 0u ||
+        external_memory.read_gba_slot(NDS_ARM7,
+            NdsExternalMemoryControl::GbaSlotSramBase, 4u).value !=
+                UINT32_MAX ||
+        external_memory.read_gba_slot(NDS_ARM7,
+            NdsExternalMemoryControl::GbaSlotEnd, 2u).status !=
+                Status::Unmapped ||
+        external_memory.write_gba_slot(NDS_ARM7,
+            NdsExternalMemoryControl::GbaSlotRomBase, 4u,
+            UINT32_C(0x12345678)) != Status::Ok) {
+        return fail("ARM7 Slot-2 ownership, SRAM open bus, or range checks failed");
+    }
 
     if (!oracis_bus_unbind_external_memory_control(&external_memory) ||
         !oracis_bus_unbind_memory(&memory) ||

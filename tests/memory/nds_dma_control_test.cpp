@@ -2,6 +2,7 @@
 #include "oracis/memory/nds_dma_control.hpp"
 #include "oracis/memory/nds_display_control.hpp"
 #include "oracis/memory/nds_interrupt_control.hpp"
+#include "oracis/memory/nds_external_memory_control.hpp"
 #include "oracis/recomp/runtime_arm.h"
 
 #include <cstdint>
@@ -42,6 +43,7 @@ int main()
     using oracis::memory::NdsDmaControl;
     using oracis::memory::NdsDisplayControl;
     using oracis::memory::NdsInterruptControl;
+    using oracis::memory::NdsExternalMemoryControl;
     using oracis::memory::Status;
 
     GuestMemory memory;
@@ -52,7 +54,9 @@ int main()
         return fail("could not map DMA test RAM");
     }
     NdsInterruptControl interrupts(memory);
+    NdsExternalMemoryControl external_memory;
     NdsDmaControl dma(memory, interrupts);
+    dma.attach_external_memory_control(external_memory);
     oracis::memory::NdsDisplayControl display(interrupts, &dma);
     if (display.install() != Status::Ok) {
         return fail("display event source installation failed");
@@ -65,6 +69,7 @@ int main()
     arm7.cpsr = ORACIS_ARM_MODE_SYSTEM;
     if (!oracis_arm_runtime_bind_cpus(&arm9, &arm7) ||
         !oracis_bus_bind_memory(&memory) ||
+        !oracis_bus_bind_external_memory_control(&external_memory) ||
         !oracis_bus_bind_interrupt_control(&interrupts) ||
         !oracis_bus_bind_dma_control(&dma)) {
         return fail("DMA bus binding failed");
@@ -108,6 +113,31 @@ int main()
         (bus_read_u32(control_reg(0u)) & NdsDmaControl::EnableMask) != 0u ||
         bus_read_u32(NdsInterruptControl::IfAddress) != Dma0Irq) {
         return fail("ARM9 DMA completion state, addresses, or IRQ was incorrect");
+    }
+
+    /*
+     * Platinum probes the empty GBA Slot-2 ROM through DMA1. The first
+     * halfword uses the 10-cycle nonsequential pattern (Addr/2 | FE08h);
+     * subsequent halfwords use sequential Addr/2 values.
+     */
+    constexpr uint32_t gba_slot_source = UINT32_C(0x08000080);
+    constexpr uint32_t gba_slot_destination = UINT32_C(0x02000400);
+    if (external_memory.write(NDS_ARM9, NdsExternalMemoryControl::Address,
+            2u, 0u) != Status::Ok) {
+        return fail("could not seed default EXMEMCNT Slot-2 ownership/timing");
+    }
+    bus_write_u32(source_reg(1u), gba_slot_source);
+    bus_write_u32(destination_reg(1u), gba_slot_destination);
+    bus_write_u32(control_reg(1u),
+        UINT32_C(2) | NdsDmaControl::WordTransferMask |
+        NdsDmaControl::EnableMask);
+    if (memory.read(NDS_ARM9, gba_slot_destination, 4u).value !=
+            UINT32_C(0x0041FE48) ||
+        memory.read(NDS_ARM9, gba_slot_destination + 4u, 4u).value !=
+            UINT32_C(0x00430042) ||
+        (bus_read_u32(control_reg(1u)) & NdsDmaControl::EnableMask) != 0u ||
+        memory.read(NDS_ARM9, gba_slot_source, 4u).status != Status::Unmapped) {
+        return fail("DMA1 did not transfer the empty Slot-2 open-bus sequence");
     }
 
     /* ARM7 has its own channel bank and halfword transfers by default. */
@@ -523,6 +553,7 @@ int main()
 
     if (!oracis_bus_unbind_dma_control(&dma) ||
         !oracis_bus_unbind_interrupt_control(&interrupts) ||
+        !oracis_bus_unbind_external_memory_control(&external_memory) ||
         !oracis_bus_unbind_memory(&memory) ||
         !oracis_arm_runtime_unbind_cpus(&arm9, &arm7)) {
         return fail("DMA bus teardown failed");

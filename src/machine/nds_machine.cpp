@@ -38,6 +38,7 @@ NdsMachine::NdsMachine(memory::SharedWramMode initial_wram_mode) noexcept
 {
     dma_control_.attach_display_control(display_control_);
     dma_control_.attach_game_card_control(game_card_control_);
+    dma_control_.attach_external_memory_control(external_memory_control_);
     game_card_control_.attach_dma_control(dma_control_);
     display_control_.set_scanline_observer(
         this, &NdsMachine::display_scanline_observer);

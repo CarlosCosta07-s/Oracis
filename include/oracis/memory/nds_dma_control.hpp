@@ -19,6 +19,7 @@ namespace oracis::memory {
 
 class NdsDisplayControl;
 class NdsGameCardControl;
+class NdsExternalMemoryControl;
 
 class NdsDmaControl final {
 public:
@@ -62,6 +63,10 @@ public:
     /* Services one DRQ word: ARM9 timing 5 or ARM7 timing 2. */
     Status trigger_game_card(NdsCpu cpu) noexcept;
     void attach_game_card_control(NdsGameCardControl &card) noexcept { game_card_control_ = &card; }
+    void attach_external_memory_control(
+        NdsExternalMemoryControl &control) noexcept {
+        external_memory_control_ = &control;
+    }
     void attach_display_control(NdsDisplayControl &display) noexcept {
         display_control_ = &display;
     }
@@ -106,6 +111,7 @@ private:
     NdsInterruptControl &interrupts_;
     NdsDisplayControl *display_control_ = nullptr;
     NdsGameCardControl *game_card_control_ = nullptr;
+    NdsExternalMemoryControl *external_memory_control_ = nullptr;
     std::array<std::array<Channel, ChannelCount>, 2> channels_{};
 };
 

@@ -1,6 +1,7 @@
 #include "oracis/memory/nds_dma_control.hpp"
 #include "oracis/memory/nds_display_control.hpp"
 #include "oracis/memory/nds_game_card_control.hpp"
+#include "oracis/memory/nds_external_memory_control.hpp"
 
 namespace oracis::memory {
 
@@ -120,9 +121,8 @@ Status NdsDmaControl::execute_transfer(
     const uint64_t transfer_bytes =
         static_cast<uint64_t>(count) * width;
 
-    const uint32_t address_limit =
-        cpu == NDS_ARM9 ? UINT32_C(0x0FFFFFFE)
-                        : UINT32_C(0x07FFFFFE);
+    /* Both CPUs can address the Slot-2 GBA ROM/SRAM aperture. */
+    constexpr uint32_t address_limit = UINT32_C(0x0FFFFFFE);
     if ((state.current_source % width) != 0u ||
         (state.current_destination % width) != 0u) {
         return Status::InvalidRegion;
@@ -169,7 +169,9 @@ Status NdsDmaControl::execute_transfer(
         source_mode == 2u && width == 4u && count == 1u &&
         state.current_source == NdsGameCardControl::DataAddress &&
         start_timing(cpu, control) == card_timing;
-    if (!fill_source && !game_card_source) {
+    const bool gba_slot_source = external_memory_control_ != nullptr &&
+        NdsExternalMemoryControl::is_gba_slot_range(source_base, source_span);
+    if (!fill_source && !game_card_source && !gba_slot_source) {
         const Status source_status =
             memory_.validate_read(cpu, source_base, source_span);
         if (source_status != Status::Ok) return source_status;
@@ -181,16 +183,23 @@ Status NdsDmaControl::execute_transfer(
     uint32_t source = state.current_source;
     uint32_t destination = state.current_destination;
     for (uint32_t index = 0u; index < count; ++index) {
-        const ReadResult value = fill_source
-            ? ReadResult{
+        ReadResult value{};
+        if (fill_source) {
+            value = ReadResult{
                 Status::Ok,
                 width == 2u
                     ? (state.fill_data & UINT32_C(0xFFFF))
                     : state.fill_data
-            }
-            : (game_card_source
-                ? game_card_control_->read_data(cpu)
-                : memory_.read(cpu, source, width));
+            };
+        } else if (game_card_source) {
+            value = game_card_control_->read_data(cpu);
+        } else if (gba_slot_source) {
+            /* First DMA beat is nonsequential; following beats use S timing. */
+            value = external_memory_control_->read_gba_slot(
+                cpu, source, width, index != 0u);
+        } else {
+            value = memory_.read(cpu, source, width);
+        }
         if (!value) return value.status;
         const Status write_status =
             memory_.write(cpu, destination, width, value.value);

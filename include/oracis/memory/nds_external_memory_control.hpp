@@ -12,6 +12,9 @@ namespace oracis::memory {
 class NdsExternalMemoryControl final {
 public:
     static constexpr uint32_t Address = UINT32_C(0x04000204);
+    static constexpr uint32_t GbaSlotRomBase = UINT32_C(0x08000000);
+    static constexpr uint32_t GbaSlotSramBase = UINT32_C(0x0A000000);
+    static constexpr uint32_t GbaSlotEnd = UINT32_C(0x0B000000);
     static constexpr uint16_t GbaTimingMask = UINT16_C(0x007F);
     static constexpr uint16_t GbaAccessArm7Mask = UINT16_C(1) << 7u;
     static constexpr uint16_t GameCardAccessArm7Mask = UINT16_C(1) << 11u;
@@ -25,6 +28,15 @@ public:
     NdsExternalMemoryControl &operator=(const NdsExternalMemoryControl &) = delete;
     ReadResult read(NdsCpu cpu, uint32_t address, uint32_t width) const noexcept;
     Status write(NdsCpu cpu, uint32_t address, uint32_t width, uint32_t value) noexcept;
+
+    /* Empty 32-pin GBA Slot-2 bus, including EXMEMCNT ownership and open bus. */
+    static bool is_gba_slot_range(uint32_t address, uint32_t size) noexcept;
+    ReadResult read_gba_slot(
+        NdsCpu cpu, uint32_t address, uint32_t width,
+        bool sequential_access = false) const noexcept;
+    Status write_gba_slot(
+        NdsCpu cpu, uint32_t address, uint32_t width,
+        uint32_t value) const noexcept;
 private:
     static bool valid_cpu(NdsCpu cpu) noexcept;
     static unsigned cpu_index(NdsCpu cpu) noexcept;

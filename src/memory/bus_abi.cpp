@@ -189,6 +189,12 @@ uint32_t read_bus(uint32_t address, uint32_t width, const char *operation)
             if (!mmio) bus_failure(operation, address, width, mmio.status);
             return mmio.value;
         }
+        const auto gba_slot = g_external_memory_control->read_gba_slot(
+            g_nds_active, address, width);
+        if (gba_slot.status != oracis::memory::Status::Unmapped) {
+            if (!gba_slot) bus_failure(operation, address, width, gba_slot.status);
+            return gba_slot.value;
+        }
     }
     if (g_game_card_control != nullptr) {
         const auto mmio=g_game_card_control->read(g_nds_active,address,width);
@@ -323,6 +329,13 @@ void write_bus(uint32_t address,
         if (mmio != oracis::memory::Status::Unmapped) {
             if (mmio != oracis::memory::Status::Ok)
                 bus_failure(operation, address, width, mmio);
+            return;
+        }
+        const auto gba_slot = g_external_memory_control->write_gba_slot(
+            g_nds_active, address, width, value);
+        if (gba_slot != oracis::memory::Status::Unmapped) {
+            if (gba_slot != oracis::memory::Status::Ok)
+                bus_failure(operation, address, width, gba_slot);
             return;
         }
     }
