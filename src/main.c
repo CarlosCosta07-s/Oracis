@@ -242,6 +242,49 @@ static bool load_arm7_bios_file(const char *path)
     return true;
 }
 
+static bool load_arm9_bios_file(const char *path)
+{
+    SDL_IOStream *file = SDL_IOFromFile(path, "rb");
+    if (file == NULL) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not open NDS ARM9 BIOS '%s': %s", path, SDL_GetError());
+        return false;
+    }
+    const Sint64 file_size = SDL_GetIOSize(file);
+    if (file_size != 0x1000 ||
+        SDL_SeekIO(file, 0, SDL_IO_SEEK_SET) < 0) {
+        (void)SDL_CloseIO(file);
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "NDS ARM9 BIOS '%s' must be exactly 4096 readable bytes.", path);
+        return false;
+    }
+    uint8_t *bytes = (uint8_t *)malloc(0x1000u);
+    if (bytes == NULL) {
+        (void)SDL_CloseIO(file);
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not allocate memory for NDS ARM9 BIOS '%s'.", path);
+        return false;
+    }
+    const bool read_ok = read_exact_io(file, bytes, 0x1000u);
+    const bool close_ok = SDL_CloseIO(file);
+    if (!read_ok || !close_ok) {
+        free(bytes);
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not read the complete NDS ARM9 BIOS '%s': %s",
+            path, SDL_GetError());
+        return false;
+    }
+    const int status = oracis_host_runtime_load_arm9_bios(bytes, 0x1000u);
+    free(bytes);
+    if (status != ORACIS_HOST_RUNTIME_OK) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not map the user-supplied ARM9 BIOS (bridge=%d).", status);
+        return false;
+    }
+    SDL_Log("Mapped user-supplied 4 KiB ARM9 BIOS ROM '%s'.", path);
+    return true;
+}
+
 static bool load_firmware_file(const char *path)
 {
     SDL_IOStream *file = SDL_IOFromFile(path, "rb");
@@ -399,6 +442,7 @@ enum {
     ORACIS_ANDROID_FILE_ARM7_BIOS = 2,
     ORACIS_ANDROID_FILE_FIRMWARE = 3,
     ORACIS_ANDROID_FILE_GAME_CARD_ID = 4,
+    ORACIS_ANDROID_FILE_ARM9_BIOS = 5,
     ORACIS_ANDROID_DIALOG_WAITING = 1,
     ORACIS_ANDROID_DIALOG_SELECTED = 2,
     ORACIS_ANDROID_DIALOG_CANCELLED = 3,
@@ -411,6 +455,7 @@ static int g_android_dialog_kind = 0;
 static char *g_android_dialog_path = NULL;
 static char *g_android_game_card_uri = NULL;
 static char *g_android_arm7_bios_uri = NULL;
+static char *g_android_arm9_bios_uri = NULL;
 static char *g_android_firmware_uri = NULL;
 static char *g_android_game_card_id_uri = NULL;
 static bool g_android_guest_execution_enabled = false;
@@ -457,6 +502,9 @@ static bool begin_android_file_dialog(SDL_Window *window, int kind)
     static const SDL_DialogFileFilter arm7_bios_filter[] = {
         { "Nintendo DS ARM7 BIOS", "bin" }
     };
+    static const SDL_DialogFileFilter arm9_bios_filter[] = {
+        { "Nintendo DS ARM9 BIOS", "bin" }
+    };
     static const SDL_DialogFileFilter firmware_filter[] = {
         { "Nintendo DS firmware flash image", "bin" }
     };
@@ -495,6 +543,11 @@ static bool begin_android_file_dialog(SDL_Window *window, int kind)
         SDL_ShowOpenFileDialog(
             android_file_dialog_callback, (void *)(intptr_t)kind,
             window, arm7_bios_filter, 1, NULL, false);
+    } else if (kind == ORACIS_ANDROID_FILE_ARM9_BIOS) {
+        SDL_Log("Choose your own 4 KiB Nintendo DS ARM9 BIOS (bios9.bin).");
+        SDL_ShowOpenFileDialog(
+            android_file_dialog_callback, (void *)(intptr_t)kind,
+            window, arm9_bios_filter, 1, NULL, false);
     } else if (kind == ORACIS_ANDROID_FILE_FIRMWARE) {
         SDL_Log("Choose your own Nintendo DS SPI firmware flash dump (1..16 MiB).");
         SDL_ShowOpenFileDialog(
@@ -722,6 +775,7 @@ int main(int argc, char *argv[])
     int exit_code = EXIT_FAILURE;
     const char *game_card_path = NULL;
     const char *arm7_bios_path = NULL;
+    const char *arm9_bios_path = NULL;
     const char *firmware_path = NULL;
     uint32_t game_card_chip_id = 0u;
     bool game_card_chip_id_set = false;
@@ -743,7 +797,9 @@ int main(int argc, char *argv[])
         if (strcmp(argv[argument], "--game-card") == 0) {
             if (argument + 1 >= argc || game_card_path != NULL) {
                 SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
-                    "Usage: %s [--game-card path/to/game.nds] [--game-card-id 0xID]", argv[0]);
+                    "Usage: %s [--game-card game.nds] [--arm7-bios bios7.bin] "
+                    "[--arm9-bios bios9.bin] [--firmware firmware.bin] "
+                    "[--game-card-id 0xID]", argv[0]);
                 goto cleanup;
             }
             game_card_path = argv[++argument];
@@ -754,6 +810,13 @@ int main(int argc, char *argv[])
                 goto cleanup;
             }
             arm7_bios_path = argv[++argument];
+        } else if (strcmp(argv[argument], "--arm9-bios") == 0) {
+            if (argument + 1 >= argc || arm9_bios_path != NULL) {
+                SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+                    "--arm9-bios requires one path to a 4 KiB NDS ARM9 BIOS.");
+                goto cleanup;
+            }
+            arm9_bios_path = argv[++argument];
         } else if (strcmp(argv[argument], "--firmware") == 0) {
             if (argument + 1 >= argc || firmware_path != NULL) {
                 SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
@@ -772,7 +835,9 @@ int main(int argc, char *argv[])
             ++argument;
         } else if (strcmp(argv[argument], "--help") == 0 ||
                    strcmp(argv[argument], "-h") == 0) {
-            SDL_Log("Usage: %s [--game-card path/to/game.nds] [--arm7-bios path/to/bios7.bin] [--firmware path/to/firmware.bin] [--game-card-id 0xID]", argv[0]);
+            SDL_Log("Usage: %s [--game-card game.nds] [--arm7-bios bios7.bin] "
+                    "[--arm9-bios bios9.bin] [--firmware firmware.bin] "
+                    "[--game-card-id 0xID]", argv[0]);
             exit_code = EXIT_SUCCESS;
             goto cleanup;
         } else {
@@ -791,6 +856,12 @@ int main(int argc, char *argv[])
     if (arm7_bios_path != NULL && game_card_path == NULL) {
         SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
             "--arm7-bios requires --game-card path/to/game.nds.");
+        goto cleanup;
+    }
+    if (arm9_bios_path != NULL &&
+        (game_card_path == NULL || arm7_bios_path == NULL)) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "--arm9-bios requires --game-card and --arm7-bios.");
         goto cleanup;
     }
     if (firmware_path != NULL &&
@@ -855,6 +926,9 @@ int main(int argc, char *argv[])
     if (arm7_bios_path != NULL && !load_arm7_bios_file(arm7_bios_path)) {
         goto cleanup;
     }
+    if (arm9_bios_path != NULL && !load_arm9_bios_file(arm9_bios_path)) {
+        goto cleanup;
+    }
     if (firmware_path != NULL) {
         if (!load_firmware_file(firmware_path)) goto cleanup;
         firmware_loaded = true;
@@ -867,14 +941,22 @@ int main(int argc, char *argv[])
             goto cleanup;
         }
     } else if (game_card_path != NULL && arm7_bios_path != NULL &&
-               !firmware_loaded) {
+               arm9_bios_path == NULL) {
+        if (!begin_android_file_dialog(window, ORACIS_ANDROID_FILE_ARM9_BIOS)) {
+            SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+                "Could not start the Android ARM9 BIOS picker.");
+            goto cleanup;
+        }
+    } else if (game_card_path != NULL && arm7_bios_path != NULL &&
+               arm9_bios_path != NULL && !firmware_loaded) {
         if (!begin_android_file_dialog(window, ORACIS_ANDROID_FILE_FIRMWARE)) {
             SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
                 "Could not start the Android SPI firmware picker.");
             goto cleanup;
         }
     } else if (game_card_path != NULL && arm7_bios_path != NULL &&
-               firmware_loaded && !game_card_chip_id_set) {
+               arm9_bios_path != NULL && firmware_loaded &&
+               !game_card_chip_id_set) {
         if (!begin_android_file_dialog(
                 window, ORACIS_ANDROID_FILE_GAME_CARD_ID)) {
             SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
@@ -1020,11 +1102,12 @@ int main(int argc, char *argv[])
             "Native execution remains gated until BIOS-equivalent handoff "
             "and required guest services are implemented.");
     } else if (game_card_path != NULL) {
-        SDL_Log("Android Game Card mounted; waiting for the user-supplied "
-                "ARM7 BIOS selection.");
+        SDL_Log("Android Game Card mounted; waiting for BIOS/firmware and "
+                "physical Game Card ID selections.");
     } else {
         SDL_Log("Android file picker opened. Select the user-owned .nds image, "
-                "then the user-owned 16 KiB ARM7 BIOS.");
+                "16 KiB ARM7 BIOS and optional 4 KiB ARM9 BIOS. The firmware "
+                "and physical Game Card chip ID are selected afterward.");
     }
 #endif
 #else
@@ -1083,7 +1166,14 @@ int main(int argc, char *argv[])
                         if (mount_game_card_file(game_card_path)) {
                             if (arm7_bios_path != NULL) {
                                 if (load_arm7_bios_file(arm7_bios_path)) {
-                                    if (firmware_loaded && game_card_chip_id_set) {
+                                    if (arm9_bios_path == NULL) {
+                                        if (!begin_android_file_dialog(
+                                                window,
+                                                ORACIS_ANDROID_FILE_ARM9_BIOS)) {
+                                            SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+                                                "Could not start the Android ARM9 BIOS picker.");
+                                        }
+                                    } else if (firmware_loaded && game_card_chip_id_set) {
                                         game_card_program_loaded =
                                             load_android_selected_game_program();
                                     } else if (firmware_loaded) {
@@ -1113,7 +1203,30 @@ int main(int argc, char *argv[])
 
                         if (load_arm7_bios_file(arm7_bios_path)) {
                             if (!begin_android_file_dialog(
-                                    window, ORACIS_ANDROID_FILE_FIRMWARE)) {
+                                    window, ORACIS_ANDROID_FILE_ARM9_BIOS)) {
+                                SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+                                    "Could not start the Android ARM9 BIOS picker.");
+                            }
+                        }
+                    } else if (selected_kind == ORACIS_ANDROID_FILE_ARM9_BIOS) {
+                        SDL_free(g_android_arm9_bios_uri);
+                        g_android_arm9_bios_uri = selected_path;
+                        arm9_bios_path = g_android_arm9_bios_uri;
+
+                        if (load_arm9_bios_file(arm9_bios_path)) {
+                            if (firmware_loaded) {
+                                if (game_card_chip_id_set) {
+                                    game_card_program_loaded =
+                                        load_android_selected_game_program();
+                                } else if (!begin_android_file_dialog(
+                                               window,
+                                               ORACIS_ANDROID_FILE_GAME_CARD_ID)) {
+                                    SDL_LogCritical(
+                                        SDL_LOG_CATEGORY_APPLICATION,
+                                        "Could not start the Android Game Card chip ID picker.");
+                                }
+                            } else if (!begin_android_file_dialog(
+                                           window, ORACIS_ANDROID_FILE_FIRMWARE)) {
                                 SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
                                     "Could not start the Android SPI firmware picker.");
                             }
@@ -1157,6 +1270,27 @@ int main(int argc, char *argv[])
                     } else {
                         SDL_free(selected_path);
                     }
+                } else if (selected_kind == ORACIS_ANDROID_FILE_ARM9_BIOS &&
+                           selected_result == ORACIS_ANDROID_DIALOG_CANCELLED) {
+                    SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                        "No ARM9 BIOS was selected. The retail BIOS reset path "
+                        "remains unavailable; continuing with firmware/direct-entry setup.");
+                    if (firmware_loaded) {
+                        if (game_card_chip_id_set) {
+                            game_card_program_loaded =
+                                load_android_selected_game_program();
+                        } else if (!begin_android_file_dialog(
+                                       window,
+                                       ORACIS_ANDROID_FILE_GAME_CARD_ID)) {
+                            SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+                                "Could not start the Android Game Card chip ID picker.");
+                        }
+                    } else if (!begin_android_file_dialog(
+                                   window, ORACIS_ANDROID_FILE_FIRMWARE)) {
+                        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+                            "Could not start the Android SPI firmware picker.");
+                    }
+                    SDL_free(selected_path);
                 } else if (selected_kind == ORACIS_ANDROID_FILE_GAME_CARD_ID &&
                            selected_result == ORACIS_ANDROID_DIALOG_CANCELLED) {
                     SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
@@ -1233,10 +1367,12 @@ cleanup:
     }
     SDL_free(g_android_game_card_uri);
     SDL_free(g_android_arm7_bios_uri);
+    SDL_free(g_android_arm9_bios_uri);
     SDL_free(g_android_firmware_uri);
     SDL_free(g_android_game_card_id_uri);
     g_android_game_card_uri = NULL;
     g_android_arm7_bios_uri = NULL;
+    g_android_arm9_bios_uri = NULL;
     g_android_firmware_uri = NULL;
     g_android_game_card_id_uri = NULL;
 #endif

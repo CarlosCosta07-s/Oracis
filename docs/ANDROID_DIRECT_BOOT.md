@@ -12,8 +12,9 @@ O host usa o seletor de arquivos SDL3 no Android para pedir, nesta ordem:
 
 1. Uma imagem .nds escolhida pelo usuário.
 2. Uma BIOS ARM7 de exatamente 16 KiB, também escolhida pelo usuário.
-3. Um dump da flash SPI de firmware do próprio usuário, entre 1 byte e 16 MiB.
-4. Opcionalmente, um arquivo de texto com o ID físico de 32 bits do Game Card,
+3. Opcionalmente, uma BIOS ARM9 de exatamente 4 KiB.
+4. Um dump da flash SPI de firmware do próprio usuário, entre 1 byte e 16 MiB.
+5. Opcionalmente, um arquivo de texto com o ID físico de 32 bits do Game Card,
    em decimal ou hexadecimal com prefixo `0x`. O arquivo deve conter somente
    esse valor, podendo ter espaços ou quebras de linha ao redor. O ID não é
    inferido do dump `.nds`; cancelar essa seleção mantém o experimento de
@@ -21,9 +22,11 @@ O host usa o seletor de arquivos SDL3 no Android para pedir, nesta ordem:
 
 No Android, o seletor pode retornar URIs `content://`. A leitura dos arquivos selecionados usa SDL_IOStream, sem presumir que a URI seja um caminho POSIX ou passar por `fopen`. O host limita os tamanhos antes da alocação e copia os dados para os dispositivos próprios.
 
-**Estado da camada de BIOS:** o dispositivo `NdsBiosControl` agora aceita imagens fornecidas pelo usuário, mapeia a BIOS ARM7 de 16 KiB em `0x00000000` somente para ARM7 e a BIOS ARM9 de 4 KiB em `0xFFFF0000` somente para ARM9. As regiões são somente leitura e executáveis. A ponte C ABI já oferece `oracis_host_runtime_load_arm9_bios()`; porém, o seletor SDL/Android e os argumentos de linha de comando ainda não solicitam esse arquivo, então a BIOS ARM9 ainda não é carregada pela interface.
+**Estado da camada de BIOS:** o dispositivo `NdsBiosControl` agora aceita imagens fornecidas pelo usuário, mapeia a BIOS ARM7 de 16 KiB em `0x00000000` somente para ARM7 e a BIOS ARM9 de 4 KiB em `0xFFFF0000` somente para ARM9. As regiões são somente leitura e executáveis. A ponte C ABI já oferece `oracis_host_runtime_load_arm9_bios()`; porém, o seletor SDL/Android agora solicita esse arquivo como etapa opcional após a BIOS ARM7, e o desktop aceita `--arm9-bios caminho/bios9.bin`. O arquivo deve ter exatamente 4096 bytes.
 
 A proteção ARM7 `BIOSPROT` em `0x04000308` está modelada: começa em zero, aceita uma única escrita de 32 bits, ignora o bit baixo, e uma escrita de `0x1205` fixa o limite em `0x1204`. Depois disso, bytes abaixo do limite só são legíveis quando o PC permanece abaixo do limite; bytes a partir do limite exigem que o PC continue dentro da BIOS ARM7 (`0x00000000–0x00003FFF`). Leituras bloqueadas retornam `0xFF` por byte. Essas regras e as janelas por CPU são cobertas por fixtures sintéticas. O mapeamento ARM9 atualmente cobre os 4 KiB da imagem fornecida; comportamento de qualquer extensão/espelhamento do restante da janela arquitetural não é presumido.
+
+CLI desktop: `--game-card jogo.nds --arm7-bios bios7.bin --arm9-bios bios9.bin --firmware firmware.bin`. A opção `--arm9-bios` também é opcional para o fluxo direct-entry atual.
 
 **Isso ainda não executa as BIOSes.** O ARM7 carregado também fornece a tabela KEY1 no offset `0x30`, usada para a Secure Area. O firmware SPI continua sendo carregado pelo dispositivo ARM7. O reset retail, execução das duas BIOSes, sincronização ARM9/ARM7 e handoff ao IPL continuam pendentes.
 
