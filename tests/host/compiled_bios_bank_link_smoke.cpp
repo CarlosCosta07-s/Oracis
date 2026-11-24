@@ -147,13 +147,30 @@ int preflight_case(
 
         ArmCpuState arm9_after_second_round = {};
         ArmCpuState arm7_after_second_round = {};
-        if (oracis_host_runtime_get_cpu_state(
-                NDS_ARM9, &arm9_after_second_round) != ORACIS_HOST_RUNTIME_OK ||
-            oracis_host_runtime_get_cpu_state(
-                NDS_ARM7, &arm7_after_second_round) != ORACIS_HOST_RUNTIME_OK ||
+        const int arm9_snapshot_status = oracis_host_runtime_get_cpu_state(
+            NDS_ARM9, &arm9_after_second_round);
+        const int arm7_snapshot_status = oracis_host_runtime_get_cpu_state(
+            NDS_ARM7, &arm7_after_second_round);
+        const uint64_t second_round_bus_cycles =
+            oracis_host_runtime_global_bus_cycles();
+        if (arm9_snapshot_status != ORACIS_HOST_RUNTIME_OK ||
+            arm7_snapshot_status != ORACIS_HOST_RUNTIME_OK ||
             arm9_after_second_round.R[0] != UINT32_C(0x2B) ||
             arm7_after_second_round.R[0] != UINT32_C(0x2B) ||
-            oracis_host_runtime_global_bus_cycles() != UINT64_C(128)) {
+            second_round_bus_cycles != UINT64_C(128)) {
+            std::fprintf(
+                stderr,
+                "second-round snapshot: arm9_status=%d R0=%08X PC=%08X CPSR=%08X; "
+                "arm7_status=%d R0=%08X PC=%08X CPSR=%08X; bus_cycles=%llu\n",
+                arm9_snapshot_status,
+                arm9_after_second_round.R[0],
+                arm9_after_second_round.R[15],
+                arm9_after_second_round.cpsr,
+                arm7_snapshot_status,
+                arm7_after_second_round.R[0],
+                arm7_after_second_round.R[15],
+                arm7_after_second_round.cpsr,
+                static_cast<unsigned long long>(second_round_bus_cycles));
             (void)oracis_host_runtime_shutdown();
             return fail("ARM9/ARM7 native reset execution results were incorrect");
         }
