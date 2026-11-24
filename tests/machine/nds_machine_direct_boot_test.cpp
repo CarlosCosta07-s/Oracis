@@ -23,6 +23,7 @@ int main()
     using oracis::machine::NdsMachine;
     using oracis::machine::NdsMachineStatus;
     using oracis::machine::NdsProgramSegment;
+    using oracis::memory::NdsBiosControl;
     using oracis::memory::NdsVramControl;
     using oracis::memory::NdsWramControl;
     using oracis::memory::SharedWramMode;
@@ -31,6 +32,68 @@ int main()
     NdsMachine machine(SharedWramMode::Arm9All32K);
     if (machine.initialize() != NdsMachineStatus::Ok) {
         return fail("machine initialization failed");
+    }
+
+    std::array<uint8_t, NdsBiosControl::Arm7BiosBytes> arm7_bios{};
+    std::array<uint8_t, NdsBiosControl::Arm9BiosBytes> arm9_bios{};
+    for (uint32_t i = 0u; i < arm7_bios.size(); ++i) {
+        arm7_bios[i] = static_cast<uint8_t>((i * 11u + 5u) & 0xFFu);
+    }
+    for (uint32_t i = 0u; i < arm9_bios.size(); ++i) {
+        arm9_bios[i] = static_cast<uint8_t>((i * 13u + 9u) & 0xFFu);
+    }
+    if (machine.bios_control().load_arm7_bios(
+            arm7_bios.data(), static_cast<uint32_t>(arm7_bios.size())) != Status::Ok ||
+        machine.bios_control().load_arm9_bios(
+            arm9_bios.data(), static_cast<uint32_t>(arm9_bios.size())) != Status::Ok) {
+        return fail("machine rejected synthetic user BIOS images");
+    }
+
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM9) ||
+        bus_read_u32(NdsBiosControl::Arm9BiosBase) !=
+            (static_cast<uint32_t>(arm9_bios[0]) |
+             (static_cast<uint32_t>(arm9_bios[1]) << 8u) |
+             (static_cast<uint32_t>(arm9_bios[2]) << 16u) |
+             (static_cast<uint32_t>(arm9_bios[3]) << 24u))) {
+        return fail("ARM9 BIOS ROM was not visible through the ARM9 bus");
+    }
+
+    if (!oracis_arm_runtime_select_cpu(NDS_ARM7)) {
+        return fail("could not select ARM7 to validate its BIOS window");
+    }
+    ArmCpuState *arm7_state = machine.cpu_state(NDS_ARM7);
+    if (arm7_state == nullptr) return fail("ARM7 state was unavailable");
+
+    arm7_state->R[15] = UINT32_C(0x00002000);
+    const uint32_t bios_first_word =
+        static_cast<uint32_t>(arm7_bios[0]) |
+        (static_cast<uint32_t>(arm7_bios[1]) << 8u) |
+        (static_cast<uint32_t>(arm7_bios[2]) << 16u) |
+        (static_cast<uint32_t>(arm7_bios[3]) << 24u);
+    if (bus_read_u32(NdsBiosControl::Arm7BiosBase) != bios_first_word) {
+        return fail("ARM7 BIOS was not readable while PC remained in BIOS");
+    }
+
+    bus_write_u32(
+        NdsBiosControl::BiosProtectionAddress, UINT32_C(0x00001205));
+    if (bus_read_u32(NdsBiosControl::BiosProtectionAddress) !=
+        UINT32_C(0x00001204)) {
+        return fail("ARM7 BIOSPROT register did not read back 0x1204");
+    }
+
+    arm7_state->R[15] = UINT32_C(0x00001300);
+    const uint32_t bios_high_word =
+        static_cast<uint32_t>(arm7_bios[0x1204u]) |
+        (static_cast<uint32_t>(arm7_bios[0x1205u]) << 8u) |
+        (static_cast<uint32_t>(arm7_bios[0x1206u]) << 16u) |
+        (static_cast<uint32_t>(arm7_bios[0x1207u]) << 24u);
+    if (bus_read_u32(NdsBiosControl::Arm7BiosBase) != UINT32_MAX ||
+        bus_read_u32(UINT32_C(0x00001204)) != bios_high_word) {
+        return fail("ARM7 BIOS bus did not enforce the locked lower region");
+    }
+    arm7_state->R[15] = UINT32_C(0x00004000);
+    if (bus_read_u32(UINT32_C(0x00001204)) != UINT32_MAX) {
+        return fail("ARM7 BIOS bus exposed protected bytes after PC left BIOS");
     }
 
     constexpr uint8_t arm9_code[] = {

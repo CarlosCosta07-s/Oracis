@@ -113,7 +113,10 @@ int oracis_host_runtime_shutdown(void);
  */
 int oracis_host_runtime_mount_game_card_image(
     const uint8_t *bytes, uint32_t size);
-/* Load a user-owned 16 KiB NDS ARM7 BIOS; only its KEY1 table slice is copied. */
+/* Load a user-owned 4 KiB NDS ARM9 BIOS into its CPU-local ROM window. */
+int oracis_host_runtime_load_arm9_bios(
+    const uint8_t *bytes, uint32_t size);
+/* Load a user-owned 16 KiB NDS ARM7 BIOS and initialize its KEY1 table. */
 int oracis_host_runtime_load_game_card_arm7_bios(
     const uint8_t *bytes, uint32_t size);
 /* Copy a user-supplied raw NDS SPI firmware-flash dump (1..16 MiB). */

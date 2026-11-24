@@ -361,6 +361,22 @@ extern "C" int oracis_host_runtime_mount_game_card_image(
     }
 }
 
+extern "C" int oracis_host_runtime_load_arm9_bios(
+    const uint8_t *bytes, uint32_t size)
+{
+    auto &machine = host_machine();
+    if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+    if (bytes == nullptr ||
+        size != oracis::memory::NdsBiosControl::Arm9BiosBytes) {
+        return ORACIS_HOST_RUNTIME_INVALID_ARGUMENT;
+    }
+
+    const auto status = machine.bios_control().load_arm9_bios(bytes, size);
+    return status == oracis::memory::Status::Ok
+        ? ORACIS_HOST_RUNTIME_OK
+        : ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID;
+}
+
 extern "C" int oracis_host_runtime_load_game_card_arm7_bios(
     const uint8_t *bytes, uint32_t size)
 {
@@ -371,13 +387,20 @@ extern "C" int oracis_host_runtime_load_game_card_arm7_bios(
         return ORACIS_HOST_RUNTIME_INVALID_ARGUMENT;
     }
 
+    const auto bios_status = machine.bios_control().load_arm7_bios(bytes, size);
+    if (bios_status != oracis::memory::Status::Ok) {
+        return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID;
+    }
+
     const uint8_t *key_table = bytes +
         oracis::memory::NdsGameCardKey1::Arm7BiosKeyTableOffset;
-    const auto status = machine.game_card_control().load_key1_key_table(
+    const auto key_status = machine.game_card_control().load_key1_key_table(
         key_table, oracis::memory::NdsGameCardKey1::KeyTableBytes);
-    return status == oracis::memory::Status::Ok
-        ? ORACIS_HOST_RUNTIME_OK
-        : ORACIS_HOST_RUNTIME_GAME_CARD_ERROR;
+    if (key_status != oracis::memory::Status::Ok) {
+        (void)machine.bios_control().unload_arm7_bios();
+        return ORACIS_HOST_RUNTIME_GAME_CARD_ERROR;
+    }
+    return ORACIS_HOST_RUNTIME_OK;
 }
 
 extern "C" int oracis_host_runtime_set_spi_firmware_image(

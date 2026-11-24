@@ -12,6 +12,7 @@
 #include "oracis/memory/nds_timer_control.hpp"
 #include "oracis/memory/nds_keypad_control.hpp"
 #include "oracis/memory/nds_rtc.hpp"
+#include "oracis/memory/nds_bios_control.hpp"
 #include "oracis/memory/nds_spi_control.hpp"
 #include "oracis/memory/nds_ipc_control.hpp"
 #include "oracis/memory/nds_game_card_control.hpp"
@@ -40,6 +41,7 @@ oracis::memory::NdsDmaControl *g_dma_control = nullptr;
 oracis::memory::NdsTimerControl *g_timer_control = nullptr;
 oracis::memory::NdsKeypadControl *g_keypad_control = nullptr;
 oracis::memory::NdsRtc *g_rtc = nullptr;
+oracis::memory::NdsBiosControl *g_bios_control = nullptr;
 oracis::memory::NdsSpiControl *g_spi_control = nullptr;
 oracis::memory::NdsSystemClock *g_system_clock = nullptr;
 void *g_arm9_access_check_context = nullptr;
@@ -129,6 +131,16 @@ uint32_t read_bus(uint32_t address, uint32_t width, const char *operation)
     if (!validate_arm9_access(
             operation, address, width, ORACIS_BUS_ACCESS_DATA_READ)) {
         return 0u;
+    }
+    if (g_bios_control != nullptr) {
+        const uint32_t pc = oracis_active_cpu_state != nullptr
+            ? oracis_active_cpu_state->R[15] : UINT32_MAX;
+        const auto bios = g_bios_control->read(
+            g_nds_active, address, width, pc);
+        if (bios.status != oracis::memory::Status::Unmapped) {
+            if (!bios) bus_failure(operation, address, width, bios.status);
+            return bios.value;
+        }
     }
     if (g_post_flag != nullptr) {
         const auto mmio = g_post_flag->read(g_nds_active, address, width);
@@ -254,6 +266,16 @@ void write_bus(uint32_t address,
     if (!validate_arm9_access(
             operation, address, width, ORACIS_BUS_ACCESS_DATA_WRITE)) {
         return;
+    }
+    if (g_bios_control != nullptr) {
+        const auto bios = g_bios_control->write(
+            g_nds_active, address, width, value);
+        if (bios != oracis::memory::Status::Unmapped) {
+            if (bios != oracis::memory::Status::Ok) {
+                bus_failure(operation, address, width, bios);
+            }
+            return;
+        }
     }
     if (g_post_flag != nullptr) {
         const auto mmio = g_post_flag->write(
@@ -466,6 +488,7 @@ extern "C" int oracis_bus_unbind_memory(void *memory)
         (g_video_memory != nullptr &&
          &g_video_memory->backing_memory() == g_guest_memory) ||
         g_post_flag != nullptr ||
+        g_bios_control != nullptr ||
         g_external_memory_control != nullptr ||
         g_display_control != nullptr ||
         g_geometry_engine != nullptr ||
@@ -834,6 +857,27 @@ extern "C" int oracis_bus_unbind_keypad_control(void *control)
         return 0;
     }
     g_keypad_control = nullptr;
+    return 1;
+}
+
+extern "C" int oracis_bus_bind_bios_control(void *control)
+{
+    if (control == nullptr || g_guest_memory == nullptr ||
+        g_bios_control != nullptr) return 0;
+    auto *device =
+        static_cast<oracis::memory::NdsBiosControl *>(control);
+    if (&device->backing_memory() != g_guest_memory) return 0;
+    g_bios_control = device;
+    return 1;
+}
+
+extern "C" int oracis_bus_unbind_bios_control(void *control)
+{
+    if (control == nullptr || g_bios_control !=
+            static_cast<oracis::memory::NdsBiosControl *>(control)) {
+        return 0;
+    }
+    g_bios_control = nullptr;
     return 1;
 }
 

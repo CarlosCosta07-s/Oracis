@@ -96,6 +96,7 @@ target_compile_features(oracis_arm_state PUBLIC cxx_std_20)
 
 add_library(oracis_memory STATIC
     src/memory/guest_memory.cpp
+    src/memory/nds_bios_control.cpp
     src/memory/nds_arm9_tcm.cpp
     src/memory/nds_arm9_protection_unit.cpp
     src/memory/bus_abi.cpp
@@ -589,6 +590,12 @@ if(BUILD_TESTING)
     )
     target_link_libraries(oracis_nds_keypad_control_test PRIVATE oracis_memory)
     add_test(NAME oracis_nds_keypad_control_test COMMAND oracis_nds_keypad_control_test)
+
+    add_executable(oracis_nds_bios_control_test
+        tests/memory/nds_bios_control_test.cpp
+    )
+    target_link_libraries(oracis_nds_bios_control_test PRIVATE oracis_memory)
+    add_test(NAME oracis_nds_bios_control_test COMMAND oracis_nds_bios_control_test)
 
     add_executable(oracis_nds_rtc_test
         tests/memory/nds_rtc_test.cpp

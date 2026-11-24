@@ -22,7 +22,7 @@ Limites que continuam explícitos: o modelo MPU/CP15 é parcial; c7 não opera s
 
 ## Experimento Android de entrada nativa — commits 3a9bc39, d46f4db, 663c6ba, 45f9109, a496618 e 0f497d5
 
-O host Android abre o seletor SDL3 para uma imagem NDS, BIOS ARM7 de 16 KiB e dump SPI de firmware do usuário (1 byte a 16 MiB). URIs content:// são lidas por SDL_IOStream. A ponte instala o dump na flash SPI ARM7; o dispositivo fornece os comandos READ (03h), RDSR (05h), WREN (06h) e WRDI (04h), com demais operações fail-closed. O host só segue para o carregamento dos segmentos depois de a sequência ROM/BIOS/firmware ser concluída.
+O host Android abre o seletor SDL3 para uma imagem NDS, uma BIOS ARM7 de 16 KiB e um dump SPI de firmware do usuário (1 byte a 16 MiB); o ID físico do Game Card é opcional. URIs content:// são lidas por SDL_IOStream. O backend agora mapeia a BIOS ARM7 como ROM somente-leitura/executável em seu espaço CPU-local e aplica BIOSPROT; a BIOS ARM9 de 4 KiB também pode ser instalada pela ponte C ABI, mas ainda não é solicitada pelo seletor nem pela CLI. A BIOS ARM7 fornece ainda a tabela KEY1. A ponte instala o dump na flash SPI ARM7; o dispositivo fornece READ (03h), RDSR (05h), WREN (06h) e WRDI (04h), com demais operações fail-closed. A camada de BIOS só está mapeada/testada: não é executada, e o fluxo atual permanece direct-entry.
 
 A máquina prepara o subconjunto documentado do estado de entrada do cartucho: R0–R11 zerados; R12, LR e PC no entrypoint; SP User/System, IRQ e SVC específicos por CPU; metadados determinísticos derivados do cabeçalho/CRC; POSTFLG bit 0 = 1. O host verifica que os dois entrypoints resolvem para bancos estáticos registrados e executa até 128 fatias nativas de 1.024 ciclos por iteração SDL (131.072 ciclos agregados). Erros interrompem a execução e registram ciclo, fatia e status do runtime.
 
@@ -53,7 +53,7 @@ A CI Android atual compila a biblioteca nativa ARM64; ainda não há projeto Gra
 
 ## Próxima ordem de implementação
 
-1. Adicionar seleção SAF da BIOS ARM9 de 4 KiB junto à BIOS ARM7 de 16 KiB já selecionada; mapear ambas como ROM por CPU e implementar/testar a proteção de leitura da BIOS ARM7. Confirmar a leitura dos URIs content:// por SDL_IOStream.
+1. Ligar a seleção SAF e a CLI à nova API da BIOS ARM9 de 4 KiB, além da BIOS ARM7 já selecionada; validar ambos os arquivos no Android e no desktop. Implementar execução de BIOS somente depois de validar o caminho de reset e os estados iniciais de cada CPU.
 2. Preparar o empacotamento Android instalável; a CI atual compila somente a biblioteca nativa ARM64.
 3. Construir localmente com os bancos privados reais, confirmar a resolução dos entrypoints ARM9/ARM7 e capturar o primeiro dispatch guest do experimento direct-entry.
 4. Resolver o primeiro dispatch miss, acesso MMIO não suportado, falha de timing ou dependência BIOS/NitroSDK observada pelo scheduler, sem fallback de interpretador.

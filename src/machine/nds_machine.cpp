@@ -17,7 +17,8 @@
 namespace oracis::machine {
 
 NdsMachine::NdsMachine(memory::SharedWramMode initial_wram_mode) noexcept
-    : overlay_loader_(memory_),
+    : bios_control_(memory_),
+      overlay_loader_(memory_),
       arm9_tcm_(memory_),
       wram_control_(memory_, initial_wram_mode),
       vram_control_(memory_),
@@ -1696,6 +1697,11 @@ NdsMachineStatus NdsMachine::initialize() noexcept
     }
     memory_bound_ = true;
 
+    if (!oracis_bus_bind_bios_control(&bios_control_)) {
+        return rollback(NdsMachineStatus::BusBindingFailed);
+    }
+    bios_bound_ = true;
+
     if (!oracis_bus_bind_external_memory_control(&external_memory_control_)) {
         return rollback(NdsMachineStatus::BusBindingFailed);
     }
@@ -2532,7 +2538,7 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
         geometry_engine_bound_ || interrupt_bound_ || external_memory_bound_ ||
         game_card_bound_ || ipc_bound_ || dma_bound_ || timer_bound_ ||
         keypad_bound_ || rtc_bound_ || spi_bound_ || clock_bound_ ||
-        validation_bound_;
+        validation_bound_ || bios_bound_;
     if (!owns_runtime && !initialized_) {
         return NdsMachineStatus::Ok;
     }
@@ -2664,6 +2670,15 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
             return NdsMachineStatus::ShutdownFailed;
         }
         arm9_access_guard_bound_ = false;
+    }
+    if (bios_bound_) {
+        if (!oracis_bus_unbind_bios_control(&bios_control_)) {
+            return NdsMachineStatus::ShutdownFailed;
+        }
+        bios_bound_ = false;
+    }
+    if (bios_control_.uninstall() != memory::Status::Ok) {
+        return NdsMachineStatus::ShutdownFailed;
     }
     if (memory_bound_) {
         if (!oracis_bus_unbind_memory(&memory_)) {

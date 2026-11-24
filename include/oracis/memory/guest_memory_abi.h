@@ -101,6 +101,10 @@ int oracis_bus_unbind_keypad_control(void *control);
  */
 void oracis_host_set_keypad_state(uint16_t pressed_keys);
 
+/* Bind the per-CPU BIOS ROM mappings and ARM7 BIOSPROT register. */
+int oracis_bus_bind_bios_control(void *control);
+int oracis_bus_unbind_bios_control(void *control);
+
 /* Bind a live ARM7-only NdsRtc (register 0x04000138); it needs no other device. */
 int oracis_bus_bind_rtc(void *rtc);
 int oracis_bus_unbind_rtc(void *rtc);

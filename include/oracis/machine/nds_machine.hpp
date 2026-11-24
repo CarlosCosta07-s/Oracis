@@ -20,6 +20,7 @@
 #include "oracis/memory/nds_external_memory_control.hpp"
 #include "oracis/memory/nds_ipc_control.hpp"
 #include "oracis/memory/nds_game_card_control.hpp"
+#include "oracis/memory/nds_bios_control.hpp"
 #include "oracis/memory/nds_game_card_key1.hpp"
 #include "oracis/memory/nds_dma_control.hpp"
 #include "oracis/memory/nds_keypad_control.hpp"
@@ -305,6 +306,7 @@ public:
         return keypad_control_;
     }
     memory::NdsRtc &rtc() noexcept { return rtc_; }
+    memory::NdsBiosControl &bios_control() noexcept { return bios_control_; }
     memory::NdsSpiControl &spi_control() noexcept { return spi_control_; }
     memory::NdsSystemClock &system_clock() noexcept { return system_clock_; }
 
@@ -407,6 +409,7 @@ private:
         uint32_t pc, uint32_t thumb, void *context);
 
     memory::GuestMemory memory_;
+    memory::NdsBiosControl bios_control_;
     NdsOverlayLoader overlay_loader_;
     ArmCpuState arm9_state_{};
     ArmCpuState arm7_state_{};
@@ -465,6 +468,7 @@ private:
     bool bios_huffman_handler_bound_ = false;
     bool bios_diff_handler_bound_ = false;
     bool memory_bound_ = false;
+    bool bios_bound_ = false;
     bool arm9_access_guard_bound_ = false;
     bool data_abort_handler_bound_ = false;
     bool prefetch_abort_handler_bound_ = false;

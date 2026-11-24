@@ -435,6 +435,26 @@ int main()
         return fail("could not load the synthetic ARM7 BIOS KEY1 table");
     }
 
+    std::array<uint8_t, UINT32_C(0x1000)> synthetic_arm9_bios{};
+    for (uint32_t index = 0u; index < synthetic_arm9_bios.size(); ++index) {
+        synthetic_arm9_bios[index] =
+            static_cast<uint8_t>((index * 23u + 9u) & 0xFFu);
+    }
+    const uint32_t expected_arm9_bios_word =
+        static_cast<uint32_t>(synthetic_arm9_bios[0]) |
+        (static_cast<uint32_t>(synthetic_arm9_bios[1]) << 8u) |
+        (static_cast<uint32_t>(synthetic_arm9_bios[2]) << 16u) |
+        (static_cast<uint32_t>(synthetic_arm9_bios[3]) << 24u);
+    if (oracis_host_runtime_load_arm9_bios(
+            synthetic_arm9_bios.data(),
+            static_cast<uint32_t>(synthetic_arm9_bios.size())) !=
+            ORACIS_HOST_RUNTIME_OK ||
+        !oracis_arm_runtime_select_cpu(NDS_ARM9) ||
+        bus_read_u32(UINT32_C(0xFFFF0000)) != expected_arm9_bios_word) {
+        (void)oracis_host_runtime_shutdown();
+        return fail("host bridge did not map the synthetic ARM9 BIOS ROM");
+    }
+
     /*
      * Exercise the machine-level IPL publication path with a synthetic,
      * encrypted firmware image. An invalid ARM7 destination must reject the
