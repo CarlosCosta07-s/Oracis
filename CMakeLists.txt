@@ -16,6 +16,8 @@ option(ORACIS_BUILD_HOST "Build the SDL3 desktop/Android host" ON)
 option(ORACIS_FETCH_SDL3 "Download and build the pinned SDL3 release" ON)
 set(ORACIS_LOCAL_BANK_DIR "" CACHE PATH
     "Optional local directory containing emitted Platinum ARM9/ARM7 C banks")
+set(ORACIS_LOCAL_BIOS_BANK_DIR "" CACHE PATH
+    "Optional local directory containing emitted user-provided ARM9/ARM7 BIOS C banks")
 set(ORACIS_LOCAL_OVERLAY_BANK_DIR "" CACHE PATH
     "Optional local directory containing emitted Platinum ARM9 overlay C banks")
 set(ORACIS_LOCAL_OVERLAY_IMAGE_DIR
@@ -281,6 +283,92 @@ if(ORACIS_LOCAL_BANK_DIR)
             oracis_arm_state
         VERBATIM
     )
+endif()
+
+# User-supplied BIOS outputs are a separate optional bank set. No BIOS dump,
+# temporary TOML or generated bank is downloaded or stored in the repository.
+if(ORACIS_LOCAL_BIOS_BANK_DIR)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    get_filename_component(ORACIS_LOCAL_BIOS_BANK_DIR
+        "${ORACIS_LOCAL_BIOS_BANK_DIR}" ABSOLUTE)
+
+    set(_oracis_bios_bank_validation_args)
+    if(ORACIS_ALLOW_SYNTHETIC_BANKS)
+        list(APPEND _oracis_bios_bank_validation_args --allow-synthetic-fixture)
+    endif()
+    execute_process(
+        COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/ndsrecomp/validate_user_bios_bank_set.py"
+            --bank-dir "${ORACIS_LOCAL_BIOS_BANK_DIR}"
+            ${_oracis_bios_bank_validation_args}
+        RESULT_VARIABLE _oracis_bios_bank_validation_result
+        OUTPUT_VARIABLE _oracis_bios_bank_validation_stdout
+        ERROR_VARIABLE _oracis_bios_bank_validation_stderr
+    )
+    if(NOT _oracis_bios_bank_validation_result EQUAL 0)
+        message(FATAL_ERROR
+            "Local user BIOS bank-set validation failed. Re-run "
+            "tools/ndsrecomp/emit_user_bios_banks.py with the user-owned BIOS files.\\n"
+            "${_oracis_bios_bank_validation_stdout}"
+            "${_oracis_bios_bank_validation_stderr}")
+    endif()
+    message(STATUS "${_oracis_bios_bank_validation_stdout}")
+
+    set(ORACIS_BIOS_ARM9_BANK_NAME "oracis_user_bios_arm9")
+    set(ORACIS_BIOS_ARM7_BANK_NAME "oracis_user_bios_arm7")
+    foreach(bank_name IN ITEMS
+            ${ORACIS_BIOS_ARM9_BANK_NAME}
+            ${ORACIS_BIOS_ARM7_BANK_NAME})
+        foreach(extension IN ITEMS ".c" ".h" "_dispatch.c")
+            if(NOT EXISTS "${ORACIS_LOCAL_BIOS_BANK_DIR}/${bank_name}${extension}")
+                message(FATAL_ERROR
+                    "Missing generated BIOS bank file: "
+                    "${ORACIS_LOCAL_BIOS_BANK_DIR}/${bank_name}${extension}")
+            endif()
+        endforeach()
+    endforeach()
+
+    file(GLOB _oracis_bios_arm9_shards CONFIGURE_DEPENDS
+        "${ORACIS_LOCAL_BIOS_BANK_DIR}/${ORACIS_BIOS_ARM9_BANK_NAME}_shards/bank_part_*.c")
+    file(GLOB _oracis_bios_arm7_shards CONFIGURE_DEPENDS
+        "${ORACIS_LOCAL_BIOS_BANK_DIR}/${ORACIS_BIOS_ARM7_BANK_NAME}_shards/bank_part_*.c")
+
+    if(_oracis_bios_arm9_shards)
+        set(_oracis_bios_arm9_sources ${_oracis_bios_arm9_shards})
+    else()
+        set(_oracis_bios_arm9_sources
+            "${ORACIS_LOCAL_BIOS_BANK_DIR}/${ORACIS_BIOS_ARM9_BANK_NAME}.c")
+    endif()
+    if(_oracis_bios_arm7_shards)
+        set(_oracis_bios_arm7_sources ${_oracis_bios_arm7_shards})
+    else()
+        set(_oracis_bios_arm7_sources
+            "${ORACIS_LOCAL_BIOS_BANK_DIR}/${ORACIS_BIOS_ARM7_BANK_NAME}.c")
+    endif()
+
+    add_library(oracis_user_bios_arm9_bank OBJECT
+        ${_oracis_bios_arm9_sources}
+        "${ORACIS_LOCAL_BIOS_BANK_DIR}/${ORACIS_BIOS_ARM9_BANK_NAME}_dispatch.c")
+    add_library(oracis_user_bios_arm7_bank OBJECT
+        ${_oracis_bios_arm7_sources}
+        "${ORACIS_LOCAL_BIOS_BANK_DIR}/${ORACIS_BIOS_ARM7_BANK_NAME}_dispatch.c")
+    foreach(bank_target IN ITEMS
+            oracis_user_bios_arm9_bank
+            oracis_user_bios_arm7_bank)
+        target_link_libraries(${bank_target} PRIVATE oracis_generated_bank_abi)
+        target_include_directories(${bank_target} PRIVATE
+            "${ORACIS_LOCAL_BIOS_BANK_DIR}")
+    endforeach()
+
+    target_sources(oracis_machine PRIVATE
+        $<TARGET_OBJECTS:oracis_user_bios_arm9_bank>
+        $<TARGET_OBJECTS:oracis_user_bios_arm7_bank>)
+    target_compile_definitions(oracis_machine PRIVATE
+        ORACIS_WITH_USER_BIOS_STATIC_BANKS=1)
+    if(ORACIS_BUILD_HOST)
+        target_compile_definitions(${ORACIS_RUNTIME_TARGET} PRIVATE
+            ORACIS_WITH_USER_BIOS_STATIC_BANKS=1)
+    endif()
 endif()
 
 # Overlay banks are an independent optional local input. They are registered
@@ -699,6 +787,17 @@ if(BUILD_TESTING)
         NAME oracis_runtime_bios_boot_bridge_c_test
         COMMAND oracis_runtime_bios_boot_bridge_c_test
     )
+
+    if(ORACIS_LOCAL_BIOS_BANK_DIR)
+        add_executable(oracis_bios_bank_link_smoke
+            tests/host/compiled_bios_bank_link_smoke.cpp
+        )
+        target_link_libraries(oracis_bios_bank_link_smoke PRIVATE oracis_machine)
+        add_test(
+            NAME oracis_bios_bank_link_smoke
+            COMMAND oracis_bios_bank_link_smoke
+        )
+    endif()
 
     add_executable(oracis_game_card_boot_loader_test
         tests/host/game_card_boot_loader_test.cpp

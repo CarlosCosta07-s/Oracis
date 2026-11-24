@@ -32,6 +32,15 @@ extern const unsigned
 }
 #endif
 
+#ifdef ORACIS_WITH_USER_BIOS_STATIC_BANKS
+extern "C" {
+extern const NdsDispatchEntry g_dispatch_oracis_user_bios_arm9[];
+extern const unsigned g_dispatch_oracis_user_bios_arm9_len;
+extern const NdsDispatchEntry g_dispatch_oracis_user_bios_arm7[];
+extern const unsigned g_dispatch_oracis_user_bios_arm7_len;
+}
+#endif
+
 #ifdef ORACIS_WITH_PLATINUM_OVERLAY_BANKS
 extern "C" int oracis_register_compiled_overlay_banks(void);
 #endif
@@ -1287,6 +1296,59 @@ extern "C" int oracis_host_runtime_register_compiled_banks(void)
         return ORACIS_HOST_RUNTIME_BANK_REGISTRATION_FAILED;
     }
 #endif
+    return ORACIS_HOST_RUNTIME_OK;
+#else
+    return ORACIS_HOST_RUNTIME_NO_COMPILED_BANKS;
+#endif
+}
+
+extern "C" int oracis_host_runtime_register_user_bios_banks(void)
+{
+    auto &machine = host_machine();
+    if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+#ifdef ORACIS_WITH_USER_BIOS_STATIC_BANKS
+    auto &registry = oracis::recomp::global_static_dispatch_registry();
+    const bool arm9_registered = registry.contains_bank(
+        NDS_ARM9,
+        g_dispatch_oracis_user_bios_arm9,
+        g_dispatch_oracis_user_bios_arm9_len);
+    const bool arm7_registered = registry.contains_bank(
+        NDS_ARM7,
+        g_dispatch_oracis_user_bios_arm7,
+        g_dispatch_oracis_user_bios_arm7_len);
+    if (arm9_registered && arm7_registered) {
+        return ORACIS_HOST_RUNTIME_BANKS_ALREADY_REGISTERED;
+    }
+
+    bool added_arm9 = false;
+    if (!arm9_registered) {
+        const int status = oracis_static_dispatch_register_bank(
+            NDS_ARM9,
+            g_dispatch_oracis_user_bios_arm9,
+            g_dispatch_oracis_user_bios_arm9_len,
+            "oracis-user-bios-arm9");
+        if (status != ORACIS_DISPATCH_REGISTER_OK) {
+            return ORACIS_HOST_RUNTIME_BANK_REGISTRATION_FAILED;
+        }
+        added_arm9 = true;
+    }
+
+    if (!arm7_registered) {
+        const int status = oracis_static_dispatch_register_bank(
+            NDS_ARM7,
+            g_dispatch_oracis_user_bios_arm7,
+            g_dispatch_oracis_user_bios_arm7_len,
+            "oracis-user-bios-arm7");
+        if (status != ORACIS_DISPATCH_REGISTER_OK) {
+            if (added_arm9) {
+                (void)oracis_static_dispatch_unregister_bank(
+                    NDS_ARM9,
+                    g_dispatch_oracis_user_bios_arm9,
+                    g_dispatch_oracis_user_bios_arm9_len);
+            }
+            return ORACIS_HOST_RUNTIME_BANK_REGISTRATION_FAILED;
+        }
+    }
     return ORACIS_HOST_RUNTIME_OK;
 #else
     return ORACIS_HOST_RUNTIME_NO_COMPILED_BANKS;

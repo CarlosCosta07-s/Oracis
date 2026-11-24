@@ -1125,6 +1125,22 @@ int main(int argc, char *argv[])
     }
 #endif
 
+#ifdef ORACIS_WITH_USER_BIOS_STATIC_BANKS
+    const int user_bios_bank_status =
+        oracis_host_runtime_register_user_bios_banks();
+    if (user_bios_bank_status != ORACIS_HOST_RUNTIME_OK &&
+        user_bios_bank_status != ORACIS_HOST_RUNTIME_BANKS_ALREADY_REGISTERED) {
+        SDL_LogCritical(
+            SDL_LOG_CATEGORY_APPLICATION,
+            "User BIOS ARM9/ARM7 bank registration failed (bridge=%d, machine=%d).",
+            user_bios_bank_status,
+            oracis_host_runtime_last_machine_status());
+        goto cleanup;
+    }
+    SDL_Log("User-provided BIOS reset and exception banks are linked and registered. "
+            "Retail BIOS boot remains an explicit, separately validated path.");
+#endif
+
     exit_code = EXIT_SUCCESS;
 
     while (running) {

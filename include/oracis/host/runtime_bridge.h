@@ -285,6 +285,12 @@ int oracis_host_runtime_unload_overlay(
 int oracis_host_runtime_register_compiled_banks(void);
 
 /*
+ * Register locally linked user-provided ARM9/ARM7 BIOS static banks.
+ * Returns NO_COMPILED_BANKS when ORACIS_LOCAL_BIOS_BANK_DIR was not used.
+ */
+int oracis_host_runtime_register_user_bios_banks(void);
+
+/*
  * Execute one synchronized ARM9/ARM7 round through the registered static
  * banks. Before entering either CPU, validates both current entry PCs against
  * their registered dispatch rows and live guest bytes. Returns

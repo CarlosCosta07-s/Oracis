@@ -709,3 +709,27 @@ sintéticos, não dumps reais, e não enviam qualquer artefato derivado para a C
 Este passo só produz os bancos locais. Ele ainda não liga esses objetos ao
 CMake/Android, não valida cobertura de todas as rotinas de cada BIOS e não
 comprova execução das BIOSes reais.
+
+
+## 15. Ligação CMake e registro dos bancos BIOS
+
+Depois de gerar os bancos localmente, eles podem ser ligados ao runtime com:
+
+```sh
+cmake -S . -B build \
+  -DORACIS_LOCAL_BIOS_BANK_DIR=.oracis/generated/nds-user-bios
+cmake --build build --parallel
+```
+
+O CMake valida o manifesto, identidade do codegen, hashes C/H/dispatch, sete
+vetores de cada CPU, shards, nomes e ausência de arquivos extras antes de criar
+os objetos estáticos ARM9/ARM7. A ponte oferece
+`oracis_host_runtime_register_user_bios_banks()`; a função é chamada pelo host
+quando o executável foi compilado com `ORACIS_LOCAL_BIOS_BANK_DIR`. O registro
+é transacional: se ARM7 falhar, o banco ARM9 recém-registrado é removido.
+
+A CI cria uma pasta temporária com apenas C sintético, manifesto e shards para
+compilar os dois alvos, executar o smoke test de registro e confirmar a limpeza
+da tabela no shutdown. Ela nunca recebe BIOS real. Esse smoke test confirma a
+ligação e o ciclo de vida dos bancos, não a cobertura de todas as rotinas BIOS
+nem o boot retail.
