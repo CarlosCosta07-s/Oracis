@@ -99,9 +99,10 @@ public:
      * flash image. Uses the BIOS-derived base table already loaded in this
      * object and the firmware's MACP/MACh identifier. The result is committed
      * only after both encrypted LZ77 streams and their CRC16 validate.
-     * When the firmware header advertises parts 3/4/5, their raw LZ77,
-     * Huffman or run-length streams are also decoded and CRC-checked into
-     * staging buffers. These secondary buffers are not installed in guest RAM.
+     * When the firmware header advertises parts 3/4/5, their P345 LZ tokens
+     * are decoded through independent static primary and distance Huffman
+     * trees, then CRC-checked in staging buffers. These secondary buffers
+     * are not installed in guest RAM.
      */
     Status decrypt_firmware_boot_code(
         const uint8_t *firmware, std::size_t firmware_size,

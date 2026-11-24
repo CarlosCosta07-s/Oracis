@@ -183,227 +183,292 @@ Status decompress_firmware_lz77(
  * Their header supplies source offsets; each stream carries its output size
  * and codec type. They are staged separately from KEY1-protected IPL1/2.
  */
-class RawFirmwareStream final {
+class P345BitReader final {
 public:
-    RawFirmwareStream(
-        const uint8_t *image, size_t image_size, size_t source_offset) noexcept
-        : image_(image), image_size_(image_size), cursor_(source_offset)
+    P345BitReader(const uint8_t *bytes, size_t size) noexcept
+        : bytes_(bytes), size_(size)
     {
     }
 
-    bool read_byte(uint8_t &value) noexcept
+    bool read_bit(uint8_t &value) noexcept
     {
-        if (image_ == nullptr || cursor_ >= image_size_) return false;
-        value = image_[cursor_++];
+        if (bytes_ == nullptr || bit_position_ >= size_ * 8u) return false;
+        const size_t byte_index = bit_position_ / 8u;
+        const uint32_t bit_index =
+            static_cast<uint32_t>(bit_position_ & size_t{7u});
+        value = static_cast<uint8_t>(
+            (bytes_[byte_index] >> (7u - bit_index)) & UINT8_C(1));
+        ++bit_position_;
         return true;
     }
 
-    size_t position() const noexcept { return cursor_; }
+    bool read_bits(uint32_t count, uint16_t &value) noexcept
+    {
+        if (count > 16u) return false;
+        value = 0u;
+        for (uint32_t index = 0u; index < count; ++index) {
+            uint8_t bit = 0u;
+            if (!read_bit(bit)) return false;
+            value = static_cast<uint16_t>(
+                (static_cast<uint32_t>(value) << 1u) | bit);
+        }
+        return true;
+    }
+
+    size_t bit_position() const noexcept { return bit_position_; }
+
+    bool remaining_bits_are_zero() const noexcept
+    {
+        if (bytes_ == nullptr) return false;
+        const size_t end = size_ * 8u;
+        for (size_t position = bit_position_; position < end; ++position) {
+            const size_t byte_index = position / 8u;
+            const uint32_t bit_index =
+                static_cast<uint32_t>(position & size_t{7u});
+            if (((bytes_[byte_index] >> (7u - bit_index)) & 1u) != 0u) {
+                return false;
+            }
+        }
+        return true;
+    }
 
 private:
-    const uint8_t *image_;
-    size_t image_size_;
-    size_t cursor_;
+    const uint8_t *bytes_ = nullptr;
+    size_t size_ = 0u;
+    size_t bit_position_ = 0u;
 };
 
-Status decompress_firmware_data(
-    const uint8_t *firmware,
-    size_t firmware_size,
-    size_t source_offset,
-    std::vector<uint8_t> &output,
-    size_t &compressed_end) noexcept
+struct P345HuffmanNode {
+    static constexpr size_t NoChild = static_cast<size_t>(-1);
+
+    size_t children[2] = {NoChild, NoChild};
+    uint16_t symbol = 0u;
+    bool leaf = false;
+};
+
+Status read_p345_huffman_tree(
+    P345BitReader &reader,
+    uint32_t symbol_bits,
+    std::vector<P345HuffmanNode> &nodes) noexcept
 {
-    constexpr size_t MaxFirmwarePartBytes = size_t{1} << 24u;
-    if (firmware == nullptr || source_offset >= firmware_size) {
+    if (symbol_bits == 0u || symbol_bits > 11u) {
         return Status::InvalidRegion;
     }
 
-    RawFirmwareStream stream(firmware, firmware_size, source_offset);
-    uint8_t header[4]{};
-    for (uint8_t &byte : header) {
-        if (!stream.read_byte(byte)) return Status::InvalidRegion;
-    }
+    const size_t max_leaf_count = size_t{1u} << symbol_bits;
+    const size_t max_node_count = max_leaf_count * 2u - 1u;
+    struct PendingNode {
+        size_t index = 0u;
+        uint8_t next_child = 0u;
+    };
 
-    const uint32_t codec = header[0] >> 4u;
-    const uint32_t output_size =
-        static_cast<uint32_t>(header[1]) |
-        (static_cast<uint32_t>(header[2]) << 8u) |
-        (static_cast<uint32_t>(header[3]) << 16u);
-    if (output_size == 0u ||
-        static_cast<size_t>(output_size) > MaxFirmwarePartBytes) {
-        return Status::InvalidRegion;
-    }
-
-    std::vector<uint8_t> decoded;
     try {
-        decoded.assign(output_size, 0u);
+        nodes.clear();
+        nodes.reserve(max_node_count);
+        std::vector<PendingNode> pending;
+        pending.reserve(max_leaf_count);
 
-        if (codec == 1u) {
-            if (header[0] != UINT8_C(0x10)) return Status::Unsupported;
-            uint32_t produced = 0u;
-            while (produced < output_size) {
-                uint8_t flags = 0u;
-                if (!stream.read_byte(flags)) return Status::InvalidRegion;
-                for (uint32_t bit = 0u; bit < 8u && produced < output_size; ++bit) {
-                    if ((flags & (UINT8_C(0x80) >> bit)) == 0u) {
-                        uint8_t literal = 0u;
-                        if (!stream.read_byte(literal)) return Status::InvalidRegion;
-                        decoded[produced++] = literal;
-                        continue;
-                    }
-
-                    uint8_t first = 0u;
-                    uint8_t second = 0u;
-                    if (!stream.read_byte(first) || !stream.read_byte(second)) {
-                        return Status::InvalidRegion;
-                    }
-                    const uint32_t length =
-                        static_cast<uint32_t>((first >> 4u) + 3u);
-                    const uint32_t distance =
-                        (((static_cast<uint32_t>(first) & UINT32_C(0x0F)) << 8u) |
-                         static_cast<uint32_t>(second)) + 1u;
-                    if (distance > produced ||
-                        length > output_size - produced) {
-                        return Status::InvalidRegion;
-                    }
-                    for (uint32_t index = 0u; index < length; ++index) {
-                        decoded[produced] = decoded[produced - distance];
-                        ++produced;
-                    }
-                }
-            }
-        } else if (codec == 2u) {
-            const uint32_t symbol_width = header[0] & UINT8_C(0x0F);
-            if ((symbol_width != 4u && symbol_width != 8u) ||
-                (output_size & 3u) != 0u) {
+        const auto append_node = [&]() -> Status {
+            uint8_t marker = 0u;
+            if (!reader.read_bit(marker) || nodes.size() >= max_node_count) {
                 return Status::InvalidRegion;
             }
 
-            uint8_t tree_size = 0u;
-            if (!stream.read_byte(tree_size)) return Status::InvalidRegion;
-            const size_t tree_bytes =
-                static_cast<size_t>(tree_size) * 2u + 1u;
-            const size_t tree_base_offset = stream.position();
-            if (tree_bytes > firmware_size - tree_base_offset) {
-                return Status::InvalidRegion;
-            }
-
-            std::vector<uint8_t> tree(tree_bytes, 0u);
-            for (uint8_t &byte : tree) {
-                if (!stream.read_byte(byte)) return Status::InvalidRegion;
-            }
-
-            uint32_t compressed_word = 0u;
-            uint32_t compressed_bits_remaining = 0u;
-            const auto read_bit = [&]() noexcept -> int {
-                if (compressed_bits_remaining == 0u) {
-                    uint8_t bytes[4]{};
-                    for (uint8_t &byte : bytes) {
-                        if (!stream.read_byte(byte)) return -1;
-                    }
-                    compressed_word =
-                        static_cast<uint32_t>(bytes[0]) |
-                        (static_cast<uint32_t>(bytes[1]) << 8u) |
-                        (static_cast<uint32_t>(bytes[2]) << 16u) |
-                        (static_cast<uint32_t>(bytes[3]) << 24u);
-                    compressed_bits_remaining = 32u;
-                }
-                const uint32_t shift = compressed_bits_remaining - 1u;
-                const int bit = static_cast<int>(
-                    (compressed_word >> shift) & UINT32_C(1));
-                --compressed_bits_remaining;
-                return bit;
-            };
-
-            const uint64_t symbol_count =
-                (static_cast<uint64_t>(output_size) * 8u) / symbol_width;
-            const uint32_t symbols_per_byte = 8u / symbol_width;
-            const uint32_t symbol_mask =
-                symbol_width == 4u ? UINT32_C(0x0F) : UINT32_C(0xFF);
-            for (uint64_t symbol_index = 0u;
-                 symbol_index < symbol_count; ++symbol_index) {
-                uint32_t node_index = 0u;
-                uint32_t symbol = 0u;
-                bool found_leaf = false;
-                for (size_t depth = 0u; depth < tree_bytes; ++depth) {
-                    if (node_index >= tree_bytes) return Status::InvalidRegion;
-                    const uint32_t descriptor = tree[node_index];
-                    const int branch = read_bit();
-                    if (branch < 0) return Status::InvalidRegion;
-
-                    const uint64_t node_address =
-                        static_cast<uint64_t>(tree_base_offset) + node_index;
-                    const uint64_t child_address =
-                        (node_address & ~UINT64_C(1)) +
-                        (static_cast<uint64_t>(
-                            (descriptor & UINT32_C(0x3F)) + 1u) * 2u) +
-                        static_cast<uint32_t>(branch);
-                    const uint64_t tree_end =
-                        static_cast<uint64_t>(tree_base_offset) + tree_bytes;
-                    if (child_address < tree_base_offset ||
-                        child_address >= tree_end) {
-                        return Status::InvalidRegion;
-                    }
-                    const uint32_t child_index =
-                        static_cast<uint32_t>(child_address - tree_base_offset);
-                    const bool child_is_leaf = branch != 0
-                        ? (descriptor & UINT32_C(0x40)) != 0u
-                        : (descriptor & UINT32_C(0x80)) != 0u;
-                    if (child_is_leaf) {
-                        symbol = tree[child_index];
-                        found_leaf = true;
-                        break;
-                    }
-                    node_index = child_index;
-                }
-                if (!found_leaf || (symbol & ~symbol_mask) != 0u) {
+            P345HuffmanNode node{};
+            if (marker == 0u) {
+                if (!reader.read_bits(symbol_bits, node.symbol)) {
                     return Status::InvalidRegion;
                 }
+                node.leaf = true;
+            }
+            nodes.push_back(node);
+            return Status::Ok;
+        };
 
-                const size_t output_index =
-                    static_cast<size_t>(symbol_index / symbols_per_byte);
-                const uint32_t shift = static_cast<uint32_t>(
-                    symbol_index % symbols_per_byte) * symbol_width;
-                decoded[output_index] = static_cast<uint8_t>(
-                    decoded[output_index] | (symbol << shift));
+        Status status = append_node();
+        if (status != Status::Ok) return status;
+        if (!nodes[0].leaf) pending.push_back({0u, 0u});
+
+        while (!pending.empty()) {
+            const size_t parent_index = pending.back().index;
+            const uint8_t child_slot = pending.back().next_child;
+            if (child_slot >= 2u) {
+                pending.pop_back();
+                continue;
             }
-        } else if (codec == 3u) {
-            if (header[0] != UINT8_C(0x30)) return Status::Unsupported;
-            uint32_t produced = 0u;
-            while (produced < output_size) {
-                uint8_t flags = 0u;
-                if (!stream.read_byte(flags)) return Status::InvalidRegion;
-                const bool repeated = (flags & UINT8_C(0x80)) != 0u;
-                const uint32_t run_length =
-                    static_cast<uint32_t>(flags & UINT8_C(0x7F)) +
-                    (repeated ? 3u : 1u);
-                const uint32_t count =
-                    std::min(run_length, output_size - produced);
-                if (repeated) {
-                    uint8_t value = 0u;
-                    if (!stream.read_byte(value)) return Status::InvalidRegion;
-                    std::fill_n(decoded.begin() + produced, count, value);
-                    produced += count;
-                } else {
-                    for (uint32_t index = 0u; index < count; ++index) {
-                        uint8_t value = 0u;
-                        if (!stream.read_byte(value)) return Status::InvalidRegion;
-                        decoded[produced++] = value;
-                    }
-                }
+            ++pending.back().next_child;
+
+            status = append_node();
+            if (status != Status::Ok) return status;
+            const size_t child_index = nodes.size() - 1u;
+            nodes[parent_index].children[child_slot] = child_index;
+            if (!nodes[child_index].leaf) {
+                pending.push_back({child_index, 0u});
             }
-        } else {
-            return Status::Unsupported;
         }
     } catch (const std::bad_alloc &) {
         return Status::Unsupported;
     }
 
-    compressed_end = stream.position();
+    return nodes.empty() ? Status::InvalidRegion : Status::Ok;
+}
+
+bool read_p345_symbol(
+    P345BitReader &reader,
+    const std::vector<P345HuffmanNode> &nodes,
+    uint16_t &symbol) noexcept
+{
+    if (nodes.empty()) return false;
+
+    size_t node_index = 0u;
+    for (size_t depth = 0u; depth < nodes.size(); ++depth) {
+        if (node_index >= nodes.size()) return false;
+        const P345HuffmanNode &node = nodes[node_index];
+        if (node.leaf) {
+            symbol = node.symbol;
+            return true;
+        }
+
+        uint8_t branch = 0u;
+        if (!reader.read_bit(branch)) return false;
+        node_index = node.children[branch];
+        if (node_index == P345HuffmanNode::NoChild) return false;
+    }
+    return false;
+}
+
+size_t align_firmware_stream_size(size_t size) noexcept
+{
+    return (size + size_t{3u}) & ~size_t{3u};
+}
+
+Status decompress_firmware_p345(
+    const uint8_t *firmware,
+    size_t firmware_size,
+    size_t source_offset,
+    std::vector<uint8_t> &output,
+    size_t &component_span) noexcept
+{
+    constexpr uint32_t MaxFirmwarePartBytes = UINT32_C(0x01000000);
+    constexpr size_t HeaderBytes = 12u;
+    if (firmware == nullptr || source_offset > firmware_size ||
+        firmware_size - source_offset < HeaderBytes) {
+        return Status::InvalidRegion;
+    }
+
+    const uint32_t descriptor = read_u32_le(firmware + source_offset);
+    if ((descriptor >> 24u) != UINT32_C(0x80)) {
+        return Status::InvalidRegion;
+    }
+    const uint32_t scaled_span = descriptor & UINT32_C(0x00FFFFFF);
+    if ((scaled_span & UINT32_C(3)) != 0u) {
+        return Status::InvalidRegion;
+    }
+    const size_t decoded_component_span =
+        static_cast<size_t>(scaled_span >> 2u);
+    if (decoded_component_span < HeaderBytes + 8u ||
+        decoded_component_span > MaxFirmwarePartBytes ||
+        decoded_component_span > firmware_size - source_offset ||
+        firmware[source_offset + 4u] != UINT8_C(0x80)) {
+        return Status::InvalidRegion;
+    }
+
+    const uint32_t output_size =
+        (static_cast<uint32_t>(firmware[source_offset + 5u]) << 16u) |
+        (static_cast<uint32_t>(firmware[source_offset + 6u]) << 8u) |
+        static_cast<uint32_t>(firmware[source_offset + 7u]);
+    const uint32_t distance_offset =
+        (static_cast<uint32_t>(firmware[source_offset + 8u]) << 24u) |
+        (static_cast<uint32_t>(firmware[source_offset + 9u]) << 16u) |
+        (static_cast<uint32_t>(firmware[source_offset + 10u]) << 8u) |
+        static_cast<uint32_t>(firmware[source_offset + 11u]);
+    if (output_size == 0u || output_size > MaxFirmwarePartBytes ||
+        distance_offset < HeaderBytes ||
+        (distance_offset & UINT32_C(3)) != 0u ||
+        distance_offset >= decoded_component_span) {
+        return Status::InvalidRegion;
+    }
+
+    const size_t primary_stream_size =
+        static_cast<size_t>(distance_offset) - HeaderBytes;
+    const size_t distance_stream_size =
+        decoded_component_span - static_cast<size_t>(distance_offset);
+    if (primary_stream_size == 0u || distance_stream_size == 0u ||
+        (primary_stream_size & size_t{3u}) != 0u) {
+        return Status::InvalidRegion;
+    }
+
+    P345BitReader primary_reader(
+        firmware + source_offset + HeaderBytes, primary_stream_size);
+    P345BitReader distance_reader(
+        firmware + source_offset + distance_offset, distance_stream_size);
+    std::vector<P345HuffmanNode> primary_tree;
+    std::vector<P345HuffmanNode> distance_tree;
+    Status status = read_p345_huffman_tree(
+        primary_reader, 9u, primary_tree);
+    if (status != Status::Ok) return status;
+    status = read_p345_huffman_tree(
+        distance_reader, 11u, distance_tree);
+    if (status != Status::Ok) return status;
+
+    std::vector<uint8_t> decoded;
+    try {
+        decoded.reserve(output_size);
+        while (decoded.size() < output_size) {
+            uint16_t symbol = 0u;
+            if (!read_p345_symbol(primary_reader, primary_tree, symbol)) {
+                return Status::InvalidRegion;
+            }
+
+            if (symbol <= UINT16_C(0x00FF)) {
+                decoded.push_back(static_cast<uint8_t>(symbol));
+                continue;
+            }
+
+            if (symbol > UINT16_C(0x01FF)) {
+                return Status::InvalidRegion;
+            }
+            uint16_t distance_symbol = 0u;
+            if (!read_p345_symbol(
+                    distance_reader, distance_tree, distance_symbol)) {
+                return Status::InvalidRegion;
+            }
+
+            const size_t match_length =
+                static_cast<size_t>(symbol - UINT16_C(0x0100)) + 3u;
+            const size_t distance =
+                static_cast<size_t>(distance_symbol) + 1u;
+            if (distance > decoded.size() ||
+                match_length > static_cast<size_t>(output_size) -
+                    decoded.size()) {
+                return Status::InvalidRegion;
+            }
+
+            for (size_t index = 0u; index < match_length; ++index) {
+                decoded.push_back(decoded[decoded.size() - distance]);
+            }
+        }
+    } catch (const std::bad_alloc &) {
+        return Status::Unsupported;
+    }
+
+    const size_t primary_used_bytes =
+        (primary_reader.bit_position() + 7u) / 8u;
+    const size_t distance_used_bytes =
+        (distance_reader.bit_position() + 7u) / 8u;
+    if (align_firmware_stream_size(primary_used_bytes) !=
+            primary_stream_size ||
+        align_firmware_stream_size(distance_used_bytes) !=
+            distance_stream_size ||
+        !primary_reader.remaining_bits_are_zero() ||
+        !distance_reader.remaining_bits_are_zero()) {
+        return Status::InvalidRegion;
+    }
+
+    component_span = decoded_component_span;
     output = std::move(decoded);
     return Status::Ok;
 }
-
 } // namespace
 
 uint32_t NdsGameCardKey1::byte_swap32(uint32_t value) noexcept
@@ -986,32 +1051,38 @@ Status NdsGameCardKey1::decrypt_firmware_boot_code(
             return Status::InvalidRegion;
         }
 
-        std::array<size_t, 3> ends{};
-        status = decompress_firmware_data(
+        std::array<size_t, 3> spans{};
+        status = decompress_firmware_p345(
             firmware, firmware_size, starts[0],
-            candidate.arm9_secondary_bytes, ends[0]);
+            candidate.arm9_secondary_bytes, spans[0]);
         if (status == Status::Ok) {
-            status = decompress_firmware_data(
+            status = decompress_firmware_p345(
                 firmware, firmware_size, starts[1],
-                candidate.arm7_secondary_bytes, ends[1]);
+                candidate.arm7_secondary_bytes, spans[1]);
         }
         if (status == Status::Ok) {
-            status = decompress_firmware_data(
+            status = decompress_firmware_p345(
                 firmware, firmware_size, starts[2],
-                candidate.firmware_data_bytes, ends[2]);
+                candidate.firmware_data_bytes, spans[2]);
         }
         if (status != Status::Ok) {
             restore();
             return status;
         }
 
-        for (size_t left = 0u; left < starts.size(); ++left) {
-            if (ends[left] <= starts[left] || ends[left] > firmware_size) {
+        std::array<uint64_t, 3> ends{};
+        for (size_t index = 0u; index < starts.size(); ++index) {
+            ends[index] = static_cast<uint64_t>(starts[index]) + spans[index];
+            if (spans[index] == 0u || ends[index] > firmware_size) {
                 restore();
                 return Status::InvalidRegion;
             }
+        }
+        for (size_t left = 0u; left < starts.size(); ++left) {
             for (size_t right = left + 1u; right < starts.size(); ++right) {
-                if (starts[left] < ends[right] && starts[right] < ends[left]) {
+                const uint64_t left_start = starts[left];
+                const uint64_t right_start = starts[right];
+                if (left_start < ends[right] && right_start < ends[left]) {
                     restore();
                     return Status::InvalidRegion;
                 }
