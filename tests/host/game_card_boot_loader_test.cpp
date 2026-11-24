@@ -448,16 +448,31 @@ int main()
         invalid_destination_firmware, 0x2Au,
         crc16_header(invalid_destination_firmware.data() + 0x2Cu, 0x0137u));
 
-    if (oracis_host_runtime_set_spi_firmware_image(
+    const int invalid_firmware_set_status =
+        oracis_host_runtime_set_spi_firmware_image(
             invalid_destination_firmware.data(),
-            static_cast<uint32_t>(invalid_destination_firmware.size())) !=
-            ORACIS_HOST_RUNTIME_OK ||
-        oracis_host_runtime_load_spi_firmware_boot_code() !=
+            static_cast<uint32_t>(invalid_destination_firmware.size()));
+    const int invalid_firmware_load_status =
+        invalid_firmware_set_status == ORACIS_HOST_RUNTIME_OK
+            ? oracis_host_runtime_load_spi_firmware_boot_code()
+            : -1;
+    const int invalid_firmware_machine_status =
+        oracis_host_runtime_last_machine_status();
+    const bool arm9_select_ok = oracis_arm_runtime_select_cpu(NDS_ARM9);
+    const uint32_t arm9_after_rejected_firmware =
+        arm9_select_ok ? bus_read_u32(UINT32_C(0x023FEE00)) : UINT32_MAX;
+    if (invalid_firmware_set_status != ORACIS_HOST_RUNTIME_OK ||
+        invalid_firmware_load_status !=
             ORACIS_HOST_RUNTIME_FIRMWARE_MEMORY_UNAVAILABLE ||
-        oracis_host_runtime_last_machine_status() !=
+        invalid_firmware_machine_status !=
             static_cast<int>(oracis::machine::NdsMachineStatus::FirmwareBootMemoryUnavailable) ||
-        !oracis_arm_runtime_select_cpu(NDS_ARM9) ||
-        bus_read_u32(UINT32_C(0x023FEE00)) != 0u) {
+        !arm9_select_ok || arm9_after_rejected_firmware != 0u) {
+        std::fprintf(stderr,
+            "invalid firmware statuses: set=%d load=%d machine=%d "
+            "arm9_select=%u arm9_word=0x%08X\\n",
+            invalid_firmware_set_status, invalid_firmware_load_status,
+            invalid_firmware_machine_status, arm9_select_ok ? 1u : 0u,
+            arm9_after_rejected_firmware);
         (void)oracis_host_runtime_shutdown();
         return fail("firmware preflight partially wrote ARM9 before rejecting ARM7");
     }
