@@ -753,12 +753,12 @@ int main(int argc, char *argv[])
             game_card_chip_id);
     }
 
-    if (game_card_path != NULL && arm7_bios_path != NULL &&
-        (firmware_loaded
-#ifndef __ANDROID__
-         || true
+    bool load_game_card_program = game_card_path != NULL &&
+        arm7_bios_path != NULL;
+#ifdef __ANDROID__
+    load_game_card_program = load_game_card_program && firmware_loaded;
 #endif
-        )) {
+    if (load_game_card_program) {
         const int load_status =
             oracis_host_runtime_load_mounted_game_card_program();
         if (load_status != ORACIS_HOST_RUNTIME_OK) {
