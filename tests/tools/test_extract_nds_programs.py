@@ -145,6 +145,7 @@ class ExtractNdsProgramsTests(unittest.TestCase):
                 (0x02000800, "arm", "rom_entry"),
                 (0x020C2EBC, "arm", "observed_dispatch_thunk_020C2EBC"),
                 (0x020C2ECC, "arm", "observed_branch_table_entry_020C2ECC"),
+                (0x020C2F18, "arm", "observed_indirect_function_020C2F18"),
             ),
         )
         config = extractor.toml_for_segment(arm9)
@@ -152,6 +153,8 @@ class ExtractNdsProgramsTests(unittest.TestCase):
         self.assertIn('name = "observed_dispatch_thunk_020C2EBC"', config)
         self.assertIn("addr = 0x020C2ECC", config)
         self.assertIn('name = "observed_branch_table_entry_020C2ECC"', config)
+        self.assertIn("addr = 0x020C2F18", config)
+        self.assertIn('name = "observed_indirect_function_020C2F18"', config)
 
         # The extra seed is bound to the exact USA Rev 1 ARM9 image identity.
         arm7 = extractor.Segment(

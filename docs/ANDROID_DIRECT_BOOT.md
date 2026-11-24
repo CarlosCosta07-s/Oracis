@@ -37,6 +37,8 @@ O CPSR permanece em modo System e respeita o bit ARM/Thumb do entrypoint. O load
 
 O modelo de POSTFLG também aceita a leitura halfword observada nos helpers de inicialização ARM9 e ARM7: o `LDRH` em 0x04000300 lê o byte POSTFLG na lane baixa e o byte HALTCNT adjacente na lane alta. Como esses caminhos testam somente o bit 0 de POSTFLG, o Oracis retorna o byte POSTFLG zero-extendido; o estado/readback próprio de HALTCNT continua fora desse dispositivo.
 
+O probe de entrada direta também observou uma transferência ARM9 para 0x020C2ECC (uma instrução `B` para 0x020C2F18) e, em seguida, uma entrada indireta no início da função ARM9 em 0x020C2F18. As duas entradas adicionais são vinculadas ao SHA-1 do segmento ARM9 USA Rev 1 e permanecem apenas como metadados de recompilação; não há código ou dados de jogo embutidos no repositório.
+
 O carregador ainda não reproduz todas as regiões de RAM preenchidas durante o boot, fragmentos de código copiados pela BIOS, campos de identificação/CRC do cartucho, user settings do firmware, configuração completa CP15/MPU/TCM ou a inicialização de todos os periféricos. O cabeçalho NDS é espelhado em 0x027FFE00 quando fornecido ao loader. A ausência dessas outras condições continua sendo um possível bloqueio para Pokémon Platinum.
 
 ## Condições para executar código guest
