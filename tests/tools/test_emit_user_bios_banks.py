@@ -88,9 +88,21 @@ class EmitUserBiosBanksTests(unittest.TestCase):
 
     def test_emits_two_local_banks_with_all_exception_vectors(self) -> None:
         commands: list[list[str]] = []
+        compiler_inputs: dict[str, bytes] = {}
+
+        def recording_runner(command: list[str]) -> str:
+            result_text = self.fake_runner(commands)(command)
+            if command[-1] != "--codegen-identity":
+                bank = command[command.index("--bank") + 1]
+                cpu = "arm9" if bank.endswith("_arm9") else "arm7"
+                compiler_inputs[cpu] = Path(
+                    command[command.index("--bin") + 1]
+                ).read_bytes()
+            return result_text
+
         result = emitter.emit_banks(
             self.recompiler, self.arm9, self.arm7, self.output,
-            self.fake_runner(commands),
+            recording_runner,
         )
 
         self.assertEqual(commands[0], [str(self.recompiler), "--codegen-identity"])
@@ -104,7 +116,7 @@ class EmitUserBiosBanksTests(unittest.TestCase):
                 True,
             )
             self.assertEqual(
-                Path(command[command.index("--bin") + 1]).read_bytes(),
+                compiler_inputs[cpu],
                 self.arm9_data if cpu == "arm9" else self.arm7_data,
             )
 
