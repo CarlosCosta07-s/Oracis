@@ -8,6 +8,7 @@
 #define ORACIS_MEMORY_NDS_GAME_CARD_KEY1_HPP
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -91,7 +92,7 @@ public:
      * only after both LZ77 streams and the combined CRC16 validate.
      */
     Status decrypt_firmware_boot_code(
-        const uint8_t *firmware, size_t firmware_size,
+        const uint8_t *firmware, std::size_t firmware_size,
         NdsFirmwareBootCode &output) noexcept;
 
     /* Game Card command bytes are wire-order (MSB first); these helpers
