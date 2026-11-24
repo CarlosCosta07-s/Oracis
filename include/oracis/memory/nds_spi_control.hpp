@@ -80,6 +80,10 @@ public:
     Status set_firmware_image(const uint8_t *data, size_t size) noexcept;
     void clear_firmware_image() noexcept;
     bool firmware_loaded() const noexcept { return !firmware_.empty(); }
+    const uint8_t *firmware_data() const noexcept {
+        return firmware_.empty() ? nullptr : firmware_.data();
+    }
+    size_t firmware_size() const noexcept { return firmware_.size(); }
 
     /* Raw 12-bit touchscreen ADC coordinates; pen-up reads X=0, Y=0xFFF. */
     void set_touch(bool pressed, uint16_t x12, uint16_t y12) noexcept;
