@@ -1,4 +1,5 @@
 #include "oracis/host/runtime_bridge.h"
+#include "oracis/machine/nds_machine.hpp"
 #include "oracis/memory/nds_game_card_key1.hpp"
 #include "oracis/recomp/runtime_arm.h"
 
@@ -369,7 +370,7 @@ int main()
         oracis_host_runtime_load_spi_firmware_boot_code() !=
             ORACIS_HOST_RUNTIME_FIRMWARE_MEMORY_UNAVAILABLE ||
         oracis_host_runtime_last_machine_status() !=
-            static_cast<int>(NdsMachineStatus::FirmwareBootMemoryUnavailable) ||
+            static_cast<int>(oracis::machine::NdsMachineStatus::FirmwareBootMemoryUnavailable) ||
         !oracis_arm_runtime_select_cpu(NDS_ARM9) ||
         bus_read_u32(UINT32_C(0x023FEE00)) != 0u) {
         (void)oracis_host_runtime_shutdown();
