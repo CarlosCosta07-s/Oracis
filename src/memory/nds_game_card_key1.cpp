@@ -24,6 +24,22 @@ uint32_t read_u32_le(const uint8_t *bytes) noexcept
         (static_cast<uint32_t>(bytes[3]) << 24u);
 }
 
+uint16_t firmware_header_crc16(
+    const uint8_t *bytes, size_t size) noexcept
+{
+    uint16_t crc = 0u;
+    for (size_t index = 0u; index < size; ++index) {
+        crc = static_cast<uint16_t>(crc ^ bytes[index]);
+        for (uint32_t bit = 0u; bit < 8u; ++bit) {
+            crc = static_cast<uint16_t>(
+                (crc >> 1u) ^
+                ((crc & 1u) != 0u
+                    ? UINT16_C(0xA001) : UINT16_C(0)));
+        }
+    }
+    return crc;
+}
+
 uint16_t firmware_boot_crc16(
     const std::vector<uint8_t> &arm9,
     const std::vector<uint8_t> &arm7) noexcept
@@ -576,6 +592,22 @@ Status NdsGameCardKey1::decrypt_firmware_boot_code(
     const uint16_t part2_destination_info = read_u16_le(firmware + 0x12u);
     const uint16_t shift_data = read_u16_le(firmware + 0x14u);
     const uint16_t expected_crc = read_u16_le(firmware + 0x06u);
+    const uint16_t expected_header_crc = read_u16_le(firmware + 0x2Au);
+    const uint16_t remaining_header_size = read_u16_le(firmware + 0x2Cu);
+    const uint64_t remaining_header_end =
+        UINT64_C(0x2A) + remaining_header_size;
+    if (remaining_header_size < 4u ||
+        remaining_header_end > firmware_size ||
+        remaining_header_end < UINT64_C(0x2C)) {
+        return Status::InvalidRegion;
+    }
+    const size_t remaining_header_data_size =
+        static_cast<size_t>(remaining_header_end - UINT64_C(0x2C));
+    if (firmware_header_crc16(
+            firmware + 0x2Cu, remaining_header_data_size) !=
+        expected_header_crc) {
+        return Status::IdentityMismatch;
+    }
 
     const uint32_t part1_source_shift = (shift_data >> 0u) & 7u;
     const uint32_t part1_destination_shift = (shift_data >> 3u) & 7u;
