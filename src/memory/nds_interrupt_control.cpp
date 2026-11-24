@@ -18,25 +18,41 @@ ReadResult NdsInterruptControl::read(
     uint32_t address,
     uint32_t width) const noexcept
 {
-    if (address != ImeAddress &&
-        address != IeAddress &&
-        address != IfAddress) {
+    const uint32_t register_address = address & ~UINT32_C(3);
+    if (register_address != ImeAddress &&
+        register_address != IeAddress &&
+        register_address != IfAddress) {
         return {Status::Unmapped, 0u};
     }
     if (!valid_cpu(cpu)) return {Status::InvalidCpu, 0u};
-    if (width != 4u) return {Status::InvalidWidth, 0u};
+    if (width != 1u && width != 2u && width != 4u) {
+        return {Status::InvalidWidth, 0u};
+    }
+
+    const uint32_t lane = address & UINT32_C(3);
+    if (lane + width > 4u) return {Status::InvalidWidth, 0u};
 
     const CpuRegisters &registers = cpu_registers_[cpu_index(cpu)];
-    switch (address) {
+    uint32_t value = 0u;
+    switch (register_address) {
     case ImeAddress:
-        return {Status::Ok, registers.ime & UINT32_C(1)};
+        value = registers.ime & UINT32_C(1);
+        break;
     case IeAddress:
-        return {Status::Ok, registers.ie};
+        value = registers.ie;
+        break;
     case IfAddress:
-        return {Status::Ok, registers.flags};
+        value = registers.flags;
+        break;
     default:
         return {Status::Unmapped, 0u};
     }
+
+    const uint32_t shift = lane * 8u;
+    const uint32_t mask = width == 4u
+        ? UINT32_MAX
+        : (UINT32_C(1) << (width * 8u)) - UINT32_C(1);
+    return {Status::Ok, (value >> shift) & mask};
 }
 
 Status NdsInterruptControl::write(
@@ -45,26 +61,42 @@ Status NdsInterruptControl::write(
     uint32_t width,
     uint32_t value) noexcept
 {
-    if (address != ImeAddress &&
-        address != IeAddress &&
-        address != IfAddress) {
+    const uint32_t register_address = address & ~UINT32_C(3);
+    if (register_address != ImeAddress &&
+        register_address != IeAddress &&
+        register_address != IfAddress) {
         return Status::Unmapped;
     }
     if (!valid_cpu(cpu)) return Status::InvalidCpu;
-    if (width != 4u) return Status::InvalidWidth;
+    if (width != 1u && width != 2u && width != 4u) {
+        return Status::InvalidWidth;
+    }
+
+    const uint32_t lane = address & UINT32_C(3);
+    if (lane + width > 4u) return Status::InvalidWidth;
+
+    const uint32_t shift = lane * 8u;
+    const uint32_t value_mask = width == 4u
+        ? UINT32_MAX
+        : (UINT32_C(1) << (width * 8u)) - UINT32_C(1);
+    const uint32_t lane_mask = value_mask << shift;
+    const uint32_t lane_value = (value & value_mask) << shift;
 
     CpuRegisters &registers = cpu_registers_[cpu_index(cpu)];
-    switch (address) {
+    switch (register_address) {
     case ImeAddress:
-        /* Only bit zero is implemented by the retail DS. */
-        registers.ime = value & UINT32_C(1);
+        /* Only bit zero is implemented; reserved lanes are ignored. */
+        if ((lane_mask & UINT32_C(1)) != 0u) {
+            registers.ime = lane_value & UINT32_C(1);
+        }
         return Status::Ok;
     case IeAddress:
-        registers.ie = value;
+        registers.ie =
+            (registers.ie & ~lane_mask) | (lane_value & lane_mask);
         return Status::Ok;
     case IfAddress:
-        /* IF is write-one-to-clear: zero leaves a request unchanged. */
-        registers.flags &= ~value;
+        /* IF is write-one-to-clear within the addressed byte/halfword lane. */
+        registers.flags &= ~(lane_value & lane_mask);
         return Status::Ok;
     default:
         return Status::Unmapped;
