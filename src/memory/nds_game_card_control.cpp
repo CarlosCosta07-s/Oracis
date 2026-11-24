@@ -82,7 +82,7 @@ Status NdsGameCardControl::decrypt_secure_area_prefix(
 }
 Status NdsGameCardControl::decrypt_firmware_boot_code(
     const uint8_t *firmware,
-    size_t firmware_size,
+    std::size_t firmware_size,
     NdsFirmwareBootCode &output) noexcept
 {
  if(!installed_)return Status::Unmapped;
