@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <cstdio>
+#include <vector>
 
 namespace {
 
@@ -38,6 +39,133 @@ std::array<uint8_t, 8> make_key1_command(
         static_cast<uint8_t>(counter20 >> 8u),
         static_cast<uint8_t>(counter20)
     }};
+}
+
+void store_u16_le(std::vector<uint8_t> &bytes, size_t offset, uint16_t value)
+{
+    bytes[offset] = static_cast<uint8_t>(value);
+    bytes[offset + 1u] = static_cast<uint8_t>(value >> 8u);
+}
+
+void store_u32_le(std::vector<uint8_t> &bytes, size_t offset, uint32_t value)
+{
+    for (uint32_t index = 0u; index < 4u; ++index) {
+        bytes[offset + index] =
+            static_cast<uint8_t>(value >> (index * 8u));
+    }
+}
+
+uint16_t crc16_firmware(
+    const std::vector<uint8_t> &arm9,
+    const std::vector<uint8_t> &arm7)
+{
+    uint16_t crc = UINT16_C(0xFFFF);
+    const auto update = [&crc](const std::vector<uint8_t> &input) {
+        for (const uint8_t byte : input) {
+            crc = static_cast<uint16_t>(crc ^ byte);
+            for (uint32_t bit = 0u; bit < 8u; ++bit) {
+                crc = static_cast<uint16_t>(
+                    (crc >> 1u) ^
+                    ((crc & 1u) != 0u ? UINT16_C(0xA001) : UINT16_C(0)));
+            }
+        }
+    };
+    update(arm9);
+    update(arm7);
+    return crc;
+}
+
+std::vector<uint8_t> make_lz77_literal_block(
+    const std::array<uint8_t, 4> &decoded)
+{
+    return {
+        UINT8_C(0x10), UINT8_C(4), UINT8_C(0), UINT8_C(0),
+        UINT8_C(0), decoded[0], decoded[1], decoded[2], decoded[3]
+    };
+}
+
+bool encrypt_firmware_stream(
+    NdsGameCardKey1 &cipher,
+    const uint8_t *plain,
+    size_t size,
+    std::vector<uint8_t> &firmware,
+    size_t offset)
+{
+    if (plain == nullptr || offset > firmware.size() ||
+        size > firmware.size() - offset || (size & 7u) != 0u) {
+        return false;
+    }
+    for (size_t position = 0u; position < size; position += 8u) {
+        uint8_t block[8]{};
+        for (size_t index = 0u; index < 8u; ++index) {
+            block[index] = plain[position + index];
+        }
+        if (cipher.encrypt_block(block, 8u) !=
+            oracis::memory::Status::Ok) {
+            return false;
+        }
+        for (size_t index = 0u; index < 8u; ++index) {
+            firmware[offset + position + index] = block[index];
+        }
+    }
+    return true;
+}
+
+std::vector<uint8_t> make_synthetic_firmware(
+    const std::array<uint8_t, oracis::memory::NdsGameCardKey1::KeyTableBytes>
+        &table,
+    const std::array<uint8_t, 4> &arm9_plain,
+    const std::array<uint8_t, 4> &arm7_plain)
+{
+    using oracis::memory::NdsGameCardKey1;
+    using oracis::memory::Status;
+    constexpr uint32_t FirmwareId = UINT32_C(0x5043414D); /* "MACP" */
+    const auto arm9_lz = make_lz77_literal_block(arm9_plain);
+    const auto arm7_lz = make_lz77_literal_block(arm7_plain);
+    std::vector<uint8_t> firmware(0x290u, 0u);
+
+    store_u16_le(firmware, 0x0Cu, UINT16_C(4));       /* part 1 source: 0x200 */
+    store_u16_le(firmware, 0x0Eu, UINT16_C(0x8024));  /* part 1 dest: 0x023FEE00 */
+    store_u16_le(firmware, 0x10u, UINT16_C(0xA0));    /* part 2 source: 0x280 */
+    store_u16_le(firmware, 0x12u, UINT16_C(0x90));    /* part 2 dest: 0x0380F700 */
+    store_u16_le(firmware, 0x14u, UINT16_C(0x042D));
+    store_u32_le(firmware, 0x08u, FirmwareId);
+
+    NdsGameCardKey1 cipher;
+    if (cipher.load_key_table(table.data(), NdsGameCardKey1::KeyTableBytes) !=
+            Status::Ok ||
+        cipher.initialize(FirmwareId, 1u, 12u) != Status::Ok) {
+        return {};
+    }
+
+    const std::array<uint8_t, 8> rom_info_plain = {
+        UINT8_C(1), UINT8_C(2), UINT8_C(3), UINT8_C(4),
+        UINT8_C(5), UINT8_C(6), UINT8_C(7), UINT8_C(8)
+    };
+    auto rom_info_cipher = rom_info_plain;
+    if (cipher.encrypt_block(rom_info_cipher.data(), 8u) != Status::Ok) {
+        return {};
+    }
+    for (size_t index = 0u; index < rom_info_cipher.size(); ++index) {
+        firmware[0x18u + index] = rom_info_cipher[index];
+    }
+
+    if (cipher.initialize(FirmwareId, 2u, 12u) != Status::Ok) return {};
+    std::vector<uint8_t> arm9_padded(16u, 0u);
+    std::vector<uint8_t> arm7_padded(16u, 0u);
+    std::copy(arm9_lz.begin(), arm9_lz.end(), arm9_padded.begin());
+    std::copy(arm7_lz.begin(), arm7_lz.end(), arm7_padded.begin());
+    if (!encrypt_firmware_stream(
+            cipher, arm9_padded.data(), arm9_padded.size(), firmware, 0x200u) ||
+        !encrypt_firmware_stream(
+            cipher, arm7_padded.data(), arm7_padded.size(), firmware, 0x280u)) {
+        return {};
+    }
+
+    const std::vector<uint8_t> arm9_vector(arm9_plain.begin(), arm9_plain.end());
+    const std::vector<uint8_t> arm7_vector(arm7_plain.begin(), arm7_plain.end());
+    store_u16_le(firmware, 0x06u, crc16_firmware(arm9_vector, arm7_vector));
+    return firmware;
 }
 
 } // namespace
@@ -364,7 +492,64 @@ int main()
         return fail("Secure Area decryptor accepted invalid buffer arguments");
     }
 
-    std::puts("NDS KEY1 table loading, code levels, block vectors, command byte order and Secure Area decryption passed");
+
+    /* Firmware IPL: level-1 rominfo and level-2 encrypted LZ77 code parts. */
+    constexpr std::array<uint8_t, 4> firmware_arm9_plain = {
+        UINT8_C(0xA1), UINT8_C(0xA2), UINT8_C(0xA3), UINT8_C(0xA4)
+    };
+    constexpr std::array<uint8_t, 4> firmware_arm7_plain = {
+        UINT8_C(0xB1), UINT8_C(0xB2), UINT8_C(0xB3), UINT8_C(0xB4)
+    };
+    auto synthetic_firmware = make_synthetic_firmware(
+        table, firmware_arm9_plain, firmware_arm7_plain);
+    if (synthetic_firmware.size() != 0x290u ||
+        key1.load_key_table(table.data(), NdsGameCardKey1::KeyTableBytes) !=
+            Status::Ok ||
+        key1.initialize(UINT32_C(0x45555043), 1u, 8u) != Status::Ok) {
+        return fail("could not prepare synthetic encrypted firmware input");
+    }
+
+    oracis::memory::NdsFirmwareBootCode firmware_boot{};
+    if (key1.decrypt_firmware_boot_code(
+            synthetic_firmware.data(), synthetic_firmware.size(),
+            firmware_boot) != Status::Ok ||
+        firmware_boot.arm9_load_address != UINT32_C(0x023FEE00) ||
+        firmware_boot.arm7_load_address != UINT32_C(0x0380F700) ||
+        firmware_boot.arm9_bytes != std::vector<uint8_t>(
+            firmware_arm9_plain.begin(), firmware_arm9_plain.end()) ||
+        firmware_boot.arm7_bytes != std::vector<uint8_t>(
+            firmware_arm7_plain.begin(), firmware_arm7_plain.end()) ||
+        firmware_boot.computed_crc16 != firmware_boot.expected_crc16 ||
+        firmware_boot.decrypted_rom_info != std::array<uint8_t, 8>{
+            1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u} ||
+        key1.level() != 1u || key1.modulo_bytes() != 8u ||
+        key1.id_code() != UINT32_C(0x45555043)) {
+        return fail("firmware IPL decryption, LZ77, CRC, destinations or key restoration failed");
+    }
+
+    auto corrupted_firmware = synthetic_firmware;
+    corrupted_firmware[0x06u] ^= UINT8_C(0x80);
+    auto preserved_output = firmware_boot;
+    if (key1.decrypt_firmware_boot_code(
+            corrupted_firmware.data(), corrupted_firmware.size(),
+            preserved_output) != Status::IdentityMismatch ||
+        preserved_output.arm9_bytes != firmware_boot.arm9_bytes ||
+        preserved_output.arm7_bytes != firmware_boot.arm7_bytes) {
+        return fail("firmware IPL accepted a corrupted combined CRC or partially replaced output");
+    }
+
+    auto unsupported_firmware = synthetic_firmware;
+    unsupported_firmware[0x08u] = UINT8_C('X');
+    if (key1.decrypt_firmware_boot_code(
+            unsupported_firmware.data(), unsupported_firmware.size(),
+            preserved_output) != Status::Unsupported ||
+        key1.decrypt_firmware_boot_code(
+            synthetic_firmware.data(), 0x1FFu,
+            preserved_output) != Status::InvalidRegion) {
+        return fail("firmware IPL accepted an unsupported ID or truncated flash");
+    }
+
+    std::puts("NDS KEY1 and firmware IPL decryption/LZ77/CRC tests passed");
     key1.reset();
     if (!key1.table_loaded() || key1.initialized() || key1.id_code() != 0u ||
         key1.level() != 0u || key1.modulo_bytes() != 0u ||
