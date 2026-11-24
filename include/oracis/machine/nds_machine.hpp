@@ -71,7 +71,9 @@ enum class NdsMachineStatus : uint8_t {
     ProgramLoadAfterExecution,
     ProgramLoadFailed,
     ShutdownFailed,
-    OverlayInitializerFailed
+    OverlayInitializerFailed,
+    FirmwareBootCodeFailed,
+    FirmwareBootMemoryUnavailable
 };
 
 /*
@@ -136,6 +138,16 @@ public:
         const uint8_t *cartridge_header = nullptr,
         uint32_t cartridge_header_size = 0u) noexcept;
     bool program_loaded() const noexcept { return program_loaded_; }
+
+    /*
+     * Decrypt/decompress the user-supplied SPI firmware IPL parts with the
+     * BIOS-derived KEY1 table and install them into their validated guest RAM
+     * destinations. Must run before program entry/execution.
+     */
+    NdsMachineStatus load_firmware_boot_code() noexcept;
+    bool firmware_boot_code_loaded() const noexcept {
+        return firmware_boot_code_loaded_;
+    }
 
     /* Overlay images are supplied already extracted and decompressed. */
     NdsOverlayStatus load_overlay(const NdsOverlayImage &image) noexcept;
@@ -464,6 +476,7 @@ private:
     bool clock_bound_ = false;
     bool validation_bound_ = false;
     bool program_loaded_ = false;
+    bool firmware_boot_code_loaded_ = false;
     bool initialized_ = false;
 };
 
