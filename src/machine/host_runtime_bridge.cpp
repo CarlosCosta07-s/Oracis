@@ -380,6 +380,22 @@ extern "C" int oracis_host_runtime_load_game_card_arm7_bios(
         : ORACIS_HOST_RUNTIME_GAME_CARD_ERROR;
 }
 
+extern "C" int oracis_host_runtime_set_spi_firmware_image(
+    const uint8_t *bytes, uint32_t size)
+{
+    auto &machine = host_machine();
+    if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+    if (bytes == nullptr || size == 0u ||
+        size > oracis::memory::NdsSpiControl::MaxFirmwareBytes) {
+        return ORACIS_HOST_RUNTIME_INVALID_ARGUMENT;
+    }
+
+    const auto status = machine.spi_control().set_firmware_image(bytes, size);
+    return status == oracis::memory::Status::Ok
+        ? ORACIS_HOST_RUNTIME_OK
+        : ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR;
+}
+
 extern "C" int oracis_host_runtime_set_game_card_chip_id(uint32_t chip_id)
 {
     auto &machine = host_machine();
