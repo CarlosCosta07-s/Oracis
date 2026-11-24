@@ -2,6 +2,7 @@
 #ifndef ORACIS_MEMORY_NDS_GAME_CARD_CONTROL_HPP
 #define ORACIS_MEMORY_NDS_GAME_CARD_CONTROL_HPP
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include "oracis/memory/guest_memory.hpp"
 #include "oracis/memory/nds_interrupt_control.hpp"
@@ -75,6 +76,9 @@ public:
  /* Copy and decrypt the first 0x800 Secure Area bytes without modifying the mounted image. */
  Status decrypt_secure_area_prefix(uint8_t *bytes,uint32_t size,
      bool &identifier_valid) noexcept;
+ /* Decode the user-supplied SPI firmware IPL with the BIOS-derived KEY1 table. */
+ Status decrypt_firmware_boot_code(const uint8_t *firmware,
+     size_t firmware_size,NdsFirmwareBootCode &output) noexcept;
  /* Chip ID is cartridge metadata not present in every .nds dump; caller must supply it. */
  Status set_chip_id(uint32_t chip_id) noexcept;
  void unmount_image() noexcept;
