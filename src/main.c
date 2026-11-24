@@ -230,10 +230,67 @@ static bool load_arm7_bios_file(const char *path)
     return true;
 }
 
+static bool load_firmware_file(const char *path)
+{
+    SDL_IOStream *file = SDL_IOFromFile(path, "rb");
+    if (file == NULL) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not open user NDS firmware image '%s': %s",
+            path, SDL_GetError());
+        return false;
+    }
+
+    const Sint64 file_size = SDL_GetIOSize(file);
+    if (file_size <= 0 || file_size > INT64_C(0x01000000) ||
+        SDL_SeekIO(file, 0, SDL_IO_SEEK_SET) < 0) {
+        (void)SDL_CloseIO(file);
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "NDS firmware image '%s' must contain between 1 byte and 16 MiB.",
+            path);
+        return false;
+    }
+
+    const size_t image_size = (size_t)file_size;
+    uint8_t *bytes = (uint8_t *)malloc(image_size);
+    if (bytes == NULL) {
+        (void)SDL_CloseIO(file);
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not allocate %zu bytes for NDS firmware image '%s'.",
+            image_size, path);
+        return false;
+    }
+
+    const bool read_ok = read_exact_io(file, bytes, image_size);
+    const bool close_ok = SDL_CloseIO(file);
+    if (!read_ok || !close_ok) {
+        free(bytes);
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not read the complete NDS firmware image '%s': %s",
+            path, SDL_GetError());
+        return false;
+    }
+
+    const int status = oracis_host_runtime_set_spi_firmware_image(
+        bytes, (uint32_t)image_size);
+    free(bytes);
+    if (status != ORACIS_HOST_RUNTIME_OK) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not install user SPI firmware image (bridge=%d).",
+            status);
+        return false;
+    }
+
+    SDL_Log("Loaded user-provided NDS SPI firmware flash '%s' (%zu bytes). "
+            "Firmware IPL code decryption/decompression is not yet implemented.",
+            path, image_size);
+    return true;
+}
+
 #ifdef __ANDROID__
 enum {
     ORACIS_ANDROID_FILE_GAME_CARD = 1,
     ORACIS_ANDROID_FILE_ARM7_BIOS = 2,
+    ORACIS_ANDROID_FILE_FIRMWARE = 3,
     ORACIS_ANDROID_DIALOG_WAITING = 1,
     ORACIS_ANDROID_DIALOG_SELECTED = 2,
     ORACIS_ANDROID_DIALOG_CANCELLED = 3,
@@ -246,6 +303,7 @@ static int g_android_dialog_kind = 0;
 static char *g_android_dialog_path = NULL;
 static char *g_android_game_card_uri = NULL;
 static char *g_android_arm7_bios_uri = NULL;
+static char *g_android_firmware_uri = NULL;
 static bool g_android_guest_execution_enabled = false;
 static bool g_android_guest_stacks_prepared = false;
 static uint64_t g_android_last_cycle_report = 0u;
@@ -290,6 +348,9 @@ static bool begin_android_file_dialog(SDL_Window *window, int kind)
     static const SDL_DialogFileFilter arm7_bios_filter[] = {
         { "Nintendo DS ARM7 BIOS", "bin" }
     };
+    static const SDL_DialogFileFilter firmware_filter[] = {
+        { "Nintendo DS firmware flash image", "bin" }
+    };
 
     if (g_android_dialog_mutex == NULL) {
         g_android_dialog_mutex = SDL_CreateMutex();
@@ -317,11 +378,16 @@ static bool begin_android_file_dialog(SDL_Window *window, int kind)
         SDL_ShowOpenFileDialog(
             android_file_dialog_callback, (void *)(intptr_t)kind,
             window, game_card_filter, 1, NULL, false);
-    } else {
+    } else if (kind == ORACIS_ANDROID_FILE_ARM7_BIOS) {
         SDL_Log("Choose your own 16 KiB Nintendo DS ARM7 BIOS (bios7.bin).");
         SDL_ShowOpenFileDialog(
             android_file_dialog_callback, (void *)(intptr_t)kind,
             window, arm7_bios_filter, 1, NULL, false);
+    } else {
+        SDL_Log("Choose your own Nintendo DS SPI firmware flash dump (1..16 MiB).");
+        SDL_ShowOpenFileDialog(
+            android_file_dialog_callback, (void *)(intptr_t)kind,
+            window, firmware_filter, 1, NULL, false);
     }
     return true;
 }
@@ -520,9 +586,11 @@ int main(int argc, char *argv[])
     int exit_code = EXIT_FAILURE;
     const char *game_card_path = NULL;
     const char *arm7_bios_path = NULL;
+    const char *firmware_path = NULL;
     uint32_t game_card_chip_id = 0u;
     bool game_card_chip_id_set = false;
     bool game_card_program_loaded = false;
+    bool firmware_loaded = false;
 
     oracis_host_set_keypad_state(0u);
 
@@ -550,6 +618,13 @@ int main(int argc, char *argv[])
                 goto cleanup;
             }
             arm7_bios_path = argv[++argument];
+        } else if (strcmp(argv[argument], "--firmware") == 0) {
+            if (argument + 1 >= argc || firmware_path != NULL) {
+                SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+                    "--firmware requires one path to a user-provided NDS SPI firmware dump.");
+                goto cleanup;
+            }
+            firmware_path = argv[++argument];
         } else if (strcmp(argv[argument], "--game-card-id") == 0) {
             if (argument + 1 >= argc || game_card_chip_id_set ||
                 !parse_game_card_chip_id(argv[argument + 1], &game_card_chip_id)) {
@@ -561,7 +636,7 @@ int main(int argc, char *argv[])
             ++argument;
         } else if (strcmp(argv[argument], "--help") == 0 ||
                    strcmp(argv[argument], "-h") == 0) {
-            SDL_Log("Usage: %s [--game-card path/to/game.nds] [--arm7-bios path/to/bios7.bin] [--game-card-id 0xID]", argv[0]);
+            SDL_Log("Usage: %s [--game-card path/to/game.nds] [--arm7-bios path/to/bios7.bin] [--firmware path/to/firmware.bin] [--game-card-id 0xID]", argv[0]);
             exit_code = EXIT_SUCCESS;
             goto cleanup;
         } else {
@@ -580,6 +655,12 @@ int main(int argc, char *argv[])
     if (arm7_bios_path != NULL && game_card_path == NULL) {
         SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
             "--arm7-bios requires --game-card path/to/game.nds.");
+        goto cleanup;
+    }
+    if (firmware_path != NULL &&
+        (game_card_path == NULL || arm7_bios_path == NULL)) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "--firmware requires both --game-card and --arm7-bios.");
         goto cleanup;
     }
 
@@ -638,12 +719,24 @@ int main(int argc, char *argv[])
     if (arm7_bios_path != NULL && !load_arm7_bios_file(arm7_bios_path)) {
         goto cleanup;
     }
+    if (firmware_path != NULL) {
+        if (!load_firmware_file(firmware_path)) goto cleanup;
+        firmware_loaded = true;
+    }
 #ifdef __ANDROID__
-    if (game_card_path != NULL && arm7_bios_path == NULL &&
-        !begin_android_file_dialog(window, ORACIS_ANDROID_FILE_ARM7_BIOS)) {
-        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
-            "Could not start the Android ARM7 BIOS picker.");
-        goto cleanup;
+    if (game_card_path != NULL && arm7_bios_path == NULL) {
+        if (!begin_android_file_dialog(window, ORACIS_ANDROID_FILE_ARM7_BIOS)) {
+            SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+                "Could not start the Android ARM7 BIOS picker.");
+            goto cleanup;
+        }
+    } else if (game_card_path != NULL && arm7_bios_path != NULL &&
+               !firmware_loaded) {
+        if (!begin_android_file_dialog(window, ORACIS_ANDROID_FILE_FIRMWARE)) {
+            SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+                "Could not start the Android SPI firmware picker.");
+            goto cleanup;
+        }
     }
 #endif
 
@@ -660,7 +753,12 @@ int main(int argc, char *argv[])
             game_card_chip_id);
     }
 
-    if (game_card_path != NULL && arm7_bios_path != NULL) {
+    if (game_card_path != NULL && arm7_bios_path != NULL &&
+        (firmware_loaded
+#ifndef __ANDROID__
+         || true
+#endif
+        )) {
         const int load_status =
             oracis_host_runtime_load_mounted_game_card_program();
         if (load_status != ORACIS_HOST_RUNTIME_OK) {
@@ -675,7 +773,9 @@ int main(int argc, char *argv[])
         SDL_Log(
             "ARM9/ARM7 segments were validated against the mounted NDS header; "
             "the ARM9 Secure Area prefix was decrypted into guest RAM. "
-            "BIOS startup and native CPU execution remain disabled.");
+            "SPI firmware flash is available=%s; firmware IPL decryption/"
+            "decompression and BIOS startup are not implemented.",
+            firmware_loaded ? "yes" : "no");
     }
 
     for (uint32_t engine = 0u; engine < 2u; ++engine) {
@@ -871,6 +971,19 @@ int main(int argc, char *argv[])
                         arm7_bios_path = g_android_arm7_bios_uri;
 
                         if (load_arm7_bios_file(arm7_bios_path)) {
+                            if (!begin_android_file_dialog(
+                                    window, ORACIS_ANDROID_FILE_FIRMWARE)) {
+                                SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+                                    "Could not start the Android SPI firmware picker.");
+                            }
+                        }
+                    } else if (selected_kind == ORACIS_ANDROID_FILE_FIRMWARE) {
+                        SDL_free(g_android_firmware_uri);
+                        g_android_firmware_uri = selected_path;
+                        firmware_path = g_android_firmware_uri;
+
+                        if (load_firmware_file(firmware_path)) {
+                            firmware_loaded = true;
                             const int load_status =
                                 oracis_host_runtime_load_mounted_game_card_program();
                             if (load_status == ORACIS_HOST_RUNTIME_OK) {
@@ -956,8 +1069,10 @@ cleanup:
     }
     SDL_free(g_android_game_card_uri);
     SDL_free(g_android_arm7_bios_uri);
+    SDL_free(g_android_firmware_uri);
     g_android_game_card_uri = NULL;
     g_android_arm7_bios_uri = NULL;
+    g_android_firmware_uri = NULL;
 #endif
     for (uint32_t engine = 0u; engine < 2u; ++engine) {
         if (screen_textures[engine] != NULL) {
