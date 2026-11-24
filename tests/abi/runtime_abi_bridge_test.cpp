@@ -1,5 +1,7 @@
 #include "oracis/recomp/runtime_arm.h"
 
+#include "oracis/recomp/runtime_scheduler.h"
+
 #include <cstdio>
 #include <cstdint>
 
@@ -177,6 +179,34 @@ int main(void)
                 state->cpsr != saved_cpsr) {
                 return fail("NDS7/NDS9 BIOS unsigned square-root SWI failed");
             }
+        }
+    }
+
+    /*
+     * NDS7/NDS9 SWI 03h is WaitByLoop. Its BIOS-resident SUBS/BGT loop
+     * consumes 4*N-2 CPU cycles while preserving caller CPSR and returning R0=0.
+     */
+    const NdsCpu wait_cpus[2] = {NDS_ARM9, NDS_ARM7};
+    for (const NdsCpu cpu : wait_cpus) {
+        if (!oracis_arm_runtime_select_cpu(cpu)) {
+            return fail("CPU selection failed for WaitByLoop test");
+        }
+        ArmCpuState *state = oracis_arm_runtime_current_state();
+        if (state == nullptr) {
+            return fail("active CPU state unavailable for WaitByLoop");
+        }
+        state->cpsr = ORACIS_ARM_MODE_SYSTEM | CPSR_Z_BIT | CPSR_C_BIT;
+        const uint32_t saved_cpsr = state->cpsr;
+        state->R[0] = 10u;
+        if (!oracis_scheduler_begin_slice(cpu, UINT64_C(1024))) {
+            return fail("could not begin WaitByLoop scheduler slice");
+        }
+        runtime_swi(0x03u);
+        const uint64_t wait_cycles = oracis_scheduler_cycle_count(cpu);
+        oracis_scheduler_end_slice(cpu);
+        if (state->R[0] != 0u || state->cpsr != saved_cpsr ||
+            wait_cycles != UINT64_C(38)) {
+            return fail("WaitByLoop result or cycle accounting was incorrect");
         }
     }
 

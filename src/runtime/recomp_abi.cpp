@@ -908,6 +908,35 @@ void runtime_swi(uint32_t swi_imm)
 
     /* ARM SWI immediates are 24 bits; NDS BIOS service numbers fit in 8. */
     switch (swi_imm & UINT32_C(0x00FFFFFF)) {
+    case 0x03u: { /* NDS7/NDS9 WaitByLoop. */
+        const uint32_t delay = g_cpu.R[0];
+        if (delay == 0u || delay > UINT32_C(0x7FFFFFFF)) {
+            abi_failure("runtime_swi WaitByLoop (delay outside 1..0x7FFFFFFF)");
+        }
+
+        /*
+         * BIOS executes SUBS R0,#1 / BGT in BIOS memory. The taken branch
+         * costs three cycles and the final not-taken branch one, giving
+         * 4*delay-2 cycles. SWI entry masks IRQs; preserve the caller's CPSR
+         * around the synchronous delay and let runtime_tick advance devices.
+         */
+        const uint64_t total_cycles =
+            static_cast<uint64_t>(delay) * UINT64_C(4) - UINT64_C(2);
+        const uint32_t saved_cpsr = g_cpu.cpsr;
+        g_cpu.cpsr |= CPSR_I_BIT;
+        uint64_t remaining_cycles = total_cycles;
+        while (remaining_cycles != 0u) {
+            const uint32_t chunk = remaining_cycles > UINT32_MAX
+                ? UINT32_MAX
+                : static_cast<uint32_t>(remaining_cycles);
+            runtime_tick(chunk);
+            remaining_cycles -= chunk;
+        }
+        g_cpu.cpsr = saved_cpsr;
+        g_cpu.R[0] = 0u;
+        return;
+    }
+
     case 0x09u: { /* NDS7/NDS9 signed division: r0/r1 -> r0/r1/r3. */
         const int64_t dividend = std::bit_cast<int32_t>(g_cpu.R[0]);
         const int64_t divisor = std::bit_cast<int32_t>(g_cpu.R[1]);
