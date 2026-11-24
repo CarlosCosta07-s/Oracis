@@ -13,6 +13,11 @@ O host usa o seletor de arquivos SDL3 no Android para pedir, nesta ordem:
 1. Uma imagem .nds escolhida pelo usuário.
 2. Uma BIOS ARM7 de exatamente 16 KiB, também escolhida pelo usuário.
 3. Um dump da flash SPI de firmware do próprio usuário, entre 1 byte e 16 MiB.
+4. Opcionalmente, um arquivo de texto com o ID físico de 32 bits do Game Card,
+   em decimal ou hexadecimal com prefixo `0x`. O arquivo deve conter somente
+   esse valor, podendo ter espaços ou quebras de linha ao redor. O ID não é
+   inferido do dump `.nds`; cancelar essa seleção mantém o experimento de
+   entrada direta, mas transações KEY1/KEY2 que dependam do ID podem falhar.
 
 No Android, o seletor pode retornar URIs content://. A leitura dos três arquivos usa SDL_IOStream, sem presumir que a URI seja um caminho POSIX ou passar por fopen. O host limita os tamanhos antes da alocação e copia os dados para os dispositivos próprios.
 
@@ -68,7 +73,9 @@ A seleção de ROM/BIOS e o preflight não comprovam que o jogo iniciou. Uma seq
 - Os bancos ARM9/ARM7 e os bancos de overlays continuam sendo artefatos locais privados e precisam estar ligados ao build Android. A CI não recebe ROMs, BIOS, segmentos extraídos ou bancos derivados.
 - O workflow Android atual compila a biblioteca nativa ARM64; o repositório ainda não contém um projeto Gradle/Manifest que gere um APK instalável.
 - O experimento reproduz apenas o subconjunto documentado de registradores/pilhas e POSTFLG; não executa as BIOS retail e não reproduz todas as áreas de RAM/firmware inicializadas pelo boot, o Chip ID, nem a configuração completa de CP15/MPU/TCM e periféricos.
-- O host ainda precisa de uma forma Android para fornecer o Chip ID físico do cartucho quando um comando Game Card depender dele. Esse valor não é inferido do dump .nds.
+- O host Android aceita o Chip ID físico por arquivo de texto opcional. Se a
+  seleção for cancelada, o direct-entry continua sem esse dado e comandos do
+  Game Card que precisem dele podem falhar. O valor não é inferido do dump .nds.
 - As partes 1/2 já são descriptografadas, descomprimidas e publicadas; os payloads 3/4/5 já usam o decoder P345 de duas árvores Huffman e são validados em staging, mas ainda não são instalados na RAM guest. A execução do IPL e a sequência completa de boot continuam pendentes.
 - A cobertura do protocolo Game Card KEY1/KEY2, dos serviços BIOS/NitroSDK, dos overlays e de MMIO/timing continua parcial. O primeiro dispatch miss ou acesso não implementado deve ser tratado como bloqueio real, não mascarado.
 

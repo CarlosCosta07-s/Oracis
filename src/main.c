@@ -95,14 +95,24 @@ static bool g_video_error_reported = false;
 
 static bool parse_game_card_chip_id(const char *text, uint32_t *chip_id)
 {
-    if (text == NULL || text[0] == '\0' || text[0] == '-') return false;
+    if (text == NULL || chip_id == NULL) return false;
+    while (*text == ' ' || *text == '\t' || *text == '\r' || *text == '\n') {
+        ++text;
+    }
+    if (text[0] == '\0' || text[0] == '-') return false;
+
     errno = 0;
     char *end = NULL;
     const unsigned long parsed = strtoul(text, &end, 0);
-    if (errno == ERANGE || end == text || end == NULL || *end != '\0' ||
-        parsed > UINT32_MAX || chip_id == NULL) {
+    if (errno == ERANGE || end == text || end == NULL ||
+        parsed > UINT32_MAX) {
         return false;
     }
+    while (*end == ' ' || *end == '\t' || *end == '\r' || *end == '\n') {
+        ++end;
+    }
+    if (*end != '\0') return false;
+
     *chip_id = (uint32_t)parsed;
     return true;
 }
@@ -298,11 +308,73 @@ static bool load_firmware_file(const char *path)
     return true;
 }
 
+static bool configure_game_card_chip_id(uint32_t chip_id)
+{
+    const int status = oracis_host_runtime_set_game_card_chip_id(chip_id);
+    if (status != ORACIS_HOST_RUNTIME_OK) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not configure the physical Game Card chip ID (bridge=%d).",
+            status);
+        return false;
+    }
+    SDL_Log("Configured physical Game Card chip ID: 0x%08X. "
+            "This value was supplied by the user, not inferred from the .nds image.",
+            chip_id);
+    return true;
+}
+
+#ifdef __ANDROID__
+static bool load_game_card_chip_id_file(
+    const char *path, uint32_t *chip_id)
+{
+    if (path == NULL || chip_id == NULL) return false;
+    SDL_IOStream *file = SDL_IOFromFile(path, "rb");
+    if (file == NULL) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not open Game Card chip ID file '%s': %s",
+            path, SDL_GetError());
+        return false;
+    }
+
+    const Sint64 file_size = SDL_GetIOSize(file);
+    if (file_size <= 0 || file_size > 64 ||
+        SDL_SeekIO(file, 0, SDL_IO_SEEK_SET) < 0) {
+        (void)SDL_CloseIO(file);
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Game Card chip ID file '%s' must contain 1..64 bytes.",
+            path);
+        return false;
+    }
+
+    char text[65];
+    const size_t text_size = (size_t)file_size;
+    const bool read_ok = read_exact_io(file, text, text_size);
+    const bool close_ok = SDL_CloseIO(file);
+    if (!read_ok || !close_ok) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Could not read Game Card chip ID file '%s': %s",
+            path, SDL_GetError());
+        return false;
+    }
+    text[text_size] = '\0';
+
+    if (!parse_game_card_chip_id(text, chip_id)) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Game Card chip ID file '%s' must contain one decimal or "
+            "0x-prefixed uint32 value (optional surrounding whitespace).",
+            path);
+        return false;
+    }
+    return true;
+}
+#endif
+
 #ifdef __ANDROID__
 enum {
     ORACIS_ANDROID_FILE_GAME_CARD = 1,
     ORACIS_ANDROID_FILE_ARM7_BIOS = 2,
     ORACIS_ANDROID_FILE_FIRMWARE = 3,
+    ORACIS_ANDROID_FILE_GAME_CARD_ID = 4,
     ORACIS_ANDROID_DIALOG_WAITING = 1,
     ORACIS_ANDROID_DIALOG_SELECTED = 2,
     ORACIS_ANDROID_DIALOG_CANCELLED = 3,
@@ -316,6 +388,7 @@ static char *g_android_dialog_path = NULL;
 static char *g_android_game_card_uri = NULL;
 static char *g_android_arm7_bios_uri = NULL;
 static char *g_android_firmware_uri = NULL;
+static char *g_android_game_card_id_uri = NULL;
 static bool g_android_guest_execution_enabled = false;
 static bool g_android_guest_stacks_prepared = false;
 static uint64_t g_android_last_cycle_report = 0u;
@@ -363,6 +436,9 @@ static bool begin_android_file_dialog(SDL_Window *window, int kind)
     static const SDL_DialogFileFilter firmware_filter[] = {
         { "Nintendo DS firmware flash image", "bin" }
     };
+    static const SDL_DialogFileFilter game_card_id_filter[] = {
+        { "Nintendo DS Game Card chip ID text", "txt" }
+    };
 
     if (g_android_dialog_mutex == NULL) {
         g_android_dialog_mutex = SDL_CreateMutex();
@@ -395,11 +471,18 @@ static bool begin_android_file_dialog(SDL_Window *window, int kind)
         SDL_ShowOpenFileDialog(
             android_file_dialog_callback, (void *)(intptr_t)kind,
             window, arm7_bios_filter, 1, NULL, false);
-    } else {
+    } else if (kind == ORACIS_ANDROID_FILE_FIRMWARE) {
         SDL_Log("Choose your own Nintendo DS SPI firmware flash dump (1..16 MiB).");
         SDL_ShowOpenFileDialog(
             android_file_dialog_callback, (void *)(intptr_t)kind,
             window, firmware_filter, 1, NULL, false);
+    } else {
+        SDL_Log("Choose a text file containing the physical Game Card chip ID "
+                "(decimal or 0x-prefixed hexadecimal). Cancel to continue in "
+                "direct-entry mode without a configured chip ID.");
+        SDL_ShowOpenFileDialog(
+            android_file_dialog_callback, (void *)(intptr_t)kind,
+            window, game_card_id_filter, 1, NULL, false);
     }
     return true;
 }
@@ -465,6 +548,23 @@ static void log_android_entrypoint_preflight(void)
             "Native direct-entry remains disabled because one or both entry PCs "
             "do not resolve to compiled static banks.");
     }
+}
+
+static bool load_android_selected_game_program(void)
+{
+    const int status =
+        oracis_host_runtime_load_mounted_game_card_program();
+    if (status != ORACIS_HOST_RUNTIME_OK) {
+        SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+            "Android program segment loading failed (bridge=%d, machine=%d).",
+            status, oracis_host_runtime_last_machine_status());
+        return false;
+    }
+
+    SDL_Log("Validated and loaded ARM9/ARM7 program segments from the selected "
+            "NDS image.");
+    log_android_entrypoint_preflight();
+    return true;
 }
 #endif
 
@@ -749,26 +849,27 @@ int main(int argc, char *argv[])
                 "Could not start the Android SPI firmware picker.");
             goto cleanup;
         }
+    } else if (game_card_path != NULL && arm7_bios_path != NULL &&
+               firmware_loaded && !game_card_chip_id_set) {
+        if (!begin_android_file_dialog(
+                window, ORACIS_ANDROID_FILE_GAME_CARD_ID)) {
+            SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+                "Could not start the Android Game Card chip ID picker.");
+            goto cleanup;
+        }
     }
 #endif
 
-    if (game_card_chip_id_set) {
-        const int chip_status = oracis_host_runtime_set_game_card_chip_id(
-            game_card_chip_id);
-        if (chip_status != ORACIS_HOST_RUNTIME_OK) {
-            SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
-                "Could not configure the physical Game Card chip ID (bridge=%d).",
-                chip_status);
-            goto cleanup;
-        }
-        SDL_Log("Configured physical Game Card chip ID: 0x%08X. This value is supplied by the user, not inferred from the .nds image.",
-            game_card_chip_id);
+    if (game_card_chip_id_set &&
+        !configure_game_card_chip_id(game_card_chip_id)) {
+        goto cleanup;
     }
 
     bool load_game_card_program = game_card_path != NULL &&
         arm7_bios_path != NULL;
 #ifdef __ANDROID__
-    load_game_card_program = load_game_card_program && firmware_loaded;
+    load_game_card_program =
+        load_game_card_program && firmware_loaded && game_card_chip_id_set;
 #endif
     if (load_game_card_program) {
         const int load_status =
@@ -785,8 +886,9 @@ int main(int argc, char *argv[])
         SDL_Log(
             "ARM9/ARM7 segments were validated against the mounted NDS header; "
             "the ARM9 Secure Area prefix was decrypted into guest RAM. "
-            "SPI firmware flash is available=%s; firmware IPL decryption/"
-            "decompression and BIOS startup are not implemented.",
+            "SPI firmware flash is available=%s; IPL parts 1/2 were decoded "
+            "and published to checked guest RAM. Retail BIOS/firmware execution "
+            "and the complete power-on handoff remain incomplete.",
             firmware_loaded ? "yes" : "no");
     }
 
@@ -957,19 +1059,16 @@ int main(int argc, char *argv[])
                         if (mount_game_card_file(game_card_path)) {
                             if (arm7_bios_path != NULL) {
                                 if (load_arm7_bios_file(arm7_bios_path)) {
-                                    if (firmware_loaded) {
-                                        const int load_status =
-                                            oracis_host_runtime_load_mounted_game_card_program();
-                                        if (load_status == ORACIS_HOST_RUNTIME_OK) {
-                                            game_card_program_loaded = true;
-                                            log_android_entrypoint_preflight();
-                                        } else {
+                                    if (firmware_loaded && game_card_chip_id_set) {
+                                        game_card_program_loaded =
+                                            load_android_selected_game_program();
+                                    } else if (firmware_loaded) {
+                                        if (!begin_android_file_dialog(
+                                                window,
+                                                ORACIS_ANDROID_FILE_GAME_CARD_ID)) {
                                             SDL_LogCritical(
                                                 SDL_LOG_CATEGORY_APPLICATION,
-                                                "Android program segment loading failed "
-                                                "(bridge=%d, machine=%d).",
-                                                load_status,
-                                                oracis_host_runtime_last_machine_status());
+                                                "Could not start the Android Game Card chip ID picker.");
                                         }
                                     } else if (!begin_android_file_dialog(
                                                    window, ORACIS_ANDROID_FILE_FIRMWARE)) {
@@ -1002,25 +1101,47 @@ int main(int argc, char *argv[])
 
                         if (load_firmware_file(firmware_path)) {
                             firmware_loaded = true;
-                            const int load_status =
-                                oracis_host_runtime_load_mounted_game_card_program();
-                            if (load_status == ORACIS_HOST_RUNTIME_OK) {
-                                game_card_program_loaded = true;
-                                SDL_Log("Validated and loaded ARM9/ARM7 program "
-                                        "segments from the selected NDS image.");
-                                log_android_entrypoint_preflight();
-                            } else {
+                            if (game_card_chip_id_set) {
+                                game_card_program_loaded =
+                                    load_android_selected_game_program();
+                            } else if (!begin_android_file_dialog(
+                                           window,
+                                           ORACIS_ANDROID_FILE_GAME_CARD_ID)) {
                                 SDL_LogCritical(
                                     SDL_LOG_CATEGORY_APPLICATION,
-                                    "Android program segment loading failed "
-                                    "(bridge=%d, machine=%d).",
-                                    load_status,
-                                    oracis_host_runtime_last_machine_status());
+                                    "Could not start the Android Game Card chip ID picker.");
                             }
+                        }
+                    } else if (selected_kind == ORACIS_ANDROID_FILE_GAME_CARD_ID) {
+                        SDL_free(g_android_game_card_id_uri);
+                        g_android_game_card_id_uri = selected_path;
+                        uint32_t selected_chip_id = 0u;
+                        if (load_game_card_chip_id_file(
+                                g_android_game_card_id_uri, &selected_chip_id) &&
+                            configure_game_card_chip_id(selected_chip_id)) {
+                            game_card_chip_id = selected_chip_id;
+                            game_card_chip_id_set = true;
+                            game_card_program_loaded =
+                                load_android_selected_game_program();
+                        } else if (!begin_android_file_dialog(
+                                       window,
+                                       ORACIS_ANDROID_FILE_GAME_CARD_ID)) {
+                            SDL_LogCritical(
+                                SDL_LOG_CATEGORY_APPLICATION,
+                                "Could not reopen the Android Game Card chip ID picker.");
                         }
                     } else {
                         SDL_free(selected_path);
                     }
+                } else if (selected_kind == ORACIS_ANDROID_FILE_GAME_CARD_ID &&
+                           selected_result == ORACIS_ANDROID_DIALOG_CANCELLED) {
+                    SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                        "No physical Game Card chip ID was configured. "
+                        "Continuing with direct entry; retail KEY1/KEY2 card "
+                        "transactions that require the ID may still fail.");
+                    game_card_program_loaded =
+                        load_android_selected_game_program();
+                    SDL_free(selected_path);
                 } else {
                     SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
                         "Android file selection was cancelled or failed "
@@ -1089,9 +1210,11 @@ cleanup:
     SDL_free(g_android_game_card_uri);
     SDL_free(g_android_arm7_bios_uri);
     SDL_free(g_android_firmware_uri);
+    SDL_free(g_android_game_card_id_uri);
     g_android_game_card_uri = NULL;
     g_android_arm7_bios_uri = NULL;
     g_android_firmware_uri = NULL;
+    g_android_game_card_id_uri = NULL;
 #endif
     for (uint32_t engine = 0u; engine < 2u; ++engine) {
         if (screen_textures[engine] != NULL) {
