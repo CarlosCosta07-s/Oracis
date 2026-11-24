@@ -80,6 +80,19 @@ Status NdsGameCardControl::decrypt_secure_area_prefix(
   bytes[index]=image_[SecureAreaDataOffset+index];
  return key1_.decrypt_secure_area(bytes,size,identifier_valid);
 }
+Status NdsGameCardControl::decrypt_firmware_boot_code(
+    const uint8_t *firmware,
+    size_t firmware_size,
+    NdsFirmwareBootCode &output) noexcept
+{
+ if(!installed_)return Status::Unmapped;
+ if(firmware==nullptr||firmware_size==0u)return Status::InvalidRegion;
+ if(busy_||key1_command_mode_||key2_command_mode_)
+  return Status::PermissionDenied;
+ if(!key1_.table_loaded())return Status::PermissionDenied;
+ return key1_.decrypt_firmware_boot_code(
+     firmware,firmware_size,output);
+}
 Status NdsGameCardControl::initialize_key1_from_image() noexcept{
  if(image_==nullptr)return Status::Unmapped;
  if(image_size_<UINT32_C(0x10))return Status::InvalidRegion;
