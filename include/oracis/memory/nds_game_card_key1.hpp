@@ -43,6 +43,15 @@ struct NdsFirmwareBootCode {
     uint16_t expected_crc16 = 0u;
     uint16_t computed_crc16 = 0u;
     std::array<uint8_t, 8> decrypted_rom_info{};
+
+    /* Firmware header parts 3/4/5; decoded and CRC-checked, not installed. */
+    std::vector<uint8_t> arm9_secondary_bytes;
+    std::vector<uint8_t> arm7_secondary_bytes;
+    std::vector<uint8_t> firmware_data_bytes;
+    uint16_t expected_secondary_crc16 = 0u;
+    uint16_t computed_secondary_crc16 = 0u;
+    uint16_t expected_data_crc16 = 0u;
+    uint16_t computed_data_crc16 = 0u;
 };
 
 class NdsGameCardKey1 final {
@@ -89,7 +98,10 @@ public:
      * Decode the ARM9/ARM7 IPL blocks from a caller-supplied raw NDS firmware
      * flash image. Uses the BIOS-derived base table already loaded in this
      * object and the firmware's MACP/MACh identifier. The result is committed
-     * only after both LZ77 streams and the combined CRC16 validate.
+     * only after both encrypted LZ77 streams and their CRC16 validate.
+     * When the firmware header advertises parts 3/4/5, their raw LZ77,
+     * Huffman or run-length streams are also decoded and CRC-checked into
+     * staging buffers. These secondary buffers are not installed in guest RAM.
      */
     Status decrypt_firmware_boot_code(
         const uint8_t *firmware, std::size_t firmware_size,

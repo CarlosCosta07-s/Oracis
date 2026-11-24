@@ -177,6 +177,222 @@ Status decompress_firmware_lz77(
     return Status::Ok;
 }
 
+
+/*
+ * Firmware header parts 3/4/5 are independent BIOS-compressed payloads.
+ * Their header supplies source offsets; each stream carries its output size
+ * and codec type. They are staged separately from KEY1-protected IPL1/2.
+ */
+class RawFirmwareStream final {
+public:
+    RawFirmwareStream(
+        const uint8_t *image, size_t image_size, size_t source_offset) noexcept
+        : image_(image), image_size_(image_size), cursor_(source_offset)
+    {
+    }
+
+    bool read_byte(uint8_t &value) noexcept
+    {
+        if (image_ == nullptr || cursor_ >= image_size_) return false;
+        value = image_[cursor_++];
+        return true;
+    }
+
+    size_t position() const noexcept { return cursor_; }
+
+private:
+    const uint8_t *image_;
+    size_t image_size_;
+    size_t cursor_;
+};
+
+Status decompress_firmware_data(
+    const uint8_t *firmware,
+    size_t firmware_size,
+    size_t source_offset,
+    std::vector<uint8_t> &output,
+    size_t &compressed_end) noexcept
+{
+    constexpr size_t MaxFirmwarePartBytes = size_t{1} << 24u;
+    if (firmware == nullptr || source_offset >= firmware_size) {
+        return Status::InvalidRegion;
+    }
+
+    RawFirmwareStream stream(firmware, firmware_size, source_offset);
+    uint8_t header[4]{};
+    for (uint8_t &byte : header) {
+        if (!stream.read_byte(byte)) return Status::InvalidRegion;
+    }
+
+    const uint32_t codec = header[0] >> 4u;
+    const uint32_t output_size =
+        static_cast<uint32_t>(header[1]) |
+        (static_cast<uint32_t>(header[2]) << 8u) |
+        (static_cast<uint32_t>(header[3]) << 16u);
+    if (output_size == 0u ||
+        static_cast<size_t>(output_size) > MaxFirmwarePartBytes) {
+        return Status::InvalidRegion;
+    }
+
+    std::vector<uint8_t> decoded;
+    try {
+        decoded.assign(output_size, 0u);
+
+        if (codec == 1u) {
+            if (header[0] != UINT8_C(0x10)) return Status::Unsupported;
+            uint32_t produced = 0u;
+            while (produced < output_size) {
+                uint8_t flags = 0u;
+                if (!stream.read_byte(flags)) return Status::InvalidRegion;
+                for (uint32_t bit = 0u; bit < 8u && produced < output_size; ++bit) {
+                    if ((flags & (UINT8_C(0x80) >> bit)) == 0u) {
+                        uint8_t literal = 0u;
+                        if (!stream.read_byte(literal)) return Status::InvalidRegion;
+                        decoded[produced++] = literal;
+                        continue;
+                    }
+
+                    uint8_t first = 0u;
+                    uint8_t second = 0u;
+                    if (!stream.read_byte(first) || !stream.read_byte(second)) {
+                        return Status::InvalidRegion;
+                    }
+                    const uint32_t length =
+                        static_cast<uint32_t>((first >> 4u) + 3u);
+                    const uint32_t distance =
+                        (((static_cast<uint32_t>(first) & UINT32_C(0x0F)) << 8u) |
+                         static_cast<uint32_t>(second)) + 1u;
+                    if (distance > produced ||
+                        length > output_size - produced) {
+                        return Status::InvalidRegion;
+                    }
+                    for (uint32_t index = 0u; index < length; ++index) {
+                        decoded[produced] = decoded[produced - distance];
+                        ++produced;
+                    }
+                }
+            }
+        } else if (codec == 2u) {
+            const uint32_t symbol_width = header[0] & UINT8_C(0x0F);
+            if ((symbol_width != 4u && symbol_width != 8u) ||
+                (output_size & 3u) != 0u) {
+                return Status::InvalidRegion;
+            }
+
+            uint8_t tree_size = 0u;
+            if (!stream.read_byte(tree_size)) return Status::InvalidRegion;
+            const size_t tree_bytes =
+                static_cast<size_t>(tree_size) * 2u + 1u;
+            if (tree_bytes > firmware_size - stream.position()) {
+                return Status::InvalidRegion;
+            }
+
+            std::vector<uint8_t> tree(tree_bytes, 0u);
+            for (uint8_t &byte : tree) {
+                if (!stream.read_byte(byte)) return Status::InvalidRegion;
+            }
+
+            uint32_t compressed_word = 0u;
+            uint32_t compressed_bits_remaining = 0u;
+            const auto read_bit = [&]() noexcept -> int {
+                if (compressed_bits_remaining == 0u) {
+                    uint8_t bytes[4]{};
+                    for (uint8_t &byte : bytes) {
+                        if (!stream.read_byte(byte)) return -1;
+                    }
+                    compressed_word =
+                        static_cast<uint32_t>(bytes[0]) |
+                        (static_cast<uint32_t>(bytes[1]) << 8u) |
+                        (static_cast<uint32_t>(bytes[2]) << 16u) |
+                        (static_cast<uint32_t>(bytes[3]) << 24u);
+                    compressed_bits_remaining = 32u;
+                }
+                const uint32_t shift = compressed_bits_remaining - 1u;
+                const int bit = static_cast<int>(
+                    (compressed_word >> shift) & UINT32_C(1));
+                --compressed_bits_remaining;
+                return bit;
+            };
+
+            const uint64_t symbol_count =
+                (static_cast<uint64_t>(output_size) * 8u) / symbol_width;
+            const uint32_t symbols_per_byte = 8u / symbol_width;
+            const uint32_t symbol_mask =
+                symbol_width == 4u ? UINT32_C(0x0F) : UINT32_C(0xFF);
+            for (uint64_t symbol_index = 0u;
+                 symbol_index < symbol_count; ++symbol_index) {
+                uint32_t node_index = 0u;
+                uint32_t symbol = 0u;
+                bool found_leaf = false;
+                for (size_t depth = 0u; depth < tree_bytes; ++depth) {
+                    if (node_index >= tree_bytes) return Status::InvalidRegion;
+                    const uint32_t descriptor = tree[node_index];
+                    const int branch = read_bit();
+                    if (branch < 0) return Status::InvalidRegion;
+
+                    const uint32_t child_index =
+                        (node_index & ~UINT32_C(1)) +
+                        ((descriptor & UINT32_C(0x3F)) + 1u) * 2u +
+                        static_cast<uint32_t>(branch);
+                    if (child_index >= tree_bytes) return Status::InvalidRegion;
+                    const bool child_is_leaf = branch != 0
+                        ? (descriptor & UINT32_C(0x40)) != 0u
+                        : (descriptor & UINT32_C(0x80)) != 0u;
+                    if (child_is_leaf) {
+                        symbol = tree[child_index];
+                        found_leaf = true;
+                        break;
+                    }
+                    node_index = child_index;
+                }
+                if (!found_leaf || (symbol & ~symbol_mask) != 0u) {
+                    return Status::InvalidRegion;
+                }
+
+                const size_t output_index =
+                    static_cast<size_t>(symbol_index / symbols_per_byte);
+                const uint32_t shift = static_cast<uint32_t>(
+                    symbol_index % symbols_per_byte) * symbol_width;
+                decoded[output_index] = static_cast<uint8_t>(
+                    decoded[output_index] | (symbol << shift));
+            }
+        } else if (codec == 3u) {
+            if (header[0] != UINT8_C(0x30)) return Status::Unsupported;
+            uint32_t produced = 0u;
+            while (produced < output_size) {
+                uint8_t flags = 0u;
+                if (!stream.read_byte(flags)) return Status::InvalidRegion;
+                const bool repeated = (flags & UINT8_C(0x80)) != 0u;
+                const uint32_t run_length =
+                    static_cast<uint32_t>(flags & UINT8_C(0x7F)) +
+                    (repeated ? 3u : 1u);
+                const uint32_t count =
+                    std::min(run_length, output_size - produced);
+                if (repeated) {
+                    uint8_t value = 0u;
+                    if (!stream.read_byte(value)) return Status::InvalidRegion;
+                    std::fill_n(decoded.begin() + produced, count, value);
+                    produced += count;
+                } else {
+                    for (uint32_t index = 0u; index < count; ++index) {
+                        uint8_t value = 0u;
+                        if (!stream.read_byte(value)) return Status::InvalidRegion;
+                        decoded[produced++] = value;
+                    }
+                }
+            }
+        } else {
+            return Status::Unsupported;
+        }
+    } catch (const std::bad_alloc &) {
+        return Status::Unsupported;
+    }
+
+    compressed_end = stream.position();
+    output = std::move(decoded);
+    return Status::Ok;
+}
+
 } // namespace
 
 uint32_t NdsGameCardKey1::byte_swap32(uint32_t value) noexcept
@@ -721,6 +937,89 @@ Status NdsGameCardKey1::decrypt_firmware_boot_code(
     if (candidate.computed_crc16 != candidate.expected_crc16) {
         restore();
         return Status::IdentityMismatch;
+    }
+
+    /*
+     * Parts 3/4 are the secondary ARM9/ARM7 firmware payloads. Part 5 carries
+     * language/UI data. Keep these in host staging buffers: the header does
+     * not provide RAM destinations for these regions, and their retail
+     * initialization sequence has not yet been implemented.
+     */
+    const uint16_t part3_source_info = read_u16_le(firmware + 0x00u);
+    const uint16_t part4_source_info = read_u16_le(firmware + 0x02u);
+    const uint16_t part5_source_info = read_u16_le(firmware + 0x16u);
+    const bool has_secondary_parts =
+        part3_source_info != 0u || part4_source_info != 0u ||
+        part5_source_info != 0u;
+    if (has_secondary_parts) {
+        if (part3_source_info == 0u || part4_source_info == 0u ||
+            part5_source_info == 0u) {
+            restore();
+            return Status::InvalidRegion;
+        }
+
+        const std::array<size_t, 3> starts = {{
+            static_cast<size_t>(part3_source_info) * 8u,
+            static_cast<size_t>(part4_source_info) * 8u,
+            static_cast<size_t>(part5_source_info) * 8u
+        }};
+        for (const size_t start : starts) {
+            if (start < FirmwareHeaderBytes || start >= firmware_size) {
+                restore();
+                return Status::InvalidRegion;
+            }
+        }
+        if (starts[0] == starts[1] || starts[0] == starts[2] ||
+            starts[1] == starts[2]) {
+            restore();
+            return Status::InvalidRegion;
+        }
+
+        std::array<size_t, 3> ends{};
+        status = decompress_firmware_data(
+            firmware, firmware_size, starts[0],
+            candidate.arm9_secondary_bytes, ends[0]);
+        if (status == Status::Ok) {
+            status = decompress_firmware_data(
+                firmware, firmware_size, starts[1],
+                candidate.arm7_secondary_bytes, ends[1]);
+        }
+        if (status == Status::Ok) {
+            status = decompress_firmware_data(
+                firmware, firmware_size, starts[2],
+                candidate.firmware_data_bytes, ends[2]);
+        }
+        if (status != Status::Ok) {
+            restore();
+            return status;
+        }
+
+        for (size_t left = 0u; left < starts.size(); ++left) {
+            if (ends[left] <= starts[left] || ends[left] > firmware_size) {
+                restore();
+                return Status::InvalidRegion;
+            }
+            for (size_t right = left + 1u; right < starts.size(); ++right) {
+                if (starts[left] < ends[right] && starts[right] < ends[left]) {
+                    restore();
+                    return Status::InvalidRegion;
+                }
+            }
+        }
+
+        candidate.expected_secondary_crc16 = read_u16_le(firmware + 0x04u);
+        candidate.computed_secondary_crc16 = firmware_boot_crc16(
+            candidate.arm9_secondary_bytes, candidate.arm7_secondary_bytes);
+        candidate.expected_data_crc16 = read_u16_le(firmware + 0x26u);
+        const std::vector<uint8_t> empty{};
+        candidate.computed_data_crc16 = firmware_boot_crc16(
+            candidate.firmware_data_bytes, empty);
+        if (candidate.computed_secondary_crc16 !=
+                candidate.expected_secondary_crc16 ||
+            candidate.computed_data_crc16 != candidate.expected_data_crc16) {
+            restore();
+            return Status::IdentityMismatch;
+        }
     }
 
     restore();

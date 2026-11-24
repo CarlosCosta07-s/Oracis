@@ -137,8 +137,36 @@ std::vector<uint8_t> make_synthetic_firmware(
     constexpr uint32_t FirmwareId = UINT32_C(0x5043414D); /* "MACP" */
     const auto arm9_lz = make_lz77_literal_block(arm9_plain);
     const auto arm7_lz = make_lz77_literal_block(arm7_plain);
-    std::vector<uint8_t> firmware(0x290u, 0u);
+    constexpr std::array<uint8_t, 4> secondary_arm9_plain = {
+        UINT8_C(0x31), UINT8_C(0x32), UINT8_C(0x33), UINT8_C(0x34)
+    };
+    constexpr std::array<uint8_t, 4> secondary_arm7_plain = {
+        UINT8_C(0x41), UINT8_C(0x42), UINT8_C(0x43), UINT8_C(0x44)
+    };
+    constexpr std::array<uint8_t, 4> firmware_data_plain = {
+        UINT8_C(0x51), UINT8_C(0x52), UINT8_C(0x53), UINT8_C(0x54)
+    };
+    const std::vector<uint8_t> part3_lz = {
+        UINT8_C(0x10), UINT8_C(4), UINT8_C(0), UINT8_C(0),
+        UINT8_C(0), secondary_arm9_plain[0], secondary_arm9_plain[1],
+        secondary_arm9_plain[2], secondary_arm9_plain[3]
+    };
+    /* 8-bit Huffman: a one-level tree whose left/right leaves are 0x41/0x42. */
+    const std::vector<uint8_t> part4_huffman = {
+        UINT8_C(0x28), UINT8_C(4), UINT8_C(0), UINT8_C(0),
+        UINT8_C(2), UINT8_C(0xC0), UINT8_C(0), UINT8_C(0x41), UINT8_C(0x42),
+        UINT8_C(0), UINT8_C(0), UINT8_C(0), UINT8_C(0), UINT8_C(0)
+    };
+    const std::vector<uint8_t> part5_lz = {
+        UINT8_C(0x10), UINT8_C(4), UINT8_C(0), UINT8_C(0),
+        UINT8_C(0), firmware_data_plain[0], firmware_data_plain[1],
+        firmware_data_plain[2], firmware_data_plain[3]
+    };
+    std::vector<uint8_t> firmware(0x410u, 0u);
 
+    store_u16_le(firmware, 0x00u, UINT16_C(0x60)); /* part 3 source: 0x300 */
+    store_u16_le(firmware, 0x02u, UINT16_C(0x70)); /* part 4 source: 0x380 */
+    store_u16_le(firmware, 0x16u, UINT16_C(0x80)); /* part 5 source: 0x400 */
     store_u16_le(firmware, 0x0Cu, UINT16_C(4));       /* part 1 source: 0x200 */
     store_u16_le(firmware, 0x0Eu, UINT16_C(0x8024));  /* part 1 dest: 0x023FEE00 */
     store_u16_le(firmware, 0x10u, UINT16_C(0xA0));    /* part 2 source: 0x280 */
@@ -182,9 +210,23 @@ std::vector<uint8_t> make_synthetic_firmware(
         return {};
     }
 
+    std::copy(part3_lz.begin(), part3_lz.end(), firmware.begin() + 0x300u);
+    std::copy(part4_huffman.begin(), part4_huffman.end(), firmware.begin() + 0x380u);
+    std::copy(part5_lz.begin(), part5_lz.end(), firmware.begin() + 0x400u);
+
     const std::vector<uint8_t> arm9_vector(arm9_plain.begin(), arm9_plain.end());
     const std::vector<uint8_t> arm7_vector(arm7_plain.begin(), arm7_plain.end());
+    const std::vector<uint8_t> secondary_arm9_vector(
+        secondary_arm9_plain.begin(), secondary_arm9_plain.end());
+    const std::vector<uint8_t> secondary_arm7_vector(
+        secondary_arm7_plain.begin(), secondary_arm7_plain.end());
+    const std::vector<uint8_t> firmware_data_vector(
+        firmware_data_plain.begin(), firmware_data_plain.end());
+    store_u16_le(firmware, 0x04u,
+                 crc16_firmware(secondary_arm9_vector, secondary_arm7_vector));
     store_u16_le(firmware, 0x06u, crc16_firmware(arm9_vector, arm7_vector));
+    store_u16_le(firmware, 0x26u,
+                 crc16_firmware(firmware_data_vector, std::vector<uint8_t>{}));
     return firmware;
 }
 
@@ -540,11 +582,20 @@ int main()
         firmware_boot.arm7_bytes != std::vector<uint8_t>(
             firmware_arm7_plain.begin(), firmware_arm7_plain.end()) ||
         firmware_boot.computed_crc16 != firmware_boot.expected_crc16 ||
+        firmware_boot.arm9_secondary_bytes != std::vector<uint8_t>{
+            0x31u, 0x32u, 0x33u, 0x34u} ||
+        firmware_boot.arm7_secondary_bytes != std::vector<uint8_t>{
+            0x41u, 0x41u, 0x41u, 0x41u} ||
+        firmware_boot.firmware_data_bytes != std::vector<uint8_t>{
+            0x51u, 0x52u, 0x53u, 0x54u} ||
+        firmware_boot.computed_secondary_crc16 !=
+            firmware_boot.expected_secondary_crc16 ||
+        firmware_boot.computed_data_crc16 != firmware_boot.expected_data_crc16 ||
         firmware_boot.decrypted_rom_info != std::array<uint8_t, 8>{
             1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u} ||
         key1.level() != 1u || key1.modulo_bytes() != 8u ||
         key1.id_code() != UINT32_C(0x45555043)) {
-        return fail("firmware IPL decryption, LZ77, CRC, destinations or key restoration failed");
+        return fail("firmware IPL1/2 and secondary-part decoding, CRC or key restoration failed");
     }
 
     auto corrupted_firmware = synthetic_firmware;
@@ -556,6 +607,36 @@ int main()
         preserved_output.arm9_bytes != firmware_boot.arm9_bytes ||
         preserved_output.arm7_bytes != firmware_boot.arm7_bytes) {
         return fail("firmware IPL accepted a corrupted combined CRC or partially replaced output");
+    }
+
+    auto corrupted_secondary_crc = synthetic_firmware;
+    corrupted_secondary_crc[0x04u] ^= UINT8_C(0x80);
+    if (key1.decrypt_firmware_boot_code(
+            corrupted_secondary_crc.data(), corrupted_secondary_crc.size(),
+            preserved_output) != Status::IdentityMismatch ||
+        preserved_output.arm9_secondary_bytes != firmware_boot.arm9_secondary_bytes ||
+        preserved_output.arm7_secondary_bytes != firmware_boot.arm7_secondary_bytes ||
+        preserved_output.firmware_data_bytes != firmware_boot.firmware_data_bytes) {
+        return fail("firmware IPL3/4 CRC failure partially replaced decoded output");
+    }
+
+    auto corrupted_data_crc = synthetic_firmware;
+    corrupted_data_crc[0x26u] ^= UINT8_C(0x01);
+    if (key1.decrypt_firmware_boot_code(
+            corrupted_data_crc.data(), corrupted_data_crc.size(),
+            preserved_output) != Status::IdentityMismatch ||
+        preserved_output.firmware_data_bytes != firmware_boot.firmware_data_bytes) {
+        return fail("firmware IPL5 CRC failure partially replaced decoded output");
+    }
+
+    auto unsupported_secondary_codec = synthetic_firmware;
+    unsupported_secondary_codec[0x400u] = UINT8_C(0x40);
+    if (key1.decrypt_firmware_boot_code(
+            unsupported_secondary_codec.data(),
+            unsupported_secondary_codec.size(),
+            preserved_output) != Status::Unsupported ||
+        preserved_output.firmware_data_bytes != firmware_boot.firmware_data_bytes) {
+        return fail("firmware IPL5 accepted an unknown BIOS compression codec");
     }
 
     auto corrupted_header = synthetic_firmware;
@@ -578,7 +659,7 @@ int main()
         return fail("firmware IPL accepted an unsupported ID or truncated flash");
     }
 
-    std::puts("NDS KEY1 and firmware IPL decryption/LZ77/CRC tests passed");
+    std::puts("NDS KEY1, IPL1/2 and secondary firmware compression/CRC tests passed");
     key1.reset();
     if (!key1.table_loaded() || key1.initialized() || key1.id_code() != 0u ||
         key1.level() != 0u || key1.modulo_bytes() != 0u ||
