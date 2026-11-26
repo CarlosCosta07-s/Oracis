@@ -1,0 +1,127 @@
+# Aceleração com o ecossistema de ports, decomps e recomps
+
+**Auditoria inicial:** 26/11/2026  
+**Repositório-alvo:** `CarlosCosta07-s/Oracis`  
+**Base examinada:** `main`, commit `4e110576628780b0ec359d700806f10ec2a52496`
+
+Este documento registra como aproveitar o conhecimento e as ferramentas públicas da comunidade para reduzir trabalho repetido no Oracis, sem trazer código incompatível, licenças não auditadas ou componentes proibidos pela arquitetura do projeto.
+
+## 1. Regras de aproveitamento
+
+1. Desenvolver diretamente em `main`; não criar, alternar ou usar branches auxiliares.
+2. Não incorporar código ou assets derivados de melonDS, nem o runner/oracle/frontend do NDSRecomp.
+3. Não copiar código, recursos, ROM, firmware, BIOS, saves ou dados proprietários de jogos.
+4. A árvore `pret/pokeplatinum` continua sendo referência de pesquisa; reutilização de código permanece bloqueada enquanto não houver licença/autorização clara.
+5. Toda dependência candidata exige auditoria de licença, proveniência, arquitetura, versão, ABI e testes antes de qualquer integração.
+6. Preferir metadados, contratos de hardware, ferramentas independentes e testes diferenciais. Um exemplo de outro jogo não fornece endereços, símbolos ou comportamento específicos de Pokémon Platinum.
+7. Artefatos gerados a partir de arquivos do usuário permanecem em `.oracis/` ou outro diretório local ignorado; nunca entram no Git, CI ou releases.
+8. Não declarar boot, compatibilidade ou ganho de desempenho com base apenas em compilações e fixtures sintéticas.
+
+## 2. Fontes comunitárias avaliadas
+
+| Fonte | O que vale aprender | Decisão para o Oracis |
+|---|---|---|
+| [RetroPortingToolKit/ndsrecomp](https://github.com/RetroPortingToolKit/ndsrecomp) | Compilador estático ARM, bancos nativos e validação de bytes guest | Manter a revisão fixada atual; acompanhar apenas mudanças relevantes ao alvo `nds_recompile` |
+| [mstan/supermario64dsrecomp](https://github.com/mstan/supermario64dsrecomp) | Preparação local da ROM, geração de TOMLs a partir de metadados de funções, módulos, overlays, validação de conteúdo e boot de cartucho | Referência de pipeline; não importar o runner ou assumir compatibilidade com o framework/fork usado pelo projeto |
+| [tangosdev/sm64ds-decomp](https://github.com/tangosdev/sm64ds-decomp) | Exemplo de metadados de função e módulo fornecidos separadamente do código do jogo | Só estudar a metodologia. Os símbolos são de outro jogo/região e não servem para Platinum |
+| [darthmdev/pmd-sky-recomp](https://github.com/darthmdev/pmd-sky-recomp) | Organização de muitos bancos AOT, overlays, ARM9/ARM7, memória e serviços de plataforma | Referência arquitetural apenas; repositório declara GPL-3.0 |
+| [cybervisi0n/pokeplatinum](https://github.com/cybervisi0n/pokeplatinum/tree/pc_port) | Port nativo de Platinum baseado em decompilação e substituição de serviços NitroSDK por bibliotecas host | Estudar o problema dos serviços e o fluxo de port; não copiar código nem enviar contribuições/trechos gerados por IA |
+| [cybervisi0n/libntr](https://github.com/cybervisi0n/libntr) | Separação de serviços NitroSDK em bibliotecas | A licença MIT do repositório libntr foi identificada; qualquer módulo específico ainda exige revisão de proveniência, dependências e encaixe na arquitetura |
+| [AKCore/pokeplatinum-port](https://github.com/AKCore/pokeplatinum-port) | Casos de teste, determinismo, diagnósticos e comparação diferencial | Não importar hardware: a documentação do próprio projeto identifica modelos derivados de melonDS e licença GPL-3.0-or-later |
+| [pret/pokeplatinum](https://github.com/pret/pokeplatinum) | Referência comportamental e organização da descompilação | Não incorporar código/recursos; o repositório não apresenta uma licença geral identificada nesta auditoria |
+| [GBATEK](https://problemkaputt.de/gbatek.htm) e [Nintendo DS Architecture](https://classic.copetti.org/writings/consoles/nintendo-ds/) | Contratos públicos dos dispositivos, boot, memória e registradores | Fontes técnicas para implementar e testar o runtime próprio |
+
+### Observações importantes sobre licenças e diferenças
+
+- O repositório `mstan/supermario64dsrecomp` possui uma licença MIT para seu próprio código, mas também mantém um submódulo separado chamado `ndsrecomp` apontando para `mstan/ndsrecomp`. Esse framework não é o mesmo identificador de repositório do pin `RetroPortingToolKit/ndsrecomp` usado pelo Oracis. Não misturar revisões nem presumir compatibilidade. O próprio projeto também documenta componentes de runner sob GPL devido a código derivado de melonDS.
+- O `pmd-sky-recomp` declara GPL-3.0. Seu desenho pode ser estudado, mas não é uma fonte de código para integração no Oracis.
+- A licença MIT de `libntr` não concede automaticamente licença sobre o port `cybervisi0n/pokeplatinum`, outros subprojetos ou seus recursos. O README do port também declara que contribuições ou sugestões de código feitas com IA serão rejeitadas; não enviaremos sugestões geradas por IA aos mantenedores.
+- O `AKCore/pokeplatinum-port` documenta que seus modelos de hardware são derivados de melonDS. Isso conflita diretamente com a regra do Oracis e exclui esses componentes de qualquer reutilização.
+- A presença de código público, nomes de funções ou arquivos em uma descompilação não equivale, por si só, a uma licença para incorporá-los.
+
+## 3. Decisão sobre o NDSRecomp atual
+
+O Oracis fixa `RetroPortingToolKit/ndsrecomp` em:
+
+```text
+14b7e15023e9affc9dc375e4e611ac703f5c76ab
+```
+
+O bootstrap local usa checkout esparso e permite apenas:
+
+- `recompiler/`
+- `cmake/`
+- `external/arm-recomp-core/`
+
+A comparação entre esse pin e o `main` de `RetroPortingToolKit/ndsrecomp` encontrou 12 commits posteriores. Os arquivos alterados estavam no runner, frontend, gráficos, serviços e testes do runner; nenhum dos caminhos permitidos do compilador estático apareceu no diff. Portanto, **não há benefício demonstrado para atualizar o pin agora**. Uma revisão futura só deve ser considerada quando uma mudança atingir o compilador ou seu núcleo ARM permitido, após nova auditoria de licença e execução da suíte de integração do Oracis.
+
+## 4. O que o Oracis já tem para aproveitar
+
+A base examinada já contém ferramentas próprias para:
+
+- extrair e validar os segmentos principais ARM9/ARM7 de uma cópia local;
+- gerar bancos C e shards com identidade de codegen e validação dos bytes guest;
+- auditar símbolos externos e classificar referências ausentes;
+- extrair imagens de overlays, validar hashes e produzir inventários;
+- descobrir candidatos de entrada de overlays a partir de metadados locais;
+- gerar registradores e manifestos de cobertura;
+- carregar e descarregar overlays de forma transacional na camada de máquina;
+- recompilar BIOSes fornecidas pelo usuário em bancos locais separados;
+- rastrear eventos e transferências por CPU;
+- testar ABI, memória, dispositivos, máquina, loaders e bancos sintéticos na CI.
+
+A auditoria documentada da revisão USA Rev 1 registra 122 overlays ARM9: 29 com âncoras encontradas por nomes de arquivos de fonte, 33 adicionais com sementes provenientes das tabelas de inicialização estática e 60 ainda sem essas sementes. A cobertura de sementes não equivale a cobertura de todas as funções dos módulos. O runtime também ainda precisa de um gerenciador integrado que coordene a cópia do overlay, BSS, inicializadores, referências guest e unload seguro.
+
+## 5. Pipeline de aceleração adotado
+
+### Etapa A — medir antes de implementar
+
+Executar os caminhos de teste local com os arquivos do usuário e guardar relatórios reproduzíveis. Para cada falha, registrar:
+
+- CPU, PC, estado ARM/Thumb e banco selecionado;
+- identidade/hash do módulo ou overlay em RAM;
+- endereço MMIO ou região de memória envolvida;
+- instrução/transferência e orçamento de ciclos;
+- evento de IRQ, DMA, IPC ou troca de contexto relacionado;
+- resultado esperado e resultado observado.
+
+Não misturar resultados de ROMs, revisões ou BIOSes diferentes.
+
+### Etapa B — transformar cada falha em um caso pequeno
+
+Cada primeiro dispatch miss, acesso MMIO sem suporte, falha de timing ou dependência BIOS/NitroSDK deve virar um teste sintético mínimo. Corrigir uma classe por vez e preservar o comportamento anterior. O teste sintético deve isolar a semântica; a validação posterior com a imagem real do usuário deve confirmar que a hipótese se aplica à revisão alvo.
+
+### Etapa C — ampliar a cobertura de código
+
+Usar primeiro as sementes já verificadas e os manifestos existentes. Para novos alvos indiretos:
+
+1. distinguir destino resolvido, inalcançável com evidência e desconhecido;
+2. buscar evidência em referências/ponteiros extraídos, tabelas de inicialização e rastros de execução;
+3. confirmar modo ARM/Thumb, limites, bytes e identidade do módulo;
+4. gerar novo banco local com o compilador fixado;
+5. auditar símbolos, compilar e validar os bytes antes de registrar;
+6. manter desconhecidos em falha fechada, sem interpretar ARM como fallback.
+
+Não inventar entrypoints a partir do endereço de carga ou do início do BSS. Um endereço de inicialização estática é apenas uma semente para aquele callback, não uma prova de cobertura completa do overlay.
+
+### Etapa D — ligar serviços sem duplicar trabalho
+
+Usar as referências comunitárias para inventariar serviços NitroSDK e contratos de hardware, não para copiar implementações incompatíveis. Priorizar o serviço somente quando um rastro real ou um teste de boot mostrar que ele é necessário. Os contratos de IPC, DMA, timers, Game Card, SPI, vídeo e BIOS devem permanecer testáveis de forma independente.
+
+### Etapa E — validar o primeiro quadro
+
+A sequência de aceitação é: entrypoints reais resolvidos; execução nativa de BIOS/boot ou direct-entry explicitamente identificado; dependências e overlays requeridos cobertos; primeiro quadro obtido pelo pipeline de vídeo do Oracis; repetição determinística com logs e identidade dos arquivos. Compilar para Android ARM64 não substitui teste em aparelho nem gera por si só um APK instalável.
+
+## 6. Próximas prioridades técnicas
+
+1. Executar localmente o direct-entry e o caminho BIOS com bancos/arquivos reais fornecidos pelo usuário; capturar o primeiro dispatch e os primeiros eventos que interrompem o avanço.
+2. Resolver a primeira falha real observada, em vez de implementar serviços especulativos.
+3. Fechar a descoberta dos destinos indiretos e ampliar a cobertura dos 60 overlays sem sementes.
+4. Integrar o gerenciador de overlays ao ciclo NitroSDK com regras verificáveis para cópia, BSS, inicializadores e unload.
+5. Demonstrar o primeiro quadro real e só então avançar os subsistemas de áudio, saves e acabamento de plataforma.
+
+## 7. Critério para aceitar uma contribuição comunitária
+
+Uma contribuição só passa para integração quando houver: URL e revisão exatas; licença do arquivo/componente e de suas dependências; proveniência clara; compatibilidade com C99/C++20, ABI, arquitetura e plataformas; ausência de código/asset proibido; teste reproduzível; e registro da decisão neste documento. Até lá, ela é referência técnica, não dependência.
+
+Nenhuma alteração nesta auditoria importa código de outros ports, altera o pin do NDSRecomp ou inclui conteúdo derivado do jogo.
