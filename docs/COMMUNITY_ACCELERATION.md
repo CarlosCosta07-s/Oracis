@@ -89,7 +89,11 @@ A base examinada já contém ferramentas próprias para:
 - rastrear eventos e transferências por CPU;
 - testar ABI, memória, dispositivos, máquina, loaders e bancos sintéticos na CI.
 
-A auditoria documentada da revisão USA Rev 1 registra 122 overlays ARM9: 29 com âncoras encontradas por nomes de arquivos de fonte, 33 adicionais com sementes provenientes das tabelas de inicialização estática e 60 ainda sem essas sementes. A cobertura de sementes não equivale a cobertura de todas as funções dos módulos. O runtime também ainda precisa de um gerenciador integrado que coordene a cópia do overlay, BSS, inicializadores, referências guest e unload seguro.
+A auditoria documentada da revisão USA Rev 1 registra 122 overlays ARM9: 29 com âncoras encontradas por nomes de arquivos de fonte, 33 adicionais com sementes provenientes das tabelas de inicialização estática e 60 ainda sem essas sementes. A cobertura de sementes não equivale a cobertura de todas as funções dos módulos.
+
+**O mecanismo de baixo nível já existe e não deve ser refeito:** `NdsOverlayLoader` valida o SHA-1, interpreta a tabela de ponteiros static-init preservando ordem e modo ARM/Thumb, copia a imagem descomprimida e zera BSS. `NdsMachine` expõe execução supervisionada de construtores com orçamento, restauração do contexto da CPU e solicitação cooperativa a partir de uma fatia guest; o C bridge já fornece APIs de load/run/request/unload.
+
+**A lacuna restante é a orquestração de plataforma:** o host ainda precisa ler o manifesto local, selecionar e fornecer os bytes descomprimidos e encaminhar o ciclo de vida do gerenciador NitroSDK para essas APIs. O unload exige que o chamador certifique ausência de referências guest; depois que construtores foram executados, o runtime recusa o descarregamento com `FinalizersUnavailable`, pois ainda não há uma tabela/execução de finalizadores validada. A próxima implementação deve criar um catálogo local e um adaptador de serviço que reutilizem os mecanismos existentes; não deve duplicar o carregador ou a execução static-init.
 
 ## 5. Pipeline de aceleração adotado
 
@@ -136,7 +140,7 @@ A sequência de aceitação é: entrypoints reais resolvidos; execução nativa 
 1. Executar localmente o direct-entry e o caminho BIOS com bancos/arquivos reais fornecidos pelo usuário; capturar o primeiro dispatch e os primeiros eventos que interrompem o avanço.
 2. Resolver a primeira falha real observada, em vez de implementar serviços especulativos.
 3. Fechar a descoberta dos destinos indiretos e ampliar a cobertura dos 60 overlays sem sementes.
-4. Integrar o gerenciador de overlays ao ciclo NitroSDK com regras verificáveis para cópia, BSS, inicializadores e unload.
+4. Implementar o catálogo local do manifesto e o adaptador NitroSDK de ciclo de vida, reutilizando `NdsOverlayLoader` e a execução static-init já existentes; manter unload bloqueado até haver finalização e rastreamento de referências guest demonstrados.
 5. Demonstrar o primeiro quadro real e só então avançar os subsistemas de áudio, saves e acabamento de plataforma.
 
 ## 7. Critério para aceitar uma contribuição comunitária
