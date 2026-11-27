@@ -27,7 +27,8 @@ enum class NdsOverlayDestructorChainStatus : uint8_t {
     RollbackFailed,
     NotInitialized,
     ProgramNotLoaded,
-    Busy
+    Busy,
+    OverlayNotLoaded
 };
 
 /*
