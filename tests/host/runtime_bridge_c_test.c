@@ -57,8 +57,9 @@ enum {
     TEST_KEYPAD_IRQ = 1u << 12u,
     TEST_KEYPAD_A = 1u,
     TEST_KEYCNT_IRQ_ENABLE = 1u << 14u,
-    TEST_DTOR_HEAD = 0x02005000u,
+    TEST_DTOR_HEAD = 0x02006000u,
     TEST_DTOR_NODE = 0x02005020u,
+    TEST_DTOR_NODE_2 = 0x02005060u,
     TEST_DTOR_OBJECT = 0x02005040u,
     TEST_DTOR_FUNCTION = 0x02001004u
 };
@@ -650,6 +651,35 @@ int main(void)
         fprintf(stderr, "C host bridge failed to load and verify ARM9 image\n");
         return 1;
     }
+    static const uint8_t overlay_image_bytes[4] = {
+        UINT8_C(0x12), UINT8_C(0x34), UINT8_C(0x56), UINT8_C(0x78)
+    };
+    const OracisHostOverlayImage destructor_test_overlay = {
+        (uint32_t)NDS_ARM9,
+        3u,
+        UINT32_C(0x02005000),
+        (uint32_t)sizeof(overlay_image_bytes),
+        UINT32_C(0x100),
+        0u,
+        0u,
+        overlay_image_bytes,
+        "9bce73d0c8b9eca4f24154f3bd3b8aa473b1c3a9"
+    };
+    if (oracis_host_runtime_load_overlay(&destructor_test_overlay) !=
+        ORACIS_HOST_RUNTIME_OK) {
+        fprintf(stderr, "C host bridge failed to load the destructor-inspection overlay\\n");
+        return 1;
+    }
+
+    uint32_t missing_overlay_count = UINT32_MAX;
+    if (oracis_host_runtime_inspect_overlay_destructors(
+            (uint32_t)NDS_ARM9, 99u, TEST_DTOR_HEAD, NULL, 0u,
+            &missing_overlay_count) != ORACIS_HOST_RUNTIME_OVERLAY_NOT_LOADED ||
+        missing_overlay_count != 0u) {
+        fprintf(stderr, "destructor inspection did not report an unloaded overlay\\n");
+        return 1;
+    }
+
     if (oracis_host_runtime_register_global_destructor(
             (uint32_t)NDS_ARM9, UINT32_C(0x02001000),
             UINT32_C(0x02001020), UINT32_C(0x02001031),
@@ -808,6 +838,65 @@ int main(void)
             g_arm9_bank_calls, g_arm9_irq_handler_ok, g_arm9_irq_triggered,
             g_arm7_bank_calls, g_arm7_irq_handler_ok, g_arm7_irq_triggered,
             (unsigned long long)irq_round_bus_cycles);
+        return 1;
+    }
+
+    /* Add a second overlay-owned registration to exercise ordered inspection. */
+    bus_write_u32(TEST_DTOR_NODE, TEST_DTOR_NODE_2);
+    bus_write_u32(TEST_DTOR_NODE_2, 0u);
+    bus_write_u32(TEST_DTOR_NODE_2 + 4u, UINT32_C(0x02005021));
+    bus_write_u32(TEST_DTOR_NODE_2 + 8u, 0u);
+
+    OracisHostOverlayDestructorRecord too_small_records[1] = {
+        {UINT32_C(0xDEADBEEF), UINT32_C(0xCAFEBABE), UINT32_C(0x12345678)}
+    };
+    uint32_t destructor_record_count = 0u;
+    if (oracis_host_runtime_inspect_overlay_destructors(
+            (uint32_t)NDS_ARM9, 3u, TEST_DTOR_HEAD,
+            too_small_records, 1u, &destructor_record_count) !=
+            ORACIS_HOST_RUNTIME_BUFFER_TOO_SMALL ||
+        destructor_record_count != 2u ||
+        too_small_records[0].chain_node_address != UINT32_C(0xDEADBEEF) ||
+        too_small_records[0].destructor_pointer != UINT32_C(0xCAFEBABE) ||
+        too_small_records[0].object_address != UINT32_C(0x12345678)) {
+        oracis_static_dispatch_clear();
+        fprintf(stderr, "destructor inspection did not preserve a short output buffer\\n");
+        return 1;
+    }
+
+    destructor_record_count = 0u;
+    if (oracis_host_runtime_inspect_overlay_destructors(
+            (uint32_t)NDS_ARM9, 3u, TEST_DTOR_HEAD,
+            NULL, 0u, &destructor_record_count) !=
+            ORACIS_HOST_RUNTIME_BUFFER_TOO_SMALL ||
+        destructor_record_count != 2u ||
+        oracis_host_runtime_inspect_overlay_destructors(
+            (uint32_t)NDS_ARM9, 3u, TEST_DTOR_HEAD,
+            NULL, 1u, &destructor_record_count) !=
+            ORACIS_HOST_RUNTIME_INVALID_ARGUMENT) {
+        oracis_static_dispatch_clear();
+        fprintf(stderr, "destructor inspection size-query contract failed\\n");
+        return 1;
+    }
+
+    OracisHostOverlayDestructorRecord destructor_records[2] = {{0}};
+    destructor_record_count = 0u;
+    if (oracis_host_runtime_inspect_overlay_destructors(
+            (uint32_t)NDS_ARM9, 3u, TEST_DTOR_HEAD,
+            destructor_records, 2u, &destructor_record_count) !=
+            ORACIS_HOST_RUNTIME_OK ||
+        destructor_record_count != 2u ||
+        destructor_records[0].chain_node_address != TEST_DTOR_NODE ||
+        destructor_records[0].destructor_pointer != TEST_DTOR_FUNCTION ||
+        destructor_records[0].object_address != TEST_DTOR_OBJECT ||
+        destructor_records[1].chain_node_address != TEST_DTOR_NODE_2 ||
+        destructor_records[1].destructor_pointer != UINT32_C(0x02005021) ||
+        destructor_records[1].object_address != 0u ||
+        bus_read_u32(TEST_DTOR_HEAD) != TEST_DTOR_NODE ||
+        bus_read_u32(TEST_DTOR_NODE) != TEST_DTOR_NODE_2 ||
+        bus_read_u32(TEST_DTOR_NODE_2) != 0u) {
+        oracis_static_dispatch_clear();
+        fprintf(stderr, "destructor inspection changed or misreported the guest chain\\n");
         return 1;
     }
 
