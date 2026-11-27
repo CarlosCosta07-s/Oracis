@@ -3,6 +3,7 @@
 
 #include <cassert>
 #include <chrono>
+#include <cstdlib>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -14,6 +15,11 @@ namespace {
 using oracis::host::detail::NdsOverlayCatalog;
 using oracis::host::detail::NdsOverlayCatalogStatus;
 using oracis::host::detail::NdsOverlayCatalogRecord;
+
+void require(bool condition)
+{
+    if (!condition) std::abort();
+}
 
 constexpr const char *kRomSha1 =
     "0862ec35b24de5c7e2dcb88c9eea0873110d755c";
@@ -46,10 +52,10 @@ void write_text(
     const std::string &contents)
 {
     std::ofstream stream(path, std::ios::binary);
-    assert(stream.good());
+    require(stream.good());
     stream.write(
         contents.data(), static_cast<std::streamsize>(contents.size()));
-    assert(stream.good());
+    require(stream.good());
 }
 
 void write_bytes(
@@ -57,11 +63,11 @@ void write_bytes(
     const std::vector<uint8_t> &contents)
 {
     std::ofstream stream(path, std::ios::binary);
-    assert(stream.good());
+    require(stream.good());
     stream.write(
         reinterpret_cast<const char *>(contents.data()),
         static_cast<std::streamsize>(contents.size()));
-    assert(stream.good());
+    require(stream.good());
 }
 
 std::string make_record(
@@ -149,29 +155,29 @@ void test_opens_catalog_and_reads_verified_images()
 
     NdsOverlayCatalog catalog;
     std::string diagnostic;
-    assert(NdsOverlayCatalog::open(
+    require(NdsOverlayCatalog::open(
         temporary.path(), kRomSha1, catalog, &diagnostic) ==
         NdsOverlayCatalogStatus::Ok);
-    assert(diagnostic == "ok");
-    assert(catalog.records().size() == 2u);
+    require(diagnostic == "ok");
+    require(catalog.records().size() == 2u);
 
     const auto *arm9 = catalog.find(NDS_ARM9, 3u);
     const auto *arm7 = catalog.find(NDS_ARM7, 1u);
-    assert(arm9 != nullptr && arm7 != nullptr);
-    assert(arm9->ram_address == UINT32_C(0x02200000));
-    assert(arm9->bss_size == 8u);
-    assert(catalog.find(NDS_ARM9, 1u) == nullptr);
+    require(arm9 != nullptr && arm7 != nullptr);
+    require(arm9->ram_address == UINT32_C(0x02200000));
+    require(arm9->bss_size == 8u);
+    require(catalog.find(NDS_ARM9, 1u) == nullptr);
 
     std::vector<uint8_t> contents;
-    assert(catalog.read_image(*arm9, contents, &diagnostic) ==
+    require(catalog.read_image(*arm9, contents, &diagnostic) ==
         NdsOverlayCatalogStatus::Ok);
-    assert((contents == std::vector<uint8_t>{
+    require((contents == std::vector<uint8_t>{
         0x11u, 0x22u, 0x33u, 0x44u
     }));
 
-    assert(catalog.read_image(*arm7, contents, &diagnostic) ==
+    require(catalog.read_image(*arm7, contents, &diagnostic) ==
         NdsOverlayCatalogStatus::Ok);
-    assert((contents == std::vector<uint8_t>{
+    require((contents == std::vector<uint8_t>{
         0x55u, 0x66u, 0x77u, 0x88u
     }));
 }
@@ -182,15 +188,15 @@ void test_rejects_rom_identity_mismatch_without_replacing_catalog()
     create_valid_fixture(temporary.path());
 
     NdsOverlayCatalog catalog;
-    assert(NdsOverlayCatalog::open(
+    require(NdsOverlayCatalog::open(
         temporary.path(), kRomSha1, catalog) ==
         NdsOverlayCatalogStatus::Ok);
-    assert(catalog.records().size() == 2u);
+    require(catalog.records().size() == 2u);
 
-    assert(NdsOverlayCatalog::open(
+    require(NdsOverlayCatalog::open(
         temporary.path(), std::string(40u, '0'), catalog) ==
         NdsOverlayCatalogStatus::RomIdentityMismatch);
-    assert(catalog.records().size() == 2u);
+    require(catalog.records().size() == 2u);
 }
 
 void test_rejects_manifest_count_mismatch()
@@ -211,7 +217,7 @@ void test_rejects_manifest_count_mismatch()
         make_manifest(first, second, kRomSha1, 3u));
 
     NdsOverlayCatalog catalog;
-    assert(NdsOverlayCatalog::open(
+    require(NdsOverlayCatalog::open(
         temporary.path(), kRomSha1, catalog) ==
         NdsOverlayCatalogStatus::InvalidManifest);
 }
@@ -233,7 +239,7 @@ void test_rejects_duplicate_cpu_overlay_identity()
         make_manifest(first, duplicate));
 
     NdsOverlayCatalog catalog;
-    assert(NdsOverlayCatalog::open(
+    require(NdsOverlayCatalog::open(
         temporary.path(), kRomSha1, catalog) ==
         NdsOverlayCatalogStatus::InvalidManifest);
 }
@@ -254,7 +260,7 @@ void test_rejects_path_traversal_image_name()
         make_manifest(first, second));
 
     NdsOverlayCatalog catalog;
-    assert(NdsOverlayCatalog::open(
+    require(NdsOverlayCatalog::open(
         temporary.path(), kRomSha1, catalog) ==
         NdsOverlayCatalogStatus::InvalidManifest);
 }
@@ -265,20 +271,20 @@ void test_detects_image_hash_tampering_after_catalog_open()
     create_valid_fixture(temporary.path());
 
     NdsOverlayCatalog catalog;
-    assert(NdsOverlayCatalog::open(
+    require(NdsOverlayCatalog::open(
         temporary.path(), kRomSha1, catalog) ==
         NdsOverlayCatalogStatus::Ok);
     const auto *arm9 = catalog.find(NDS_ARM9, 3u);
-    assert(arm9 != nullptr);
+    require(arm9 != nullptr);
 
     write_bytes(
         temporary.path() / "arm9_overlay_0003.bin",
         std::vector<uint8_t>{0xFFu, 0xEEu, 0xDDu, 0xCCu});
 
     std::vector<uint8_t> output{0xAAu};
-    assert(catalog.read_image(*arm9, output) ==
+    require(catalog.read_image(*arm9, output) ==
         NdsOverlayCatalogStatus::ImageHashMismatch);
-    assert((output == std::vector<uint8_t>{0xAAu}));
+    require((output == std::vector<uint8_t>{0xAAu}));
 }
 
 void test_rejects_malformed_manifest_and_invalid_static_range()
@@ -286,7 +292,7 @@ void test_rejects_malformed_manifest_and_invalid_static_range()
     TemporaryDirectory malformed;
     write_text(malformed.path() / "manifest.json", "{\"schema\":");
     NdsOverlayCatalog catalog;
-    assert(NdsOverlayCatalog::open(
+    require(NdsOverlayCatalog::open(
         malformed.path(), kRomSha1, catalog) ==
         NdsOverlayCatalogStatus::InvalidManifest);
 
@@ -303,7 +309,7 @@ void test_rejects_malformed_manifest_and_invalid_static_range()
     write_text(
         invalid_range.path() / "manifest.json",
         make_manifest(first, second));
-    assert(NdsOverlayCatalog::open(
+    require(NdsOverlayCatalog::open(
         invalid_range.path(), kRomSha1, catalog) ==
         NdsOverlayCatalogStatus::InvalidManifest);
 }
@@ -312,7 +318,7 @@ void test_missing_directory_is_reported_explicitly()
 {
     TemporaryDirectory temporary;
     NdsOverlayCatalog catalog;
-    assert(NdsOverlayCatalog::open(
+    require(NdsOverlayCatalog::open(
         temporary.path() / "not-created", kRomSha1, catalog) ==
         NdsOverlayCatalogStatus::Missing);
 }
