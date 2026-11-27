@@ -2293,6 +2293,64 @@ NdsOverlayStatus NdsMachine::load_overlay(
     return overlay_loader_.load(classified);
 }
 
+NdsOverlayStatus NdsMachine::request_overlay_load(
+    const NdsOverlayImage &image) noexcept
+{
+    if (!initialized_) return NdsOverlayStatus::NotInitialized;
+    if (!program_loaded_) return NdsOverlayStatus::ProgramNotLoaded;
+    if (!valid_cpu(image.cpu)) return NdsOverlayStatus::InvalidCpu;
+    if (image.contents == nullptr || image.ram_size == 0u ||
+        image.image_sha1 == nullptr) {
+        return NdsOverlayStatus::InvalidMetadata;
+    }
+
+    const unsigned index = cpu_index(image.cpu);
+    if (overlay_loader_.is_loaded(image.cpu, image.overlay_id)) {
+        return NdsOverlayStatus::AlreadyLoaded;
+    }
+    if (pending_overlay_loads_[index].pending ||
+        pending_overlay_initializers_[index].pending) {
+        return NdsOverlayStatus::Busy;
+    }
+
+    if (!slice_active_[0] && !slice_active_[1]) {
+        return load_overlay(image);
+    }
+
+    /* Only the selected core may request a mutation while its own slice runs. */
+    if (!slice_active_[index] || slice_active_[index ^ 1u] ||
+        g_nds_active != image.cpu ||
+        oracis_active_cpu_state != cpu_state(image.cpu)) {
+        return NdsOverlayStatus::Busy;
+    }
+
+    try {
+        PendingOverlayLoad staged;
+        staged.pending = true;
+        staged.cpu = image.cpu;
+        staged.region = image.region;
+        staged.overlay_id = image.overlay_id;
+        staged.ram_address = image.ram_address;
+        staged.ram_size = image.ram_size;
+        staged.bss_size = image.bss_size;
+        staged.static_init_start = image.static_init_start;
+        staged.static_init_end = image.static_init_end;
+        staged.image_sha1 = image.image_sha1;
+        staged.contents.assign(
+            image.contents, image.contents + image.ram_size);
+
+        pending_overlay_loads_[index] = std::move(staged);
+        if (oracis_scheduler_request_yield(image.cpu) == 0) {
+            pending_overlay_loads_[index] = PendingOverlayLoad{};
+            return NdsOverlayStatus::OverlayLoadFailed;
+        }
+        return NdsOverlayStatus::OverlayLoadPending;
+    } catch (...) {
+        pending_overlay_loads_[index] = PendingOverlayLoad{};
+        return NdsOverlayStatus::OverlayLoadFailed;
+    }
+}
+
 int NdsMachine::runtime_overlay_dispatch_miss_handler(
     void *context,
     NdsCpu cpu,
@@ -2562,6 +2620,35 @@ NdsMachineStatus NdsMachine::run_pending_overlay_static_initializers(
     return result == NdsOverlayStatus::Ok
         ? NdsMachineStatus::Ok
         : NdsMachineStatus::OverlayInitializerFailed;
+}
+
+NdsMachineStatus NdsMachine::run_pending_overlay_load(
+    NdsCpu cpu) noexcept
+{
+    if (!valid_cpu(cpu)) return NdsMachineStatus::InvalidCpu;
+    PendingOverlayLoad &pending = pending_overlay_loads_[cpu_index(cpu)];
+    if (!pending.pending) return NdsMachineStatus::Ok;
+
+    PendingOverlayLoad staged = std::move(pending);
+    pending = PendingOverlayLoad{};
+
+    const NdsOverlayImage image{
+        staged.cpu,
+        staged.overlay_id,
+        staged.ram_address,
+        staged.ram_size,
+        staged.bss_size,
+        staged.static_init_start,
+        staged.static_init_end,
+        staged.contents.data(),
+        staged.image_sha1.c_str(),
+        staged.region
+    };
+    const NdsOverlayStatus result = load_overlay(image);
+    return result == NdsOverlayStatus::Ok ||
+           result == NdsOverlayStatus::AlreadyLoaded
+        ? NdsMachineStatus::Ok
+        : NdsMachineStatus::OverlayLoadFailed;
 }
 
 NdsOverlayStatus NdsMachine::unload_overlay(
