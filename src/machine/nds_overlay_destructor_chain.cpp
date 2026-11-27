@@ -455,6 +455,9 @@ const char *nds_overlay_destructor_chain_status_name(
     case NdsOverlayDestructorChainStatus::AllocationFailed: return "allocation-failed";
     case NdsOverlayDestructorChainStatus::WriteFailed: return "write-failed";
     case NdsOverlayDestructorChainStatus::RollbackFailed: return "rollback-failed";
+    case NdsOverlayDestructorChainStatus::NotInitialized: return "not-initialized";
+    case NdsOverlayDestructorChainStatus::ProgramNotLoaded: return "program-not-loaded";
+    case NdsOverlayDestructorChainStatus::Busy: return "busy";
     }
     return "unknown";
 }
