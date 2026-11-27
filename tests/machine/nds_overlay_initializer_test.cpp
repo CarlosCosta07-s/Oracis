@@ -462,7 +462,7 @@ int main()
     const auto deferred_load_round = machine.run_dual_core_round(
         100u, &request_deferred_overlay_load, nullptr,
         &deferred_load_context);
-    if (deferred_load_round != NdsMachineStatus::Ok ||
+    if (deferred_load_round != oracis::machine::NdsMachineStatus::Ok ||
         deferred_load_context.request_status !=
             NdsOverlayStatus::OverlayLoadPending ||
         !machine.overlay_loader().is_loaded(
