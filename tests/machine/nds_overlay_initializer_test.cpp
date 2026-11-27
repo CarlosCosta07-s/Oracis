@@ -29,8 +29,8 @@ constexpr uint32_t kDeferredLoadOverlay = UINT32_C(74);
 constexpr uint32_t kDeferredLoadOverlayAddress = UINT32_C(0x02008400);
 constexpr uint32_t kDestructorChainHeadAddress = UINT32_C(0x02008A00);
 constexpr uint32_t kDestructorChainNodeAddress = UINT32_C(0x02008A20);
-constexpr uint32_t kDestructorChainObjectAddress = UINT32_C(0x0200C080);
-constexpr uint32_t kDestructorChainFunctionPointer = UINT32_C(0x0200C101);
+constexpr uint32_t kDestructorChainObjectAddress = kSuccessfulOverlayAddress + UINT32_C(0x14);
+constexpr uint32_t kDestructorChainFunctionPointer = kSuccessfulOverlayAddress + UINT32_C(0x09);
 
 oracis::machine::NdsMachine *g_machine = nullptr;
 std::array<uint32_t, 3> g_initializer_order{};
@@ -170,6 +170,9 @@ struct DestructorRegistrationContext {
     uint32_t chain_node_address = 0u;
     oracis::machine::NdsOverlayDestructorChainStatus status =
         oracis::machine::NdsOverlayDestructorChainStatus::Busy;
+    oracis::machine::NdsOverlayDestructorChainStatus inspect_status =
+        oracis::machine::NdsOverlayDestructorChainStatus::InvalidMetadata;
+    bool inspect_output_unchanged = false;
 };
 
 bool register_guest_global_destructor(
@@ -187,9 +190,26 @@ bool register_guest_global_destructor(
         context->object_address,
         context->destructor_pointer,
         context->chain_node_address);
+
+    std::vector<oracis::machine::NdsOverlayDestructorRecord> candidates{
+        {UINT32_C(0xDEADBEEF), UINT32_C(0xCAFEBABE), UINT32_C(0x12345678)}
+    };
+    context->inspect_status =
+        context->machine->inspect_overlay_destructors(
+            cpu, kSuccessfulOverlay,
+            context->head_pointer_address, candidates);
+    context->inspect_output_unchanged =
+        candidates.size() == 1u &&
+        candidates[0].chain_node_address == UINT32_C(0xDEADBEEF) &&
+        candidates[0].destructor_pointer == UINT32_C(0xCAFEBABE) &&
+        candidates[0].object_address == UINT32_C(0x12345678);
+
     runtime_tick(1u);
     return context->status ==
-        oracis::machine::NdsOverlayDestructorChainStatus::Ok;
+            oracis::machine::NdsOverlayDestructorChainStatus::Ok &&
+        context->inspect_status ==
+            oracis::machine::NdsOverlayDestructorChainStatus::Busy &&
+        context->inspect_output_unchanged;
 }
 
 void put_u32_le(std::vector<uint8_t> &bytes, std::size_t offset, uint32_t value)
@@ -541,8 +561,38 @@ int main()
         &registration_context);
     if (registration_round != oracis::machine::NdsMachineStatus::Ok ||
         registration_context.status !=
-            oracis::machine::NdsOverlayDestructorChainStatus::Ok) {
-        return fail("guest-slice Metrowerks destructor registration failed");
+            oracis::machine::NdsOverlayDestructorChainStatus::Ok ||
+        registration_context.inspect_status !=
+            oracis::machine::NdsOverlayDestructorChainStatus::Busy ||
+        !registration_context.inspect_output_unchanged) {
+        return fail("guest-slice destructor registration/inspection scheduler gate failed");
+    }
+
+    std::vector<oracis::machine::NdsOverlayDestructorRecord> overlay_candidates;
+    if (machine.inspect_overlay_destructors(
+            NDS_ARM9, kSuccessfulOverlay,
+            kDestructorChainHeadAddress, overlay_candidates) !=
+            oracis::machine::NdsOverlayDestructorChainStatus::Ok ||
+        overlay_candidates.size() != 1u ||
+        overlay_candidates[0].chain_node_address !=
+            kDestructorChainNodeAddress ||
+        overlay_candidates[0].destructor_pointer !=
+            kDestructorChainFunctionPointer ||
+        overlay_candidates[0].object_address !=
+            kDestructorChainObjectAddress) {
+        return fail("machine-level destructor inspection did not use loader-owned overlay RAM/BSS range");
+    }
+
+    std::vector<oracis::machine::NdsOverlayDestructorRecord> missing_candidates{
+        {UINT32_C(0xDEADBEEF), UINT32_C(0xCAFEBABE), UINT32_C(0x12345678)}
+    };
+    if (machine.inspect_overlay_destructors(
+            NDS_ARM9, UINT32_C(999), kDestructorChainHeadAddress,
+            missing_candidates) !=
+            oracis::machine::NdsOverlayDestructorChainStatus::NotLoaded ||
+        missing_candidates.size() != 1u ||
+        missing_candidates[0].chain_node_address != UINT32_C(0xDEADBEEF)) {
+        return fail("machine-level destructor inspection accepted an unloaded overlay or changed output");
     }
 
     const auto registered_head = machine.guest_memory().read(
