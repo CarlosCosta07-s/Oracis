@@ -1,6 +1,7 @@
 #include "oracis/host/runtime_bridge.h"
 #include "oracis/host/detail/sha1.hpp"
 #include "oracis/host/detail/nds_cartridge_header.hpp"
+#include "oracis/host/detail/nds_overlay_catalog.hpp"
 
 #include "oracis/machine/nds_machine.hpp"
 #include "oracis/memory/nds_2d_bg_compositor.hpp"
@@ -1159,6 +1160,95 @@ extern "C" int oracis_host_runtime_load_overlay(
         overlay->image_sha1
     };
     return host_overlay_status(machine.load_overlay(image));
+}
+
+extern "C" int oracis_host_runtime_load_local_overlay(
+    const char *directory,
+    uint32_t cpu,
+    uint32_t overlay_id)
+{
+    auto &machine = host_machine();
+    if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+    if (!machine.program_loaded()) return ORACIS_HOST_RUNTIME_NO_PROGRAM_LOADED;
+    if (cpu > static_cast<uint32_t>(NDS_ARM7)) {
+        return ORACIS_HOST_RUNTIME_INVALID_ARGUMENT;
+    }
+
+    try {
+        const std::filesystem::path root = directory == nullptr
+            ? std::filesystem::path(
+                ".oracis/local/pokemon-platinum-usa-rev1/overlays")
+            : std::filesystem::path(directory);
+        if (root.empty()) return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID;
+
+        constexpr std::string_view ExpectedRomSha1 =
+            "0862ec35b24de5c7e2dcb88c9eea0873110d755c";
+        oracis::host::detail::NdsOverlayCatalog catalog;
+        const auto catalog_status =
+            oracis::host::detail::NdsOverlayCatalog::open(
+                root, ExpectedRomSha1, catalog);
+        using CatalogStatus =
+            oracis::host::detail::NdsOverlayCatalogStatus;
+        switch (catalog_status) {
+        case CatalogStatus::Ok:
+            break;
+        case CatalogStatus::Missing:
+            return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_MISSING;
+        case CatalogStatus::IoError:
+            return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR;
+        case CatalogStatus::RomIdentityMismatch:
+        case CatalogStatus::InvalidManifest:
+        case CatalogStatus::OverlayNotFound:
+        case CatalogStatus::ImageMissing:
+        case CatalogStatus::ImageInvalid:
+        case CatalogStatus::ImageHashMismatch:
+            return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID;
+        }
+
+        const auto *record = catalog.find(
+            static_cast<NdsCpu>(cpu), overlay_id);
+        if (record == nullptr) {
+            return ORACIS_HOST_RUNTIME_OVERLAY_NOT_LOADED;
+        }
+
+        std::vector<uint8_t> image_bytes;
+        const auto image_status = catalog.read_image(*record, image_bytes);
+        switch (image_status) {
+        case CatalogStatus::Ok:
+            break;
+        case CatalogStatus::Missing:
+        case CatalogStatus::ImageMissing:
+            return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_MISSING;
+        case CatalogStatus::IoError:
+            return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR;
+        case CatalogStatus::ImageHashMismatch:
+            return ORACIS_HOST_RUNTIME_OVERLAY_HASH_MISMATCH;
+        case CatalogStatus::InvalidManifest:
+        case CatalogStatus::RomIdentityMismatch:
+        case CatalogStatus::OverlayNotFound:
+        case CatalogStatus::ImageInvalid:
+            return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID;
+        }
+
+        const oracis::machine::NdsOverlayImage image{
+            record->cpu,
+            record->overlay_id,
+            record->ram_address,
+            record->ram_size,
+            record->bss_size,
+            record->static_init_start,
+            record->static_init_end,
+            image_bytes.data(),
+            record->image_sha1.c_str()
+        };
+        return host_overlay_status(machine.load_overlay(image));
+    } catch (const std::bad_alloc &) {
+        return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR;
+    } catch (const std::filesystem::filesystem_error &) {
+        return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_IO_ERROR;
+    } catch (...) {
+        return ORACIS_HOST_RUNTIME_LOCAL_IMAGE_INVALID;
+    }
 }
 
 extern "C" int oracis_host_runtime_run_overlay_static_initializers(
