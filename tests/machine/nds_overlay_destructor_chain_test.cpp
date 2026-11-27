@@ -205,6 +205,128 @@ void test_rejects_invalid_cpu_and_overflowing_overlay_range()
         NdsOverlayDestructorChainStatus::InvalidMetadata);
 }
 
+void test_register_global_object_pushes_node_and_preserves_existing_chain()
+{
+    GuestMemory memory = make_memory();
+    NdsOverlayDestructorChain chain(memory);
+
+    write_node(
+        memory, kNodeA, 0u,
+        kRamBase + 0x5000u, kRamBase + 0x6000u);
+    write_node(
+        memory, kNodeB, UINT32_C(0xDEADBEEF),
+        UINT32_C(0xCAFEBABE), UINT32_C(0x12345678));
+    write_word(memory, kHeadAddress, kNodeA);
+
+    const uint32_t object = kOverlayBase + 0x90u;
+    const uint32_t destructor = kRamBase + 0x7001u;
+    require(chain.register_global_object(
+        NDS_ARM9, kHeadAddress, object, destructor, kNodeB) ==
+        NdsOverlayDestructorChainStatus::Ok);
+
+    require(read_word(memory, kHeadAddress) == kNodeB);
+    require(read_word(memory, kNodeB) == kNodeA);
+    require(read_word(memory, kNodeB + 4u) == destructor);
+    require(read_word(memory, kNodeB + 8u) == object);
+    require(read_word(memory, kNodeA) == 0u);
+    require(read_word(memory, kNodeA + 4u) == kRamBase + 0x5000u);
+    require(read_word(memory, kNodeA + 8u) == kRamBase + 0x6000u);
+
+    std::vector<NdsOverlayDestructorRecord> detached;
+    require(chain.detach_for_overlay(
+        NDS_ARM9, kHeadAddress, kOverlayBase,
+        kOverlayCodeSize, kOverlayBssSize, detached) ==
+        NdsOverlayDestructorChainStatus::Ok);
+    require(detached.size() == 1u);
+    require(detached[0].chain_node_address == kNodeB);
+    require(detached[0].destructor_pointer == destructor);
+    require(detached[0].object_address == object);
+    require(read_word(memory, kHeadAddress) == kNodeA);
+}
+
+void test_register_global_object_accepts_an_empty_global_chain()
+{
+    GuestMemory memory = make_memory();
+    NdsOverlayDestructorChain chain(memory);
+    write_word(memory, kHeadAddress, 0u);
+
+    const uint32_t object = kOverlayBase + 0x10u;
+    const uint32_t destructor = kOverlayBase + 0x21u;
+    require(chain.register_global_object(
+        NDS_ARM9, kHeadAddress, object, destructor, kNodeC) ==
+        NdsOverlayDestructorChainStatus::Ok);
+
+    require(read_word(memory, kHeadAddress) == kNodeC);
+    require(read_word(memory, kNodeC) == 0u);
+    require(read_word(memory, kNodeC + 4u) == destructor);
+    require(read_word(memory, kNodeC + 8u) == object);
+}
+
+void test_register_global_object_rejects_duplicate_node_without_mutation()
+{
+    GuestMemory memory = make_memory();
+    NdsOverlayDestructorChain chain(memory);
+    write_node(memory, kNodeA, 0u, kOverlayBase + 0x11u, 0u);
+    write_word(memory, kHeadAddress, kNodeA);
+
+    const uint32_t old_dtor = read_word(memory, kNodeA + 4u);
+    const uint32_t old_obj = read_word(memory, kNodeA + 8u);
+    require(chain.register_global_object(
+        NDS_ARM9, kHeadAddress, kOverlayBase + 0x20u,
+        kOverlayBase + 0x31u, kNodeA) ==
+        NdsOverlayDestructorChainStatus::DuplicateNode);
+
+    require(read_word(memory, kHeadAddress) == kNodeA);
+    require(read_word(memory, kNodeA) == 0u);
+    require(read_word(memory, kNodeA + 4u) == old_dtor);
+    require(read_word(memory, kNodeA + 8u) == old_obj);
+}
+
+void test_register_global_object_rejects_existing_cycle_without_mutation()
+{
+    GuestMemory memory = make_memory();
+    NdsOverlayDestructorChain chain(memory);
+    write_node(memory, kNodeA, kNodeA, kOverlayBase + 0x11u, 0u);
+    write_node(
+        memory, kNodeB, UINT32_C(0x11111111),
+        UINT32_C(0x22222222), UINT32_C(0x33333333));
+    write_word(memory, kHeadAddress, kNodeA);
+
+    require(chain.register_global_object(
+        NDS_ARM9, kHeadAddress, kOverlayBase + 0x20u,
+        kOverlayBase + 0x31u, kNodeB) ==
+        NdsOverlayDestructorChainStatus::ChainCycle);
+
+    require(read_word(memory, kHeadAddress) == kNodeA);
+    require(read_word(memory, kNodeA) == kNodeA);
+    require(read_word(memory, kNodeB) == UINT32_C(0x11111111));
+    require(read_word(memory, kNodeB + 4u) == UINT32_C(0x22222222));
+    require(read_word(memory, kNodeB + 8u) == UINT32_C(0x33333333));
+}
+
+void test_register_global_object_rejects_unmapped_or_invalid_node()
+{
+    GuestMemory memory = make_memory();
+    NdsOverlayDestructorChain chain(memory);
+    write_word(memory, kHeadAddress, 0u);
+
+    constexpr uint32_t UnmappedNode = UINT32_C(0x03000000);
+    require(chain.register_global_object(
+        NDS_ARM9, kHeadAddress, kOverlayBase + 0x20u,
+        kOverlayBase + 0x31u, UnmappedNode) ==
+        NdsOverlayDestructorChainStatus::MemoryUnavailable);
+    require(read_word(memory, kHeadAddress) == 0u);
+
+    require(chain.register_global_object(
+        static_cast<NdsCpu>(99u), kHeadAddress,
+        kOverlayBase + 0x20u, kOverlayBase + 0x31u, kNodeB) ==
+        NdsOverlayDestructorChainStatus::InvalidCpu);
+    require(chain.register_global_object(
+        NDS_ARM9, kHeadAddress, kOverlayBase + 0x20u,
+        kOverlayBase + 0x31u, kHeadAddress) ==
+        NdsOverlayDestructorChainStatus::InvalidMetadata);
+}
+
 } // namespace
 
 int main()
@@ -215,5 +337,10 @@ int main()
     test_rejects_cycles_without_mutating_the_chain();
     test_rejects_unmapped_node_without_mutating_the_head();
     test_rejects_invalid_cpu_and_overflowing_overlay_range();
+    test_register_global_object_pushes_node_and_preserves_existing_chain();
+    test_register_global_object_accepts_an_empty_global_chain();
+    test_register_global_object_rejects_duplicate_node_without_mutation();
+    test_register_global_object_rejects_existing_cycle_without_mutation();
+    test_register_global_object_rejects_unmapped_or_invalid_node();
     return 0;
 }
