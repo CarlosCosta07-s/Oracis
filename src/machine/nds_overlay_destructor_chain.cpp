@@ -343,6 +343,9 @@ NdsOverlayDestructorChain::register_global_object(
                     UINT64_C(0x1'0000'0000)) {
                 return NdsOverlayDestructorChainStatus::InvalidMetadata;
             }
+            if (!visited.insert(current).second) {
+                return NdsOverlayDestructorChainStatus::ChainCycle;
+            }
             const uint64_t current_begin = current;
             const uint64_t current_end =
                 current_begin + NodeSize;
@@ -366,9 +369,6 @@ NdsOverlayDestructorChain::register_global_object(
                 }
             }
             existing_node_addresses.insert(current);
-            if (!visited.insert(current).second) {
-                return NdsOverlayDestructorChainStatus::ChainCycle;
-            }
             if (count >= MaxNodes) {
                 return NdsOverlayDestructorChainStatus::ChainCapacityExceeded;
             }
