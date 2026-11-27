@@ -4,8 +4,10 @@
 #include "oracis/host/detail/nds_overlay_catalog.hpp"
 
 #include "oracis/machine/nds_machine.hpp"
+#include "oracis/machine/nds_overlay_destructor_chain.hpp"
 #include "oracis/memory/nds_2d_bg_compositor.hpp"
 #include "oracis/recomp/arm_cpu_state_ops.h"
+#include "oracis/recomp/runtime_arm.h"
 #include "oracis/recomp/static_dispatch.hpp"
 #include "oracis/recomp/static_dispatch_abi.h"
 
@@ -190,6 +192,62 @@ int host_overlay_status(oracis::machine::NdsOverlayStatus status) noexcept
         return ORACIS_HOST_RUNTIME_NO_PROGRAM_LOADED;
     }
     return ORACIS_HOST_RUNTIME_OVERLAY_INVALID;
+}
+
+int host_destructor_chain_status(
+    oracis::machine::NdsOverlayDestructorChainStatus status) noexcept
+{
+    using Status = oracis::machine::NdsOverlayDestructorChainStatus;
+    switch (status) {
+    case Status::Ok:
+        return ORACIS_HOST_RUNTIME_OK;
+    case Status::NotInitialized:
+        return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+    case Status::ProgramNotLoaded:
+        return ORACIS_HOST_RUNTIME_NO_PROGRAM_LOADED;
+    case Status::InvalidCpu:
+        return ORACIS_HOST_RUNTIME_INVALID_ARGUMENT;
+    case Status::InvalidMetadata:
+        return ORACIS_HOST_RUNTIME_DESTRUCTOR_CHAIN_INVALID_METADATA;
+    case Status::MemoryUnavailable:
+        return ORACIS_HOST_RUNTIME_DESTRUCTOR_CHAIN_MEMORY_UNAVAILABLE;
+    case Status::ChainCycle:
+        return ORACIS_HOST_RUNTIME_DESTRUCTOR_CHAIN_CYCLE;
+    case Status::ChainCapacityExceeded:
+        return ORACIS_HOST_RUNTIME_DESTRUCTOR_CHAIN_CAPACITY_EXCEEDED;
+    case Status::DuplicateNode:
+        return ORACIS_HOST_RUNTIME_DESTRUCTOR_CHAIN_DUPLICATE_NODE;
+    case Status::AllocationFailed:
+        return ORACIS_HOST_RUNTIME_DESTRUCTOR_CHAIN_ALLOCATION_FAILED;
+    case Status::WriteFailed:
+        return ORACIS_HOST_RUNTIME_DESTRUCTOR_CHAIN_WRITE_FAILED;
+    case Status::RollbackFailed:
+        return ORACIS_HOST_RUNTIME_DESTRUCTOR_CHAIN_ROLLBACK_FAILED;
+    case Status::Busy:
+        return ORACIS_HOST_RUNTIME_OVERLAY_BUSY;
+    }
+    return ORACIS_HOST_RUNTIME_MACHINE_ERROR;
+}
+
+int register_global_destructor_for_cpu(
+    oracis::machine::NdsMachine &machine,
+    uint32_t cpu,
+    uint32_t head_pointer_address,
+    uint32_t object_address,
+    uint32_t destructor_pointer,
+    uint32_t chain_node_address) noexcept
+{
+    if (cpu > static_cast<uint32_t>(NDS_ARM7)) {
+        return ORACIS_HOST_RUNTIME_INVALID_ARGUMENT;
+    }
+
+    return host_destructor_chain_status(
+        machine.register_overlay_global_object(
+            static_cast<NdsCpu>(cpu),
+            head_pointer_address,
+            object_address,
+            destructor_pointer,
+            chain_node_address));
 }
 
 bool has_both_program_banks() noexcept
@@ -1279,6 +1337,53 @@ extern "C" int oracis_host_runtime_request_local_overlay(
 {
     return load_local_overlay_from_catalog(
         host_machine(), directory, cpu, overlay_id, true);
+}
+
+extern "C" int oracis_host_runtime_register_global_destructor(
+    uint32_t cpu,
+    uint32_t head_pointer_address,
+    uint32_t object_address,
+    uint32_t destructor_pointer,
+    uint32_t chain_node_address)
+{
+    return register_global_destructor_for_cpu(
+        host_machine(),
+        cpu,
+        head_pointer_address,
+        object_address,
+        destructor_pointer,
+        chain_node_address);
+}
+
+extern "C" int oracis_host_runtime_register_active_global_destructor(
+    uint32_t head_pointer_address)
+{
+    auto &machine = host_machine();
+    if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+    if (!machine.program_loaded()) return ORACIS_HOST_RUNTIME_NO_PROGRAM_LOADED;
+    if (oracis_active_cpu_state == nullptr) {
+        return ORACIS_HOST_RUNTIME_OVERLAY_BUSY;
+    }
+
+    NdsCpu cpu = NDS_ARM9;
+    if (oracis_active_cpu_state == machine.cpu_state(NDS_ARM9)) {
+        cpu = NDS_ARM9;
+    } else if (oracis_active_cpu_state == machine.cpu_state(NDS_ARM7)) {
+        cpu = NDS_ARM7;
+    } else {
+        return ORACIS_HOST_RUNTIME_OVERLAY_BUSY;
+    }
+
+    const ArmCpuState *state = machine.cpu_state(cpu);
+    if (state == nullptr) return ORACIS_HOST_RUNTIME_MACHINE_ERROR;
+
+    return register_global_destructor_for_cpu(
+        machine,
+        static_cast<uint32_t>(cpu),
+        head_pointer_address,
+        state->R[0],
+        state->R[1],
+        state->R[2]);
 }
 
 extern "C" int oracis_host_runtime_run_overlay_static_initializers(
