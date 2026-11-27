@@ -66,6 +66,35 @@ NdsOverlayDestructorChain::detach_for_overlay(
     uint32_t bss_size,
     std::vector<NdsOverlayDestructorRecord> &detached) noexcept
 {
+    return process_for_overlay(
+        cpu, head_pointer_address, overlay_ram_address,
+        ram_size, bss_size, true, detached);
+}
+
+NdsOverlayDestructorChainStatus
+NdsOverlayDestructorChain::inspect_for_overlay(
+    NdsCpu cpu,
+    uint32_t head_pointer_address,
+    uint32_t overlay_ram_address,
+    uint32_t ram_size,
+    uint32_t bss_size,
+    std::vector<NdsOverlayDestructorRecord> &candidates) noexcept
+{
+    return process_for_overlay(
+        cpu, head_pointer_address, overlay_ram_address,
+        ram_size, bss_size, false, candidates);
+}
+
+NdsOverlayDestructorChainStatus
+NdsOverlayDestructorChain::process_for_overlay(
+    NdsCpu cpu,
+    uint32_t head_pointer_address,
+    uint32_t overlay_ram_address,
+    uint32_t ram_size,
+    uint32_t bss_size,
+    bool detach,
+    std::vector<NdsOverlayDestructorRecord> &records) noexcept
+{
     if (cpu != NDS_ARM9 && cpu != NDS_ARM7) {
         return NdsOverlayDestructorChainStatus::InvalidCpu;
     }
@@ -87,8 +116,8 @@ NdsOverlayDestructorChain::detach_for_overlay(
 
     if (memory_.validate_read(cpu, head_pointer_address, 4u) !=
             memory::Status::Ok ||
-        memory_.validate_write(cpu, head_pointer_address, 4u) !=
-            memory::Status::Ok) {
+        (detach && memory_.validate_write(cpu, head_pointer_address, 4u) !=
+            memory::Status::Ok)) {
         return NdsOverlayDestructorChainStatus::MemoryUnavailable;
     }
 
@@ -100,7 +129,7 @@ NdsOverlayDestructorChain::detach_for_overlay(
             return head_status;
         }
         if (global_head == 0u) {
-            detached.clear();
+            records.clear();
             return NdsOverlayDestructorChainStatus::Ok;
         }
 
@@ -145,8 +174,8 @@ NdsOverlayDestructorChain::detach_for_overlay(
             node_addresses.insert(current);
             if (memory_.validate_read(cpu, current, NodeSize) !=
                     memory::Status::Ok ||
-                memory_.validate_write(cpu, current, NodeSize) !=
-                    memory::Status::Ok) {
+                (detach && memory_.validate_write(cpu, current, NodeSize) !=
+                    memory::Status::Ok)) {
                 return NdsOverlayDestructorChainStatus::MemoryUnavailable;
             }
 
@@ -193,7 +222,12 @@ NdsOverlayDestructorChain::detach_for_overlay(
         }
 
         if (selected.empty()) {
-            detached.clear();
+            records.clear();
+            return NdsOverlayDestructorChainStatus::Ok;
+        }
+
+        if (!detach) {
+            records.swap(selected);
             return NdsOverlayDestructorChainStatus::Ok;
         }
 
@@ -221,7 +255,7 @@ NdsOverlayDestructorChain::detach_for_overlay(
             }
         }
 
-        /* Match NitroSDK's detached list: selected nodes remain linked in
+        /* Match NitroSDK's records list: selected nodes remain linked in
            the original guest chain order while their destructors run. */
         for (std::size_t index = 0u; index < selected.size(); ++index) {
             const uint32_t address = selected[index].chain_node_address;
@@ -270,7 +304,7 @@ NdsOverlayDestructorChain::detach_for_overlay(
             }
         }
 
-        detached.swap(selected);
+        records.swap(selected);
         return NdsOverlayDestructorChainStatus::Ok;
     } catch (const std::bad_alloc &) {
         return NdsOverlayDestructorChainStatus::AllocationFailed;
