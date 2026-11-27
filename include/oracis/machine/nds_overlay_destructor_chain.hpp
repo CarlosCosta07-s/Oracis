@@ -24,7 +24,10 @@ enum class NdsOverlayDestructorChainStatus : uint8_t {
     DuplicateNode,
     AllocationFailed,
     WriteFailed,
-    RollbackFailed
+    RollbackFailed,
+    NotInitialized,
+    ProgramNotLoaded,
+    Busy
 };
 
 /*
