@@ -589,7 +589,7 @@ int main()
     if (machine.inspect_overlay_destructors(
             NDS_ARM9, UINT32_C(999), kDestructorChainHeadAddress,
             missing_candidates) !=
-            oracis::machine::NdsOverlayDestructorChainStatus::NotLoaded ||
+            oracis::machine::NdsOverlayDestructorChainStatus::OverlayNotLoaded ||
         missing_candidates.size() != 1u ||
         missing_candidates[0].chain_node_address != UINT32_C(0xDEADBEEF)) {
         return fail("machine-level destructor inspection accepted an unloaded overlay or changed output");
