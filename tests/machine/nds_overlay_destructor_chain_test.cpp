@@ -112,6 +112,103 @@ void test_detaches_matching_nodes_and_preserves_other_overlay_order()
     require(read_word(memory, kNodeC) == 0u);
 }
 
+void test_inspect_returns_candidates_without_mutating_chain()
+{
+    GuestMemory memory = make_memory();
+    NdsOverlayDestructorChain chain(memory);
+
+    write_node(memory, kNodeA, kNodeB,
+        kOverlayBase + 0x11u, 0u);
+    write_node(memory, kNodeB, kNodeC,
+        kRamBase + 0x5000u, kRamBase + 0x3000u);
+    write_node(memory, kNodeC, 0u,
+        kRamBase + 0x6000u, kOverlayBase + 0x90u);
+    write_word(memory, kHeadAddress, kNodeA);
+
+    std::vector<NdsOverlayDestructorRecord> candidates{
+        {UINT32_C(0xDEADBEEF), UINT32_C(0xCAFEBABE), 0u}
+    };
+    require(chain.inspect_for_overlay(
+        NDS_ARM9, kHeadAddress, kOverlayBase,
+        kOverlayCodeSize, kOverlayBssSize, candidates) ==
+        NdsOverlayDestructorChainStatus::Ok);
+
+    require(candidates.size() == 2u);
+    require(candidates[0].chain_node_address == kNodeA);
+    require(candidates[0].destructor_pointer == kOverlayBase + 0x11u);
+    require(candidates[0].object_address == 0u);
+    require(candidates[1].chain_node_address == kNodeC);
+    require(candidates[1].destructor_pointer == kRamBase + 0x6000u);
+    require(candidates[1].object_address == kOverlayBase + 0x90u);
+
+    /* Inspection returns the same candidates without changing any link. */
+    require(read_word(memory, kHeadAddress) == kNodeA);
+    require(read_word(memory, kNodeA) == kNodeB);
+    require(read_word(memory, kNodeB) == kNodeC);
+    require(read_word(memory, kNodeC) == 0u);
+}
+
+void test_inspect_allows_read_only_guest_chain_memory()
+{
+    std::vector<uint8_t> bytes(kRamSize, 0u);
+    const auto put_word = [&bytes](uint32_t address, uint32_t value) {
+        const std::size_t offset =
+            static_cast<std::size_t>(address - kRamBase);
+        bytes[offset] = static_cast<uint8_t>(value);
+        bytes[offset + 1u] = static_cast<uint8_t>(value >> 8u);
+        bytes[offset + 2u] = static_cast<uint8_t>(value >> 16u);
+        bytes[offset + 3u] = static_cast<uint8_t>(value >> 24u);
+    };
+    put_word(kHeadAddress, kNodeA);
+    put_word(kNodeA, 0u);
+    put_word(kNodeA + 4u, kOverlayBase + 0x11u);
+    put_word(kNodeA + 8u, 0u);
+
+    GuestMemory memory;
+    require(memory.map_image(
+        kRamBase, bytes.data(), kRamSize,
+        oracis::memory::Readable,
+        "readonly-overlay-destructor-chain",
+        oracis::memory::CpuAccessArm9) == oracis::memory::Status::Ok);
+    NdsOverlayDestructorChain chain(memory);
+
+    std::vector<NdsOverlayDestructorRecord> candidates;
+    require(chain.inspect_for_overlay(
+        NDS_ARM9, kHeadAddress, kOverlayBase,
+        kOverlayCodeSize, kOverlayBssSize, candidates) ==
+        NdsOverlayDestructorChainStatus::Ok);
+    require(candidates.size() == 1u);
+    require(candidates[0].chain_node_address == kNodeA);
+    require(read_word(memory, kHeadAddress) == kNodeA);
+    require(read_word(memory, kNodeA) == 0u);
+}
+
+void test_inspect_rejects_invalid_chain_without_replacing_output()
+{
+    GuestMemory memory = make_memory();
+    NdsOverlayDestructorChain chain(memory);
+    write_node(memory, kNodeA, kNodeB,
+        kOverlayBase + 0x11u, 0u);
+    write_node(memory, kNodeB, kNodeA,
+        kRamBase + 0x5000u, kRamBase + 0x3000u);
+    write_word(memory, kHeadAddress, kNodeA);
+
+    std::vector<NdsOverlayDestructorRecord> candidates{
+        {UINT32_C(0xDEADBEEF), UINT32_C(0xCAFEBABE), UINT32_C(0x12345678)}
+    };
+    require(chain.inspect_for_overlay(
+        NDS_ARM9, kHeadAddress, kOverlayBase,
+        kOverlayCodeSize, kOverlayBssSize, candidates) ==
+        NdsOverlayDestructorChainStatus::ChainCycle);
+    require(candidates.size() == 1u);
+    require(candidates[0].chain_node_address == UINT32_C(0xDEADBEEF));
+    require(candidates[0].destructor_pointer == UINT32_C(0xCAFEBABE));
+    require(candidates[0].object_address == UINT32_C(0x12345678));
+    require(read_word(memory, kHeadAddress) == kNodeA);
+    require(read_word(memory, kNodeA) == kNodeB);
+    require(read_word(memory, kNodeB) == kNodeA);
+}
+
 void test_keeps_unrelated_nodes_and_leaves_memory_unchanged()
 {
     GuestMemory memory = make_memory();
@@ -451,6 +548,9 @@ void test_register_global_object_rejects_unmapped_or_invalid_node()
 int main()
 {
     test_detaches_matching_nodes_and_preserves_other_overlay_order();
+    test_inspect_returns_candidates_without_mutating_chain();
+    test_inspect_allows_read_only_guest_chain_memory();
+    test_inspect_rejects_invalid_chain_without_replacing_output();
     test_keeps_unrelated_nodes_and_leaves_memory_unchanged();
     test_detaches_object_with_null_destructor_without_invoking_it();
     test_rejects_cycles_without_mutating_the_chain();
