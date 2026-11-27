@@ -254,6 +254,16 @@ typedef struct OracisHostOverlayImage {
 int oracis_host_runtime_load_overlay(
     const OracisHostOverlayImage *overlay);
 /*
+ * Load one overlay image from the local extraction manifest.
+ * directory may be NULL to use
+ * .oracis/local/pokemon-platinum-usa-rev1/overlays.
+ * The manifest ROM SHA-1, overlay metadata, exact filename, image size and
+ * image SHA-1 are validated before the machine receives the image. This does
+ * not register dispatch banks or execute static initializers.
+ */
+int oracis_host_runtime_load_local_overlay(
+    const char *directory, uint32_t cpu, uint32_t overlay_id);
+/*
  * Execute the overlay's validated static-init function pointers in table
  * order. Each constructor receives an isolated bounded guest call; guest
  * RAM/MMIO side effects persist, while CPU registers and guest return stack
