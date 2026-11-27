@@ -707,6 +707,6 @@ Foi criado `oracis_nds_overlay_catalog_test` com fixtures sintéticas para leitu
 2. Registrar e resolver os bancos de funções do overlay sem presumir que a carga de bytes implica código recompilado disponível.
 3. Executar construtores apenas quando o fluxo guest solicitar, com SP e dispatch válidos; a API existente permanece explícita e limitada por ciclos.
 4. Não permitir unload de overlays que executaram construtores até haver tabela de finalizadores validada e rastreamento das referências guest em pilhas/retornos.
-5. Rodar a CI completa desta revisão; a implementação do catálogo não é considerada validada até o CTest novo e os demais targets passarem.
+5. CI completa da revisão concluída: [#45919398242](https://github.com/CarlosCosta07-s/Oracis/actions/runs/45919398242) passou nos quatro jobs, com 67/67 CTests desktop e ARM, 99 testes Python, 6/6 testes NDSRecomp e build Android ARM64 aprovado.
 
-Esta etapa fecha leitura de manifesto e carga local individual em nível de host. Não demonstra execução de overlay real, boot da BIOS retail, primeiro quadro ou jogo funcional.
+Esta etapa fecha leitura de manifesto e carga local individual em nível de host. Não demonstra execução de overlay real, boot da BIOS retail, primeiro quadro ou jogo funcional. A CI sintética valida o leitor e a API; ainda falta executar um overlay extraído de uma ROM USA Rev 1 do usuário e comprovar o ciclo guest completo.
