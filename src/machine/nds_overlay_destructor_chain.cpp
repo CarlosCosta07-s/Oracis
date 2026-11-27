@@ -319,7 +319,13 @@ NdsOverlayDestructorChain::register_global_object(
                     UINT64_C(0x1'0000'0000)) {
                 return NdsOverlayDestructorChainStatus::InvalidMetadata;
             }
-            if (current == chain_node_address) {
+            const uint64_t current_begin = current;
+            const uint64_t current_end =
+                current_begin + NodeSize;
+            if (current_begin < head_end && head_begin < current_end) {
+                return NdsOverlayDestructorChainStatus::InvalidMetadata;
+            }
+            if (current_begin < node_end && node_begin < current_end) {
                 return NdsOverlayDestructorChainStatus::DuplicateNode;
             }
             if (!visited.insert(current).second) {
