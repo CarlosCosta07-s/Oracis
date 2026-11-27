@@ -25,6 +25,8 @@ constexpr uint32_t kBudgetOverlayAddress = UINT32_C(0x02008100);
 constexpr uint32_t kMissingOverlayAddress = UINT32_C(0x02008200);
 constexpr uint32_t kDeferredOverlay = UINT32_C(73);
 constexpr uint32_t kDeferredOverlayAddress = UINT32_C(0x02008300);
+constexpr uint32_t kDeferredLoadOverlay = UINT32_C(74);
+constexpr uint32_t kDeferredLoadOverlayAddress = UINT32_C(0x02008400);
 
 oracis::machine::NdsMachine *g_machine = nullptr;
 std::array<uint32_t, 3> g_initializer_order{};
@@ -130,6 +132,29 @@ bool request_deferred_initializer(
         cpu, context->overlay_id, 100u);
     return context->request_status ==
             oracis::machine::NdsOverlayStatus::InitializerPending &&
+        runtime_should_yield();
+}
+
+struct DeferredLoadRequestContext {
+    oracis::machine::NdsMachine *machine = nullptr;
+    oracis::machine::NdsOverlayImage image{};
+    oracis::machine::NdsOverlayStatus request_status =
+        oracis::machine::NdsOverlayStatus::Busy;
+};
+
+bool request_deferred_overlay_load(
+    void *opaque, NdsCpu cpu, ArmCpuState *state, uint64_t cycle_budget)
+{
+    (void)state;
+    (void)cycle_budget;
+    auto *context = static_cast<DeferredLoadRequestContext *>(opaque);
+    if (context == nullptr || context->machine == nullptr) return false;
+    if (cpu != NDS_ARM9) return true;
+
+    context->request_status =
+        context->machine->request_overlay_load(context->image);
+    return context->request_status ==
+            oracis::machine::NdsOverlayStatus::OverlayLoadPending &&
         runtime_should_yield();
 }
 
@@ -412,6 +437,57 @@ int main()
             static_cast<unsigned long long>(
                 oracis_scheduler_cycle_count(NDS_ARM9)));
         return fail("deferred constructors did not run at the guest slice boundary");
+    }
+
+    std::vector<uint8_t> deferred_load_bytes{
+        0x91u, 0x82u, 0x73u, 0x64u,
+        0x55u, 0x46u, 0x37u, 0x28u
+    };
+    const std::string deferred_load_sha1 =
+        oracis::host::detail::sha1_hex(deferred_load_bytes);
+    const NdsOverlayImage deferred_load_image{
+        NDS_ARM9,
+        kDeferredLoadOverlay,
+        kDeferredLoadOverlayAddress,
+        static_cast<uint32_t>(deferred_load_bytes.size()),
+        8u,
+        0u,
+        0u,
+        deferred_load_bytes.data(),
+        deferred_load_sha1.c_str()
+    };
+    DeferredLoadRequestContext deferred_load_context{
+        &machine, deferred_load_image
+    };
+    const auto deferred_load_round = machine.run_dual_core_round(
+        100u, &request_deferred_overlay_load, nullptr,
+        &deferred_load_context);
+    if (deferred_load_round != NdsMachineStatus::Ok ||
+        deferred_load_context.request_status !=
+            NdsOverlayStatus::OverlayLoadPending ||
+        !machine.overlay_loader().is_loaded(
+            NDS_ARM9, kDeferredLoadOverlay)) {
+        return fail("guest-requested overlay load was not published at the slice boundary");
+    }
+    for (std::size_t index = 0u;
+         index < deferred_load_bytes.size(); ++index) {
+        const auto byte = machine.guest_memory().read(
+            NDS_ARM9,
+            kDeferredLoadOverlayAddress + static_cast<uint32_t>(index),
+            1u);
+        if (!byte || byte.value != deferred_load_bytes[index]) {
+            return fail("deferred overlay load did not publish the complete image");
+        }
+    }
+    const auto bss_word = machine.guest_memory().read(
+        NDS_ARM9,
+        kDeferredLoadOverlayAddress +
+            static_cast<uint32_t>(deferred_load_bytes.size()),
+        4u);
+    if (!bss_word || bss_word.value != 0u ||
+        machine.request_overlay_load(deferred_load_image) !=
+            NdsOverlayStatus::AlreadyLoaded) {
+        return fail("deferred overlay BSS or duplicate-load semantics were incorrect");
     }
 
     if (oracis_static_dispatch_unregister_bank(
