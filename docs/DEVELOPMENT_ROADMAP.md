@@ -746,7 +746,7 @@ A inserção de nós pelo ABI Metrowerks também está implementada:
 
 As duas funções C usam o gate da máquina. Chamadas na fronteira host ou durante a fatia do outro CPU retornam `OVERLAY_BUSY`. O endereço guest de `__global_destructor_chain` ainda é fornecido explicitamente; não há endereço da USA Rev 1 hardcoded no host. O teste da máquina registra um nó durante uma fatia ARM9 e verifica head/`next`/`dtor`/`obj` na GuestMemory. O teste host invoca as APIs C fora de uma fatia e confirma que ambas são recusadas com `OVERLAY_BUSY`.
 
-**Validação:** CI [#45923102952](https://github.com/CarlosCosta07-s/Oracis/actions/runs/45923102952), commit `8135dda`, passou nos quatro jobs. Desktop Linux e runtime ARM: **68/68 CTests** cada; tooling Python: **99 testes**; NDSRecomp: **6/6**; Android ARM64 aprovado; smokes opcionais de bancos principal e BIOS: **1/1** cada. O teste do catálogo e o teste de cadeia passaram no desktop e no ARM.
+**Validação:** CI [#45923599689](https://github.com/CarlosCosta07-s/Oracis/actions/runs/45923599689), commit `802412f`, passou nos quatro jobs. Desktop Linux e runtime ARM: **68/68 CTests** cada; tooling Python: **99 testes**; NDSRecomp: **6/6**; Android ARM64 aprovado; smokes opcionais de bancos principal e BIOS: **1/1** cada. O teste do catálogo, o teste da cadeia e `oracis_host_runtime_bridge_c_test` passaram no desktop e no ARM; o C testou o registro ativo durante uma fatia e os status de chamada fora dela.
 
 ### Gate seguinte
 
