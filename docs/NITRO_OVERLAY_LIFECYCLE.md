@@ -94,18 +94,29 @@ O carregador Oracis já opera sobre imagens descomprimidas. Portanto, o adaptado
 
 **Primeira parte de suporte à cadeia já implementada:** a classe `NdsOverlayDestructorChain` recebe o endereço guest do head global e a faixa de RAM+BSS do overlay, percorre os nós de 12 bytes, detecta ciclos e ponteiros/memória inválidos, aplica o predicado de seleção do NitroSDK, destaca os nós escolhidos preservando a ordem e mantém os demais nós ligados. As escritas têm rollback em caso de falha. Ela não invoca os destrutores e ainda não está ligada ao ciclo de unload da máquina.
 
+**Registro Metrowerks e gate de fatia agora implementados:** `NdsMachine::register_overlay_global_object` encaminha o registro à cadeia guest somente quando o CPU indicado é o dono da fatia ativa, não existe a fatia do outro CPU e o estado global selecionado corresponde àquele CPU. A ponte C expõe:
+
+- `oracis_host_runtime_register_global_destructor(cpu, head, obj, dtor, chain)`: forma explícita dos três argumentos guest;
+- `oracis_host_runtime_register_active_global_destructor(head)`: lê `obj`, `dtor` e `chain` de R0, R1 e R2 do CPU ativo.
+
+As duas formas usam o mesmo gate da máquina. Uma chamada na fronteira host ou durante a fatia do outro CPU retorna `OVERLAY_BUSY`; nenhuma API converte endereços guest em ponteiros host. O helper insere o nó de 12 bytes na cabeça da cadeia, validando a cadeia existente e publicando o head somente após os três campos do nó estarem escritos. O código guest não é invocado por esse caminho.
+
+O teste `oracis_nds_overlay_initializer_test` realiza o registro dentro de uma fatia ARM9 e confere `head`, `next`, `dtor` e `obj` na GuestMemory. O teste host `oracis_nds_overlay_catalog_test` confirma que ambas as APIs C recusam registros chamados fora da fatia com `OVERLAY_BUSY`.
+
+A integração com o jogo ainda não resolve automaticamente o endereço USA Rev 1 de `__global_destructor_chain` nem substitui o entrypoint guest de `__register_global_object` por um HLE thunk. O endereço do head deve vir de símbolos/metadados locais verificados; não é fixado no runtime.
+
+**Validação:** CI [#45923102952](https://github.com/CarlosCosta07-s/Oracis/actions/runs/45923102952), commit `8135dda`, passou nos quatro jobs. Desktop Linux e runtime ARM: **68/68 CTests** cada; Python: **99 testes**; NDSRecomp: **6/6**; Android ARM64 aprovado; smokes opcionais de bancos principal e BIOS: **1/1** cada. Os testes exercitam registro sintético e o gate de fatia, não a chamada de ROM retail.
+
 A integração completa necessária para unload continua sendo:
 
 1. identificar, na USA Rev 1, o símbolo/armazenamento guest de `__global_destructor_chain` e o entrypoint de `__register_global_object` a partir de metadados e referências verificadas;
-2. ligar o ABI guest de registro de nó (parâmetros `obj`, `dtor`, `chain`) à cadeia observada, sem converter ponteiros guest em ponteiros host;
+2. ligar o HLE thunk de `__register_global_object` ao endereço/ABI guest verdadeiro, passando o head correto;
 3. obter a faixa do overlay carregado e chamar `detach_for_overlay` somente numa fronteira segura do scheduler;
 4. executar cada função `dtor(obj)` como chamada guest limitada, com `obj` em R0, retorno/estado ARM-Thumb validado e limite de ciclos;
 5. repetir a varredura até não restarem novos nós pertencentes ao overlay, pois um destrutor pode registrar outros objetos;
 6. somente então liberar o módulo, depois de confirmar que PC, pilhas, endereços de retorno e demais referências guest não apontam para a faixa liberada.
 
 Não presumir que o vetor de construtores possa ser simplesmente percorrido ao contrário: o SDK associa destrutores a objetos por registros explícitos, e um construtor pode registrar múltiplos objetos. Também não inventar o endereço do head global nem o entrypoint de `__register_global_object`; esses valores ainda precisam de evidência USA Rev 1.
-
-**Validação da primeira parte:** CI [#45921444179](https://github.com/CarlosCosta07-s/Oracis/actions/runs/45921444179), commit `d3f23b0`, passou nos quatro jobs. Desktop Linux e runtime ARM: **68/68 CTests** cada; Python: **99 testes**; NDSRecomp: **6/6**; Android ARM64 aprovado; smokes opcionais de bancos principal e BIOS: **1/1** cada. O novo `oracis_nds_overlay_destructor_chain_test` passou nos dois targets.
 
 ## 5. Estado atual e limite de aceitação
 
