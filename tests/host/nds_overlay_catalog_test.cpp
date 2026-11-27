@@ -1,5 +1,6 @@
 #include "oracis/host/detail/nds_overlay_catalog.hpp"
 #include "oracis/host/detail/sha1.hpp"
+#include "oracis/host/runtime_bridge.h"
 
 #include <cassert>
 #include <chrono>
@@ -323,6 +324,50 @@ void test_missing_directory_is_reported_explicitly()
         NdsOverlayCatalogStatus::Missing);
 }
 
+void test_host_bridge_loads_catalog_overlay_into_guest_memory()
+{
+    TemporaryDirectory temporary;
+    create_valid_fixture(temporary.path());
+
+    require(oracis_host_runtime_initialize() == ORACIS_HOST_RUNTIME_OK);
+
+    const uint8_t arm9_code[] = {
+        0x00u, 0x00u, 0xA0u, 0xE1u
+    };
+    const uint8_t arm7_code[] = {
+        0x70u, 0x47u
+    };
+    const OracisHostProgramSegment arm9{
+        UINT32_C(0x02001000),
+        static_cast<uint32_t>(sizeof(arm9_code)),
+        UINT32_C(0x02001000),
+        0u,
+        arm9_code
+    };
+    const OracisHostProgramSegment arm7{
+        UINT32_C(0x02381000),
+        static_cast<uint32_t>(sizeof(arm7_code)),
+        UINT32_C(0x02381000),
+        1u,
+        arm7_code
+    };
+    require(oracis_host_runtime_load_program_segments(
+        &arm9, &arm7) == ORACIS_HOST_RUNTIME_OK);
+
+    const std::string directory = temporary.path().string();
+    require(oracis_host_runtime_load_local_overlay(
+        directory.c_str(), static_cast<uint32_t>(NDS_ARM9), 3u) ==
+        ORACIS_HOST_RUNTIME_OK);
+    require(oracis_host_runtime_load_local_overlay(
+        directory.c_str(), static_cast<uint32_t>(NDS_ARM9), 3u) ==
+        ORACIS_HOST_RUNTIME_OVERLAY_ALREADY_LOADED);
+    require(oracis_host_runtime_load_local_overlay(
+        directory.c_str(), static_cast<uint32_t>(NDS_ARM9), 99u) ==
+        ORACIS_HOST_RUNTIME_OVERLAY_NOT_LOADED);
+
+    require(oracis_host_runtime_shutdown() == ORACIS_HOST_RUNTIME_OK);
+}
+
 } // namespace
 
 int main()
@@ -335,5 +380,6 @@ int main()
     test_detects_image_hash_tampering_after_catalog_open();
     test_rejects_malformed_manifest_and_invalid_static_range();
     test_missing_directory_is_reported_explicitly();
+    test_host_bridge_loads_catalog_overlay_into_guest_memory();
     return 0;
 }
