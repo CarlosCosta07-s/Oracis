@@ -692,3 +692,21 @@ ativa este caminho.
 O commit `4e110576` corrige o estado de entrada do reset retail: ARM9 começa em `0xFFFF0000` e ARM7 em `0x00000000`, ambos em Supervisor/ARM com IRQ/FIQ mascaradas e ambos executáveis desde a primeira rodada dual-core. O ARM7 não aguarda uma liberação artificial do host. A coordenação após as rotinas iniciais deve ocorrer pelo código guest via IPCSYNC/FIFO. O hook legado de liberação retorna `CPU_NOT_IN_RESET`.
 
 A CI #45462400936 cobre a integração com BIOS sintética, dispatch nativo, execução simultânea, visibilidade de RAM compartilhada e semântica IPCSYNC/FIFO. Isso valida o modelo e os bancos de teste sintéticos; não comprova execução de BIOS retail, handoff para IPL, boot de Pokémon Platinum ou primeiro quadro.
+
+## Atualização 2026-11-26 — catálogo local e carga verificada de overlays
+
+Foi adicionado `NdsOverlayCatalog`, um leitor C++20 para o manifesto produzido por `tools/ndsrecomp/extract_nds_overlays.py`. Ele exige o schema `oracis-nds-overlays-v1`, a SHA-1 da ROM USA Rev 1, contagem consistente, pares CPU/ID únicos, tamanhos/ranges válidos e nome de arquivo derivado de CPU/ID. O diretório e o manifesto não podem ser symlinks; cada imagem deve ser arquivo regular, com tamanho exato e SHA-1 correspondente ao manifesto. Arquivos são lidos apenas sob demanda, sem carregar todo o catálogo para RAM guest.
+
+A API C `oracis_host_runtime_load_local_overlay(directory, cpu, overlay_id)` abre o catálogo, encontra uma única entrada e entrega seus bytes ao `NdsMachine::load_overlay`. O diretório padrão é `.oracis/local/pokemon-platinum-usa-rev1/overlays`; nenhum dado de jogo é incluído no repositório. A operação apenas copia imagem e zera BSS através do loader já existente. Ela **não** registra bancos compilados, não executa construtores e não liga automaticamente chamadas NitroSDK a esses APIs.
+
+Foi criado `oracis_nds_overlay_catalog_test` com fixtures sintéticas para leitura correta, identidade ROM divergente, contagem inconsistente, IDs duplicados, path traversal, hash adulterado, JSON malformado, faixa static-init fora da imagem e diretório ausente. As verificações usam chamadas explícitas e continuam ativas em builds Release.
+
+### Gate seguinte
+
+1. Integrar o catálogo ao serviço NitroSDK de overlay com a sequência real de load/start e os callbacks guest; manter esse caminho desativado enquanto a sequência não estiver comprovada para USA Rev 1.
+2. Registrar e resolver os bancos de funções do overlay sem presumir que a carga de bytes implica código recompilado disponível.
+3. Executar construtores apenas quando o fluxo guest solicitar, com SP e dispatch válidos; a API existente permanece explícita e limitada por ciclos.
+4. Não permitir unload de overlays que executaram construtores até haver tabela de finalizadores validada e rastreamento das referências guest em pilhas/retornos.
+5. Rodar a CI completa desta revisão; a implementação do catálogo não é considerada validada até o CTest novo e os demais targets passarem.
+
+Esta etapa fecha leitura de manifesto e carga local individual em nível de host. Não demonstra execução de overlay real, boot da BIOS retail, primeiro quadro ou jogo funcional.
