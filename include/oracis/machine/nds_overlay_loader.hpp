@@ -77,6 +77,14 @@ struct NdsOverlayImage {
     NdsOverlayRegion region = NdsOverlayRegion::Main;
 };
 
+/* Immutable memory identity of one successfully loaded overlay. */
+struct NdsOverlayMemoryRange {
+    NdsOverlayRegion region = NdsOverlayRegion::Main;
+    uint32_t ram_address = 0u;
+    uint32_t ram_size = 0u;
+    uint32_t bss_size = 0u;
+};
+
 class NdsOverlayLoader final {
 public:
     static constexpr uint32_t MaxOverlaysPerRegion = 8u;
@@ -104,6 +112,15 @@ public:
         uint32_t current_pc) noexcept;
 
     bool is_loaded(NdsCpu cpu, uint32_t overlay_id) const noexcept;
+
+    /*
+     * Copy the memory range of a loaded overlay into out. Returns false when
+     * the CPU/overlay identity is not loaded; on failure, out is unchanged.
+     */
+    bool memory_range(
+        NdsCpu cpu,
+        uint32_t overlay_id,
+        NdsOverlayMemoryRange &out) const noexcept;
 
     /*
      * Return the validated static-initializer sequence for a loaded overlay,
