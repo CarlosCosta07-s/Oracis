@@ -2716,6 +2716,7 @@ NdsMachineStatus NdsMachine::shutdown() noexcept
     }
 
     pending_overlay_initializers_.fill(PendingOverlayInitializers{});
+    pending_overlay_loads_.fill(PendingOverlayLoad{});
 
     /*
      * Guest execution is stopped and the memory bus is still bound here.
