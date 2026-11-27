@@ -314,6 +314,39 @@ void test_register_global_object_rejects_existing_cycle_without_mutation()
     require(read_word(memory, kNodeB + 8u) == UINT32_C(0x33333333));
 }
 
+void test_register_global_object_rejects_truncated_existing_node()
+{
+    GuestMemory memory;
+    require(memory.map_ram(
+        kRamBase, UINT32_C(0x204),
+        oracis::memory::Readable |
+            oracis::memory::Writable |
+            oracis::memory::Executable,
+        "overlay-destructor-chain-truncated-test",
+        oracis::memory::CpuAccessArm9) == oracis::memory::Status::Ok);
+    NdsOverlayDestructorChain chain(memory);
+
+    constexpr uint32_t Head = kRamBase + UINT32_C(0x100);
+    constexpr uint32_t NewNode = kRamBase + UINT32_C(0x180);
+    constexpr uint32_t TruncatedNode = kRamBase + UINT32_C(0x200);
+    write_word(memory, Head, TruncatedNode);
+    write_word(memory, TruncatedNode, 0u);
+
+    write_word(memory, NewNode, UINT32_C(0xAAAAAAAA));
+    write_word(memory, NewNode + 4u, UINT32_C(0xBBBBBBBB));
+    write_word(memory, NewNode + 8u, UINT32_C(0xCCCCCCCC));
+
+    require(chain.register_global_object(
+        NDS_ARM9, Head, kOverlayBase + 0x20u,
+        kOverlayBase + 0x31u, NewNode) ==
+        NdsOverlayDestructorChainStatus::MemoryUnavailable);
+
+    require(read_word(memory, Head) == TruncatedNode);
+    require(read_word(memory, NewNode) == UINT32_C(0xAAAAAAAA));
+    require(read_word(memory, NewNode + 4u) == UINT32_C(0xBBBBBBBB));
+    require(read_word(memory, NewNode + 8u) == UINT32_C(0xCCCCCCCC));
+}
+
 void test_register_global_object_rejects_unmapped_or_invalid_node()
 {
     GuestMemory memory = make_memory();
@@ -351,6 +384,7 @@ int main()
     test_register_global_object_accepts_an_empty_global_chain();
     test_register_global_object_rejects_duplicate_node_without_mutation();
     test_register_global_object_rejects_existing_cycle_without_mutation();
+    test_register_global_object_rejects_truncated_existing_node();
     test_register_global_object_rejects_unmapped_or_invalid_node();
     return 0;
 }
