@@ -188,6 +188,16 @@ int main(void)
         return 1;
     }
 
+    if (oracis_host_runtime_register_global_destructor(
+            (uint32_t)NDS_ARM9, UINT32_C(0x02001000),
+            UINT32_C(0x02001020), UINT32_C(0x02001031),
+            UINT32_C(0x02001040)) != ORACIS_HOST_RUNTIME_NO_PROGRAM_LOADED ||
+        oracis_host_runtime_register_active_global_destructor(
+            UINT32_C(0x02001000)) != ORACIS_HOST_RUNTIME_NO_PROGRAM_LOADED) {
+        fprintf(stderr, "C destructor bridge accepted registration before program load\\n");
+        return 1;
+    }
+
     if (oracis_host_runtime_set_game_card_chip_id(UINT32_C(0x800000C2)) !=
         ORACIS_HOST_RUNTIME_GAME_CARD_ERROR) {
         fprintf(stderr, "host bridge accepted a chip ID before mounting an image\\n");
@@ -640,6 +650,16 @@ int main(void)
         fprintf(stderr, "C host bridge failed to load and verify ARM9 image\n");
         return 1;
     }
+    if (oracis_host_runtime_register_global_destructor(
+            (uint32_t)NDS_ARM9, UINT32_C(0x02001000),
+            UINT32_C(0x02001020), UINT32_C(0x02001031),
+            UINT32_C(0x02001040)) != ORACIS_HOST_RUNTIME_OVERLAY_BUSY ||
+        oracis_host_runtime_register_active_global_destructor(
+            UINT32_C(0x02001000)) != ORACIS_HOST_RUNTIME_OVERLAY_BUSY) {
+        fprintf(stderr, "C destructor bridge accepted a host-boundary registration\\n");
+        return 1;
+    }
+
     if (!oracis_arm_runtime_select_cpu(NDS_ARM7) ||
         bus_read_u16(UINT32_C(0x02381000)) != UINT16_C(0x4770) ||
         !oracis_arm_runtime_select_cpu(NDS_ARM9)) {
