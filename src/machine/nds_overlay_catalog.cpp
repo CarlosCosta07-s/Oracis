@@ -55,7 +55,7 @@ std::string expected_image_name(NdsCpu cpu, uint32_t overlay_id)
     return name;
 }
 
-bool valid_record(const NdsOverlayCatalogRecord &record) noexcept
+bool valid_record(const NdsOverlayCatalogRecord &record)
 {
     if ((record.cpu != NDS_ARM9 && record.cpu != NDS_ARM7) ||
         record.ram_size == 0u ||
