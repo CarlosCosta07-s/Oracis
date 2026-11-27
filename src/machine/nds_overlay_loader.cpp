@@ -458,6 +458,8 @@ const char *overlay_status_name(NdsOverlayStatus status) noexcept
     case NdsOverlayStatus::InitializerPending: return "initializer-pending";
     case NdsOverlayStatus::RegionCapacityExceeded: return "region-capacity-exceeded";
     case NdsOverlayStatus::FinalizersUnavailable: return "finalizers-unavailable";
+    case NdsOverlayStatus::OverlayLoadPending: return "overlay-load-pending";
+    case NdsOverlayStatus::OverlayLoadFailed: return "overlay-load-failed";
     }
     return "unknown";
 }
