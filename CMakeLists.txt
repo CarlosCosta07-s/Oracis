@@ -141,6 +141,7 @@ add_library(oracis_machine STATIC
     src/machine/nds_machine.cpp
     src/machine/nds_overlay_loader.cpp
     src/machine/nds_overlay_catalog.cpp
+    src/machine/nds_overlay_destructor_chain.cpp
     src/machine/host_runtime_bridge.cpp
     src/machine/sha1.cpp
 )
@@ -496,6 +497,15 @@ if(BUILD_TESTING)
     target_link_libraries(oracis_nds_overlay_catalog_test PRIVATE oracis_machine)
     add_test(NAME oracis_nds_overlay_catalog_test
         COMMAND oracis_nds_overlay_catalog_test)
+
+    add_executable(oracis_nds_overlay_destructor_chain_test
+        tests/machine/nds_overlay_destructor_chain_test.cpp
+    )
+    target_link_libraries(oracis_nds_overlay_destructor_chain_test PRIVATE
+        oracis_machine
+    )
+    add_test(NAME oracis_nds_overlay_destructor_chain_test
+        COMMAND oracis_nds_overlay_destructor_chain_test)
 
     add_executable(oracis_guest_memory_test
         tests/memory/guest_memory_test.cpp
