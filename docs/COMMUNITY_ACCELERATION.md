@@ -39,7 +39,7 @@ O repositório [Pokemon-PC/pokeplatinum-pc](https://github.com/Pokemon-PC/pokepl
 As árvores foram examinadas apenas pelos Git trees, sem abrir ou copiar conteúdos C:
 - `Pokemon-PC/pokeplatinum-pc`, commit `7c16dea6b7ada730912b0d3b05d0ca2d216ad9f2`: **214 arquivos** no padrão `src/overlayNNN/ovNNN_ADDRESS.c`, distribuídos pelos mesmos **29 IDs de overlay** do Oracis.
 - `cybervisi0n/pokeplatinum`, branch `pc_port`: **216 arquivos** no mesmo padrão, também nos mesmos **29 IDs**.
-- As duas árvores contêm os mesmos **7 headers** `include/overlayNNN/funcptr_ovNNN_ADDRESS.h`, em 6 IDs (`005, 006, 022, 061, 062, 070)); esses já correspondem aos headers opcionais documentados no fluxo de descoberta do Oracis.
+- As duas árvores contêm os mesmos **7 headers** `include/overlayNNN/funcptr_ovNNN_ADDRESS.h`, em 6 IDs (`005, 006, 022, 061, 062, 070`); esses já correspondem aos headers opcionais documentados no fluxo de descoberta do Oracis.
 
 A consulta não identificou novos IDs de overlay por nomes de fonte ou por esses headers. A contagem não lê o conteúdo dos arquivos e não mede todos os callbacks ou todas as funções. Aumentar a cobertura dos 60 overlays restantes exige novas evidências — por exemplo, outras tabelas de ponteiros validadas, referências internas verificadas ou rastros de execução — não apenas trocar a árvore de fontes por esses ports.
 
@@ -93,7 +93,9 @@ A auditoria documentada da revisão USA Rev 1 registra 122 overlays ARM9: 29 com
 
 **O mecanismo de baixo nível já existe e não deve ser refeito:** `NdsOverlayLoader` valida o SHA-1, interpreta a tabela de ponteiros static-init preservando ordem e modo ARM/Thumb, copia a imagem descomprimida e zera BSS. `NdsMachine` expõe execução supervisionada de construtores com orçamento, restauração do contexto da CPU e solicitação cooperativa a partir de uma fatia guest; o C bridge já fornece APIs de load/run/request/unload.
 
-**A lacuna restante é a orquestração de plataforma:** o host ainda precisa ler o manifesto local, selecionar e fornecer os bytes descomprimidos e encaminhar o ciclo de vida do gerenciador NitroSDK para essas APIs. O unload exige que o chamador certifique ausência de referências guest; depois que construtores foram executados, o runtime recusa o descarregamento com `FinalizersUnavailable`, pois ainda não há uma tabela/execução de finalizadores validada. A próxima implementação deve criar um catálogo local e um adaptador de serviço que reutilizem os mecanismos existentes; não deve duplicar o carregador ou a execução static-init.
+**Primeira parte da orquestração agora implementada:** `NdsOverlayCatalog` lê `overlays/manifest.json`, exige a identidade USA Rev 1, valida schema, contagem, CPU/ID únicos, faixas de RAM/BSS/static-init e nomes de arquivos derivados do par CPU/ID. Ao pedir um overlay, lê somente o arquivo correspondente, exige arquivo regular sem symlink, tamanho exato e SHA-1 correto, então chama `NdsMachine::load_overlay`. A ponte C expõe `oracis_host_runtime_load_local_overlay(directory, cpu, overlay_id)`; o diretório padrão é `.oracis/local/pokemon-platinum-usa-rev1/overlays`. Foram adicionados testes sintéticos para identidade incorreta, contagem divergente, IDs duplicados, path traversal, faixa static-init inválida, JSON malformado e imagem adulterada.
+
+**A lacuna restante é a integração do serviço NitroSDK:** ainda não existe um callback de jogo que traduza `FS_LoadOverlayImage`/`FS_StartOverlay` e a seleção de módulos para as novas APIs. A API de carga não registra automaticamente os bancos nem executa construtores; o chamador deve pedir a execução supervisionada somente quando o código guest atingir o ponto correto. O unload exige certificado de ausência de referências guest; após construtores terem sido executados, o runtime recusa o descarregamento com `FinalizersUnavailable`, pois ainda não há tabela/execução de finalizadores validada.
 
 ## 5. Pipeline de aceleração adotado
 
@@ -140,7 +142,7 @@ A sequência de aceitação é: entrypoints reais resolvidos; execução nativa 
 1. Executar localmente o direct-entry e o caminho BIOS com bancos/arquivos reais fornecidos pelo usuário; capturar o primeiro dispatch e os primeiros eventos que interrompem o avanço.
 2. Resolver a primeira falha real observada, em vez de implementar serviços especulativos.
 3. Fechar a descoberta dos destinos indiretos e ampliar a cobertura dos 60 overlays sem sementes.
-4. Implementar o catálogo local do manifesto e o adaptador NitroSDK de ciclo de vida, reutilizando `NdsOverlayLoader` e a execução static-init já existentes; manter unload bloqueado até haver finalização e rastreamento de referências guest demonstrados.
+4. Integrar um adaptador NitroSDK para carga/inicialização de overlays aos APIs do catálogo e de `NdsMachine`; manter unload bloqueado até haver finalização e rastreamento de referências guest demonstrados.
 5. Demonstrar o primeiro quadro real e só então avançar os subsistemas de áudio, saves e acabamento de plataforma.
 
 ## 7. Critério para aceitar uma contribuição comunitária
