@@ -2279,6 +2279,40 @@ NdsMachine::register_overlay_global_object(
         chain_node_address);
 }
 
+NdsOverlayDestructorChainStatus
+NdsMachine::inspect_overlay_destructors(
+    NdsCpu cpu,
+    uint32_t overlay_id,
+    uint32_t head_pointer_address,
+    std::vector<NdsOverlayDestructorRecord> &candidates) noexcept
+{
+    if (!initialized_) {
+        return NdsOverlayDestructorChainStatus::NotInitialized;
+    }
+    if (!program_loaded_) {
+        return NdsOverlayDestructorChainStatus::ProgramNotLoaded;
+    }
+    if (!valid_cpu(cpu)) {
+        return NdsOverlayDestructorChainStatus::InvalidCpu;
+    }
+    if (slice_active_[0] || slice_active_[1]) {
+        return NdsOverlayDestructorChainStatus::Busy;
+    }
+
+    NdsOverlayMemoryRange range;
+    if (!overlay_loader_.memory_range(cpu, overlay_id, range)) {
+        return NdsOverlayDestructorChainStatus::NotLoaded;
+    }
+
+    return overlay_destructor_chain_.inspect_for_overlay(
+        cpu,
+        head_pointer_address,
+        range.ram_address,
+        range.ram_size,
+        range.bss_size,
+        candidates);
+}
+
 NdsOverlayStatus NdsMachine::load_overlay(
     const NdsOverlayImage &image) noexcept
 {
