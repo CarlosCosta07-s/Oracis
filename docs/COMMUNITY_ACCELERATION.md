@@ -99,9 +99,11 @@ A rota deferida copia imagem e metadados para armazenamento próprio e solicita 
 
 **A lacuna restante é a integração do serviço NitroSDK:** ainda não existe callback guest que traduza `FS_LoadOverlayImage`, `FS_StartOverlay`, `FS_EndOverlay` e `FS_UnloadOverlayImage` para essas APIs na revisão USA Rev 1. A carga não registra bancos automaticamente nem executa construtores; start deve solicitar a execução supervisionada quando o fluxo guest atingir o ponto correto. A primeira parte do ABI `MWiDestructorChain` agora existe como componente isolado: `NdsOverlayDestructorChain::detach_for_overlay` percorre a cadeia guest, valida ciclos/ponteiros, seleciona os nós pela faixa do overlay, preserva a ordem e desanexa os registros sem executar código guest. O teste `oracis_nds_overlay_destructor_chain_test` cobre seleção por objeto, seleção por destrutor com objeto nulo, nó sem destrutor, cadeia de outro overlay, ciclo e memória não mapeada.
 
-O unload ainda exige certificado de ausência de referências guest e, após construtores executados, continua bloqueado por `FinalizersUnavailable`: falta localizar a variável global `__global_destructor_chain` e o entrypoint de `__register_global_object` na USA Rev 1, integrar registro de nós, executar cada `dtor(obj)` em slices limitadas e repetir a varredura até a cadeia não conter mais nós daquele overlay. O NitroSDK não usa uma tabela de finalizadores separada no cabeçalho do overlay. Consulte [docs/NITRO_OVERLAY_LIFECYCLE.md](NITRO_OVERLAY_LIFECYCLE.md) para o contrato e a sequência observados.
+**O registro guest também já está implementado:** `NdsMachine::register_overlay_global_object` só permite inserir nós quando o CPU indicado é o dono da fatia guest ativa. A ponte C expõe `oracis_host_runtime_register_global_destructor(cpu, head, obj, dtor, chain)` e `oracis_host_runtime_register_active_global_destructor(head)`; a forma ativa lê os argumentos Metrowerks de R0/R1/R2. Ambas passam pelo mesmo gate e retornam `OVERLAY_BUSY` fora da fatia. O teste de máquina registra um nó durante uma fatia ARM9 e confere os três campos na GuestMemory; o teste host confirma que as APIs C não mutam a cadeia numa chamada de host.
 
-**Validação desta camada:** CI [#45921444179](https://github.com/CarlosCosta07-s/Oracis/actions/runs/45921444179) aprovada nos quatro jobs; Desktop e ARM **68/68 CTests** cada, Python 99, NDSRecomp 6/6 e Android ARM64 aprovado.
+O unload ainda exige certificado de ausência de referências guest e, após construtores executados, continua bloqueado por `FinalizersUnavailable`: ainda falta resolver na USA Rev 1 o endereço guest de `__global_destructor_chain`, mapear o entrypoint guest de `__register_global_object` para o novo thunk, executar cada `dtor(obj)` em slices limitadas e repetir a varredura até a cadeia não conter mais nós daquele overlay. O NitroSDK não usa uma tabela de finalizadores separada no cabeçalho do overlay. Consulte [docs/NITRO_OVERLAY_LIFECYCLE.md](NITRO_OVERLAY_LIFECYCLE.md) para o contrato e a sequência observados.
+
+**Validação desta camada:** CI [#45923102952](https://github.com/CarlosCosta07-s/Oracis/actions/runs/45923102952) aprovada nos quatro jobs; Desktop e ARM **68/68 CTests** cada, Python 99, NDSRecomp 6/6, Android ARM64 e smokes opcionais de bancos principal/BIOS aprovados.
 
 ## 5. Pipeline de aceleração adotado
 
@@ -148,7 +150,7 @@ A sequência de aceitação é: entrypoints reais resolvidos; execução nativa 
 1. Executar localmente o direct-entry e o caminho BIOS com bancos/arquivos reais fornecidos pelo usuário; capturar o primeiro dispatch e os primeiros eventos que interrompem o avanço.
 2. Resolver a primeira falha real observada, em vez de implementar serviços especulativos.
 3. Fechar a descoberta dos destinos indiretos e ampliar a cobertura dos 60 overlays sem sementes.
-4. Mapear entrypoints/estado guest da USA Rev 1 para `__global_destructor_chain` e `__register_global_object`; integrar o detacher, executar os callbacks `dtor(obj)` com limite de ciclos e só então liberar overlays, mantendo o gate de referências guest.
+4. Resolver o endereço USA Rev 1 de `__global_destructor_chain` e o entrypoint real de `__register_global_object`; ligar o thunk já disponível a esses símbolos, integrar o detacher, executar os callbacks `dtor(obj)` com limite de ciclos e só então liberar overlays, mantendo o gate de referências guest.
 5. Demonstrar o primeiro quadro real e só então avançar os subsistemas de áudio, saves e acabamento de plataforma.
 
 ## 7. Critério para aceitar uma contribuição comunitária
