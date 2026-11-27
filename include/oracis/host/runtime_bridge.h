@@ -64,7 +64,8 @@ typedef enum OracisHostRuntimeStatus {
     ORACIS_HOST_RUNTIME_DESTRUCTOR_CHAIN_DUPLICATE_NODE = 45,
     ORACIS_HOST_RUNTIME_DESTRUCTOR_CHAIN_ALLOCATION_FAILED = 46,
     ORACIS_HOST_RUNTIME_DESTRUCTOR_CHAIN_WRITE_FAILED = 47,
-    ORACIS_HOST_RUNTIME_DESTRUCTOR_CHAIN_ROLLBACK_FAILED = 48
+    ORACIS_HOST_RUNTIME_DESTRUCTOR_CHAIN_ROLLBACK_FAILED = 48,
+    ORACIS_HOST_RUNTIME_BUFFER_TOO_SMALL = 49
 } OracisHostRuntimeStatus;
 
 /* Result of checking the current ARM9/ARM7 start PCs against registered banks. */
@@ -260,6 +261,13 @@ typedef struct OracisHostOverlayImage {
     const char *image_sha1;
 } OracisHostOverlayImage;
 
+/* Guest Metrowerks destructor-chain record; every field is a guest address. */
+typedef struct OracisHostOverlayDestructorRecord {
+    uint32_t chain_node_address;
+    uint32_t destructor_pointer;
+    uint32_t object_address;
+} OracisHostOverlayDestructorRecord;
+
 /* Load one overlay after the two main program segments have been loaded. */
 int oracis_host_runtime_load_overlay(
     const OracisHostOverlayImage *overlay);
@@ -303,6 +311,21 @@ int oracis_host_runtime_register_global_destructor(
  */
 int oracis_host_runtime_register_active_global_destructor(
     uint32_t head_pointer_address);
+/*
+ * Inspect the destructor records belonging to a loaded overlay without
+ * modifying the guest chain or invoking guest code. Both CPU slices must be
+ * stopped. record_count is required and receives the number of required
+ * records; records may be NULL only when record_capacity is zero. If the
+ * capacity is insufficient, returns BUFFER_TOO_SMALL and leaves records
+ * unchanged. A NULL/zero-capacity call is a supported size query.
+ */
+int oracis_host_runtime_inspect_overlay_destructors(
+    uint32_t cpu,
+    uint32_t overlay_id,
+    uint32_t head_pointer_address,
+    OracisHostOverlayDestructorRecord *records,
+    uint32_t record_capacity,
+    uint32_t *record_count);
 /*
  * Execute the overlay's validated static-init function pointers in table
  * order. Each constructor receives an isolated bounded guest call; guest
