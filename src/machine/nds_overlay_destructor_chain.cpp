@@ -336,7 +336,7 @@ NdsOverlayDestructorChain::register_global_object(
             }
             ++count;
 
-            if (memory_.validate_read(cpu, current, 4u) !=
+            if (memory_.validate_read(cpu, current, NodeSize) !=
                 memory::Status::Ok) {
                 return NdsOverlayDestructorChainStatus::MemoryUnavailable;
             }
