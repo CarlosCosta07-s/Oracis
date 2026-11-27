@@ -280,6 +280,16 @@ void test_register_global_object_rejects_duplicate_node_without_mutation()
     require(read_word(memory, kNodeA) == 0u);
     require(read_word(memory, kNodeA + 4u) == old_dtor);
     require(read_word(memory, kNodeA + 8u) == old_obj);
+
+    /* A different but overlapping 12-byte address is also a duplicate. */
+    require(chain.register_global_object(
+        NDS_ARM9, kHeadAddress, kOverlayBase + 0x20u,
+        kOverlayBase + 0x31u, kNodeA + 4u) ==
+        NdsOverlayDestructorChainStatus::DuplicateNode);
+    require(read_word(memory, kHeadAddress) == kNodeA);
+    require(read_word(memory, kNodeA) == 0u);
+    require(read_word(memory, kNodeA + 4u) == old_dtor);
+    require(read_word(memory, kNodeA + 8u) == old_obj);
 }
 
 void test_register_global_object_rejects_existing_cycle_without_mutation()
