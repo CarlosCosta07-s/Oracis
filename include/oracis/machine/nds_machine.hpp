@@ -16,6 +16,7 @@
 #include "oracis/recomp/arm_cpu_state.h"
 #include "oracis/memory/guest_memory.hpp"
 #include "oracis/machine/nds_overlay_loader.hpp"
+#include "oracis/machine/nds_overlay_destructor_chain.hpp"
 #include "oracis/memory/nds_arm9_tcm.hpp"
 #include "oracis/memory/nds_arm9_protection_unit.hpp"
 #include "oracis/memory/nds_interrupt_control.hpp"
@@ -184,6 +185,17 @@ public:
 
     /* Overlay images are supplied already extracted and decompressed. */
     NdsOverlayStatus load_overlay(const NdsOverlayImage &image) noexcept;
+    /*
+     * Metrowerks __register_global_object adapter. It is valid only while
+     * this CPU owns the active guest slice; the supplied head address is a
+     * guest address discovered from the target ROM's verified metadata.
+     */
+    NdsOverlayDestructorChainStatus register_overlay_global_object(
+        NdsCpu cpu,
+        uint32_t head_pointer_address,
+        uint32_t object_address,
+        uint32_t destructor_pointer,
+        uint32_t chain_node_address) noexcept;
     /*
      * Request an overlay load from an HLE/guest callback. If called while the
      * selected CPU is inside its own slice, the image and metadata are copied
@@ -463,6 +475,7 @@ private:
     memory::GuestMemory memory_;
     memory::NdsBiosControl bios_control_;
     NdsOverlayLoader overlay_loader_;
+    NdsOverlayDestructorChain overlay_destructor_chain_;
     ArmCpuState arm9_state_{};
     ArmCpuState arm7_state_{};
     memory::NdsArm9Tcm arm9_tcm_;
