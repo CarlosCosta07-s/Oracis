@@ -105,7 +105,7 @@ O teste `oracis_nds_overlay_initializer_test` realiza o registro dentro de uma f
 
 A integração com o jogo ainda não resolve automaticamente o endereço USA Rev 1 de `__global_destructor_chain` nem substitui o entrypoint guest de `__register_global_object` por um HLE thunk. O endereço do head deve vir de símbolos/metadados locais verificados; não é fixado no runtime.
 
-**Validação:** CI [#45923102952](https://github.com/CarlosCosta07-s/Oracis/actions/runs/45923102952), commit `8135dda`, passou nos quatro jobs. Desktop Linux e runtime ARM: **68/68 CTests** cada; Python: **99 testes**; NDSRecomp: **6/6**; Android ARM64 aprovado; smokes opcionais de bancos principal e BIOS: **1/1** cada. Os testes exercitam registro sintético e o gate de fatia, não a chamada de ROM retail.
+**Validação:** CI [#45923599689](https://github.com/CarlosCosta07-s/Oracis/actions/runs/45923599689), commit `802412f`, passou nos quatro jobs. Desktop Linux e runtime ARM: **68/68 CTests** cada; Python: **99 testes**; NDSRecomp: **6/6**; Android ARM64 aprovado; smokes opcionais de bancos principal e BIOS: **1/1** cada. O teste C `oracis_host_runtime_bridge_c_test` chama `oracis_host_runtime_register_active_global_destructor` durante a fatia ARM9, confirma a escrita de `next`, `dtor` e `obj` no nó guest e valida os status de recusa fora da fatia. Os testes exercitam endereços e dados sintéticos, não a chamada de ROM retail.
 
 A integração completa necessária para unload continua sendo:
 
