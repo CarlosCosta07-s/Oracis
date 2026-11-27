@@ -92,16 +92,20 @@ A documentação de Spirit Tracks é usada apenas como confirmação independent
 
 O carregador Oracis já opera sobre imagens descomprimidas. Portanto, o adaptador HLE não deve executar BLZ novamente. A API de carga adiada publica a imagem e o BSS após a fatia guest terminar; só depois deve solicitar os construtores pelo caminho supervisionado existente.
 
-A próxima camada necessária para unload é suporte explícito ao contrato MWiDestructorChain:
+**Primeira parte de suporte à cadeia já implementada:** a classe `NdsOverlayDestructorChain` recebe o endereço guest do head global e a faixa de RAM+BSS do overlay, percorre os nós de 12 bytes, detecta ciclos e ponteiros/memória inválidos, aplica o predicado de seleção do NitroSDK, destaca os nós escolhidos preservando a ordem e mantém os demais nós ligados. As escritas têm rollback em caso de falha. Ela não invoca os destrutores e ainda não está ligada ao ciclo de unload da máquina.
 
-1. identificar, na USA Rev 1, o símbolo/armazenamento guest de __global_destructor_chain e o entrypoint de __register_global_object a partir de metadados e referências verificadas;
-2. preservar o ABI guest de 32 bits: next, dtor, obj, cada um com 4 bytes;
-3. validar que cada nó pertence a um overlay carregado e que o destino do destrutor é executável no modo ARM/Thumb correto;
-4. ao finalizar um overlay, selecionar pelo mesmo predicado de faixa usado pelo NitroSDK, destacar os nós antes de invocar os destrutores e respeitar a ordem da cadeia;
-5. executar cada destrutor como chamada guest limitada, com obj em R0, retorno/estado ARM-Thumb validado e limite de ciclos;
+A integração completa necessária para unload continua sendo:
+
+1. identificar, na USA Rev 1, o símbolo/armazenamento guest de `__global_destructor_chain` e o entrypoint de `__register_global_object` a partir de metadados e referências verificadas;
+2. ligar o ABI guest de registro de nó (parâmetros `obj`, `dtor`, `chain`) à cadeia observada, sem converter ponteiros guest em ponteiros host;
+3. obter a faixa do overlay carregado e chamar `detach_for_overlay` somente numa fronteira segura do scheduler;
+4. executar cada função `dtor(obj)` como chamada guest limitada, com `obj` em R0, retorno/estado ARM-Thumb validado e limite de ciclos;
+5. repetir a varredura até não restarem novos nós pertencentes ao overlay, pois um destrutor pode registrar outros objetos;
 6. somente então liberar o módulo, depois de confirmar que PC, pilhas, endereços de retorno e demais referências guest não apontam para a faixa liberada.
 
-Não presumir que o vetor de construtores possa ser simplesmente percorrido ao contrário: o SDK associa destrutores a objetos por registros explícitos, e um construtor pode registrar múltiplos objetos. Também não inventar o endereço do head global nem o entrypoint de __register_global_object; esses valores ainda precisam de evidência USA Rev 1.
+Não presumir que o vetor de construtores possa ser simplesmente percorrido ao contrário: o SDK associa destrutores a objetos por registros explícitos, e um construtor pode registrar múltiplos objetos. Também não inventar o endereço do head global nem o entrypoint de `__register_global_object`; esses valores ainda precisam de evidência USA Rev 1.
+
+**Validação da primeira parte:** CI [#45921444179](https://github.com/CarlosCosta07-s/Oracis/actions/runs/45921444179), commit `d3f23b0`, passou nos quatro jobs. Desktop Linux e runtime ARM: **68/68 CTests** cada; Python: **99 testes**; NDSRecomp: **6/6**; Android ARM64 aprovado; smokes opcionais de bancos principal e BIOS: **1/1** cada. O novo `oracis_nds_overlay_destructor_chain_test` passou nos dois targets.
 
 ## 5. Estado atual e limite de aceitação
 
