@@ -365,6 +365,13 @@ void test_host_bridge_loads_catalog_overlay_into_guest_memory()
         directory.c_str(), static_cast<uint32_t>(NDS_ARM9), 99u) ==
         ORACIS_HOST_RUNTIME_OVERLAY_NOT_LOADED);
 
+    require(oracis_host_runtime_request_local_overlay(
+        directory.c_str(), static_cast<uint32_t>(NDS_ARM7), 1u) ==
+        ORACIS_HOST_RUNTIME_OK);
+    require(oracis_host_runtime_request_local_overlay(
+        directory.c_str(), static_cast<uint32_t>(NDS_ARM7), 1u) ==
+        ORACIS_HOST_RUNTIME_OVERLAY_ALREADY_LOADED);
+
     require(oracis_host_runtime_shutdown() == ORACIS_HOST_RUNTIME_OK);
 }
 
