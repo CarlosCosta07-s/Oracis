@@ -354,6 +354,20 @@ void test_host_bridge_loads_catalog_overlay_into_guest_memory()
     require(oracis_host_runtime_load_program_segments(
         &arm9, &arm7) == ORACIS_HOST_RUNTIME_OK);
 
+    /* The host bridge must not let a host-boundary call mutate the guest
+       global destructor chain; registration is valid only in the owning
+       CPU's active guest slice. */
+    require(oracis_host_runtime_register_global_destructor(
+        static_cast<uint32_t>(NDS_ARM9),
+        UINT32_C(0x02001000),
+        UINT32_C(0x02001020),
+        UINT32_C(0x02001031),
+        UINT32_C(0x02001040)) ==
+        ORACIS_HOST_RUNTIME_OVERLAY_BUSY);
+    require(oracis_host_runtime_register_active_global_destructor(
+        UINT32_C(0x02001000)) ==
+        ORACIS_HOST_RUNTIME_OVERLAY_BUSY);
+
     const std::string directory = temporary.path().string();
     require(oracis_host_runtime_load_local_overlay(
         directory.c_str(), static_cast<uint32_t>(NDS_ARM9), 3u) ==
