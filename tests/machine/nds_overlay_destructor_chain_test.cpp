@@ -172,6 +172,48 @@ void test_rejects_cycles_without_mutating_the_chain()
     require(read_word(memory, kNodeB) == kNodeA);
 }
 
+void test_rejects_overlapping_nodes_during_detach_without_mutation()
+{
+    GuestMemory memory = make_memory();
+    NdsOverlayDestructorChain chain(memory);
+    write_node(
+        memory, kNodeA, kNodeA + 4u,
+        kOverlayBase + 0x11u, kOverlayBase + 0x20u);
+    write_word(memory, kHeadAddress, kNodeA);
+
+    std::vector<NdsOverlayDestructorRecord> detached{
+        {UINT32_C(0xDEADBEEF), UINT32_C(0xCAFEBABE), 0u}
+    };
+    require(chain.detach_for_overlay(
+        NDS_ARM9, kHeadAddress, kOverlayBase,
+        kOverlayCodeSize, kOverlayBssSize, detached) ==
+        NdsOverlayDestructorChainStatus::DuplicateNode);
+
+    require(detached.size() == 1u);
+    require(read_word(memory, kHeadAddress) == kNodeA);
+    require(read_word(memory, kNodeA) == kNodeA + 4u);
+    require(read_word(memory, kNodeA + 4u) == kOverlayBase + 0x11u);
+    require(read_word(memory, kNodeA + 8u) == kOverlayBase + 0x20u);
+}
+
+void test_rejects_head_pointer_overlapping_chain_node()
+{
+    GuestMemory memory = make_memory();
+    NdsOverlayDestructorChain chain(memory);
+    const uint32_t overlapping_head = kNodeA + 4u;
+    write_word(memory, overlapping_head, kNodeA);
+
+    std::vector<NdsOverlayDestructorRecord> detached{
+        {UINT32_C(0xDEADBEEF), UINT32_C(0xCAFEBABE), 0u}
+    };
+    require(chain.detach_for_overlay(
+        NDS_ARM9, overlapping_head, kOverlayBase,
+        kOverlayCodeSize, kOverlayBssSize, detached) ==
+        NdsOverlayDestructorChainStatus::InvalidMetadata);
+    require(detached.size() == 1u);
+    require(read_word(memory, overlapping_head) == kNodeA);
+}
+
 void test_rejects_unmapped_node_without_mutating_the_head()
 {
     GuestMemory memory = make_memory();
@@ -292,6 +334,30 @@ void test_register_global_object_rejects_duplicate_node_without_mutation()
     require(read_word(memory, kNodeA + 8u) == old_obj);
 }
 
+void test_register_global_object_rejects_overlapping_existing_nodes()
+{
+    GuestMemory memory = make_memory();
+    NdsOverlayDestructorChain chain(memory);
+    write_node(
+        memory, kNodeA, kNodeA + 4u,
+        kOverlayBase + 0x11u, kOverlayBase + 0x20u);
+    write_node(
+        memory, kNodeB, UINT32_C(0x11111111),
+        UINT32_C(0x22222222), UINT32_C(0x33333333));
+    write_word(memory, kHeadAddress, kNodeA);
+
+    require(chain.register_global_object(
+        NDS_ARM9, kHeadAddress, kOverlayBase + 0x30u,
+        kOverlayBase + 0x41u, kNodeB) ==
+        NdsOverlayDestructorChainStatus::DuplicateNode);
+
+    require(read_word(memory, kHeadAddress) == kNodeA);
+    require(read_word(memory, kNodeA) == kNodeA + 4u);
+    require(read_word(memory, kNodeB) == UINT32_C(0x11111111));
+    require(read_word(memory, kNodeB + 4u) == UINT32_C(0x22222222));
+    require(read_word(memory, kNodeB + 8u) == UINT32_C(0x33333333));
+}
+
 void test_register_global_object_rejects_existing_cycle_without_mutation()
 {
     GuestMemory memory = make_memory();
@@ -378,11 +444,14 @@ int main()
     test_keeps_unrelated_nodes_and_leaves_memory_unchanged();
     test_detaches_object_with_null_destructor_without_invoking_it();
     test_rejects_cycles_without_mutating_the_chain();
+    test_rejects_overlapping_nodes_during_detach_without_mutation();
+    test_rejects_head_pointer_overlapping_chain_node();
     test_rejects_unmapped_node_without_mutating_the_head();
     test_rejects_invalid_cpu_and_overflowing_overlay_range();
     test_register_global_object_pushes_node_and_preserves_existing_chain();
     test_register_global_object_accepts_an_empty_global_chain();
     test_register_global_object_rejects_duplicate_node_without_mutation();
+    test_register_global_object_rejects_overlapping_existing_nodes();
     test_register_global_object_rejects_existing_cycle_without_mutation();
     test_register_global_object_rejects_truncated_existing_node();
     test_register_global_object_rejects_unmapped_or_invalid_node();
