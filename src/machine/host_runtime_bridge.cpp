@@ -168,6 +168,10 @@ int host_overlay_status(oracis::machine::NdsOverlayStatus status) noexcept
         return ORACIS_HOST_RUNTIME_OVERLAY_REGION_CAPACITY_EXCEEDED;
     case NdsOverlayStatus::FinalizersUnavailable:
         return ORACIS_HOST_RUNTIME_OVERLAY_FINALIZERS_UNAVAILABLE;
+    case NdsOverlayStatus::OverlayLoadPending:
+        return ORACIS_HOST_RUNTIME_OVERLAY_LOAD_PENDING;
+    case NdsOverlayStatus::OverlayLoadFailed:
+        return ORACIS_HOST_RUNTIME_OVERLAY_LOAD_FAILED;
     case NdsOverlayStatus::ImageHashMismatch:
         return ORACIS_HOST_RUNTIME_OVERLAY_HASH_MISMATCH;
     case NdsOverlayStatus::MemoryUnavailable:
