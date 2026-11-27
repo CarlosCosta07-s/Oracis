@@ -21,6 +21,7 @@ enum class NdsOverlayDestructorChainStatus : uint8_t {
     MemoryUnavailable,
     ChainCycle,
     ChainCapacityExceeded,
+    DuplicateNode,
     WriteFailed,
     RollbackFailed
 };
@@ -74,6 +75,20 @@ public:
         uint32_t ram_size,
         uint32_t bss_size,
         std::vector<NdsOverlayDestructorRecord> &detached) noexcept;
+
+    /*
+     * Metrowerks __register_global_object ABI helper. The caller supplies
+     * guest arguments obj, dtor and chain, plus the guest address of
+     * __global_destructor_chain. The new 12-byte node is inserted at the
+     * global head. Existing nodes are checked for cycles/duplicate storage
+     * before mutation; node fields are written before the head is published.
+     */
+    NdsOverlayDestructorChainStatus register_global_object(
+        NdsCpu cpu,
+        uint32_t head_pointer_address,
+        uint32_t object_address,
+        uint32_t destructor_pointer,
+        uint32_t chain_node_address) noexcept;
 
 private:
     memory::GuestMemory &memory_;
