@@ -1388,6 +1388,55 @@ extern "C" int oracis_host_runtime_register_active_global_destructor(
         state->R[2]);
 }
 
+extern "C" int oracis_host_runtime_inspect_overlay_destructors(
+    uint32_t cpu,
+    uint32_t overlay_id,
+    uint32_t head_pointer_address,
+    OracisHostOverlayDestructorRecord *records,
+    uint32_t record_capacity,
+    uint32_t *record_count)
+{
+    if (record_count == nullptr ||
+        (records == nullptr && record_capacity != 0u)) {
+        return ORACIS_HOST_RUNTIME_INVALID_ARGUMENT;
+    }
+    *record_count = 0u;
+
+    auto &machine = host_machine();
+    if (!machine.initialized()) return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
+    if (!machine.program_loaded()) return ORACIS_HOST_RUNTIME_NO_PROGRAM_LOADED;
+    if (cpu > static_cast<uint32_t>(NDS_ARM7)) {
+        return ORACIS_HOST_RUNTIME_INVALID_ARGUMENT;
+    }
+
+    std::vector<oracis::machine::NdsOverlayDestructorRecord> candidates;
+    const auto status = machine.inspect_overlay_destructors(
+        static_cast<NdsCpu>(cpu),
+        overlay_id,
+        head_pointer_address,
+        candidates);
+    const int mapped_status = host_destructor_chain_status(status);
+    if (mapped_status != ORACIS_HOST_RUNTIME_OK) return mapped_status;
+
+    if (candidates.size() > UINT32_MAX) {
+        return ORACIS_HOST_RUNTIME_MACHINE_ERROR;
+    }
+    const uint32_t required = static_cast<uint32_t>(candidates.size());
+    *record_count = required;
+    if (required > record_capacity) {
+        return ORACIS_HOST_RUNTIME_BUFFER_TOO_SMALL;
+    }
+
+    for (uint32_t index = 0u; index < required; ++index) {
+        records[index] = {
+            candidates[index].chain_node_address,
+            candidates[index].destructor_pointer,
+            candidates[index].object_address
+        };
+    }
+    return ORACIS_HOST_RUNTIME_OK;
+}
+
 extern "C" int oracis_host_runtime_run_overlay_static_initializers(
     uint32_t cpu,
     uint32_t overlay_id,
