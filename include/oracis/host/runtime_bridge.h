@@ -54,7 +54,9 @@ typedef enum OracisHostRuntimeStatus {
     ORACIS_HOST_RUNTIME_BIOS_BOOT_UNAVAILABLE = 35,
     ORACIS_HOST_RUNTIME_BIOS_BOOT_NOT_ACTIVE = 36,
     ORACIS_HOST_RUNTIME_CPU_RESET_HELD = 37,
-    ORACIS_HOST_RUNTIME_CPU_NOT_IN_RESET = 38
+    ORACIS_HOST_RUNTIME_CPU_NOT_IN_RESET = 38,
+    ORACIS_HOST_RUNTIME_OVERLAY_LOAD_PENDING = 39,
+    ORACIS_HOST_RUNTIME_OVERLAY_LOAD_FAILED = 40
 } OracisHostRuntimeStatus;
 
 /* Result of checking the current ARM9/ARM7 start PCs against registered banks. */
@@ -262,6 +264,14 @@ int oracis_host_runtime_load_overlay(
  * not register dispatch banks or execute static initializers.
  */
 int oracis_host_runtime_load_local_overlay(
+    const char *directory, uint32_t cpu, uint32_t overlay_id);
+/*
+ * HLE/guest-safe variant of local overlay loading. When called during the
+ * selected CPU's guest slice, it copies verified bytes, requests a
+ * cooperative yield, and returns OVERLAY_LOAD_PENDING. The machine publishes
+ * the image only after end_cpu_slice(), before the next core is scheduled.
+ */
+int oracis_host_runtime_request_local_overlay(
     const char *directory, uint32_t cpu, uint32_t overlay_id);
 /*
  * Execute the overlay's validated static-init function pointers in table
