@@ -481,9 +481,13 @@ extern "C" int oracis_host_runtime_initialize(void)
 
     const auto status = machine.initialize();
     g_last_machine_status = static_cast<int>(status);
-    return status == oracis::machine::NdsMachineStatus::Ok
-        ? ORACIS_HOST_RUNTIME_OK
-        : ORACIS_HOST_RUNTIME_MACHINE_ERROR;
+    if (status == oracis::machine::NdsMachineStatus::Ok) {
+        return ORACIS_HOST_RUNTIME_OK;
+    }
+    if (status == oracis::machine::NdsMachineStatus::OverlayLoadFailed) {
+        return ORACIS_HOST_RUNTIME_OVERLAY_LOAD_FAILED;
+    }
+    return ORACIS_HOST_RUNTIME_MACHINE_ERROR;
 }
 
 extern "C" int oracis_host_runtime_shutdown(void)
