@@ -10,6 +10,8 @@
 
 #include <array>
 #include <cstdint>
+#include <string>
+#include <vector>
 
 #include "oracis/recomp/arm_cpu_state.h"
 #include "oracis/memory/guest_memory.hpp"
@@ -82,7 +84,8 @@ enum class NdsMachineStatus : uint8_t {
     CpuNotInReset,
     RetailBiosBootUnavailable,
     RetailBiosBootAlreadyActive,
-    RetailBiosBootActive
+    RetailBiosBootActive,
+    OverlayLoadFailed
 };
 
 /*
@@ -181,6 +184,15 @@ public:
 
     /* Overlay images are supplied already extracted and decompressed. */
     NdsOverlayStatus load_overlay(const NdsOverlayImage &image) noexcept;
+    /*
+     * Request an overlay load from an HLE/guest callback. If called while the
+     * selected CPU is inside its own slice, the image and metadata are copied
+     * and the generated code is asked to yield. Guest RAM is changed only
+     * after end_cpu_slice(), before the other core is scheduled. Outside a
+     * slice, the load is performed immediately at the safe host boundary.
+     */
+    NdsOverlayStatus request_overlay_load(
+        const NdsOverlayImage &image) noexcept;
     /*
      * Execute the validated static-init callbacks once, in NDS table order.
      * Each callback receives a bounded guest slice and a synthetic guest
@@ -347,6 +359,21 @@ private:
 
     NdsMachineStatus run_pending_overlay_static_initializers(
         NdsCpu cpu) noexcept;
+    struct PendingOverlayLoad {
+        bool pending = false;
+        NdsCpu cpu = NDS_ARM9;
+        NdsOverlayRegion region = NdsOverlayRegion::Main;
+        uint32_t overlay_id = 0u;
+        uint32_t ram_address = 0u;
+        uint32_t ram_size = 0u;
+        uint32_t bss_size = 0u;
+        uint32_t static_init_start = 0u;
+        uint32_t static_init_end = 0u;
+        std::string image_sha1;
+        std::vector<uint8_t> contents;
+    };
+
+    NdsMachineStatus run_pending_overlay_load(NdsCpu cpu) noexcept;
 
     struct OverlayDispatchMissCapture {
         NdsCpu cpu = NDS_ARM9;
@@ -473,6 +500,7 @@ private:
 
     std::array<bool, 2> slice_active_{};
     std::array<PendingOverlayInitializers, 2> pending_overlay_initializers_{};
+    std::array<PendingOverlayLoad, 2> pending_overlay_loads_{};
     std::array<NdsCpuRunState, 2> run_states_{};
     std::array<bool, 2> interrupt_wait_active_{};
     std::array<uint32_t, 2> interrupt_wait_masks_{};
