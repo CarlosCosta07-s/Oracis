@@ -27,6 +27,10 @@ constexpr uint32_t kDeferredOverlay = UINT32_C(73);
 constexpr uint32_t kDeferredOverlayAddress = UINT32_C(0x02008300);
 constexpr uint32_t kDeferredLoadOverlay = UINT32_C(74);
 constexpr uint32_t kDeferredLoadOverlayAddress = UINT32_C(0x02008400);
+constexpr uint32_t kDestructorChainHeadAddress = UINT32_C(0x02008A00);
+constexpr uint32_t kDestructorChainNodeAddress = UINT32_C(0x02008A20);
+constexpr uint32_t kDestructorChainObjectAddress = UINT32_C(0x0200C080);
+constexpr uint32_t kDestructorChainFunctionPointer = UINT32_C(0x0200C101);
 
 oracis::machine::NdsMachine *g_machine = nullptr;
 std::array<uint32_t, 3> g_initializer_order{};
@@ -156,6 +160,36 @@ bool request_deferred_overlay_load(
     return context->request_status ==
             oracis::machine::NdsOverlayStatus::OverlayLoadPending &&
         runtime_should_yield();
+}
+
+struct DestructorRegistrationContext {
+    oracis::machine::NdsMachine *machine = nullptr;
+    uint32_t head_pointer_address = 0u;
+    uint32_t object_address = 0u;
+    uint32_t destructor_pointer = 0u;
+    uint32_t chain_node_address = 0u;
+    oracis::machine::NdsOverlayDestructorChainStatus status =
+        oracis::machine::NdsOverlayDestructorChainStatus::Busy;
+};
+
+bool register_guest_global_destructor(
+    void *opaque, NdsCpu cpu, ArmCpuState *state, uint64_t cycle_budget)
+{
+    (void)state;
+    (void)cycle_budget;
+    auto *context = static_cast<DestructorRegistrationContext *>(opaque);
+    if (context == nullptr || context->machine == nullptr) return false;
+    if (cpu != NDS_ARM9) return true;
+
+    context->status = context->machine->register_overlay_global_object(
+        cpu,
+        context->head_pointer_address,
+        context->object_address,
+        context->destructor_pointer,
+        context->chain_node_address);
+    runtime_tick(1u);
+    return context->status ==
+        oracis::machine::NdsOverlayDestructorChainStatus::Ok;
 }
 
 void put_u32_le(std::vector<uint8_t> &bytes, std::size_t offset, uint32_t value)
@@ -488,6 +522,52 @@ int main()
         machine.request_overlay_load(deferred_load_image) !=
             NdsOverlayStatus::AlreadyLoaded) {
         return fail("deferred overlay BSS or duplicate-load semantics were incorrect");
+    }
+
+    if (machine.guest_memory().write(
+            NDS_ARM9, kDestructorChainHeadAddress, 4u, 0u) !=
+        oracis::memory::Status::Ok) {
+        return fail("could not initialize the synthetic destructor chain head");
+    }
+    DestructorRegistrationContext registration_context{
+        &machine,
+        kDestructorChainHeadAddress,
+        kDestructorChainObjectAddress,
+        kDestructorChainFunctionPointer,
+        kDestructorChainNodeAddress
+    };
+    const auto registration_round = machine.run_dual_core_round(
+        100u, &register_guest_global_destructor, nullptr,
+        &registration_context);
+    if (registration_round != NdsMachineStatus::Ok ||
+        registration_context.status !=
+            NdsOverlayDestructorChainStatus::Ok) {
+        return fail("guest-slice Metrowerks destructor registration failed");
+    }
+
+    const auto registered_head = machine.guest_memory().read(
+        NDS_ARM9, kDestructorChainHeadAddress, 4u);
+    const auto registered_next = machine.guest_memory().read(
+        NDS_ARM9, kDestructorChainNodeAddress, 4u);
+    const auto registered_dtor = machine.guest_memory().read(
+        NDS_ARM9, kDestructorChainNodeAddress + 4u, 4u);
+    const auto registered_obj = machine.guest_memory().read(
+        NDS_ARM9, kDestructorChainNodeAddress + 8u, 4u);
+    if (!registered_head || registered_head.value !=
+            kDestructorChainNodeAddress ||
+        !registered_next || registered_next.value != 0u ||
+        !registered_dtor || registered_dtor.value !=
+            kDestructorChainFunctionPointer ||
+        !registered_obj || registered_obj.value !=
+            kDestructorChainObjectAddress) {
+        return fail("Metrowerks destructor registration wrote the wrong guest node fields");
+    }
+    if (machine.register_overlay_global_object(
+            NDS_ARM9, kDestructorChainHeadAddress,
+            kDestructorChainObjectAddress, kDestructorChainFunctionPointer,
+            kDestructorChainNodeAddress) !=
+        NdsOverlayDestructorChainStatus::Busy) {
+        return fail("destructor registration was accepted outside the owning guest slice");
     }
 
     if (oracis_static_dispatch_unregister_bank(
