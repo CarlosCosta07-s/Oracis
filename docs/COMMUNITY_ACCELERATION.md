@@ -103,7 +103,7 @@ A rota deferida copia imagem e metadados para armazenamento próprio e solicita 
 
 O unload ainda exige certificado de ausência de referências guest e, após construtores executados, continua bloqueado por `FinalizersUnavailable`: ainda falta resolver na USA Rev 1 o endereço guest de `__global_destructor_chain`, mapear o entrypoint guest de `__register_global_object` para o novo thunk, executar cada `dtor(obj)` em slices limitadas e repetir a varredura até a cadeia não conter mais nós daquele overlay. O NitroSDK não usa uma tabela de finalizadores separada no cabeçalho do overlay. Consulte [docs/NITRO_OVERLAY_LIFECYCLE.md](NITRO_OVERLAY_LIFECYCLE.md) para o contrato e a sequência observados.
 
-**Validação desta camada:** CI [#45923102952](https://github.com/CarlosCosta07-s/Oracis/actions/runs/45923102952) aprovada nos quatro jobs; Desktop e ARM **68/68 CTests** cada, Python 99, NDSRecomp 6/6, Android ARM64 e smokes opcionais de bancos principal/BIOS aprovados.
+**Validação desta camada:** CI [#45923599689](https://github.com/CarlosCosta07-s/Oracis/actions/runs/45923599689) aprovada nos quatro jobs; Desktop e ARM **68/68 CTests** cada, Python 99, NDSRecomp 6/6, Android ARM64 e smokes opcionais de bancos principal/BIOS aprovados. O teste C `oracis_host_runtime_bridge_c_test` passa com a chamada ativa durante a fatia ARM9, verifica os campos do nó e testa os status de recusa antes do carregamento e fora da fatia.
 
 ## 5. Pipeline de aceleração adotado
 
