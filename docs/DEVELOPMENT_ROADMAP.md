@@ -734,5 +734,26 @@ O teste `oracis_nds_overlay_initializer_test` agora simula um pedido durante uma
 
 Esta etapa fecha a publicação de imagem+BSS em um ponto seguro do scheduler. Ainda não fecha o ciclo de vida NitroSDK, não executa construtores de um overlay real e não comprova boot retail, primeiro quadro ou jogo funcional.
 
+## Atualização 2026-11-27 — desanexação segura da cadeia de destrutores Metrowerks
+
+Foi adicionado `NdsOverlayDestructorChain`, um componente de GuestMemory que opera sobre o ABI ARM de 32 bits de `MWiDestructorChain` (três palavras: `next`, `dtor`, `obj`). A API `detach_for_overlay(cpu, head_pointer_address, ram_address, ram_size, bss_size, out)` percorre a cadeia global a partir do endereço guest fornecido, detecta ciclos, limites excedidos e nós não mapeados, e seleciona exatamente os nós cujo `obj` está na faixa RAM+BSS do overlay ou cujo `obj == 0` e `dtor` está nessa faixa.
+
+Os nós selecionados são destacados em uma cadeia separada preservando a ordem guest; os demais continuam ligados na ordem original. As escritas são pré-validadas e, se uma escrita falhar, as anteriores são revertidas; se a reversão também falhar, o status distingue `RollbackFailed`. O componente não chama código guest e não autoriza unload sozinho.
+
+Foi adicionado `oracis_nds_overlay_destructor_chain_test` com casos sintéticos de seleção por dtor, seleção por objeto (inclusive BSS), nó sem destrutor, preservação de outros overlays, ciclo, endereço não mapeado e overflow de faixa.
+
+**Validação:** CI [#45921444179](https://github.com/CarlosCosta07-s/Oracis/actions/runs/45921444179), commit `d3f23b0`, passou nos quatro jobs. Desktop Linux e runtime ARM: **68/68 CTests** cada; Python: **99 testes**; NDSRecomp: **6/6**; Android ARM64 aprovado; smokes opcionais de bancos principal e BIOS: **1/1** cada. O novo CTest passou nos dois targets.
+
+### Gate seguinte
+
+1. Descobrir, a partir de metadados e referências USA Rev 1, o endereço guest de `__global_destructor_chain` e o entrypoint de `__register_global_object`.
+2. Implementar o registro HLE compatível com `__register_global_object(obj, dtor, chain)`, com nó guest de 12 bytes, sem converter ponteiros guest em host pointers.
+3. Integrar a desanexação com a máquina e executar cada destrutor como chamada guest `dtor(obj)`, com R0 correto, retorno ARM/Thumb e orçamento de ciclos.
+4. Repetir a varredura, pois destrutores podem registrar novos nós do mesmo overlay.
+5. Manter unload bloqueado até que a cadeia esteja vazia para o overlay e as referências guest/PC/pilhas estejam comprovadamente fora da faixa.
+
+Esta etapa implementa somente a validação e a separação da cadeia guest. Ela ainda não registra objetos de construtores, não executa destrutores e não muda a proteção `FinalizersUnavailable` do unload.
+
+
 
 O contrato detalhado está em [docs/NITRO_OVERLAY_LIFECYCLE.md](NITRO_OVERLAY_LIFECYCLE.md). A análise do NitroSDK mostra que os finalizadores não são uma tabela paralela no cabeçalho NDS: são nós MWiDestructorChain (next, dtor, obj) de 12 bytes no ABI ARM de 32 bits, registrados por __register_global_object. FS_EndOverlay filtra a cadeia global pela faixa de RAM+BSS do overlay, destaca os nós e chama dtor(obj). O runtime Oracis ainda não implementa esse registro/filtragem; por isso FinalizersUnavailable continua sendo a proteção correta e unload permanece bloqueado após constructors até esse contrato ser implementado.
