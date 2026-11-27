@@ -729,7 +729,10 @@ O teste `oracis_nds_overlay_initializer_test` agora simula um pedido durante uma
 1. Identificar entrypoints NitroSDK de load/start/end/unload da revisão USA Rev 1 somente a partir de metadados/artefatos locais verificados; não assumir endereços de outra revisão.
 2. Implementar o adaptador HLE para encaminhar load para `request_local_overlay` e start para `request_overlay_static_initializers`, preservando estados de retorno e ordem guest.
 3. Confirmar que os bancos recompilados correspondentes estão registrados e validados pelo conteúdo ativo em GuestMemory antes de executar construtores.
-4. Manter unload bloqueado para overlays com construtores executados até haver tabela de finalizadores e rastreamento de referências guest demonstrados.
+4. Manter unload bloqueado para overlays com construtores executados até o suporte ao ABI MWiDestructorChain/registro __register_global_object, a execução seletiva de FS_EndOverlay e o rastreamento de referências guest serem demonstrados.
 5. Testar a sequência completa com metadados/bytes locais da USA Rev 1, sem incluir ROM, BIOS, imagens ou bancos no Git/CI.
 
 Esta etapa fecha a publicação de imagem+BSS em um ponto seguro do scheduler. Ainda não fecha o ciclo de vida NitroSDK, não executa construtores de um overlay real e não comprova boot retail, primeiro quadro ou jogo funcional.
+
+
+O contrato detalhado está em [docs/NITRO_OVERLAY_LIFECYCLE.md](NITRO_OVERLAY_LIFECYCLE.md). A análise do NitroSDK mostra que os finalizadores não são uma tabela paralela no cabeçalho NDS: são nós MWiDestructorChain (next, dtor, obj) de 12 bytes no ABI ARM de 32 bits, registrados por __register_global_object. FS_EndOverlay filtra a cadeia global pela faixa de RAM+BSS do overlay, destaca os nós e chama dtor(obj). O runtime Oracis ainda não implementa esse registro/filtragem; por isso FinalizersUnavailable continua sendo a proteção correta e unload permanece bloqueado após constructors até esse contrato ser implementado.
