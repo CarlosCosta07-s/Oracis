@@ -44,7 +44,9 @@ enum class NdsOverlayStatus : uint8_t {
     InvalidStack,
     InitializerPending,
     RegionCapacityExceeded,
-    FinalizersUnavailable
+    FinalizersUnavailable,
+    OverlayLoadPending,
+    OverlayLoadFailed
 };
 
 /*
