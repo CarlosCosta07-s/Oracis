@@ -4,6 +4,7 @@
 #include <array>
 #include <limits>
 #include <new>
+#include <set>
 #include <unordered_set>
 #include <utility>
 
@@ -106,7 +107,10 @@ NdsOverlayDestructorChain::detach_for_overlay(
         nodes.reserve(64u);
         std::unordered_set<uint32_t> visited;
         visited.reserve(64u);
+        std::set<uint32_t> node_addresses;
 
+        const uint64_t head_begin = head_pointer_address;
+        const uint64_t head_end = head_begin + 4u;
         uint32_t current = global_head;
         while (current != 0u) {
             if ((current & 3u) != 0u ||
@@ -120,6 +124,24 @@ NdsOverlayDestructorChain::detach_for_overlay(
             if (nodes.size() >= MaxNodes) {
                 return NdsOverlayDestructorChainStatus::ChainCapacityExceeded;
             }
+
+            const uint64_t node_begin = current;
+            const uint64_t node_end = node_begin + NodeSize;
+            if (node_begin < head_end && head_begin < node_end) {
+                return NdsOverlayDestructorChainStatus::InvalidMetadata;
+            }
+            const auto next_node = node_addresses.lower_bound(current);
+            if (next_node != node_addresses.end() &&
+                node_end > static_cast<uint64_t>(*next_node)) {
+                return NdsOverlayDestructorChainStatus::DuplicateNode;
+            }
+            if (next_node != node_addresses.begin()) {
+                const uint32_t previous = *std::prev(next_node);
+                if (static_cast<uint64_t>(previous) + NodeSize > node_begin) {
+                    return NdsOverlayDestructorChainStatus::DuplicateNode;
+                }
+            }
+            node_addresses.insert(current);
             if (memory_.validate_read(cpu, current, NodeSize) !=
                     memory::Status::Ok ||
                 memory_.validate_write(cpu, current, NodeSize) !=
@@ -311,6 +333,7 @@ NdsOverlayDestructorChain::register_global_object(
          */
         std::unordered_set<uint32_t> visited;
         visited.reserve(64u);
+        std::set<uint32_t> existing_node_addresses;
         uint32_t current = global_head;
         std::size_t count = 0u;
         while (current != 0u) {
@@ -328,6 +351,20 @@ NdsOverlayDestructorChain::register_global_object(
             if (current_begin < node_end && node_begin < current_end) {
                 return NdsOverlayDestructorChainStatus::DuplicateNode;
             }
+            const auto next_existing =
+                existing_node_addresses.lower_bound(current);
+            if (next_existing != existing_node_addresses.end() &&
+                current_end > static_cast<uint64_t>(*next_existing)) {
+                return NdsOverlayDestructorChainStatus::DuplicateNode;
+            }
+            if (next_existing != existing_node_addresses.begin()) {
+                const uint32_t previous = *std::prev(next_existing);
+                if (static_cast<uint64_t>(previous) + NodeSize >
+                    current_begin) {
+                    return NdsOverlayDestructorChainStatus::DuplicateNode;
+                }
+            }
+            existing_node_addresses.insert(current);
             if (!visited.insert(current).second) {
                 return NdsOverlayDestructorChainStatus::ChainCycle;
             }
