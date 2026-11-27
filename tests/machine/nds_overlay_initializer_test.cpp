@@ -539,9 +539,9 @@ int main()
     const auto registration_round = machine.run_dual_core_round(
         100u, &register_guest_global_destructor, nullptr,
         &registration_context);
-    if (registration_round != NdsMachineStatus::Ok ||
+    if (registration_round != oracis::machine::NdsMachineStatus::Ok ||
         registration_context.status !=
-            NdsOverlayDestructorChainStatus::Ok) {
+            oracis::machine::NdsOverlayDestructorChainStatus::Ok) {
         return fail("guest-slice Metrowerks destructor registration failed");
     }
 
@@ -566,7 +566,7 @@ int main()
             NDS_ARM9, kDestructorChainHeadAddress,
             kDestructorChainObjectAddress, kDestructorChainFunctionPointer,
             kDestructorChainNodeAddress) !=
-        NdsOverlayDestructorChainStatus::Busy) {
+        oracis::machine::NdsOverlayDestructorChainStatus::Busy) {
         return fail("destructor registration was accepted outside the owning guest slice");
     }
 
