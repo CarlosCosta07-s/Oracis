@@ -19,6 +19,7 @@ namespace oracis::machine {
 NdsMachine::NdsMachine(memory::SharedWramMode initial_wram_mode) noexcept
     : bios_control_(memory_),
       overlay_loader_(memory_),
+      overlay_destructor_chain_(memory_),
       arm9_tcm_(memory_),
       wram_control_(memory_, initial_wram_mode),
       vram_control_(memory_),
@@ -2243,6 +2244,39 @@ NdsMachineStatus NdsMachine::load_firmware_boot_code() noexcept
     firmware_boot_staging_ = std::move(staging);
     firmware_boot_code_loaded_ = true;
     return NdsMachineStatus::Ok;
+}
+
+NdsOverlayDestructorChainStatus
+NdsMachine::register_overlay_global_object(
+    NdsCpu cpu,
+    uint32_t head_pointer_address,
+    uint32_t object_address,
+    uint32_t destructor_pointer,
+    uint32_t chain_node_address) noexcept
+{
+    if (!initialized_) {
+        return NdsOverlayDestructorChainStatus::NotInitialized;
+    }
+    if (!program_loaded_) {
+        return NdsOverlayDestructorChainStatus::ProgramNotLoaded;
+    }
+    if (!valid_cpu(cpu)) {
+        return NdsOverlayDestructorChainStatus::InvalidCpu;
+    }
+
+    const unsigned index = cpu_index(cpu);
+    if (!slice_active_[index] || slice_active_[index ^ 1u] ||
+        g_nds_active != cpu ||
+        oracis_active_cpu_state != cpu_state(cpu)) {
+        return NdsOverlayDestructorChainStatus::Busy;
+    }
+
+    return overlay_destructor_chain_.register_global_object(
+        cpu,
+        head_pointer_address,
+        object_address,
+        destructor_pointer,
+        chain_node_address);
 }
 
 NdsOverlayStatus NdsMachine::load_overlay(
