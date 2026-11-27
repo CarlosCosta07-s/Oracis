@@ -2301,7 +2301,7 @@ NdsMachine::inspect_overlay_destructors(
 
     NdsOverlayMemoryRange range;
     if (!overlay_loader_.memory_range(cpu, overlay_id, range)) {
-        return NdsOverlayDestructorChainStatus::NotLoaded;
+        return NdsOverlayDestructorChainStatus::OverlayNotLoaded;
     }
 
     return overlay_destructor_chain_.inspect_for_overlay(
