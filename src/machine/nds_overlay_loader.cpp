@@ -317,6 +317,29 @@ bool NdsOverlayLoader::is_loaded(
         });
 }
 
+bool NdsOverlayLoader::memory_range(
+    NdsCpu cpu,
+    uint32_t overlay_id,
+    NdsOverlayMemoryRange &out) const noexcept
+{
+    if (!valid_cpu(cpu)) return false;
+    const auto found = std::find_if(
+        loaded_.begin(), loaded_.end(),
+        [cpu, overlay_id](const LoadedOverlay &item) {
+            return item.cpu == cpu && item.overlay_id == overlay_id;
+        });
+    if (found == loaded_.end()) return false;
+
+    const NdsOverlayMemoryRange staged{
+        found->region,
+        found->ram_address,
+        found->ram_size,
+        found->bss_size
+    };
+    out = staged;
+    return true;
+}
+
 const std::vector<NdsOverlayFunctionPointer> *
 NdsOverlayLoader::static_initializers(
     NdsCpu cpu, uint32_t overlay_id) const noexcept
