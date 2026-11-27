@@ -1,6 +1,7 @@
 #include "oracis/machine/nds_overlay_destructor_chain.hpp"
 
 #include <algorithm>
+#include <array>
 #include <limits>
 #include <new>
 #include <unordered_set>
@@ -249,7 +250,148 @@ NdsOverlayDestructorChain::detach_for_overlay(
         detached.swap(selected);
         return NdsOverlayDestructorChainStatus::Ok;
     } catch (const std::bad_alloc &) {
+        return NdsOverlayDestructorChainStatus::AllocationFailed;
+    } catch (...) {
         return NdsOverlayDestructorChainStatus::MemoryUnavailable;
+    }
+}
+
+NdsOverlayDestructorChainStatus
+NdsOverlayDestructorChain::register_global_object(
+    NdsCpu cpu,
+    uint32_t head_pointer_address,
+    uint32_t object_address,
+    uint32_t destructor_pointer,
+    uint32_t chain_node_address) noexcept
+{
+    if (cpu != NDS_ARM9 && cpu != NDS_ARM7) {
+        return NdsOverlayDestructorChainStatus::InvalidCpu;
+    }
+    if (head_pointer_address == 0u ||
+        (head_pointer_address & 3u) != 0u ||
+        chain_node_address == 0u ||
+        (chain_node_address & 3u) != 0u ||
+        static_cast<uint64_t>(head_pointer_address) + 4u >
+            UINT64_C(0x1'0000'0000) ||
+        static_cast<uint64_t>(chain_node_address) + NodeSize >
+            UINT64_C(0x1'0000'0000)) {
+        return NdsOverlayDestructorChainStatus::InvalidMetadata;
+    }
+
+    const uint64_t head_begin = head_pointer_address;
+    const uint64_t head_end = head_begin + 4u;
+    const uint64_t node_begin = chain_node_address;
+    const uint64_t node_end = node_begin + NodeSize;
+    if (head_begin < node_end && node_begin < head_end) {
+        return NdsOverlayDestructorChainStatus::InvalidMetadata;
+    }
+
+    if (memory_.validate_read(cpu, head_pointer_address, 4u) !=
+            memory::Status::Ok ||
+        memory_.validate_write(cpu, head_pointer_address, 4u) !=
+            memory::Status::Ok ||
+        memory_.validate_read(cpu, chain_node_address, NodeSize) !=
+            memory::Status::Ok ||
+        memory_.validate_write(cpu, chain_node_address, NodeSize) !=
+            memory::Status::Ok) {
+        return NdsOverlayDestructorChainStatus::MemoryUnavailable;
+    }
+
+    try {
+        uint32_t global_head = 0u;
+        const auto head_status = read_word(
+            memory_, cpu, head_pointer_address, global_head);
+        if (head_status != NdsOverlayDestructorChainStatus::Ok) {
+            return head_status;
+        }
+
+        /*
+         * The SDK helper inserts at the head. Walk the existing next links
+         * first so a node cannot be linked twice and corrupt the global chain.
+         */
+        std::unordered_set<uint32_t> visited;
+        visited.reserve(64u);
+        uint32_t current = global_head;
+        std::size_t count = 0u;
+        while (current != 0u) {
+            if ((current & 3u) != 0u ||
+                static_cast<uint64_t>(current) + NodeSize >
+                    UINT64_C(0x1'0000'0000)) {
+                return NdsOverlayDestructorChainStatus::InvalidMetadata;
+            }
+            if (current == chain_node_address) {
+                return NdsOverlayDestructorChainStatus::DuplicateNode;
+            }
+            if (!visited.insert(current).second) {
+                return NdsOverlayDestructorChainStatus::ChainCycle;
+            }
+            if (count >= MaxNodes) {
+                return NdsOverlayDestructorChainStatus::ChainCapacityExceeded;
+            }
+            ++count;
+
+            if (memory_.validate_read(cpu, current, 4u) !=
+                memory::Status::Ok) {
+                return NdsOverlayDestructorChainStatus::MemoryUnavailable;
+            }
+            uint32_t next = 0u;
+            const auto next_status = read_word(
+                memory_, cpu, current, next);
+            if (next_status != NdsOverlayDestructorChainStatus::Ok) {
+                return next_status;
+            }
+            if (next != 0u && (next & 3u) != 0u) {
+                return NdsOverlayDestructorChainStatus::InvalidMetadata;
+            }
+            current = next;
+        }
+
+        std::array<uint8_t, NodeSize> old_bytes{};
+        for (uint32_t offset = 0u; offset < NodeSize; offset += 4u) {
+            uint32_t value = 0u;
+            const auto status = read_word(
+                memory_, cpu, chain_node_address + offset, value);
+            if (status != NdsOverlayDestructorChainStatus::Ok) {
+                return status;
+            }
+            old_bytes[offset] = static_cast<uint8_t>(value);
+            old_bytes[offset + 1u] = static_cast<uint8_t>(value >> 8u);
+            old_bytes[offset + 2u] = static_cast<uint8_t>(value >> 16u);
+            old_bytes[offset + 3u] = static_cast<uint8_t>(value >> 24u);
+        }
+
+        std::array<uint8_t, NodeSize> new_bytes{};
+        const uint32_t values[3]{
+            global_head, destructor_pointer, object_address
+        };
+        for (uint32_t word = 0u; word < 3u; ++word) {
+            const uint32_t value = values[word];
+            const uint32_t offset = word * 4u;
+            new_bytes[offset] = static_cast<uint8_t>(value);
+            new_bytes[offset + 1u] = static_cast<uint8_t>(value >> 8u);
+            new_bytes[offset + 2u] = static_cast<uint8_t>(value >> 16u);
+            new_bytes[offset + 3u] = static_cast<uint8_t>(value >> 24u);
+        }
+
+        if (memory_.write_bytes(
+                cpu, chain_node_address,
+                new_bytes.data(), NodeSize) != memory::Status::Ok) {
+            return NdsOverlayDestructorChainStatus::WriteFailed;
+        }
+
+        if (!write_word(
+                memory_, cpu, head_pointer_address, chain_node_address)) {
+            const bool rollback_ok = memory_.write_bytes(
+                cpu, chain_node_address, old_bytes.data(), NodeSize) ==
+                memory::Status::Ok;
+            return rollback_ok
+                ? NdsOverlayDestructorChainStatus::WriteFailed
+                : NdsOverlayDestructorChainStatus::RollbackFailed;
+        }
+
+        return NdsOverlayDestructorChainStatus::Ok;
+    } catch (const std::bad_alloc &) {
+        return NdsOverlayDestructorChainStatus::AllocationFailed;
     } catch (...) {
         return NdsOverlayDestructorChainStatus::MemoryUnavailable;
     }
@@ -265,6 +407,8 @@ const char *nds_overlay_destructor_chain_status_name(
     case NdsOverlayDestructorChainStatus::MemoryUnavailable: return "memory-unavailable";
     case NdsOverlayDestructorChainStatus::ChainCycle: return "chain-cycle";
     case NdsOverlayDestructorChainStatus::ChainCapacityExceeded: return "chain-capacity-exceeded";
+    case NdsOverlayDestructorChainStatus::DuplicateNode: return "duplicate-node";
+    case NdsOverlayDestructorChainStatus::AllocationFailed: return "allocation-failed";
     case NdsOverlayDestructorChainStatus::WriteFailed: return "write-failed";
     case NdsOverlayDestructorChainStatus::RollbackFailed: return "rollback-failed";
     }
