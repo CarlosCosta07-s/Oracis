@@ -56,7 +56,15 @@ typedef enum OracisHostRuntimeStatus {
     ORACIS_HOST_RUNTIME_CPU_RESET_HELD = 37,
     ORACIS_HOST_RUNTIME_CPU_NOT_IN_RESET = 38,
     ORACIS_HOST_RUNTIME_OVERLAY_LOAD_PENDING = 39,
-    ORACIS_HOST_RUNTIME_OVERLAY_LOAD_FAILED = 40
+    ORACIS_HOST_RUNTIME_OVERLAY_LOAD_FAILED = 40,
+    ORACIS_HOST_RUNTIME_DESTRUCTOR_CHAIN_INVALID_METADATA = 41,
+    ORACIS_HOST_RUNTIME_DESTRUCTOR_CHAIN_MEMORY_UNAVAILABLE = 42,
+    ORACIS_HOST_RUNTIME_DESTRUCTOR_CHAIN_CYCLE = 43,
+    ORACIS_HOST_RUNTIME_DESTRUCTOR_CHAIN_CAPACITY_EXCEEDED = 44,
+    ORACIS_HOST_RUNTIME_DESTRUCTOR_CHAIN_DUPLICATE_NODE = 45,
+    ORACIS_HOST_RUNTIME_DESTRUCTOR_CHAIN_ALLOCATION_FAILED = 46,
+    ORACIS_HOST_RUNTIME_DESTRUCTOR_CHAIN_WRITE_FAILED = 47,
+    ORACIS_HOST_RUNTIME_DESTRUCTOR_CHAIN_ROLLBACK_FAILED = 48
 } OracisHostRuntimeStatus;
 
 /* Result of checking the current ARM9/ARM7 start PCs against registered banks. */
@@ -273,6 +281,27 @@ int oracis_host_runtime_load_local_overlay(
  */
 int oracis_host_runtime_request_local_overlay(
     const char *directory, uint32_t cpu, uint32_t overlay_id);
+/*
+ * Metrowerks __register_global_object(obj, dtor, chain) adapter. The caller
+ * supplies the guest address of __global_destructor_chain and the three
+ * 32-bit guest arguments; no guest pointers are converted to host pointers.
+ * May be called at a host boundary, or from the matching CPU's active guest
+ * slice. It registers the node but never invokes its destructor.
+ */
+int oracis_host_runtime_register_global_destructor(
+    uint32_t cpu,
+    uint32_t head_pointer_address,
+    uint32_t object_address,
+    uint32_t destructor_pointer,
+    uint32_t chain_node_address);
+/*
+ * Active-slice form for a future HLE thunk replacing __register_global_object.
+ * Reads obj/dtor/chain from active guest R0/R1/R2 and requires a matching
+ * active CPU slice. head_pointer_address must come from verified USA Rev 1
+ * metadata/symbol resolution.
+ */
+int oracis_host_runtime_register_active_global_destructor(
+    uint32_t head_pointer_address);
 /*
  * Execute the overlay's validated static-init function pointers in table
  * order. Each constructor receives an isolated bounded guest call; guest
