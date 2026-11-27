@@ -16,6 +16,9 @@ static int g_arm9_irq_triggered = 0;
 static int g_arm7_irq_triggered = 0;
 static int g_arm9_irq_handler_ok = 0;
 static int g_arm7_irq_handler_ok = 0;
+static int g_request_active_destructor_registration = 0;
+static int g_active_destructor_registration_status =
+    ORACIS_HOST_RUNTIME_INVALID_ARGUMENT;
 
 static void lifecycle_dispatch_entry(void)
 {
@@ -53,7 +56,11 @@ static int shutdown_with_temporary_dispatch_tables(void)
 enum {
     TEST_KEYPAD_IRQ = 1u << 12u,
     TEST_KEYPAD_A = 1u,
-    TEST_KEYCNT_IRQ_ENABLE = 1u << 14u
+    TEST_KEYCNT_IRQ_ENABLE = 1u << 14u,
+    TEST_DTOR_HEAD = 0x02005000u,
+    TEST_DTOR_NODE = 0x02005020u,
+    TEST_DTOR_OBJECT = 0x02005040u,
+    TEST_DTOR_FUNCTION = 0x02001004u
 };
 
 static void arm9_irq_vector(void)
@@ -107,6 +114,23 @@ static void arm9_test_bank(void)
             state->R[15] != g_arm9_irq_return_pc) {
             g_arm9_irq_handler_ok = 0;
         }
+    }
+
+    if (g_request_active_destructor_registration) {
+        ArmCpuState *state = oracis_active_cpu_state;
+        const uint32_t old_r0 = state->R[0];
+        const uint32_t old_r1 = state->R[1];
+        const uint32_t old_r2 = state->R[2];
+        state->R[0] = TEST_DTOR_OBJECT;
+        state->R[1] = TEST_DTOR_FUNCTION;
+        state->R[2] = TEST_DTOR_NODE;
+        g_active_destructor_registration_status =
+            oracis_host_runtime_register_active_global_destructor(
+                TEST_DTOR_HEAD);
+        state->R[0] = old_r0;
+        state->R[1] = old_r1;
+        state->R[2] = old_r2;
+        g_request_active_destructor_registration = 0;
     }
     runtime_tick(1u);
 }
@@ -728,16 +752,33 @@ int main(void)
         return 1;
     }
 
+    bus_write_u32(TEST_DTOR_HEAD, 0u);
+    bus_write_u32(TEST_DTOR_NODE, UINT32_C(0xAAAAAAAA));
+    bus_write_u32(TEST_DTOR_NODE + 4u, UINT32_C(0xBBBBBBBB));
+    bus_write_u32(TEST_DTOR_NODE + 8u, UINT32_C(0xCCCCCCCC));
+    g_request_active_destructor_registration = 1;
+    g_active_destructor_registration_status = ORACIS_HOST_RUNTIME_INVALID_ARGUMENT;
+
     const int irq_round_status =
         oracis_host_runtime_run_round(1u, NULL, NULL);
     const uint64_t irq_round_bus_cycles =
         oracis_host_runtime_global_bus_cycles();
+    const uint32_t registered_head = bus_read_u32(TEST_DTOR_HEAD);
+    const uint32_t registered_next = bus_read_u32(TEST_DTOR_NODE);
+    const uint32_t registered_dtor = bus_read_u32(TEST_DTOR_NODE + 4u);
+    const uint32_t registered_obj = bus_read_u32(TEST_DTOR_NODE + 8u);
     if (irq_round_status != ORACIS_HOST_RUNTIME_OK ||
         g_arm9_bank_calls != 2u ||
         g_arm7_bank_calls != 1u ||
         g_arm9_irq_handler_ok != 1 ||
         g_arm7_irq_handler_ok != 1 ||
-        irq_round_bus_cycles != UINT64_C(1)) {
+        irq_round_bus_cycles != UINT64_C(1) ||
+        g_request_active_destructor_registration != 0 ||
+        g_active_destructor_registration_status != ORACIS_HOST_RUNTIME_OK ||
+        registered_head != TEST_DTOR_NODE ||
+        registered_next != 0u ||
+        registered_dtor != TEST_DTOR_FUNCTION ||
+        registered_obj != TEST_DTOR_OBJECT) {
         oracis_static_dispatch_clear();
         fprintf(stderr,
             "C host bridge IRQ round mismatch: status=%d "
