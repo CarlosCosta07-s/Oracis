@@ -197,6 +197,16 @@ public:
         uint32_t destructor_pointer,
         uint32_t chain_node_address) noexcept;
     /*
+     * Inspect the destructor registrations owned by a loaded overlay.
+     * The range is obtained from NdsOverlayLoader; callers do not repeat
+     * RAM/BSS metadata. Both CPU slices must be stopped.
+     */
+    NdsOverlayDestructorChainStatus inspect_overlay_destructors(
+        NdsCpu cpu,
+        uint32_t overlay_id,
+        uint32_t head_pointer_address,
+        std::vector<NdsOverlayDestructorRecord> &candidates) noexcept;
+    /*
      * Request an overlay load from an HLE/guest callback. If called while the
      * selected CPU is inside its own slice, the image and metadata are copied
      * and the generated code is asked to yield. Guest RAM is changed only
