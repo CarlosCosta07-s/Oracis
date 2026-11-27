@@ -492,6 +492,7 @@ const char *nds_overlay_destructor_chain_status_name(
     case NdsOverlayDestructorChainStatus::NotInitialized: return "not-initialized";
     case NdsOverlayDestructorChainStatus::ProgramNotLoaded: return "program-not-loaded";
     case NdsOverlayDestructorChainStatus::Busy: return "busy";
+    case NdsOverlayDestructorChainStatus::OverlayNotLoaded: return "overlay-not-loaded";
     }
     return "unknown";
 }
