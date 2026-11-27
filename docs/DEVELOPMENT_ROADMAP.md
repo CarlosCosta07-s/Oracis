@@ -707,6 +707,29 @@ Foi criado `oracis_nds_overlay_catalog_test` com fixtures sintéticas para leitu
 2. Registrar e resolver os bancos de funções do overlay sem presumir que a carga de bytes implica código recompilado disponível.
 3. Executar construtores apenas quando o fluxo guest solicitar, com SP e dispatch válidos; a API existente permanece explícita e limitada por ciclos.
 4. Não permitir unload de overlays que executaram construtores até haver tabela de finalizadores validada e rastreamento das referências guest em pilhas/retornos.
-5. CI completa da revisão concluída: [#45919398242](https://github.com/CarlosCosta07-s/Oracis/actions/runs/45919398242) passou nos quatro jobs, com 67/67 CTests desktop e ARM, 99 testes Python, 6/6 testes NDSRecomp e build Android ARM64 aprovado.
+5. CI completa da revisão do catálogo concluída: [#45919828954](https://github.com/CarlosCosta07-s/Oracis/actions/runs/45919828954) passou nos quatro jobs, com 67/67 CTests desktop e ARM, 99 testes Python, 6/6 testes NDSRecomp e build Android ARM64 aprovado. A etapa seguinte de carga adiada é registrada abaixo.
 
 Esta etapa fecha leitura de manifesto e carga local individual em nível de host. Não demonstra execução de overlay real, boot da BIOS retail, primeiro quadro ou jogo funcional. A CI sintética valida o leitor e a API; ainda falta executar um overlay extraído de uma ROM USA Rev 1 do usuário e comprovar o ciclo guest completo.
+
+## Atualização 2026-11-27 — carga de overlay adiada na fronteira do scheduler
+
+O caminho de overlay agora possui duas operações de host:
+
+- `oracis_host_runtime_load_local_overlay(directory, cpu, overlay_id)` carrega diretamente quando o host já está em uma fronteira segura.
+- `oracis_host_runtime_request_local_overlay(directory, cpu, overlay_id)` é a variante para callbacks HLE/guest. Durante a fatia do CPU selecionado, ela valida o catálogo e os bytes, copia metadados/SHA-1/imagem para armazenamento próprio da máquina, solicita yield cooperativo e retorna `OVERLAY_LOAD_PENDING`.
+
+Após `end_cpu_slice()`, `NdsMachine::run_pending_overlay_load` publica o overlay através de `NdsOverlayLoader` antes que o core retome ou que o próximo core seja agendado. Imagem e BSS são escritos em uma operação verificada; os ponteiros para os buffers temporários lidos pelo host não sobrevivem à chamada. Se a publicação falhar, o round retorna `NdsMachineStatus::OverlayLoadFailed` e a ponte C expõe `ORACIS_HOST_RUNTIME_OVERLAY_LOAD_FAILED`. Solicitações pendentes são descartadas no shutdown.
+
+O teste `oracis_nds_overlay_initializer_test` agora simula um pedido durante uma fatia ARM9, verifica o retorno `OverlayLoadPending`, confirma que o overlay só está registrado depois do round e confere todos os bytes da imagem, BSS zerado e semântica de carga duplicada. `oracis_nds_overlay_catalog_test` também exercita a API C de solicitação no caminho de fronteira já segura.
+
+**Validação:** CI [#45920522546](https://github.com/CarlosCosta07-s/Oracis/actions/runs/45920522546), commit `440a8f5`, passou nos quatro jobs. Desktop Linux e runtime ARM: **67/67 CTests** cada; tooling Python: **99 testes**; NDSRecomp estático: **6/6 testes**; smokes opcionais de bancos principal e BIOS: **1/1** cada; build Android ARM64 aprovado. Os testes usam fixtures sintéticas e não demonstram ainda uma chamada NitroSDK real nem a execução de um overlay retail.
+
+### Próxima integração
+
+1. Identificar entrypoints NitroSDK de load/start/end/unload da revisão USA Rev 1 somente a partir de metadados/artefatos locais verificados; não assumir endereços de outra revisão.
+2. Implementar o adaptador HLE para encaminhar load para `request_local_overlay` e start para `request_overlay_static_initializers`, preservando estados de retorno e ordem guest.
+3. Confirmar que os bancos recompilados correspondentes estão registrados e validados pelo conteúdo ativo em GuestMemory antes de executar construtores.
+4. Manter unload bloqueado para overlays com construtores executados até haver tabela de finalizadores e rastreamento de referências guest demonstrados.
+5. Testar a sequência completa com metadados/bytes locais da USA Rev 1, sem incluir ROM, BIOS, imagens ou bancos no Git/CI.
+
+Esta etapa fecha a publicação de imagem+BSS em um ponto seguro do scheduler. Ainda não fecha o ciclo de vida NitroSDK, não executa construtores de um overlay real e não comprova boot retail, primeiro quadro ou jogo funcional.
