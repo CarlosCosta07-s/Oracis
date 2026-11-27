@@ -10,6 +10,7 @@
 using oracis::machine::NdsOverlayImage;
 using oracis::machine::NdsOverlayLoader;
 using oracis::machine::NdsOverlayStatus;
+using oracis::machine::NdsOverlayMemoryRange;
 using oracis::memory::GuestMemory;
 
 namespace {
@@ -74,6 +75,51 @@ void test_load_copies_image_and_zeros_bss()
         }));
     assert(memory.validate_execute(NDS_ARM9, kRamBase, 8u) ==
         oracis::memory::Status::Ok);
+}
+
+void test_memory_range_returns_loaded_overlay_identity_without_mutation()
+{
+    GuestMemory memory = make_memory();
+    NdsOverlayLoader loader(memory);
+    const std::vector<uint8_t> image_bytes{
+        0x10u, 0x20u, 0x30u, 0x40u,
+        0x50u, 0x60u, 0x70u, 0x80u
+    };
+    const std::string digest = hash_of(image_bytes);
+    const NdsOverlayImage image{
+        NDS_ARM9, 91u, kRamBase + 0x200u,
+        static_cast<uint32_t>(image_bytes.size()), 0x30u,
+        0u, 0u, image_bytes.data(), digest.c_str(),
+        oracis::machine::NdsOverlayRegion::Main
+    };
+    assert(loader.load(image) == NdsOverlayStatus::Ok);
+
+    NdsOverlayMemoryRange range{
+        oracis::machine::NdsOverlayRegion::Dtcm,
+        UINT32_C(0xDEADBEEF),
+        UINT32_C(0xAABBCCDD),
+        UINT32_C(0x11223344)
+    };
+    const bool found = loader.memory_range(NDS_ARM9, 91u, range);
+    assert(found);
+    assert(range.region == oracis::machine::NdsOverlayRegion::Main);
+    assert(range.ram_address == kRamBase + 0x200u);
+    assert(range.ram_size == image_bytes.size());
+    assert(range.bss_size == 0x30u);
+
+    const NdsOverlayMemoryRange sentinel{
+        oracis::machine::NdsOverlayRegion::Dtcm,
+        UINT32_C(0xDEADBEEF),
+        UINT32_C(0xAABBCCDD),
+        UINT32_C(0x11223344)
+    };
+    NdsOverlayMemoryRange unchanged = sentinel;
+    const bool missing = loader.memory_range(NDS_ARM7, 91u, unchanged);
+    assert(!missing);
+    assert(unchanged.region == sentinel.region);
+    assert(unchanged.ram_address == sentinel.ram_address);
+    assert(unchanged.ram_size == sentinel.ram_size);
+    assert(unchanged.bss_size == sentinel.bss_size);
 }
 
 void test_region_slot_capacity_is_eight_and_independent()
@@ -328,6 +374,7 @@ void test_rejects_invalid_static_init_range()
 int main()
 {
     test_load_copies_image_and_zeros_bss();
+    test_memory_range_returns_loaded_overlay_identity_without_mutation();
     test_region_slot_capacity_is_eight_and_independent();
     test_dtcm_data_overlay_does_not_require_execute_permissions();
     test_hash_failure_does_not_mutate_memory();
