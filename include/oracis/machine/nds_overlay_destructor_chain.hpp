@@ -81,6 +81,19 @@ public:
         std::vector<NdsOverlayDestructorRecord> &detached) noexcept;
 
     /*
+     * Validate and collect the same candidate records without changing any
+     * guest link or the global head. The output remains unchanged on error.
+     * Used to preflight every destructor dispatch before detaching anything.
+     */
+    NdsOverlayDestructorChainStatus inspect_for_overlay(
+        NdsCpu cpu,
+        uint32_t head_pointer_address,
+        uint32_t overlay_ram_address,
+        uint32_t ram_size,
+        uint32_t bss_size,
+        std::vector<NdsOverlayDestructorRecord> &candidates) noexcept;
+
+    /*
      * Metrowerks __register_global_object ABI helper. The caller supplies
      * guest arguments obj, dtor and chain, plus the guest address of
      * __global_destructor_chain. The new 12-byte node is inserted at the
@@ -95,6 +108,15 @@ public:
         uint32_t chain_node_address) noexcept;
 
 private:
+    NdsOverlayDestructorChainStatus process_for_overlay(
+        NdsCpu cpu,
+        uint32_t head_pointer_address,
+        uint32_t overlay_ram_address,
+        uint32_t ram_size,
+        uint32_t bss_size,
+        bool detach,
+        std::vector<NdsOverlayDestructorRecord> &records) noexcept;
+
     memory::GuestMemory &memory_;
 };
 
