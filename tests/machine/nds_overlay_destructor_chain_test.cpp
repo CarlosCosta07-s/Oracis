@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <cstdio>
+#include <source_location>
 #include <vector>
 
 namespace {
@@ -23,9 +25,17 @@ constexpr uint32_t kOverlayBssSize = UINT32_C(0x80);
 constexpr uint32_t kOverlayEnd =
     kOverlayBase + kOverlayCodeSize + kOverlayBssSize;
 
-void require(bool condition)
+void require(
+    bool condition,
+    const std::source_location &location =
+        std::source_location::current())
 {
-    if (!condition) std::abort();
+    if (!condition) {
+        std::fprintf(
+            stderr, "nds_overlay_destructor_chain_test failed at %s:%u\\n",
+            location.file_name(), location.line());
+        std::abort();
+    }
 }
 
 GuestMemory make_memory()
