@@ -205,6 +205,8 @@ int host_destructor_chain_status(
         return ORACIS_HOST_RUNTIME_NOT_INITIALIZED;
     case Status::ProgramNotLoaded:
         return ORACIS_HOST_RUNTIME_NO_PROGRAM_LOADED;
+    case Status::OverlayNotLoaded:
+        return ORACIS_HOST_RUNTIME_OVERLAY_NOT_LOADED;
     case Status::InvalidCpu:
         return ORACIS_HOST_RUNTIME_INVALID_ARGUMENT;
     case Status::InvalidMetadata:
