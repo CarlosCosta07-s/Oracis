@@ -285,8 +285,9 @@ int oracis_host_runtime_request_local_overlay(
  * Metrowerks __register_global_object(obj, dtor, chain) adapter. The caller
  * supplies the guest address of __global_destructor_chain and the three
  * 32-bit guest arguments; no guest pointers are converted to host pointers.
- * May be called at a host boundary, or from the matching CPU's active guest
- * slice. It registers the node but never invokes its destructor.
+ * The specified CPU must own the active guest slice. Calls from a host
+ * boundary or the other CPU's slice return OVERLAY_BUSY. It registers the
+ * node but never invokes its destructor.
  */
 int oracis_host_runtime_register_global_destructor(
     uint32_t cpu,
