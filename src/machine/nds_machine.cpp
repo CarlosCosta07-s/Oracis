@@ -3179,17 +3179,25 @@ NdsMachineStatus NdsMachine::run_dual_core_round(
             if (!executed) {
                 pending_overlay_initializers_[index] =
                     PendingOverlayInitializers{};
+                pending_overlay_loads_[index] = PendingOverlayLoad{};
                 return NdsMachineStatus::SliceExecutionFailed;
             }
 
             /*
-             * Generated guest frames have now unwound to the host. Run any
-             * overlay constructors requested by an HLE callback before this
-             * core resumes at its saved guest PC or the next core is scheduled.
+             * Guest frames have now unwound to the host. Publish a requested
+             * overlay image before constructors or the other core resume.
              */
-            const NdsMachineStatus overlay_status =
+            const NdsMachineStatus overlay_load_status =
+                run_pending_overlay_load(cpu);
+            if (overlay_load_status != NdsMachineStatus::Ok) {
+                return overlay_load_status;
+            }
+
+            const NdsMachineStatus overlay_initializer_status =
                 run_pending_overlay_static_initializers(cpu);
-            if (overlay_status != NdsMachineStatus::Ok) return overlay_status;
+            if (overlay_initializer_status != NdsMachineStatus::Ok) {
+                return overlay_initializer_status;
+            }
         }
 
         /*
